@@ -66,7 +66,7 @@ const ExpandableText = ({ text, lines = 2 }) => {
                 sx={collapseStyles}
             >
                 <Typography
-                    ref={textRef} // прикрепляем ref
+                    ref={textRef} //  прикрепляем ref
                     variant="body2"
                     sx={{
                         px: 1,
