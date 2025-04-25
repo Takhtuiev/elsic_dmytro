@@ -1,0 +1,60 @@
+{
+  "name": "react_project_020",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@fontsource/roboto": "^5.1.1",
+    "@mui/icons-material": "^6.4.1",
+    "@mui/lab": "^6.0.0-beta.24",
+    "@mui/material": "^6.4.1",
+    "@mui/system": "^6.4.1",
+    "@reduxjs/toolkit": "^2.5.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@testing-library/user-event": "^14.6.1",
+    "async-mutex": "^0.5.0",
+    "image-size": "^1.2.0",
+    "jsonwebtoken": "^9.0.2",
+    "jwt-decode": "^4.0.0",
+    "react": "^17.0.0 || ^18.2.0",
+    "react-dom": "^17.0.0 || ^18.2.0",
+    "react-loading-overlay-ts": "^2.0.2",
+    "react-redux": "^9.2.0",
+    "react-router-dom": "^7.1.3",
+    "react-scripts": "^5.0.1",
+    "react-transition-group": "^4.4.5",
+    "sharp": "^0.33.5",
+    "web-vitals": "^4.2.4"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1",
+    "eslint-config-react-app": "^7.0.1",
+    "webpack-dev-server": "^5.2.0"
+  }
+}
