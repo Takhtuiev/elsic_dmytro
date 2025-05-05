@@ -8,7 +8,6 @@ import {useNavigate} from "react-router-dom";
 import {lazy, Suspense, useState} from "react";
 import {useUserLogoutMutation} from "../../services/api/authApi.js";
 import {useJwtUserDetails} from "../../Providers/JwtProvider";
-import {styled} from "@mui/material/styles";
 import LoadingSpinner from "../MyComponent/LoadingSpinnerBoard/LoadingSpinner";
 import {Avatar, IconButton} from "@mui/material";
 

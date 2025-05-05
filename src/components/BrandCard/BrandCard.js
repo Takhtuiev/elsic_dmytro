@@ -4,10 +4,10 @@ import {
     Typography
 } from "@mui/material";
 import React from "react";
-import { API_URL } from "../../CONSTANTS/EndPoints";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {BrandActionsMas} from "./BrandActionsMas";
 import {Box} from "@mui/system";
+import {API_URL} from "../../config";
 
 function BrandCard({ brand, setAction }) {
 

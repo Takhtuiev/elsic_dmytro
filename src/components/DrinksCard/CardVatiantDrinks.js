@@ -5,7 +5,7 @@ import {
     Typography
 } from "@mui/material";
 import React from "react";
-import { API_URL } from "../../CONSTANTS/EndPoints";
+import { API_URL } from "../../config";
 import {useNavigate} from "react-router-dom";
 import ExpandableText from "../MyComponent/ExpandableText";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";

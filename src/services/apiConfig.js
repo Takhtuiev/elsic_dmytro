@@ -1,5 +1,5 @@
 import {fetchBaseQuery} from "@reduxjs/toolkit/query/react";
-import {API_URL, LOGIN, LOGOUT, REFRESH_JWT} from "../CONSTANTS/EndPoints.js";
+import {API_URL, LOGIN, LOGOUT, REFRESH_JWT} from "../config";
 
 let accessToken = undefined;
 

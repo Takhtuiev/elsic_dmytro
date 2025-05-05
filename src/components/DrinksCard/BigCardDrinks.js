@@ -4,7 +4,7 @@ import {
     Typography
 } from "@mui/material";
 import React, {useState} from "react";
-import { API_URL } from "../../CONSTANTS/EndPoints";
+import { API_URL } from "../../config";
 import { Rating } from '@mui/material';
 import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
 import ModalImage from "../MyComponent/Image/ModalImage";

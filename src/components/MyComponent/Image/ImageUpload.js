@@ -5,7 +5,7 @@ import { useState, useCallback } from "react";
 import React from "react";
 import ModalImage from "./ModalImage";
 import MyImageBox from "./MyImageBox";
-import { API_URL } from "../../../CONSTANTS/EndPoints";
+import { API_URL } from "../../../config";
 import IconButtonWithTooltip from "./IconButtonWithTooltip";
 import {convertImage} from "./UtilsImage";
 
