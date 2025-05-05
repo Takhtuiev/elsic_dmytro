@@ -50,7 +50,7 @@ function UserList() {
                 :
                 <LoadingSpinner active={(isFetching || pageUser === undefined)}>
 
-                    <Grid container spacing={2}>
+                    <Grid container spacing={1} m={1}>
                         {pageUser?.content?.map((user, index) => {
                             return (
                                 <Grid size={12} key={index}>

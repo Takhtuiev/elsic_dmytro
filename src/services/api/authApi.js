@@ -1,5 +1,5 @@
 import { createApi} from '@reduxjs/toolkit/query/react';
-import {LOGIN, LOGOUT, REFRESH_JWT} from "../../CONSTANTS/EndPoints";
+import {LOGIN, LOGOUT, REFRESH_JWT} from "../../config";
 import {baseQueryWithReauth} from "../apiConfig.js";
 
 const authApi = createApi({
