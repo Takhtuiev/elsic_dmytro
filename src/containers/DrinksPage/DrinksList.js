@@ -20,8 +20,8 @@ import FiltersSortViewBar from "../../components/Filter/FiltersSortViewBar";
 import {updateSearchParams} from "../../components/Filter/utils";
 import FiltersAccordion from "../../components/Filter/FiltersAccordion";
 import CardLineDrinks from "../../components/DrinksCard/CardLineDrinks";
-import ItemsNotFound from "../../components/MyComponent/ItemsNotFound";
 import {Box} from "@mui/system";
+import NotFound from "../NotFoundPage/NotFound";
 
 const EditBigCardDrinks = lazy(() => import("../../components/DrinksCard/Edit/EditBigCardDrinks"))
 const DeleteConfirmationModalUI = lazy(() => import('../../components/ModalWindow/DeleteConfirmationModal'))
@@ -136,7 +136,10 @@ function DrinksList() {
                                                 );
                                             })
                                         ) :
-                                        (<ItemsNotFound message="За заданими параметрами не знайдено жодного товару..." />)
+                                        (<NotFound
+                                            message="За заданими параметрами не знайдено жодного товару..."
+                                            sx={{borderColor: 'action.disabled',color: 'action.disabled'}}
+                                        />)
                                 }
                                 <Grid size={12}>
                                     <WithRoleContent allowedRoles={['PRODUCT_EDIT']}>

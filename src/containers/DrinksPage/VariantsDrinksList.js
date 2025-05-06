@@ -1,7 +1,6 @@
 import {
     Button,
     Pagination,
-    Stack,
 } from "@mui/material";
 import Grid from '@mui/material/Grid2';
 import {useSearchParams} from 'react-router-dom';
@@ -21,9 +20,9 @@ import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
 import FiltersSortViewBar from "../../components/Filter/FiltersSortViewBar";
 import {updateSearchParams} from "../../components/Filter/utils";
 import FiltersAccordion from "../../components/Filter/FiltersAccordion";
-import ItemsNotFound from "../../components/MyComponent/ItemsNotFound";
 import {Box} from "@mui/system";
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
+import NotFound from "../NotFoundPage/NotFound";
 
 const MyDialog = lazy(() => import('../../components/MyComponent/MyDialog'))
 const EditBigCardDrinks = lazy(() => import('../../components/DrinksCard/Edit/EditBigCardDrinks'))
@@ -160,7 +159,10 @@ function VariantsDrinksList() {
                                                 );
                                             })
                                         ) :
-                                        (<ItemsNotFound message="За заданими параметрами не знайдено жодного товару..." />)
+                                        (<NotFound
+                                            message="За заданими параметрами не знайдено жодного товару..."
+                                            sx={{borderColor: 'action.disabled',color: 'action.disabled'}}
+                                        />)
 
                                 }
                                 <Grid size={12}>
