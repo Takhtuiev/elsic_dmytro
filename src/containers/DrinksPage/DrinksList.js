@@ -78,7 +78,7 @@ function DrinksList() {
         return errorDeleting ? {error: errorDeleting} : result;
     };
 
-    if (isFetchingGetProducts || isFetchingLoadEditList) {
+    if (errorGetPage || errorLoadEditList) {
         return (
             <ErrorCard error={errorGetPage || errorLoadEditList}/>
         )
