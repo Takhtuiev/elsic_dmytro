@@ -23,6 +23,7 @@ import {updateSearchParams} from "../../components/Filter/utils";
 import FiltersAccordion from "../../components/Filter/FiltersAccordion";
 import ItemsNotFound from "../../components/MyComponent/ItemsNotFound";
 import {Box} from "@mui/system";
+import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 
 const MyDialog = lazy(() => import('../../components/MyComponent/MyDialog'))
 const EditBigCardDrinks = lazy(() => import('../../components/DrinksCard/Edit/EditBigCardDrinks'))
@@ -90,7 +91,9 @@ function VariantsDrinksList() {
             {errorGetPage || errorLoadEditList ?
                 <ErrorCard error={errorGetPage || errorLoadEditList}/>
                 :
-                <LoadingSpinner active={isFetchingPageProducts || isFetchingLoadEditList}>
+                <>
+                    <TopLinearLoading active={isFetchingPageProducts || isFetchingLoadEditList}/>
+
                     <Box width={"100%"} display={'flex'} flexDirection={'column'} p={1}>
                         <FiltersSortViewBar
                             params={params}
@@ -197,7 +200,7 @@ function VariantsDrinksList() {
                     {
                         //        JSON.stringify(pageProducts)
                     }
-                </LoadingSpinner>
+                </>
             }
 
             {['info', 'edit', 'copy', 'delete', 'createNew'].includes(action?.action) && (

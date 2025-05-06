@@ -1,6 +1,5 @@
-import { CircularProgress, Typography } from "@mui/material";
 import React from "react";
-import { Box } from "@mui/system";
+import { Box, CircularProgress, Typography } from "@mui/material";
 
 function BoardSpinner() {
     return (
@@ -13,24 +12,26 @@ function BoardSpinner() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: "rgba(0, 0, 0, 0.1)", // Затемнение фона
-                borderRadius: "0.5rem",
-                border: "1px solid rgba(0, 0, 0, 0.3)", // Полупрозрачный бордюр
-                padding: "1rem",
-                zIndex: "10000",
+                backgroundColor: "rgba(0, 0, 0, 0.1)",
+                borderRadius: 1,
+                border: "1px solid rgba(0, 0, 0, 0.3)",
+                px: 3,
+                py: 2,
+                zIndex: 1201,
             }}
         >
-            <CircularProgress />
-            <Typography variant="body1" color="primary" ml={"1rem"}>
+            <CircularProgress size={24} />
+            <Typography variant="body1" color="primary" sx={{ ml: 2 }}>
                 Loading...
             </Typography>
         </Box>
     );
 }
 
-function LoadingSpinner({ active, children}) {
+function LoadingSpinner({ active, children }: { active: boolean; children: React.ReactNode }) {
     return (
-        <Box style={{ position: "relative" }}>
+        <Box sx={{ position: "relative" }}>
+            {children}
             {active && (
                 <>
                     <Box
@@ -40,15 +41,14 @@ function LoadingSpinner({ active, children}) {
                             left: 0,
                             width: "100%",
                             height: "100%",
-                            backgroundColor: "rgba(0, 0, 0, 0.1)", // Затемнение фона
-                            borderRadius: '0.25rem',
-                            zIndex: "1000",
+                            backgroundColor: "rgba(0, 0, 0, 0.1)",
+                            borderRadius: 1,
+                            zIndex: 1200,
                         }}
                     />
                     <BoardSpinner />
                 </>
             )}
-            {children}
         </Box>
     );
 }
