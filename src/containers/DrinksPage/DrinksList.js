@@ -22,6 +22,7 @@ import FiltersAccordion from "../../components/Filter/FiltersAccordion";
 import CardLineDrinks from "../../components/DrinksCard/CardLineDrinks";
 import {Box} from "@mui/system";
 import NotFound from "../NotFoundPage/NotFound";
+import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 
 const EditBigCardDrinks = lazy(() => import("../../components/DrinksCard/Edit/EditBigCardDrinks"))
 const DeleteConfirmationModalUI = lazy(() => import('../../components/ModalWindow/DeleteConfirmationModal'))
@@ -77,109 +78,109 @@ function DrinksList() {
         return errorDeleting ? {error: errorDeleting} : result;
     };
 
+    if (isFetchingGetProducts || isFetchingLoadEditList) {
+        return (
+            <ErrorCard error={errorGetPage || errorLoadEditList}/>
+        )
+    }
+
+
     return (
         <>
-            {errorGetPage || errorLoadEditList ?
-                <ErrorCard error={errorGetPage || errorLoadEditList}/>
-                :
-                <LoadingSpinner active={isFetchingGetProducts || isFetchingLoadEditList}>
-                    <Box width={"100%"} display={'flex'} flexDirection={'column'} p={1}>
-                        <FiltersSortViewBar
-                            params={params}
-                            FILTER_PARAMS={FILTER_PARAMS}
-                            updateParams={updateParams}
-                            selectLists={selectLists}
-                            sortList={SORT_LIST}
-                            view={viewMode}
-                            setView={setViewMode}
-                            countProducts={pageProducts?.totalElements}
-                        />
+            <TopLinearLoading active={isFetchingGetProducts || isFetchingLoadEditList}/>
 
-                        <Box display={'flex'} flexDirection={'row'} gap={1}>
-                            {/* Панель фильтров для широких экранов */}
-                            <Box
-                                sx={{
-                                    display: { xs: 'none', md: 'block' },
-                                    minWidth: '20%',
-                                    maxWidth: '30%',
-                                }}
-                            >
-                                <Grid size={3} sx={{ display: { xs: 'none', md: 'block' } }}>
-                                    <FiltersAccordion
-                                        params={params}
-                                        FILTER_PARAMS={FILTER_PARAMS}
-                                        updateParams={updateParams}
-                                        selectLists={selectLists}
-                                        countProducts={pageProducts?.totalElements}
+            <Box width={"100%"} display={'flex'} flexDirection={'column'} p={1}>
+                <FiltersSortViewBar
+                    params={params}
+                    FILTER_PARAMS={FILTER_PARAMS}
+                    updateParams={updateParams}
+                    selectLists={selectLists}
+                    sortList={SORT_LIST}
+                    view={viewMode}
+                    setView={setViewMode}
+                    countProducts={pageProducts?.totalElements}
+                />
+
+                <Box display={'flex'} flexDirection={'row'} gap={1}>
+                    {/* Панель фильтров для широких экранов */}
+                    <Box
+                        sx={{
+                            display: { xs: 'none', md: 'block' },
+                            minWidth: '20%',
+                            maxWidth: '30%',
+                        }}
+                    >
+                        <Grid size={3} sx={{ display: { xs: 'none', md: 'block' } }}>
+                            <FiltersAccordion
+                                params={params}
+                                FILTER_PARAMS={FILTER_PARAMS}
+                                updateParams={updateParams}
+                                selectLists={selectLists}
+                                countProducts={pageProducts?.totalElements}
+                            />
+                        </Grid>
+                    </Box>
+
+                    <Grid container spacing={1} justifyContent={'center'} height={'100%'} width={'100%'}>
+                        {
+                            (isFetchingGetProducts || pageProducts?.content?.length > 0) ?
+                                (
+                                    pageProducts?.content?.map((product, index) => {
+                                        return (
+                                            viewMode === 'module' ? (
+                                                <Grid
+                                                    key={index}
+                                                    size={{xs:6, sm:4, md:4, lg:3 }}
+                                                >
+                                                    <CardDrinks product={product} setAction={setAction}/>
+                                                </Grid>
+                                            ) : (
+                                                <Grid size={12} key={index}>
+                                                    <CardLineDrinks product={product} setAction={setAction}/>
+                                                </Grid>
+                                            )
+                                        );
+                                    })
+                                ) :
+                                (<NotFound
+                                    message="За заданими параметрами не знайдено жодного товару..."
+                                    sx={{borderColor: 'action.disabled',color: 'action.disabled'}}
+                                />)
+                        }
+                        <Grid size={12}>
+                            <WithRoleContent allowedRoles={['PRODUCT_EDIT']}>
+                                <Grid container justifyContent="flex-end">
+                                    <Button variant="contained"
+                                            onClick={() => {setAction({action: 'createNew', itemId: '0'})}}
+                                            size="small"
+                                    >
+                                        <AddIcon style={{fontSize: '1.5rem'}}/> Create new
+                                    </Button>
+                                </Grid>
+                            </WithRoleContent>
+
+                            { pageProducts?.totalPages > 1 &&
+                                <Grid container justifyContent="center">
+                                    <Pagination     // Пагинация страници...
+                                        count={pageProducts ? Number(pageProducts.totalPages) : 0}
+                                        page={Number(params.page) || 1}
+                                        siblingCount={2}
+                                        onChange={(event, page) => updateParams('page', page)}
+                                        color="primary"
+                                        variant="outlined"
+                                        shape="rounded"
+                                        sx={{
+                                            "& .MuiPaginationItem-root": { // Стиль для всех кнопок
+                                                backgroundColor: theme => theme.palette.background.paper,
+                                            }
+                                        }}
                                     />
                                 </Grid>
-                            </Box>
-
-                            <Grid container spacing={1} justifyContent={'center'} height={'100%'} width={'100%'}>
-                                {
-                                    (isFetchingGetProducts || pageProducts?.content?.length > 0) ?
-                                        (
-                                            pageProducts?.content?.map((product, index) => {
-                                                return (
-                                                    viewMode === 'module' ? (
-                                                        <Grid
-                                                            key={index}
-                                                            size={{xs:6, sm:4, md:4, lg:3 }}
-                                                        >
-                                                            <CardDrinks product={product} setAction={setAction}/>
-                                                        </Grid>
-                                                    ) : (
-                                                        <Grid size={12} key={index}>
-                                                            <CardLineDrinks product={product} setAction={setAction}/>
-                                                        </Grid>
-                                                    )
-                                                );
-                                            })
-                                        ) :
-                                        (<NotFound
-                                            message="За заданими параметрами не знайдено жодного товару..."
-                                            sx={{borderColor: 'action.disabled',color: 'action.disabled'}}
-                                        />)
-                                }
-                                <Grid size={12}>
-                                    <WithRoleContent allowedRoles={['PRODUCT_EDIT']}>
-                                        <Grid container justifyContent="flex-end">
-                                            <Button variant="contained"
-                                                    onClick={() => {setAction({action: 'createNew', itemId: '0'})}}
-                                                    size="small"
-                                            >
-                                                <AddIcon style={{fontSize: '1.5rem'}}/> Create new
-                                            </Button>
-                                        </Grid>
-                                    </WithRoleContent>
-
-                                    { pageProducts?.totalPages > 1 &&
-                                        <Grid container justifyContent="center">
-                                            <Pagination     // Пагинация страници...
-                                                count={pageProducts ? Number(pageProducts.totalPages) : 0}
-                                                page={Number(params.page) || 1}
-                                                siblingCount={2}
-                                                onChange={(event, page) => updateParams('page', page)}
-                                                color="primary"
-                                                variant="outlined"
-                                                shape="rounded"
-                                                sx={{
-                                                    "& .MuiPaginationItem-root": { // Стиль для всех кнопок
-                                                        backgroundColor: theme => theme.palette.background.paper,
-                                                    }
-                                                }}
-                                            />
-                                        </Grid>
-                                    }
-                                </Grid>
-                            </Grid>
-                        </Box>
-                    </Box>
-                    {
-//                        JSON.stringify(pageProducts)
-                    }
-                </LoadingSpinner>
-            }
+                            }
+                        </Grid>
+                    </Grid>
+                </Box>
+            </Box>
 
             {['info', 'edit', 'copy', 'delete', 'createNew'].includes(action?.action) && (
                 <Suspense fallback={<LoadingSpinner/>}>
