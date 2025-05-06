@@ -7,6 +7,7 @@ import LoadingSpinner from "../../components/MyComponent/LoadingSpinnerBoard/Loa
 import {Suspense, useState} from "react";
 import DeleteConfirmationModalUI from "../../components/ModalWindow/DeleteConfirmationModal";
 import InfoModal from "../../components/ModalWindow/InfoModal";
+import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 
 const EditBigCardDrinks = lazy(() => import("../../components/DrinksCard/Edit/EditBigCardDrinks"))
 const MyDialog = lazy(() => import('../../components/MyComponent/MyDialog'))
@@ -15,7 +16,7 @@ function DrinksDetails() {
 
     const { id } = useParams();
     const { data: product, error: errorGetProduct, isFetching: loading} = useGetDrinksQuery( { id: id}, );
-    const [deleteProduct, { error: errorDeleting }] = useDeleteDrinksMutation();
+    const [deleteProduct, { error: errorDeleting, isFetching: deleting }] = useDeleteDrinksMutation();
     const [action, setAction] = useState(null);
 
 
@@ -30,11 +31,9 @@ function DrinksDetails() {
 
     return (
         <>
-            <LoadingSpinner active={loading}>
-                {product &&
-                    <BigCardDrinks product={product} setAction={setAction} />
-                }
-            </LoadingSpinner>
+            <TopLinearLoading active={loading || deleting}/>
+
+            <BigCardDrinks product={product} setAction={setAction} />
 
             {['info', 'edit', 'copy', 'delete', 'createNew'].includes(action?.action) && (
                 <Suspense fallback={<LoadingSpinner/>}>

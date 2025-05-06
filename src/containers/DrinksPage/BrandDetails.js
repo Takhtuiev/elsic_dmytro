@@ -9,12 +9,13 @@ import InfoModal from "../../components/ModalWindow/InfoModal";
 import BrandCard from "../../components/BrandCard/BrandCard";
 import EditBrandCard from "../../components/BrandCard/Edit/EditBrandCard";
 import MyDialog from "../../components/MyComponent/MyDialog";
+import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 
 function BrandDetails() {
 
     const navigate = useNavigate();
     const { name } = useParams();
-    const { data: brand, error: errorGetProduct, isFetching: loading} = useGetBrandQuery( { name: name} );
+    const { data: brand, error: errorGetBrand, isFetching: loading} = useGetBrandQuery( { name: name} );
     const [deleteBrand, {  isLoading: deleting, error: errorDeleting }] = useDeleteBrandMutation();
     const [action, setAction] = useState(null);
 
@@ -31,17 +32,15 @@ function BrandDetails() {
         return errorDeleting ? {error: errorDeleting} : result;
     };
 
-    if (errorGetProduct) {
-        return ( <ErrorCard error={errorGetProduct}/> );
+    if (errorGetBrand) {
+        return ( <ErrorCard error={errorGetBrand}/> );
     }
 
     return (
         <>
-            <LoadingSpinner active={loading}>
-                {brand &&
-                    <BrandCard brand={brand} setAction={setAction} />
-                }
-            </LoadingSpinner>
+            <TopLinearLoading active={loading || deleting}/>
+
+            <BrandCard brand={brand} setAction={setAction} />
 
             {['info', 'edit', 'copy', 'delete', 'createNew'].includes(action?.action) && (
                 <Suspense fallback={<LoadingSpinner/>}>
