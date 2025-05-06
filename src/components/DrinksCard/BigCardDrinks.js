@@ -22,10 +22,13 @@ function BigCardDrinks({ product, setAction }) {
 
     const queryParams = new URLSearchParams(location.search);
     const findInitialIndex = () => {
-        const variantId = parseInt(queryParams.get('variantId'));
-        const varIndex = product.variants.findIndex(variant => variant.id === variantId);
-        return varIndex !== -1 ? varIndex : 0;
-    };
+        if (product){
+            const variantId = parseInt(queryParams.get('variantId'));
+            const varIndex = product.variants.findIndex(variant => variant.id === variantId);
+            return varIndex !== -1 ? varIndex : 0;
+        }
+        return 0;
+   };
 
     const [varItem, setVarItem] = useState(findInitialIndex());
     const [viewImage, setViewImage] = useState(null);
