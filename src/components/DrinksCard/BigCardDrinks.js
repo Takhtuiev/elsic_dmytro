@@ -43,10 +43,11 @@ function BigCardDrinks({ product, setAction }) {
     }
 
     return (
-        <>
+        <Box display="flex" justifyContent="center">
             <Box sx={{
                 m: 1,
                 p: 1,
+                maxWidth: 'md',
                 height: "100%",
                 backgroundColor: theme.palette.background.paper
             }}>
@@ -155,7 +156,7 @@ function BigCardDrinks({ product, setAction }) {
             </Box>
 
             <ModalImage openImage={viewImage} closeImageFunc={closeShowImage} backGround={theme.palette.background.paper} />
-        </>
+        </Box>
     );
 }
 
