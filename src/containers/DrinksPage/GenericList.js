@@ -1,63 +1,32 @@
-import {
-    Button,
-    Pagination,
-} from "@mui/material";
-import Grid from '@mui/material/Grid2';
-import {useSearchParams} from 'react-router-dom';
+import {useSearchParams} from "react-router-dom";
+import React, {Suspense, useState} from "react";
+import {updateSearchParams} from "../../components/Filter/utils";
 import ErrorCard from "../../components/ErrorBoard/ErrorCard";
-import React, {useState, lazy, Suspense} from "react";
-import LoadingSpinner from "../../components/MyComponent/LoadingSpinnerBoard/LoadingSpinner";
-import AddIcon from "@mui/icons-material/Add";
-import {
-    useDeleteVariantDrinksMutation,
-    useGetLoadEditListsQuery,
-    useGetPageVariantsDrinksQuery
-} from "../../services/api/drinksApi";
-import WithRoleContent from "../../components/MyComponent/WithRoleContent";
+import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
+import {Box} from "@mui/system";
+import FiltersSortViewBar from "../../components/Filter/FiltersSortViewBar";
+import FiltersAccordion from "../../components/Filter/FiltersAccordion";
+import Grid from "@mui/material/Grid2";
 import CardVariantDrinks from "../../components/DrinksCard/CardVatiantDrinks";
 import CardLineVariantDrink from "../../components/DrinksCard/CardLineVatiantDrinks";
-import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
-import FiltersSortViewBar from "../../components/Filter/FiltersSortViewBar";
-import {updateSearchParams} from "../../components/Filter/utils";
-import FiltersAccordion from "../../components/Filter/FiltersAccordion";
-import {Box} from "@mui/system";
-import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 import NotFound from "../NotFoundPage/NotFound";
+import WithRoleContent from "../../components/MyComponent/WithRoleContent";
+import {Button, Pagination} from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import LoadingSpinner from "../../components/MyComponent/LoadingSpinnerBoard/LoadingSpinner";
+import MyDialog from "../../components/MyComponent/MyDialog";
+import DeleteConfirmationModal from "../../components/ModalWindow/DeleteConfirmationModal";
+import EditBigCardDrinks from "../../components/DrinksCard/Edit/EditBigCardDrinks";
 
-const MyDialog = lazy(() => import('../../components/MyComponent/MyDialog'))
-const EditBigCardDrinks = lazy(() => import('../../components/DrinksCard/Edit/EditBigCardDrinks'))
-const DeleteConfirmationModal = lazy(() => import('../../components/ModalWindow/DeleteConfirmationModal'))
 
-
-const HEAD_PARAMS = {
-    page: null,
-    sort: null,
-    order: null
-};
-
-const FILTER_PARAMS = {
-    price: {type: 'slider'},
-    brand: {type: 'checkbox'},
-    country: {type: 'checkbox'},
-    productType: {type: 'checkbox'},
-    packagingType: {type: 'checkbox'}
-};
-
-const SORT_LIST = [
-    DRINKS_COLUMNS.name.text,
-    DRINKS_COLUMNS.brand.text,
-    DRINKS_COLUMNS.country.text,
-    DRINKS_COLUMNS.price.text
-]
-
-function VariantsDrinksList() {
+function GenericList({ getPage, getLists, useDeleteMutation, HEAD_PARAMS, FILTER_PARAMS, SORT_LIST }) {
 
     const [searchParams, setSearchParams] = useSearchParams();
     const params = Object.fromEntries(searchParams.entries()); // Преобразование searchParams в объект
 
-    const { data: pageProducts, error: errorGetPage, isFetching: isFetchingPageProducts  } = useGetPageVariantsDrinksQuery( { params: params } );
-    const { data: selectLists, error: errorLoadEditList, isFetching: isFetchingLoadEditList } = useGetLoadEditListsQuery({ params: params });
-    const [deleteVariant, { error: errorDeletingVariant }] = useDeleteVariantDrinksMutation();
+    //const { data: pageProducts, error: errorGetPage, isFetching: isFetchingPageProducts  } = useGetPageQuery( { params: params } );
+    //const { data: selectLists, error: errorLoadEditList, isFetching: isFetchingLoadEditList } = useGetListsQuery({ params: params });
+    const [deleteItem, { error: errorDeletingVariant }] = useDeleteMutation();
 
     const [action, setAction] = useState(null);
 
@@ -81,33 +50,30 @@ function VariantsDrinksList() {
     };
 
     const funcDelete = async (action) => {
-        const result = await deleteVariant(action.itemId);
+        const result = await deleteItem(action.itemId);
         return errorDeletingVariant ? {error: errorDeletingVariant} : result;
     };
 
-    if (errorGetPage || errorLoadEditList) {
+    if (getPage.error || getLists.error) {
         return (
-            <ErrorCard error={errorGetPage || errorLoadEditList}/>
+            <ErrorCard error={getPage.error || getLists.error}/>
         )
     }
 
     return (
         <>
-
-
-
-            <TopLinearLoading active={isFetchingPageProducts || isFetchingLoadEditList}/>
+            <TopLinearLoading active={getPage.isFetching || getLists.isFetching}/>
 
             <Box width={"100%"} display={'flex'} flexDirection={'column'} p={1}>
                 <FiltersSortViewBar
                     params={params}
                     FILTER_PARAMS={FILTER_PARAMS}
                     updateParams={updateParams}
-                    selectLists={selectLists}
+                    selectLists={getLists.data}
                     sortList={SORT_LIST}
                     view={viewMode}
                     setView={setViewMode}
-                    countProducts={pageProducts?.totalElements}
+                    countProducts={getPage.data?.totalElements}
                 />
 
                 <Box display={'flex'} flexDirection={'row'} gap={1}>
@@ -123,16 +89,16 @@ function VariantsDrinksList() {
                             params={params}
                             FILTER_PARAMS={FILTER_PARAMS}
                             updateParams={updateParams}
-                            selectLists={selectLists}
-                            countProducts={pageProducts?.totalElements}
+                            selectLists={getLists.data}
+                            countProducts={getPage.data?.totalElements}
                         />
                     </Box>
 
                     <Grid container spacing={1} justifyContent={'center'} height={'100%'} width={'100%'}>
                         {
-                            (isFetchingPageProducts || pageProducts?.content?.length > 0) ?
+                            (getPage.isFetching || getPage.data?.content?.length > 0) ?
                                 (
-                                    pageProducts?.content?.map((item, index) => {
+                                    getPage.data?.content?.map((item, index) => {
 
                                         if (typeof item.product === 'object') {
                                             refProduct[item.product.id] = index; // Заполняем refProduct во время перебора
@@ -147,7 +113,7 @@ function VariantsDrinksList() {
                                                     <CardVariantDrinks
                                                         variant={typeof item.product === 'object' ?
                                                             item :
-                                                            { ...item, product: pageProducts.content[refProduct[item.product]].product }}
+                                                            { ...item, product: getPage.data.content[refProduct[item.product]].product }}
                                                         setAction={setAction}
                                                     />
                                                 </Grid>
@@ -156,7 +122,7 @@ function VariantsDrinksList() {
                                                     <CardLineVariantDrink
                                                         variant={typeof item.product === 'object' ?
                                                             item :
-                                                            { ...item, product: pageProducts.content[refProduct[item.product]].product }}
+                                                            { ...item, product: getPage.data.content[refProduct[item.product]].product }}
                                                         setAction={setAction}
                                                     />
                                                 </Grid>
@@ -182,11 +148,11 @@ function VariantsDrinksList() {
                                 </Grid>
                             </WithRoleContent>
 
-                            { pageProducts?.totalPages > 1 &&
+                            { getPage.data?.totalPages > 1 &&
                                 <Grid container justifyContent="center">
                                     <Pagination     // Пагинация страници...
-                                        count={Number(pageProducts?.totalPages) || 0}
-                                        page={Number(pageProducts?.number + 1) || 1}
+                                        count={Number(getPage.data?.totalPages) || 0}
+                                        page={Number(getPage.data?.number + 1) || 1}
                                         siblingCount={2}
                                         onChange={(event, page) => updateParams('page', page)}
                                         color="primary"
@@ -233,4 +199,4 @@ function VariantsDrinksList() {
     )
 }
 
-export default VariantsDrinksList;
+export default GenericList;

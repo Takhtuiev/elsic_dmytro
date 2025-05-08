@@ -25,7 +25,7 @@ import NotFound from "../NotFoundPage/NotFound";
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 
 const EditBigCardDrinks = lazy(() => import("../../components/DrinksCard/Edit/EditBigCardDrinks"))
-const DeleteConfirmationModalUI = lazy(() => import('../../components/ModalWindow/DeleteConfirmationModal'))
+const DeleteConfirmationModal = lazy(() => import('../../components/ModalWindow/DeleteConfirmationModal'))
 const MyDialog = lazy(() => import('../../components/MyComponent/MyDialog'))
 
 
@@ -198,7 +198,7 @@ function DrinksList() {
                         </MyDialog>
                     )}
                     {action?.action === 'delete' && (
-                        <DeleteConfirmationModalUI
+                        <DeleteConfirmationModal
                             action={action}
                             setShowDelete={setAction}
                             bodyText={`Are you sure you want to delete "${action?.itemName}" with ID ${action?.itemId}?`}
