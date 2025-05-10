@@ -12,19 +12,19 @@ import {Box} from '@mui/system';
 import { VariantActionsMas } from "./VariantActionsMas";
 import MyCard from "../MyComponent/MyCard";
 
-function CardLineVariantDrink({ variant, setAction }) {
+function CardLineVariantDrink({ item, setAction }) {
     const navigate = useNavigate();
 
     return (
         <MyCard
-            onClick={() => { navigate("/drinksDetails/" + variant.product.id + "?variantId=" + variant.id)}}
+            onClick={() => { navigate("/drinksDetails/" + item.product.id + "?variantId=" + item.id)}}
             sx={{alignItems: 'center'}}
         >
             {/* Левая половина - изображение */}
             <CardMedia
                 component="img"
-                image={variant.imageUrl && API_URL + "/" + variant.imageUrl + "?ts=" + variant.product.lastUpdated}
-                alt={`${variant.product.name} (${variant.volume}л.), ${variant.packagingType}`}
+                image={item.imageUrl && API_URL + "/" + item.imageUrl + "?ts=" + item.product.lastUpdated}
+                alt={`${item.product.name} (${item.volume}л.), ${item.packagingType}`}
                 sx={{
                     height: "8rem",
                     width: "6rem",
@@ -36,14 +36,14 @@ function CardLineVariantDrink({ variant, setAction }) {
             <Box sx={{ display: "flex", flexDirection: "column", justifyContent: "space-between", width: "100%", height: "100%"}} >
                 <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
                     <Box sx={{ display: "inline", whiteSpace: "normal", wordBreak: "break-word" }}>
-                        <Typography variant="h6"  component="span">{variant.product.name}</Typography>{" "}
+                        <Typography variant="h6"  component="span">{item.product.name}</Typography>{" "}
                         <Typography variant="body2"  component="span" color="text.secondary">
-                            ({variant.volume}л.), {variant.packagingType}
+                            ({item.volume}л.), {item.packagingType}
                         </Typography>
                     </Box>
                     <Rating
                         precision={0.5}
-                        value={variant.product.rating}
+                        value={item.product.rating}
                         readOnly
                         sx={{
                             ml: "auto", // Прижимает рейтинг к правому краю
@@ -69,33 +69,33 @@ function CardLineVariantDrink({ variant, setAction }) {
                                 variant="body2"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    navigate("/brand/" + variant.product.brand);
+                                    navigate("/brand/" + item.product.brand);
                                 }}
                                 sx={{ textAlign: "left", display: "block" }}
                             >
-                                {variant.product.brand}
+                                {item.product.brand}
                             </Link>
-                            <Typography variant="body2">{variant.product.country}</Typography>
+                            <Typography variant="body2">{item.product.country}</Typography>
                         </Box>
 
                         <Box sx={{ minWidth: "8rem", flexGrow: 1 }}>
-                            <Typography variant="body2">{variant.product.productType}</Typography>
-                            <Typography variant="body2">{variant.product.alcohol}%</Typography>
-                            <Typography variant="body2">{variant.product.expirationDays} днів</Typography>
+                            <Typography variant="body2">{item.product.productType}</Typography>
+                            <Typography variant="body2">{item.product.alcohol}%</Typography>
+                            <Typography variant="body2">{item.product.expirationDays} днів</Typography>
                         </Box>
                     </Box>
 
                     <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center"}}>
                         <Typography variant="h5" sx={{ whiteSpace: "nowrap" }}>
-                            {variant.price.toFixed(2)}
+                            {item.price.toFixed(2)}
                         </Typography>
                         <Typography variant="body1">грн.</Typography>
                     </Box>
                 </Box>
                 <Divider/>
-                {variant.product.description && <ExpandableText text={variant.product.description}  lines={1}/>}
+                {item.product.description && <ExpandableText text={item.product.description}  lines={1}/>}
             </Box>
-            <ActionGroupButton masActions={VariantActionsMas(variant)} setAction={setAction} orientation={"vertical"}/>
+            <ActionGroupButton masActions={VariantActionsMas(item)} setAction={setAction} orientation={"vertical"}/>
         </MyCard>
     );
 }

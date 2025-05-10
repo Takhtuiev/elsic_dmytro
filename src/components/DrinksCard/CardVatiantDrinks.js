@@ -14,22 +14,22 @@ import {Box} from "@mui/system";
 import MyCard from "../MyComponent/MyCard";
 
 
-function CardVariantDrink({ variant, setAction }) {
+function CardVariantDrink({ item, setAction }) {
 
     const navigate = useNavigate();
 
     return (
         <MyCard
-            onClick={() => { navigate("/drinksDetails/" + variant.product.id + "?variantId=" + variant.id)}}
+            onClick={() => { navigate("/drinksDetails/" + item.product.id + "?variantId=" + item.id)}}
             sx={{flexDirection: 'column'}}
         >
 
             <Box sx={{ display: "flex", flexDirection: "column", alignItems: 'center' }}>
                 <Typography variant="h5" sx={{ textAlign: 'center' }}>
-                    {variant.product.name}
+                    {item.product.name}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
-                    ({variant.volume}л.), {variant.packagingType}
+                    ({item.volume}л.), {item.packagingType}
                 </Typography>
             </Box>
 
@@ -47,8 +47,8 @@ function CardVariantDrink({ variant, setAction }) {
                 {/* Левая половина - изображение */}
                 <CardMedia
                     component="img"
-                    image={variant.imageUrl && API_URL + "/" + variant.imageUrl + "?ts=" + variant.product.lastUpdated}
-                    alt={`${variant.product.name} (${variant.volume}л.), ${variant.packagingType}`}
+                    image={item.imageUrl && API_URL + "/" + item.imageUrl + "?ts=" + item.product.lastUpdated}
+                    alt={`${item.product.name} (${item.volume}л.), ${item.packagingType}`}
                     sx={{
                         width: "48%",
                         height: "auto", // Не растягивает по высоте
@@ -62,7 +62,7 @@ function CardVariantDrink({ variant, setAction }) {
                 <Box sx={{ width: "48%", display: "flex", flexDirection: "column", justifyContent: "center" }}>
                     <Rating
                         precision={0.5}
-                        value={variant.product.rating}
+                        value={item.product.rating}
                         readOnly
                         sx={{
                             mx: 0,
@@ -70,24 +70,24 @@ function CardVariantDrink({ variant, setAction }) {
                             fontSize: "small",
                         }}
                     />
-                    <Typography variant="body2">{variant.product.productType}</Typography>
+                    <Typography variant="body2">{item.product.productType}</Typography>
                     <Link
                         component="button"
                         variant="body2"
                         onClick={(e) => {
                             e.stopPropagation();
-                            navigate("/brand/" + variant.product.brand);
+                            navigate("/brand/" + item.product.brand);
                         }}
                         sx={{
                             textAlign: "left",
                             display: "block", // Позволяет тексту занимать всю ширину контейнера
                         }}
                     >
-                        {variant.product.brand}
+                        {item.product.brand}
                     </Link>
-                    <Typography variant="body2">{variant.product.country}</Typography>
-                    <Typography variant="body2">{variant.product.alcohol}%</Typography>
-                    <Typography variant="body2">{variant.product.expirationDays} днів</Typography>
+                    <Typography variant="body2">{item.product.country}</Typography>
+                    <Typography variant="body2">{item.product.alcohol}%</Typography>
+                    <Typography variant="body2">{item.product.expirationDays} днів</Typography>
                 </Box>
             </Box>
 
@@ -96,13 +96,13 @@ function CardVariantDrink({ variant, setAction }) {
                 {/* Цена (первая строка) */}
                 <Box sx={{ display: "flex", alignItems: "end" }}>
                     <Typography variant="h5">
-                        {variant.price.toFixed(2)}
+                        {item.price.toFixed(2)}
                     </Typography>
                     <Typography variant="body1">грн.</Typography>
                 </Box>
 
-                {variant.product.description && <ExpandableText text={variant.product.description} />}
-                <ActionGroupButton masActions={VariantActionsMas(variant)} setAction={setAction} />
+                {item.product.description && <ExpandableText text={item.product.description} />}
+                <ActionGroupButton masActions={VariantActionsMas(item)} setAction={setAction} />
             </Box>
 
         </MyCard>

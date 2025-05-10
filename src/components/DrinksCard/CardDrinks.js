@@ -13,18 +13,18 @@ import {Box} from "@mui/system";
 import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
 
-function CardDrinks({ product, setAction }) {
+function CardDrinks({ item, setAction }) {
 
     const [varItem, setVarItem] = useState(0);
     const navigate = useNavigate();
 
     return (
         <MyCard
-            onClick={() => { navigate("/drinksDetails/" + product.id )}}
+            onClick={() => { navigate("/drinksDetails/" + item.id )}}
             sx={{flexDirection: 'column'}}
         >
             <Box sx={{ display: "flex", flexDirection: "column", alignItems: 'center' }}>
-                <Typography variant="h5" sx={{ textAlign: 'center' }}>{product.name}</Typography>
+                <Typography variant="h5" sx={{ textAlign: 'center' }}>{item.name}</Typography>
             </Box>
 
             <Divider/>
@@ -34,8 +34,8 @@ function CardDrinks({ product, setAction }) {
                 {/* Левая половина - изображение */}
                 <CardMedia
                     component="img"
-                    image={product.variants[varItem].imageUrl && API_URL + "/" + product.variants[varItem].imageUrl + '?ts=' + product.lastUpdated}
-                    alt={product.name}
+                    image={item.variants[varItem].imageUrl && API_URL + "/" + item.variants[varItem].imageUrl + '?ts=' + item.lastUpdated}
+                    alt={item.name}
                     sx={{
                         width: "48%",
                         height: "auto", // Не растягивает по высоте
@@ -50,7 +50,7 @@ function CardDrinks({ product, setAction }) {
                 <Box sx={{ width: "48%", display: "flex", flexDirection: "column", justifyContent: "center" }}>
                     <Rating
                         precision={0.5}
-                        value={product.rating}
+                        value={item.rating}
                         readOnly
                         sx={{
                             mx: 0,
@@ -58,30 +58,30 @@ function CardDrinks({ product, setAction }) {
                             fontSize: "small",
                         }}
                     />
-                    <Typography variant="body2">{product.productType}</Typography>
+                    <Typography variant="body2">{item.productType}</Typography>
                     <Link
                         component="button"
                         variant="body2"
                         onClick={(e) => {
                             e.stopPropagation();
-                            navigate("/brand/" + product.brand);
+                            navigate("/brand/" + item.brand);
                         }}
                         sx={{
                             textAlign: "left",
                             display: "block", // Позволяет тексту занимать всю ширину контейнера
                         }}
                     >
-                        {product.brand}
+                        {item.brand}
                     </Link>
-                    <Typography variant="body2">{product.country}</Typography>
-                    <Typography variant="body2">{product.alcohol}%</Typography>
-                    <Typography variant="body2">{product.expirationDays} днів</Typography>
+                    <Typography variant="body2">{item.country}</Typography>
+                    <Typography variant="body2">{item.alcohol}%</Typography>
+                    <Typography variant="body2">{item.expirationDays} днів</Typography>
                 </Box>
             </Box>
 
             <Divider/>
             <CardDrinkSelectVariant
-                product={product}
+                product={item}
                 selectedVariant={varItem}
                 setSelectedVariant={setVarItem}
             />
@@ -91,15 +91,15 @@ function CardDrinks({ product, setAction }) {
                 {/* Цена (первая строка) */}
                 <Box sx={{ display: "flex", alignItems: "end" }}>
                     <Typography variant="h5">
-                        {product.variants[varItem].price.toFixed(2)}
+                        {item.variants[varItem].price.toFixed(2)}
                     </Typography>
                     <Typography variant="body1">грн.</Typography>
                 </Box>
 
-                {product.description && <ExpandableText text={product.description} />}
+                {item.description && <ExpandableText text={item.description} />}
 
                 <ActionGroupButton
-                    masActions={DrinkActionsMas(product)}
+                    masActions={DrinkActionsMas(item)}
                     setAction={setAction}
                 />
             </Box>
