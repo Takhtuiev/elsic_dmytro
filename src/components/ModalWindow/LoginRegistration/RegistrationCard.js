@@ -57,7 +57,6 @@ function RegistrationCard({ logReg }) {
         return {
             key: name,
             value: '',
-            pattern: USER_COLUMNS[name]?.pattern,
             label: label,
             error: error?.data[name],
         }

@@ -20,7 +20,6 @@ function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewV
             key: name,
             value: variant && variant[name],
             valueList: loadEditLists ? loadEditLists[name] : null,
-            pattern: DRINKS_COLUMNS[name]?.pattern,
             label: DRINKS_COLUMNS[name]?.text,
             error: errorData && errorData[ (indexVariant === undefined) ? name : `${indexVariant}-${name}`],
             indexVariant: indexVariant

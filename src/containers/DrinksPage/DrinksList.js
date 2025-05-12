@@ -5,9 +5,9 @@ import {
     useGetPageDrinksQuery,
 } from "../../services/api/drinksApi";
 import CardDrinks from "../../components/DrinksCard/CardDrinks";
-import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
 import CardLineDrinks from "../../components/DrinksCard/CardLineDrinks";
 import GenericList from "./GenericList";
+import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
 
 
 const HEAD_PARAMS = {
@@ -17,15 +17,15 @@ const HEAD_PARAMS = {
 };
 
 const FILTER_PARAMS = {
-    brand: {type: 'checkbox'},
-    country: {type: 'checkbox'},
-    productType: {type: 'checkbox'},
+    brand: 'checkbox',
+    country: 'checkbox',
+    productType: 'checkbox',
 };
 
 const SORT_LIST = [
-    DRINKS_COLUMNS.name.text,
-    DRINKS_COLUMNS.brand.text,
-    DRINKS_COLUMNS.country.text,
+    DRINKS_COLUMNS.name,
+    DRINKS_COLUMNS.brand,
+    DRINKS_COLUMNS.country,
 ]
 
 function DrinksList() {
@@ -37,6 +37,7 @@ function DrinksList() {
                 useDeleteMutation={useDeleteDrinksMutation}
                 HEAD_PARAMS={HEAD_PARAMS}
                 FILTER_PARAMS={FILTER_PARAMS}
+                TEXT_COLUMNS={DRINKS_COLUMNS}
                 SORT_LIST={SORT_LIST}
                 CardComponent={CardDrinks}
                 CardLineComponent={CardLineDrinks}

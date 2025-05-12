@@ -155,7 +155,6 @@ function EditBigCardDrinks({ action, funcCancel}) {
             key: name,
             value: editedItem && editedItem[name],
             valueList: loadEditLists ? loadEditLists[name] : null,
-            pattern: DRINKS_COLUMNS[name]?.pattern,
             label: DRINKS_COLUMNS[name]?.text,
             error: errorUpdate?.data[ name ],
         };

@@ -6,17 +6,16 @@ import {
 import React, {useState} from "react";
 import { API_URL } from "../../config";
 import { Rating } from '@mui/material';
-import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
 import ModalImage from "../MyComponent/Image/ModalImage";
-import {Box, useTheme} from "@mui/system";
+import {Box} from "@mui/system";
 import WithRoleContent from "../MyComponent/WithRoleContent";
 import {useLocation, useNavigate} from "react-router-dom";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {DrinkActionsMas} from "./DrinkActionsMas";
+import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
 
 function BigCardDrinks({ product, setAction }) {
 
-    const theme = useTheme(); // Access the theme
     const location = useLocation();
     const navigate = useNavigate();
 
@@ -44,13 +43,16 @@ function BigCardDrinks({ product, setAction }) {
 
     return (
         <Box display="flex" justifyContent="center">
-            <Box sx={{
-                m: 1,
-                p: 1,
-                maxWidth: 'md',
-                height: "100%",
-                backgroundColor: theme.palette.background.paper
-            }}>
+            <Box
+                sx={(theme) => ({
+                    m: 1,
+                    p: 1,
+                    width: "100%",
+                    maxWidth: 'md',
+                    height: "100%",
+                    backgroundColor: theme.palette.background.paper
+                })}
+            >
                 <Box>
                     <Typography variant="h4" sx={{ textAlign: 'center' }}>
                         {product.name}
@@ -82,7 +84,11 @@ function BigCardDrinks({ product, setAction }) {
                         <Typography variant='body2'>{product.specifications}</Typography>
 
                         <Box display={'flex'} flexDirection={'row'} gap={2}>
-                            <Box display={'flex'} flexDirection={'column'} alignItems="flex-end" sx={{ color: theme.palette.text.secondary }}>
+                            <Box display={'flex'}
+                                 flexDirection={'column'}
+                                 alignItems="flex-end"
+                                 sx={(theme) => ({ color: theme.palette.text.secondary })}
+                            >
                                 <Typography variant='body2'>{DRINKS_COLUMNS['brand'].text}</Typography>
                                 <Typography variant='body2'>{DRINKS_COLUMNS['country'].text}</Typography>
                                 <Typography variant='body2'>{DRINKS_COLUMNS['productType'].text}</Typography>
@@ -155,7 +161,7 @@ function BigCardDrinks({ product, setAction }) {
                 </WithRoleContent>
             </Box>
 
-            <ModalImage openImage={viewImage} closeImageFunc={closeShowImage} backGround={theme.palette.background.paper} />
+            <ModalImage openImage={viewImage} closeImageFunc={closeShowImage} sx={(theme) => ({background: theme.palette.background.paper})} />
         </Box>
     );
 }

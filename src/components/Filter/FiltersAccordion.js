@@ -8,20 +8,21 @@ import {
     Typography
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import { DRINKS_COLUMNS } from "../../CONSTANTS/Constants";
 import ContentSlider from "./ContentSlider";
 import ContentCheckBoxList from "./ContentCheckBoxList";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import FilterDrawerField from "./FilterDrawerField";
 
-const FiltersAccordion = ({ params, FILTER_PARAMS, updateParams, selectLists, countProducts, mode, closeDrawer }) => {
+const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, selectLists, countProducts, mode, closeDrawer }) => {
     const [expanded, setExpanded] = useState(false);
 
     // Создание объекта один раз
     const createObj = (field) => {
         const selectedArr = params[field]?.split(','); // Преобразуем строку в массив
 
-        switch (FILTER_PARAMS[field]?.type) {
+        //console.log(FILTER_PARAMS)
+        //console.log(selectLists)
+        switch (FILTER_PARAMS[field]) {
             case 'slider':
                 return {
                     value: selectedArr?.map(Number), // Преобразуем строковые значения в числа
@@ -43,7 +44,7 @@ const FiltersAccordion = ({ params, FILTER_PARAMS, updateParams, selectLists, co
     const getSelectedCount = (field, obj) => {
         if (!FILTER_PARAMS[field]) return "";
 
-        switch (FILTER_PARAMS[field]?.type) {
+        switch (FILTER_PARAMS[field]) {
             case 'checkbox':
                 const total = Object.keys(obj).length;
                 const selected = Object.values(obj).filter(Boolean).length;
@@ -61,7 +62,7 @@ const FiltersAccordion = ({ params, FILTER_PARAMS, updateParams, selectLists, co
     const updateObj = (newObj, field) => {
         let newValue = [];
 
-        switch (FILTER_PARAMS[field].type) {
+        switch (FILTER_PARAMS[field]) {
             case 'slider':
                 newValue = newObj.join(',');
                 break;
@@ -86,7 +87,7 @@ const FiltersAccordion = ({ params, FILTER_PARAMS, updateParams, selectLists, co
                         <MenuItem key={index} onClick={() => setExpanded(field)} sx={{ p: 1.4 }}>
                             <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
                                 <Typography variant="body1" sx={{ flexGrow: 1 }}>
-                                    {DRINKS_COLUMNS[field].text}
+                                    {TEXT_COLUMNS[field]}
                                 </Typography>
                                 <Typography variant="body2" color="textSecondary" sx={{ mx: 0.5 }}>
                                     {getSelectedCount(field, obj)} {/* Передаем obj в getSelectedCount */}
@@ -100,16 +101,16 @@ const FiltersAccordion = ({ params, FILTER_PARAMS, updateParams, selectLists, co
                 <FilterDrawerField
                     expanded={Boolean(expanded)}
                     setExpanded={setExpanded}
-                    headText={DRINKS_COLUMNS[expanded]?.text}
+                    headText={TEXT_COLUMNS[expanded]}
                     closeFilters={closeDrawer}
                 >
-                    {FILTER_PARAMS[expanded]?.type === 'slider' ? (
+                    {FILTER_PARAMS[expanded] === 'slider' ? (
                         <ContentSlider
                             field={expanded}
                             obj={createObj(expanded)}
                             updateObj={updateObj}
                         />
-                    ) : ( FILTER_PARAMS[expanded]?.type === 'checkbox' ? (
+                    ) : ( FILTER_PARAMS[expanded] === 'checkbox' ? (
                             <ContentCheckBoxList
                                 field={expanded}
                                 obj={createObj(expanded)}
@@ -138,7 +139,7 @@ const FiltersAccordion = ({ params, FILTER_PARAMS, updateParams, selectLists, co
                         >
                             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                                 <Typography variant="body1" sx={{ flexGrow: 1 }}>
-                                    {DRINKS_COLUMNS[field].text}
+                                    {TEXT_COLUMNS[field]}
                                 </Typography>
                                 <Typography variant="body2" color="textSecondary" sx={{ mx: 0.5 }}>
                                     {getSelectedCount(field, obj)} {/* Передаем obj в getSelectedCount */}
@@ -151,13 +152,13 @@ const FiltersAccordion = ({ params, FILTER_PARAMS, updateParams, selectLists, co
                                     overflowY: 'auto',  // Вертикальная прокрутка
                                 }}
                             >
-                                {FILTER_PARAMS[field]?.type === 'slider' ? (
+                                {FILTER_PARAMS[field] === 'slider' ? (
                                     <ContentSlider
                                         field={field}
                                         obj={createObj(field)}
                                         updateObj={updateObj}
                                     />
-                                ) : ( FILTER_PARAMS[field]?.type === 'checkbox' ? (
+                                ) : ( FILTER_PARAMS[field] === 'checkbox' ? (
                                         <ContentCheckBoxList
                                             field={field}
                                             obj={createObj(field)}

@@ -6,11 +6,11 @@ import FiltersDrawer from "./FiltersDrawer";
 import { ToggleButton, ToggleButtonGroup } from "@mui/material";
 import ViewModuleIcon from "@mui/icons-material/ViewModule";
 import ViewListIcon from "@mui/icons-material/ViewList";
-import { DRINKS_COLUMNS } from "../../CONSTANTS/Constants";
 
 const FiltersSortViewBar = ({
                                 params,
                                 FILTER_PARAMS,
+                                TEXT_COLUMNS,
                                 updateParams,
                                 selectLists,
                                 sortList,
@@ -20,11 +20,11 @@ const FiltersSortViewBar = ({
                                 minMaxPrice,
                             }) => {
     // Получаем значение для сортировки из параметров
-    const sortValue = params.sort ? DRINKS_COLUMNS[params.sort]?.text : '';
+    const sortValue = params.sort ? TEXT_COLUMNS[params.sort] : '';
 
     // Обновление параметра сортировки
     const updateSort = (newSortValue) => {
-        const newValue = Object.keys(DRINKS_COLUMNS).find(key => DRINKS_COLUMNS[key].text === newSortValue);
+        const newValue = Object.keys(TEXT_COLUMNS).find(key => TEXT_COLUMNS[key] === newSortValue);
         updateParams('sort', newValue); // Обновляем параметры сортировки
     };
 

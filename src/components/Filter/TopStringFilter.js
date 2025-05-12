@@ -11,7 +11,7 @@ const TopStringFilter = ({ params, FILTER_PARAMS, updateParams }) => {
         if (!FILTER_PARAMS[field]) return;
 
         let newValue;
-        switch (FILTER_PARAMS[field].type) {
+        switch (FILTER_PARAMS[field]) {
             case 'slider':
                 newValue = null; // Логика сброса для слайдера (можно изменить)
                 break;
@@ -63,7 +63,7 @@ const TopStringFilter = ({ params, FILTER_PARAMS, updateParams }) => {
 
             {/* Генерация кнопок фильтров */}
             {Object.keys(FILTER_PARAMS).map((fieldName) => {
-                const fieldType = FILTER_PARAMS[fieldName].type;
+                const fieldType = FILTER_PARAMS[fieldName];
                 const fieldValues = params[fieldName]?.split(',');
 
                 if (!fieldValues || fieldValues.length === 0) return null;

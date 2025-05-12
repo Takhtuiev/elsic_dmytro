@@ -5,12 +5,11 @@ import {
 import React from "react";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {BrandActionsMas} from "./BrandActionsMas";
-import {Box, useTheme} from "@mui/system";
+import {Box} from "@mui/system";
 import {API_URL} from "../../config";
 
 function BrandCard({ brand, setAction }) {
 
-    const theme = useTheme(); // Access the theme
 
     if (!brand) { return null }
 
@@ -21,13 +20,14 @@ function BrandCard({ brand, setAction }) {
     return (
         <Box display="flex" justifyContent="center">
             <Box display="flex"
-                 sx={{
+                 sx={(theme) => ({
                      m: 1,
                      p: 1,
+                     width: "100%",
                      maxWidth: 'md',
                      height: "100%",
                      backgroundColor: theme.palette.background.paper
-                 }}
+                 })}
             >
                 {src && (
                     <CardMedia

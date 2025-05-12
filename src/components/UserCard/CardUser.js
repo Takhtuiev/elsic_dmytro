@@ -12,7 +12,7 @@ import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import Grid from "@mui/material/Grid2";
 
-function CardUser({ user, setAction }) {
+function CardUser({ item, setAction }) {
 
     return (
         <Card
@@ -34,32 +34,32 @@ function CardUser({ user, setAction }) {
                   }}
             >
                 <Grid >
-                    <Typography variant="body1">{user.enabled ? <CheckIcon color={'success'}/> : <BlockIcon color={'disabled'}/> }</Typography>
+                    <Typography variant="body1">{item.enabled ? <CheckIcon color={'success'}/> : <BlockIcon color={'disabled'}/> }</Typography>
                 </Grid>
 
                 <Grid minWidth={'15rem'}>
                     <Typography variant="h6" >
-                        {user.username}
+                        {item.username}
                     </Typography>
                 </Grid>
                 <Grid size={'grow'} minWidth={'15rem'}>
                     <Grid container alignItems="center" sx={{ display: 'flex' }}>
                         <Grid >
-                            <MailOutlineIcon fontSize={'small'} color={user.enabled ? 'primary' : 'text.secondary'} sx={{mx: 1}}/>
+                            <MailOutlineIcon fontSize={'small'} color={item.enabled ? 'primary' : 'text.secondary'} sx={{mx: 1}}/>
                         </Grid>
                         <Grid size={'grow'}>
                             <Typography variant="body1" >
-                                {user.email}
+                                {item.email}
                             </Typography>
                         </Grid>
                     </Grid>
                     <Grid container alignItems="center" sx={{ display: 'flex' }}>
                         <Grid >
-                            <PhoneIcon fontSize={'small'} color={user.enabled ? 'primary' : 'text.secondary'} sx={{mx: 1, my:0}}/>
+                            <PhoneIcon fontSize={'small'} color={item.enabled ? 'primary' : 'text.secondary'} sx={{mx: 1, my:0}}/>
                         </Grid>
                         <Grid size={'grow'}>
                             <Typography variant="body1">
-                                {user.phone}
+                                {item.phone}
                             </Typography>
                         </Grid>
                     </Grid>
@@ -75,9 +75,9 @@ function CardUser({ user, setAction }) {
                               padding: '0.2rem',
                           }}
                     >
-                        {user.authorities.length > 0 ? (
+                        {item.authorities.length > 0 ? (
                             // Если длина массива больше 0, выводим роли
-                            user.authorities.map((item,index) => (
+                            item.authorities.map((item,index) => (
                                 <Typography key={index} variant={'body2'} fontSize={'0.6rem'}>
                                     {item}
                                 </Typography>
@@ -102,7 +102,7 @@ function CardUser({ user, setAction }) {
                             {
                                 role: "USER_EDIT",
                                 title: "Edit",
-                                setNewAction: { action: "edit", item: user },
+                                setNewAction: { action: "edit", item: item },
                                 content: <EditIcon sx={{ fontSize: "1.2rem" }} />,
                             },
                             {
@@ -110,8 +110,8 @@ function CardUser({ user, setAction }) {
                                 title: "Delete",
                                 setNewAction: {
                                     action: "delete",
-                                    itemId: user.id,
-                                    itemName: user.username,
+                                    itemId: item.id,
+                                    itemName: item.username,
                                 },
 
                                 content: <DeleteForeverIcon sx={{ fontSize: "1.2rem" }} color="error" />,

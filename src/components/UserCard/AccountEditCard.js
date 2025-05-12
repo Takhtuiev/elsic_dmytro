@@ -62,7 +62,6 @@ function AccountEditCard({user}) {
         return {
             key: name,
             value: editedUser && editedUser[name],
-            pattern: USER_COLUMNS[name]?.pattern,
             label: label ? label : USER_COLUMNS[name]?.text,
             error: errorUpdate?.data[name],
         }

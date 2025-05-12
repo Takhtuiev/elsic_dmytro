@@ -10,12 +10,22 @@ import WithRoleContent from "../../components/MyComponent/WithRoleContent";
 import LoadingSpinner from "../../components/MyComponent/LoadingSpinnerBoard/LoadingSpinner";
 import MyDialog from "../../components/MyComponent/MyDialog";
 import DeleteConfirmationModal from "../../components/ModalWindow/DeleteConfirmationModal";
-import EditBigCardDrinks from "../../components/DrinksCard/Edit/EditBigCardDrinks";
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 import NotFound from "../NotFoundPage/NotFound";
 import { updateSearchParams } from "../../components/Filter/utils";
 
-function GenericList({ useGetPage, useGetLists, useDeleteMutation, HEAD_PARAMS, FILTER_PARAMS, SORT_LIST, CardComponent, CardLineComponent }) {
+function GenericList({
+                         useGetPage,
+                         useGetLists,
+                         useDeleteMutation,
+                         HEAD_PARAMS,
+                         FILTER_PARAMS,
+                         TEXT_COLUMNS,
+                         SORT_LIST,
+                         CardComponent,
+                         CardLineComponent,
+                         EditCard
+                     }) {
     const [searchParams, setSearchParams] = useSearchParams();
     const params = Object.fromEntries(searchParams.entries());
 
@@ -83,6 +93,7 @@ function GenericList({ useGetPage, useGetLists, useDeleteMutation, HEAD_PARAMS, 
                 <FiltersSortViewBar
                     params={params}
                     FILTER_PARAMS={FILTER_PARAMS}
+                    TEXT_COLUMNS={TEXT_COLUMNS}
                     updateParams={updateParams}
                     selectLists={getLists.data}
                     sortList={SORT_LIST}
@@ -103,6 +114,7 @@ function GenericList({ useGetPage, useGetLists, useDeleteMutation, HEAD_PARAMS, 
                         <FiltersAccordion
                             params={params}
                             FILTER_PARAMS={FILTER_PARAMS}
+                            TEXT_COLUMNS={TEXT_COLUMNS}
                             updateParams={updateParams}
                             selectLists={getLists.data}
                             countProducts={getPage.data?.totalElements}
@@ -159,7 +171,7 @@ function GenericList({ useGetPage, useGetLists, useDeleteMutation, HEAD_PARAMS, 
                 <Suspense fallback={<LoadingSpinner />}>
                     {["createNew", "edit", "copy"].includes(action?.action) && (
                         <MyDialog open={!!action} onClose={() => setAction(null)} title="Edit">
-                            <EditBigCardDrinks action={action} funcCancel={() => setAction(null)} />
+                            <EditCard action={action} funcCancel={() => setAction(null)} />
                         </MyDialog>
                     )}
                     {action?.action === "delete" && (
