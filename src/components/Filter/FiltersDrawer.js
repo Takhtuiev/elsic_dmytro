@@ -8,7 +8,7 @@ import {useState} from "react";
 import FilterAltIcon from '@mui/icons-material/FilterAlt';
 import FiltersAccordion from "./FiltersAccordion";
 
-function FiltersDrawer({ params, FILTER_PARAMS, updateParams, selectLists, countProducts }) {
+function FiltersDrawer({ params, FILTER_PARAMS, TEXT_COLUMNS, updateParams, selectLists, countProducts }) {
 
     const [filtersOpen, setFiltersOpen] = useState(false); // Добавлено состояние для отслеживания видимости SortBar
 
@@ -88,6 +88,7 @@ function FiltersDrawer({ params, FILTER_PARAMS, updateParams, selectLists, count
                         <FiltersAccordion
                             params={params}
                             FILTER_PARAMS={FILTER_PARAMS}
+                            TEXT_COLUMNS={TEXT_COLUMNS}
                             updateParams={updateParams}
                             selectLists={selectLists}
                             countProducts={countProducts}

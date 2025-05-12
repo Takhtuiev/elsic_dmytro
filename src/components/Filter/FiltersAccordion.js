@@ -20,8 +20,6 @@ const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, s
     const createObj = (field) => {
         const selectedArr = params[field]?.split(','); // Преобразуем строку в массив
 
-        //console.log(FILTER_PARAMS)
-        //console.log(selectLists)
         switch (FILTER_PARAMS[field]) {
             case 'slider':
                 return {
@@ -90,7 +88,7 @@ const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, s
                                     {TEXT_COLUMNS[field]}
                                 </Typography>
                                 <Typography variant="body2" color="textSecondary" sx={{ mx: 0.5 }}>
-                                    {getSelectedCount(field, obj)} {/* Передаем obj в getSelectedCount */}
+                                    {getSelectedCount(field, obj)}
                                 </Typography>
                                 <ChevronRightIcon color="primary" />
                             </Box>

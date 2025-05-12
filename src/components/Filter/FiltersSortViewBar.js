@@ -35,6 +35,7 @@ const FiltersSortViewBar = ({
                 <FiltersDrawer
                     params={params}
                     FILTER_PARAMS={FILTER_PARAMS}
+                    TEXT_COLUMNS={TEXT_COLUMNS}
                     updateParams={updateParams}
                     selectLists={selectLists}
                     minMaxPrice={minMaxPrice}
