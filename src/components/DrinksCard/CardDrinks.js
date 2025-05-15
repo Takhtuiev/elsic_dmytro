@@ -14,9 +14,16 @@ import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
 
 function CardDrinks({ item, setAction }) {
-
     const [varItem, setVarItem] = useState(0);
     const navigate = useNavigate();
+
+    // Безопасное извлечение варианта
+    const variant = item?.variants?.[varItem];
+
+    // Если нет данных — не отображаем карточку
+    if (!item || !variant) {
+        return <Typography  variant="caption" sx={{ p: 2, color: 'gray' }}>Вариант недоступен</Typography>;
+    }
 
     return (
         <MyCard
@@ -34,15 +41,18 @@ function CardDrinks({ item, setAction }) {
                 {/* Левая половина - изображение */}
                 <CardMedia
                     component="img"
-                    image={item.variants[varItem].imageUrl && API_URL + "/" + item.variants[varItem].imageUrl + '?ts=' + item.lastUpdated}
+                    image={
+                        variant.imageUrl
+                            ? `${API_URL}/${variant.imageUrl}?ts=${item.lastUpdated}`
+                            : "/default-image.png"
+                    }
                     alt={item.name}
                     sx={{
                         width: "48%",
-                        height: "auto", // Не растягивает по высоте
-                        maxHeight: "10rem", // Ограничивает максимальную высоту
-                        objectFit: "contain", // Поддерживает пропорции без обрезки
-                        flexShrink: 0, // Запрещает сжатие
-
+                        height: "auto",
+                        maxHeight: "10rem",
+                        objectFit: "contain",
+                        flexShrink: 0,
                     }}
                 />
 
@@ -50,11 +60,11 @@ function CardDrinks({ item, setAction }) {
                 <Box sx={{ width: "48%", display: "flex", flexDirection: "column", justifyContent: "center" }}>
                     <Rating
                         precision={0.5}
-                        value={item.rating}
+                        value={item.rating || 0}
                         readOnly
                         sx={{
                             mx: 0,
-                            my: 1, // Исправлено "mY" → "my"
+                            my: 1,
                             fontSize: "small",
                         }}
                     />
@@ -66,10 +76,7 @@ function CardDrinks({ item, setAction }) {
                             e.stopPropagation();
                             navigate("/brand/" + item.brand);
                         }}
-                        sx={{
-                            textAlign: "left",
-                            display: "block", // Позволяет тексту занимать всю ширину контейнера
-                        }}
+                        sx={{ textAlign: "left", display: "block" }}
                     >
                         {item.brand}
                     </Link>
@@ -80,18 +87,18 @@ function CardDrinks({ item, setAction }) {
             </Box>
 
             <Divider/>
+
             <CardDrinkSelectVariant
                 product={item}
                 selectedVariant={varItem}
                 setSelectedVariant={setVarItem}
             />
 
-
             <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                {/* Цена (первая строка) */}
+                {/* Цена */}
                 <Box sx={{ display: "flex", alignItems: "end" }}>
                     <Typography variant="h5">
-                        {item.variants[varItem].price.toFixed(2)}
+                        {typeof variant.price === "number" ? variant.price.toFixed(2) : '—'}
                     </Typography>
                     <Typography variant="body1">грн.</Typography>
                 </Box>

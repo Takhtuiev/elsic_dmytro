@@ -85,11 +85,11 @@ function GenericList({
             };
 
         return viewMode === "module" ? (
-            <Grid key={index} size={{xs:6, sm:4, md:4, lg:3 }}>
+            <Grid key={resolvedItem.id} size={{xs:6, sm:4, md:4, lg:3 }}>
                 <CardComponent item={resolvedItem} setAction={setAction} />
             </Grid>
         ) : (
-            <Grid key={index} size={12}>
+            <Grid key={resolvedItem.id} size={12}>
                 <CardLineComponent item={resolvedItem} setAction={setAction} />
             </Grid>
         );
