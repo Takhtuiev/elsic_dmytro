@@ -47,6 +47,16 @@ function GenericList({
         updateSearchParams(params, updatedKey, newValue, setSearchParams, HEAD_PARAMS, FILTER_PARAMS);
     };
 
+    const handlePageChange = (event, newPage) => {
+        const currentPage = Number(getPage.data?.number + 1) || 1; // текущая страница (начинается с 1)
+
+        // Условие: не на первой и переход не на первую
+        if ( !(currentPage === 1 && newPage === 1) ) {
+            updateParams("page", newPage);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+    };
+
     const funcDelete = async (action) => {
         const result = await deleteItem(action.itemId);
         return errorDeletingVariant ? { error: errorDeletingVariant } : result;
@@ -144,24 +154,22 @@ function GenericList({
                                 </Box>
                             </WithRoleContent>
 
-                            {getPage.data?.totalPages > 1 && (
-                                <Box display="flex" justifyContent="center">
-                                    <Pagination
-                                        count={Number(getPage.data?.totalPages) || 0}
-                                        page={Number(getPage.data?.number + 1) || 1}
-                                        siblingCount={2}
-                                        onChange={(event, page) => updateParams("page", page)}
-                                        color="primary"
-                                        variant="outlined"
-                                        shape="rounded"
-                                        sx={{
-                                            "& .MuiPaginationItem-root": {
-                                                backgroundColor: (theme) => theme.palette.background.paper,
-                                            },
-                                        }}
-                                    />
-                                </Box>
-                            )}
+                            <Box display="flex" justifyContent="center">
+                                <Pagination
+                                    count={Number(getPage.data?.totalPages) || 0}
+                                    page={Number(getPage.data?.number + 1) || 1}
+                                    siblingCount={2}
+                                    onChange={handlePageChange}
+                                    color="primary"
+                                    variant="outlined"
+                                    shape="rounded"
+                                    sx={{
+                                        "& .MuiPaginationItem-root": {
+                                            backgroundColor: (theme) => theme.palette.background.paper,
+                                        },
+                                    }}
+                                />
+                            </Box>
                         </Grid>
                     </Grid>
                 </Box>

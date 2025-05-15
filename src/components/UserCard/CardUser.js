@@ -1,6 +1,6 @@
 import {
     Card,
-    Paper, Typography, useTheme,
+    Typography,
 } from "@mui/material";
 import React from "react";
 import BlockIcon from '@mui/icons-material/Block';
@@ -11,6 +11,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import Grid from "@mui/material/Grid2";
+import {Box} from "@mui/system";
 
 function CardUser({ item, setAction }) {
 
@@ -18,34 +19,41 @@ function CardUser({ item, setAction }) {
         <Card
             //onClick={() => { navigate("/drinksDetails/" + product.id) }}
             sx={{
+                height: "100%",
                 p: 0,
                 wordBreak: 'break-word',
                 hyphens: 'auto',
                 overflowWrap: 'break-word',
-                display: "flex",
+                //display: "flex",
                 flexDirection: "column",
                 justifyContent: "space-between",
             }}
         >
-            <Grid container columnSpacing={1} justifyContent={'end'} alignItems={'center'}
-                  sx={{
-                      overflowWrap: 'break-word',
-                      wordBreak: 'break-word',
-                  }}
+            <Grid
+                container
+                //justifyContent="end"
+                alignItems="center"
+                spacing={1}
+                sx={{
+                    height: '100%',
+                    color: item.enabled ? 'text.primary' : 'text.secondary',
+                }}
             >
-                <Grid >
-                    <Typography variant="body1">{item.enabled ? <CheckIcon color={'success'}/> : <BlockIcon color={'disabled'}/> }</Typography>
-                </Grid>
-
                 <Grid minWidth={'15rem'}>
-                    <Typography variant="h6" >
-                        {item.username}
+                    <Typography variant="h6" display="flex" alignItems="center">
+                        {item.enabled ?
+                            <CheckIcon  fontSize={'small'} color="success"  sx={{mx: 1}}/>
+                            :
+                            <BlockIcon  fontSize={'small'} color="disabled"  sx={{mx: 1}}/>}
+                        <Box>
+                            {item.username}
+                        </Box>
                     </Typography>
                 </Grid>
                 <Grid size={'grow'} minWidth={'15rem'}>
                     <Grid container alignItems="center" sx={{ display: 'flex' }}>
                         <Grid >
-                            <MailOutlineIcon fontSize={'small'} color={item.enabled ? 'primary' : 'text.secondary'} sx={{mx: 1}}/>
+                            <MailOutlineIcon fontSize={'small'} sx={{mx: 1}} color={item.enabled ? 'primary' : 'text.secondary'}/>
                         </Grid>
                         <Grid size={'grow'}>
                             <Typography variant="body1" >
@@ -55,7 +63,7 @@ function CardUser({ item, setAction }) {
                     </Grid>
                     <Grid container alignItems="center" sx={{ display: 'flex' }}>
                         <Grid >
-                            <PhoneIcon fontSize={'small'} color={item.enabled ? 'primary' : 'text.secondary'} sx={{mx: 1, my:0}}/>
+                            <PhoneIcon fontSize={'small'} sx={{mx: 1, my:0}} color={item.enabled ? 'primary' : 'text.secondary'}/>
                         </Grid>
                         <Grid size={'grow'}>
                             <Typography variant="body1">
@@ -68,11 +76,12 @@ function CardUser({ item, setAction }) {
                 <Grid minWidth={'6rem'} >
                     <Grid container direction={'column'} justifyContent={'center'} alignContent={'center'}
                           sx={{
-                              pt: 0,
+                              //pt: 0,
                               height: '100%',
                               border: '1px solid rgba(0, 0, 0, 0.23)',
                               borderRadius: '4px',
                               padding: '0.2rem',
+                              margin: '0.2rem',
                           }}
                     >
                         {item.authorities.length > 0 ? (
@@ -96,7 +105,7 @@ function CardUser({ item, setAction }) {
                     </Grid>
                 </Grid>
 
-                <Grid >
+                <Grid  sx={{ ml: "auto" }}>
                     <ActionGroupButton
                         masActions={[
                             {

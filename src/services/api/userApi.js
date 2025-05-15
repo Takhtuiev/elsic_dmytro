@@ -6,12 +6,19 @@ const usersApi = createApi({
     baseQuery: baseQueryWithReauth,
     endpoints: (builder) => ({
         getPageUserList: builder.query({
-            query: ({page, sort, order}) => ({
-                url: `/admin/users/page/${page ? page : 1}${sort ? `?sort=${sort}` : ''}${order ? `&order=${order}` : ''}`,
-                method: 'GET',
-            }),
+            query: ({ params }) => {
+                const queryString = new URLSearchParams(params).toString();
+                const baseUrl = `/admin/users/page`;
+                const url = queryString ? `${baseUrl}?${queryString}` : baseUrl;
+
+                return {
+                    url,
+                    method: 'GET',
+                };
+            },
             providesTags: ['PageUsers'],
         }),
+
         getUser: builder.query({
             query: ({userName}) => ({
                 url: `/admin/users?name=${userName}`,

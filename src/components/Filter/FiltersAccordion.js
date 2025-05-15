@@ -30,7 +30,7 @@ const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, s
                 if (!selectLists) return {}; // Если нет selectLists, возвращаем пустой объект
 
                 return selectLists[field].reduce((acc, item) => {
-                    acc[item] = selectedArr?.includes(item); // Отмечаем, выбран ли элемент
+                    acc[item] = selectedArr?.includes(String(item)); // Отмечаем, выбран ли элемент
                     return acc;
                 }, {});
             default:
