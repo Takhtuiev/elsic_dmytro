@@ -11,9 +11,48 @@ import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {Box} from '@mui/system';
 import { VariantActionsMas } from "./VariantActionsMas";
 import MyCard from "../MyComponent/MyCard";
+import {Skeleton} from "@mui/lab";
 
 function CardLineVariantDrink({ item, setAction }) {
     const navigate = useNavigate();
+
+    if (!item || !item.product) {
+        return (
+            <MyCard sx={{ alignItems: 'center', gap: 2 }}>
+                <Skeleton variant="rectangular" width={96} height={128} />
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 1 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                        <Skeleton variant="text" width="60%" height={28} />
+                        <Skeleton variant="text" width="20%" height={20} sx={{ marginLeft: "auto" }} />
+                    </Box>
+
+                    <Divider />
+
+                    <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
+                        <Box sx={{ minWidth: "8rem", flexGrow: 1 }}>
+                            <Skeleton variant="text" width="80%" height={20} />
+                            <Skeleton variant="text" width="60%" height={20} />
+                        </Box>
+                        <Box sx={{ minWidth: "8rem", flexGrow: 1 }}>
+                            <Skeleton variant="text" width="90%" height={20} />
+                            <Skeleton variant="text" width="50%" height={20} />
+                            <Skeleton variant="text" width="60%" height={20} />
+                        </Box>
+                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: "5rem" }}>
+                            <Skeleton variant="text" width={60} height={28} />
+                            <Skeleton variant="text" width={40} height={20} />
+                        </Box>
+                    </Box>
+
+                    <Divider />
+
+                    <Skeleton variant="text" width="100%" height={20} />
+                </Box>
+                <Skeleton variant="rectangular" width={32} height={64} sx={{ borderRadius: 1 }} />
+            </MyCard>
+        );
+    }
+
 
     return (
         <MyCard

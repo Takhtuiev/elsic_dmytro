@@ -13,11 +13,53 @@ import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
 import {API_URL} from "../../config";
 import Grid from "@mui/material/Grid2";
+import {Skeleton} from "@mui/lab";
 
 function CardLineDrinks({ item, setAction }) {
 
 const [varItem, setVarItem] = useState(0);
 const navigate = useNavigate();
+
+    if (!item || !item.variants) {
+        return (
+            <MyCard sx={{ alignItems: 'center', gap: 2 }}>
+                <Skeleton variant="rectangular" width={96} height={128} />
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 1 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                        <Skeleton variant="text" width="60%" height={28} />
+                        <Skeleton variant="text" width="20%" height={20} sx={{ marginLeft: "auto" }} />
+                    </Box>
+
+                    <Divider />
+
+                    <Grid container spacing={2} alignItems="center" justifyContent={"space-between"}>
+                        <Grid>
+                            <Skeleton variant="rectangular" width={120} height={30} />
+                        </Grid>
+                        <Grid container spacing={2} minWidth={"10rem"}>
+                            <Grid>
+                                <Skeleton variant="text" width={80} />
+                                <Skeleton variant="text" width={60} />
+                            </Grid>
+                            <Grid>
+                                <Skeleton variant="text" width={80} />
+                                <Skeleton variant="text" width={40} />
+                                <Skeleton variant="text" width={60} />
+                            </Grid>
+                        </Grid>
+                        <Grid>
+                            <Skeleton variant="text" width={60} />
+                            <Skeleton variant="text" width={30} />
+                        </Grid>
+                    </Grid>
+
+                    <Divider />
+                    <Skeleton variant="text" width="100%" height={20} />
+                </Box>
+                <Skeleton variant="rectangular" width={32} height={64} sx={{ borderRadius: 1 }} />
+            </MyCard>
+        );
+    }
 
 return (
     <MyCard
