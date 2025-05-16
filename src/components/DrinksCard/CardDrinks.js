@@ -12,6 +12,7 @@ import {DrinkActionsMas} from "./DrinkActionsMas";
 import {Box} from "@mui/system";
 import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
+import {Skeleton} from "@mui/lab";
 
 function CardDrinks({ item, setAction }) {
     const [varItem, setVarItem] = useState(0);
@@ -20,9 +21,39 @@ function CardDrinks({ item, setAction }) {
     // Безопасное извлечение варианта
     const variant = item?.variants?.[varItem];
 
-    // Если нет данных — не отображаем карточку
+// Если нет данных — показываем скелетон
     if (!item || !variant) {
-        return <Typography  variant="caption" sx={{ p: 2, color: 'gray' }}>Вариант недоступен</Typography>;
+        return (
+            <MyCard sx={{ flexDirection: 'column' }}>
+                <Box sx={{ display: "flex", flexDirection: "column", alignItems: 'center' }}>
+                    <Skeleton width="60%" height={32} />
+                 </Box>
+
+                <Divider sx={{ my: 1 }} />
+
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Skeleton variant="rectangular" width="48%" height={120} />
+                    <Box sx={{ width: "48%" }}>
+                        <Skeleton width="60%" />
+                        <Skeleton width="40%" />
+                        <Skeleton width="80%" />
+                        <Skeleton width="50%" />
+                        <Skeleton width="40%" />
+                    </Box>
+                </Box>
+
+                <Divider sx={{ my: 1 }} />
+
+                <Skeleton width="100%" height={20} />
+                <Skeleton width="100%" height={20} />
+
+                <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <Skeleton width="30%" height={40} />
+                    <Skeleton width="90%" height={20} />
+                    <Skeleton width="90%" height={20} />
+                </Box>
+            </MyCard>
+        );
     }
 
     return (
