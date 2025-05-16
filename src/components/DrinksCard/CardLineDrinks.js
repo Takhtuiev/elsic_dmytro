@@ -55,7 +55,16 @@ function CardLineDrinks({ item, setAction }) {
                     />
                 </Box>
                 <Divider/>
-                <Box sx={{display: "flex", flexGrow: 1, justifyContent: "space-between", alignItems: "center", gap:1}}>
+                <Box
+                    sx={{
+                        display: "flex",
+                        flexWrap: "wrap", // Позволяет перенос на новую строку
+                        flexGrow: 1,
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap:1
+                    }}
+                >
                     <Box
                         sx={{
                             display: "flex",
