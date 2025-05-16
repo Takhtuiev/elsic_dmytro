@@ -35,7 +35,7 @@ const ExpandableText = ({ text, lines = 2 }) => {
     const handleClick = (e) => {
         e.stopPropagation();
         const el = textRef.current;
-        if (el && el.scrollHeight <= el.clientHeight) {
+        if ( !expanded && el && el.scrollHeight <= el.clientHeight ) {
             return; // не раскрывать, если текст полностью помещается
         }
         setExpanded((prev) => !prev);
