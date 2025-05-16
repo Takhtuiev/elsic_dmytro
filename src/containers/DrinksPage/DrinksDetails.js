@@ -31,7 +31,7 @@ function DrinksDetails() {
 
     return (
         <>
-            <TopLinearLoading active={loading || deleting}/>
+            <TopLinearLoading active={loading || deleting} />
 
             <BigCardDrinks product={product} setAction={setAction} />
 

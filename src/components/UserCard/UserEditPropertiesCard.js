@@ -8,8 +8,9 @@ import ErrorBox from "../ErrorBoard/ErrorBox";
 import Grid from '@mui/material/Grid2';
 
 
-function UserEditPropertiesCard({user, funcCancel}) {
+function UserEditPropertiesCard({action, funcCancel}) {
 
+    const user = action.item
     const [updateUserProperty, { isLoading: updating, error: errorUpdate, reset }] = useUpdateUserPropertyMutation();
     const { data: roleList, error: errorRoleList } = useGetLoadRoleListQuery();
 
@@ -55,7 +56,7 @@ function UserEditPropertiesCard({user, funcCancel}) {
                 <Grid container direction={'column'} size={'grow'} spacing={1}>
                     <Grid container alignItems="center">
                         <Typography variant="caption">
-                            {USER_COLUMNS.username.text}:
+                            {USER_COLUMNS.username}:
                             <Typography
                                 component={'span'}
                                 sx={{
@@ -70,7 +71,7 @@ function UserEditPropertiesCard({user, funcCancel}) {
                     </Grid>
                     <Grid container alignItems="center">
                         <Typography variant="caption">
-                            {USER_COLUMNS.email.text}:
+                            {USER_COLUMNS.email}:
                             <Typography
                                 component={'span'}
                                 sx={{
@@ -85,7 +86,7 @@ function UserEditPropertiesCard({user, funcCancel}) {
                     </Grid>
                     <Grid container alignItems="center">
                         <Typography variant="caption">
-                            {USER_COLUMNS.phone.text}:
+                            {USER_COLUMNS.phone}:
                             <Typography
                                 component={'span'}
                                 sx={{
@@ -101,7 +102,7 @@ function UserEditPropertiesCard({user, funcCancel}) {
 
                     <Grid container alignItems="center">
                         <Typography variant="caption">
-                            {USER_COLUMNS.enabled.text}:
+                            {USER_COLUMNS.enabled}:
                             <Switch
                                 sx={{ml: 1}}
                                 id={ID_EL_START + "enable"}
@@ -125,7 +126,7 @@ function UserEditPropertiesCard({user, funcCancel}) {
                         }}
                     >
                         <FormGroup>
-                            {roleList?.map((role, index) => (
+                            {roleList?.authorities.map((role, index) => (
                                 <Grid container alignItems="center" key={index} m={0}>
                                     <Checkbox
                                         id={'roleList-' + role}

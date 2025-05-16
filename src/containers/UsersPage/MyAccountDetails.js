@@ -5,12 +5,14 @@ import {useGetMyAccountQuery} from "../../services/api/userApi";
 import AccountEditCard from "../../components/UserCard/AccountEditCard";
 import {useEffect} from "react";
 import {useJwtUserDetails} from "../../Providers/JwtProvider";
+import {Box} from "@mui/system";
+import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 
 function MyAccountDetails() {
 
     const { data: user, error: errorGetUser, isFetching: loading, refetch  } = useGetMyAccountQuery();
 
-    const { jwtUserDetails, setJwtUserDetails } = useJwtUserDetails(); // Детали авторизованного пользователя
+    const { jwtUserDetails } = useJwtUserDetails(); // Детали авторизованного пользователя
     useEffect(() => {    // Перезагрузка при изменении имени авторизации
         if (!(errorGetUser?.errorReAuth && !jwtUserDetails)) {
             refetch();
@@ -24,9 +26,20 @@ function MyAccountDetails() {
 
 
     return (
-        <LoadingSpinner active={loading}>
-            <AccountEditCard user={user}/>
-        </LoadingSpinner>
+        <>
+            <TopLinearLoading active={loading} />
+            <LoadingSpinner active={loading}>
+                <Box
+                    sx={{
+                        display: "flex",
+                        justifyContent: "center",
+                    }}
+                >
+                    <AccountEditCard user={user}/>
+                </Box>
+
+            </LoadingSpinner>
+        </>
     )
 }
 

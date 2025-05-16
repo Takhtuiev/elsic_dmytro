@@ -8,6 +8,7 @@ import CardDrinks from "../../components/DrinksCard/CardDrinks";
 import CardLineDrinks from "../../components/DrinksCard/CardLineDrinks";
 import GenericList from "./GenericList";
 import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
+import EditBigCardDrinks from "../../components/DrinksCard/Edit/EditBigCardDrinks";
 
 
 const HEAD_PARAMS = {
@@ -41,6 +42,7 @@ function DrinksList() {
                 SORT_LIST={SORT_LIST}
                 CardComponent={CardDrinks}
                 CardLineComponent={CardLineDrinks}
+                EditCard={EditBigCardDrinks}
             />
     )
 }

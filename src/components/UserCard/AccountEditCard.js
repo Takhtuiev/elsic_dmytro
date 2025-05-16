@@ -62,13 +62,17 @@ function AccountEditCard({user}) {
         return {
             key: name,
             value: editedUser && editedUser[name],
-            label: label ? label : USER_COLUMNS[name]?.text,
+            label: label ? label : USER_COLUMNS[name],
             error: errorUpdate?.data[name],
         }
     }
 
     return (
-        <Paper sx={{p:1,m:1}}>
+        <Paper sx={{
+            p:1,
+            m:1,
+            maxWidth: 'md',
+        }}>
             <form>
                 <Grid container spacing={2} >
                     <Grid container direction={'column'} size={'grow'}>

@@ -19,7 +19,7 @@ const MyDialog = lazy(() => import('../../MyComponent/MyDialog'))
 const EditList = lazy(() => import('./EditList'))
 
 
-function EditBigCardDrinks({ action, funcCancel}) {
+function EditBigCardDrinks({ action, funcCancel }) {
 
     const { data: product, error: errorGetProduct, isLoading: loadingProduct} = useGetDrinksQuery( { id: action.itemId} );
     const { data: loadEditLists, error: errorLoadEditList, isLoading: loadingEditList} = useGetLoadEditListsQuery({});
@@ -155,7 +155,7 @@ function EditBigCardDrinks({ action, funcCancel}) {
             key: name,
             value: editedItem && editedItem[name],
             valueList: loadEditLists ? loadEditLists[name] : null,
-            label: DRINKS_COLUMNS[name]?.text,
+            label: DRINKS_COLUMNS[name],
             error: errorUpdate?.data[ name ],
         };
     }
@@ -393,7 +393,7 @@ function EditBigCardDrinks({ action, funcCancel}) {
                         open={!!dialogEditList}
                         fullWidth={true}
                         onClose={() => setDialogEditList(null)}
-                        title={dialogEditList && `Edit list "${DRINKS_COLUMNS[dialogEditList].text}"`}
+                        title={dialogEditList && `Edit list "${DRINKS_COLUMNS[dialogEditList]}"`}
                     >
                         <EditList
                             editedField={dialogEditList}
