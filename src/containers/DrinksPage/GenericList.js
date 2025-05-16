@@ -13,7 +13,6 @@ import DeleteConfirmationModal from "../../components/ModalWindow/DeleteConfirma
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 import NotFound from "../NotFoundPage/NotFound";
 import { updateSearchParams } from "../../components/Filter/utils";
-import CardVariantDrinkSkeleton from "../../components/DrinksCard/CardVariantDrinkSkeleton";
 
 function GenericList({
                          useGetPage,
@@ -78,7 +77,7 @@ function GenericList({
     }
 
     const renderCard = (item, index) => {
-        const resolvedItem = !item.product || typeof item.product === "object"
+        const resolvedItem = !item || !item.product || typeof item.product === "object"
             ? item
             : {
                 ...item,
@@ -86,11 +85,11 @@ function GenericList({
             };
 
         return viewMode === "module" ? (
-            <Grid key={resolvedItem.id} size={{xs:6, sm:4, md:4, lg:3 }}>
+            <Grid key={resolvedItem?.id || index} size={{xs:6, sm:4, md:4, lg:3 }}>
                 <CardComponent item={resolvedItem} setAction={setAction} />
             </Grid>
         ) : (
-            <Grid key={resolvedItem.id} size={12}>
+            <Grid key={resolvedItem?.id || index} size={12}>
                 <CardLineComponent item={resolvedItem} setAction={setAction} />
             </Grid>
         );
@@ -134,11 +133,7 @@ function GenericList({
 
                     <Grid container spacing={1} justifyContent="center" width="100%" height="100%">
                         {getPage.isFetching
-                            ? Array.from({ length: 12 }).map((_, index) =>
-                                <Grid key={index} size={{xs:6, sm:4, md:4, lg:3 }}>
-                                    <CardVariantDrinkSkeleton/>
-                                </Grid>
-                            )
+                            ? Array.from({ length: 12 }).map(renderCard)
                             : getPage.data?.content.length > 0
                                 ? getPage.data.content.map(renderCard)
                                 : (
