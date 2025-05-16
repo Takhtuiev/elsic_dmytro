@@ -13,6 +13,7 @@ import DeleteConfirmationModal from "../../components/ModalWindow/DeleteConfirma
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 import NotFound from "../NotFoundPage/NotFound";
 import { updateSearchParams } from "../../components/Filter/utils";
+import CardVariantDrinkSkeleton from "../../components/DrinksCard/CardVariantDrinkSkeleton";
 
 function GenericList({
                          useGetPage,
@@ -132,14 +133,20 @@ function GenericList({
                     </Box>
 
                     <Grid container spacing={1} justifyContent="center" width="100%" height="100%">
-                        {getPage.isFetching || getPage.data?.content.length > 0 ? (
-                            getPage.data?.content.map(renderCard)
-                        ) : (
-                            <NotFound
-                                message="За заданими параметрами не знайдено..."
-                                sx={{ borderColor: "action.disabled", color: "action.disabled" }}
-                            />
-                        )}
+                        {getPage.isFetching
+                            ? Array.from({ length: 12 }).map((_, index) =>
+                                <Grid key={index} size={{xs:6, sm:4, md:4, lg:3 }}>
+                                    <CardVariantDrinkSkeleton/>
+                                </Grid>
+                            )
+                            : getPage.data?.content.length > 0
+                                ? getPage.data.content.map(renderCard)
+                                : (
+                                    <NotFound
+                                        message="За заданими параметрами не знайдено..."
+                                        sx={{ borderColor: "action.disabled", color: "action.disabled" }}
+                                    />
+                                )}
 
                         <Grid size={12}>
                             <WithRoleContent allowedRoles={["PRODUCT_EDIT"]}>
