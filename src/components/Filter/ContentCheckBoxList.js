@@ -16,15 +16,18 @@ const ContentCheckBoxList = ({ field, obj, updateObj }) => {
         // Отобразим 4 скелетона чекбоксов
         return (
             <FormGroup>
-                {Array.from({ length: 4 }).map((_, idx) => (
-                    <Skeleton
-                        key={idx}
-                        variant="rectangular"
-                        height={"1.5rem"}
-                        width={"70%"}
-                        sx={{ m: 1, borderRadius: 1 }}
-                    />
-                ))}
+                {Array.from({ length: 4 }).map((_, idx) => {
+                    const randomWidth = `${Math.floor(40 + Math.random() * 50)}%`; // от 40% до 90%
+                    return (
+                        <Skeleton
+                            key={idx}
+                            variant="rectangular"
+                            height={"1.5rem"}
+                            width={randomWidth}
+                            sx={{ m: 1, borderRadius: 1 }}
+                        />
+                    );
+                })}
             </FormGroup>
         );
     }
