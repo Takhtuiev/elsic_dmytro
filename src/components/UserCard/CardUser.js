@@ -12,8 +12,28 @@ import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import Grid from "@mui/material/Grid2";
 import {Box} from "@mui/system";
+import {Skeleton} from "@mui/lab";
 
 function CardUser({ item, setAction }) {
+
+    if (!item) {
+        return (
+            <Card sx={{ height: "100%", p: 2 }}>
+                <Grid container spacing={1}>
+                    <Grid item xs={12}>
+                        <Skeleton variant="text" width="60%" height={30} />
+                    </Grid>
+                    <Grid item xs={12}>
+                        <Skeleton variant="text" width="80%" />
+                        <Skeleton variant="text" width="80%" />
+                    </Grid>
+                    <Grid item xs={12}>
+                        <Skeleton variant="rectangular" width="100%" height={40} />
+                    </Grid>
+                </Grid>
+            </Card>
+        );
+    }
 
     return (
         <Card

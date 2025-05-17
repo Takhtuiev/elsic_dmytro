@@ -1,5 +1,5 @@
 import {Button, Drawer, Typography} from "@mui/material";
-import {Box, Grid} from "@mui/system";
+import {Box} from "@mui/system";
 import MenuItem from "@mui/material/MenuItem";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import CloseIcon from "@mui/icons-material/Close";
@@ -7,36 +7,38 @@ import React from "react";
 import {useState} from "react";
 import FilterAltIcon from '@mui/icons-material/FilterAlt';
 import FiltersAccordion from "./FiltersAccordion";
+import Grid from "@mui/material/Grid2";
 
-function FiltersDrawer({ params, FILTER_PARAMS, TEXT_COLUMNS, updateParams, selectLists, countProducts }) {
+function FiltersDrawer({ params, FILTER_PARAMS, TEXT_COLUMNS, updateParams, selectLists }) {
 
     const [filtersOpen, setFiltersOpen] = useState(false); // Добавлено состояние для отслеживания видимости SortBar
 
     const filterInParams = Object.keys(FILTER_PARAMS).some(key => key in params)
 
+    const appliedFiltersCount = Object.keys(FILTER_PARAMS).reduce((count, key) => {
+        return key in params && params[key] ? count + 1 : count;
+    }, 0);
+
     return (
         <>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, height: '100%' }}>
-                <Button
-                    variant="outlined"
-                    color={'info'}
-                    size="small"
-                    onClick={()=>setFiltersOpen(true)}
-                    sx={{
-                        borderRadius: '0.5rem', // Закругляем углы для овальной формы
-                        textTransform: 'none', // Сохраняем регистр текста кнопки
-                        backgroundColor: theme => theme.palette.background.paper,
-                    }}
-                    startIcon={<FilterAltIcon />}
-                >
-                    Фільтри
-                </Button>
-                {filterInParams && ( // Если фильтры не пустые, отображаем компонент Typography
-                    <Typography variant="body2">
-                        знайдено {countProducts} товарів
-                    </Typography>
-                )}
-            </Box>
+            <Grid container alignItems={"center"} spacing={1}>
+                <Grid>
+                    <Button
+                        variant="outlined"
+                        color={'info'}
+                        size="small"
+                        onClick={()=>setFiltersOpen(true)}
+                        sx={{
+                            borderRadius: '0.5rem', // Закругляем углы для овальной формы
+                            textTransform: 'none', // Сохраняем регистр текста кнопки
+                            backgroundColor: theme => theme.palette.background.paper,
+                        }}
+                        startIcon={<FilterAltIcon />}
+                    >
+                        {`Фільтри${appliedFiltersCount > 0 ? ` (${appliedFiltersCount})` : ''}`}
+                    </Button>
+                </Grid>
+            </Grid>
 
             <Drawer
                 anchor="left"
@@ -91,15 +93,11 @@ function FiltersDrawer({ params, FILTER_PARAMS, TEXT_COLUMNS, updateParams, sele
                             TEXT_COLUMNS={TEXT_COLUMNS}
                             updateParams={updateParams}
                             selectLists={selectLists}
-                            countProducts={countProducts}
                             mode={'drawer'}
                             closeDrawer={()=>setFiltersOpen(false)}
                         />
                     </Grid>
                     <Grid p={1}>
-                        <Typography variant="body2" color="textSecondary" textAlign={'center'}>
-                            знайдено {countProducts} товарів
-                        </Typography>
                         <Button
                             variant="contained"
                             color="primary"

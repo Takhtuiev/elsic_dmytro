@@ -1,11 +1,11 @@
 import React from 'react';
-import { Button, Box } from "@mui/material";
+import {Button, Typography} from "@mui/material";
 import CloseIcon from '@mui/icons-material/Close';
+import Grid from "@mui/material/Grid2";
 
 const TopStringFilter = ({ params, FILTER_PARAMS, updateParams }) => {
     // Проверяем, что есть хотя бы одно поле из FILTER_PARAMS в params
     const hasActiveFilters = Object.keys(FILTER_PARAMS).some(key => key in params);
-    if (!hasActiveFilters) return null;
 
     const handleClick = (field, value) => {
         if (!FILTER_PARAMS[field]) return;
@@ -38,8 +38,8 @@ const TopStringFilter = ({ params, FILTER_PARAMS, updateParams }) => {
             onClick={onClick}
             endIcon={color === "error" && <CloseIcon fontSize="small" color="error" />}
             sx={{
-                mr: 1,
-                mb: 1,
+                mx: 0.5,
+                mt: 0.5,
                 borderRadius: '1rem',
                 borderColor: 'text.secondary',
                 color: 'text.secondary',
@@ -57,10 +57,7 @@ const TopStringFilter = ({ params, FILTER_PARAMS, updateParams }) => {
     );
 
     return (
-        <Box display="flex" flexWrap="wrap" justifyContent="flex-start">
-            {/* Кнопка сброса */}
-            {renderButton("resetButton", "Reset", () => updateParams(null, null), "error")}
-
+        <>
             {/* Генерация кнопок фильтров */}
             {Object.keys(FILTER_PARAMS).map((fieldName) => {
                 const fieldType = FILTER_PARAMS[fieldName];
@@ -81,7 +78,13 @@ const TopStringFilter = ({ params, FILTER_PARAMS, updateParams }) => {
 
                 return null;
             })}
-        </Box>
+
+            {/* Кнопка сброса */
+                hasActiveFilters &&
+                renderButton("resetButton", "Reset", () => updateParams(null, null), "error")
+            }
+
+        </>
     );
 };
 

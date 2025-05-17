@@ -13,7 +13,7 @@ import ContentCheckBoxList from "./ContentCheckBoxList";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import FilterDrawerField from "./FilterDrawerField";
 
-const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, selectLists, countProducts, mode, closeDrawer }) => {
+const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, selectLists, mode, closeDrawer }) => {
     const [expanded, setExpanded] = useState(false);
 
     // Создание объекта один раз
@@ -122,12 +122,6 @@ const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, s
     } else {
         return (
             <>
-                <Box display={'flex'} justifyContent={'center'}>
-                    <Typography variant="body1">
-                        знайдено {countProducts} товарів
-                    </Typography>
-                </Box>
-
                 {Object.keys(FILTER_PARAMS).map((field, index) => {
                     const obj = createObj(field); // Создаем obj один раз для каждого поля
                     return (
