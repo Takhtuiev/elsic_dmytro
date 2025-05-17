@@ -13,7 +13,6 @@ const ContentCheckBoxList = ({ field, obj, updateObj }) => {
 
     // Если obj нет или он пустой — показываем скелетоны
     if (!obj || Object.keys(obj).length === 0) {
-        // Отобразим 4 скелетона чекбоксов
         return (
             <FormGroup>
                 {Array.from({ length: 4 }).map((_, idx) => {

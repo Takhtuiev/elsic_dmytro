@@ -20,14 +20,14 @@ function CardUser({ item, setAction }) {
         return (
             <Card sx={{ height: "100%", p: 2 }}>
                 <Grid container spacing={1}>
-                    <Grid item xs={12}>
+                    <Grid size={4}>
                         <Skeleton variant="text" width="60%" height={30} />
                     </Grid>
-                    <Grid item xs={12}>
+                    <Grid size={5}>
                         <Skeleton variant="text" width="80%" />
-                        <Skeleton variant="text" width="80%" />
+                        <Skeleton variant="text" width="70%" />
                     </Grid>
-                    <Grid item xs={12}>
+                    <Grid size={3}>
                         <Skeleton variant="rectangular" width="100%" height={40} />
                     </Grid>
                 </Grid>
