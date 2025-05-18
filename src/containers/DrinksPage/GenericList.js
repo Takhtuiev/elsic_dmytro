@@ -9,10 +9,11 @@ import FiltersAccordion from "../../components/Filter/FiltersAccordion";
 import WithRoleContent from "../../components/MyComponent/WithRoleContent";
 import LoadingSpinner from "../../components/MyComponent/LoadingSpinnerBoard/LoadingSpinner";
 import MyDialog from "../../components/MyComponent/MyDialog";
-import DeleteConfirmationModal from "../../components/ModalWindow/DeleteConfirmationModal";
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 import NotFound from "../NotFoundPage/NotFound";
 import { updateSearchParams } from "../../components/Filter/utils";
+
+const DeleteConfirmationModal = React.lazy(() => import("../../components/ModalWindow/DeleteConfirmationModal"));
 
 function GenericList({
                          useGetPage,
@@ -22,6 +23,7 @@ function GenericList({
                          FILTER_PARAMS,
                          TEXT_COLUMNS,
                          SORT_LIST,
+                         CREATE_NEW_ROLE,
                          CardComponent,
                          CardLineComponent,
                          EditCard
@@ -144,7 +146,7 @@ function GenericList({
                                 )}
 
                         <Grid size={12}>
-                            <WithRoleContent allowedRoles={["PRODUCT_EDIT"]}>
+                            <WithRoleContent allowedRoles={[CREATE_NEW_ROLE]}>
                                 <Box display="flex" justifyContent="flex-end" mb={1}>
                                     <Button
                                         variant="contained"
@@ -177,22 +179,24 @@ function GenericList({
                 </Box>
             </Box>
 
-            {["info", "edit", "copy", "delete", "createNew"].includes(action?.action) && (
-                <Suspense fallback={<LoadingSpinner />}>
-                    {["createNew", "edit", "copy"].includes(action?.action) && (
+            {["edit", "copy", "delete", "createNew"].includes(action?.action) && (
+                <>
+                    {["edit", "copy", "createNew"].includes(action?.action) && (
                         <MyDialog open={!!action} onClose={() => setAction(null)} title="Edit">
                             <EditCard action={action} funcCancel={() => setAction(null)} />
                         </MyDialog>
                     )}
                     {action?.action === "delete" && (
-                        <DeleteConfirmationModal
-                            action={action}
-                            setShowDelete={setAction}
-                            bodyText={`Are you sure you want to delete "${action?.itemName}" with ID ${action?.itemId}?`}
-                            funcDelete={funcDelete}
-                        />
+                        <Suspense fallback={<div>Loading DeleteCard...</div>}>
+                            <DeleteConfirmationModal
+                                action={action}
+                                setShowDelete={setAction}
+                                bodyText={`Are you sure you want to delete "${action?.itemName}" with ID ${action?.itemId}?`}
+                                funcDelete={funcDelete}
+                            />
+                        </Suspense>
                     )}
-                </Suspense>
+                </>
             )}
         </>
     );

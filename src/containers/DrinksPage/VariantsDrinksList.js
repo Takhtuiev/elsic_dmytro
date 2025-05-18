@@ -1,4 +1,4 @@
-import React from "react";
+import React, {Suspense} from "react";
 import {
     useDeleteVariantDrinksMutation,
     useGetLoadEditListsQuery,
@@ -38,14 +38,18 @@ function VariantsDrinksList() {
         <GenericList
             useGetPage={useGetPageVariantsDrinksQuery}
             useGetLists={useGetLoadEditListsQuery}
+            useDeleteMutation={useDeleteVariantDrinksMutation}
             HEAD_PARAMS={HEAD_PARAMS}
             FILTER_PARAMS={FILTER_PARAMS}
             TEXT_COLUMNS={DRINKS_COLUMNS}
             SORT_LIST={SORT_LIST}
-            useDeleteMutation={useDeleteVariantDrinksMutation}
-            CardComponent={CardVariantDrinks}
+            CREATE_NEW_ROLE={"PRODUCT_EDIT"}
+             CardComponent={CardVariantDrinks}
             CardLineComponent={CardLineVariantDrink}
-            EditCard={EditBigCardDrinks}
+            EditCard={(props) => (
+                <Suspense fallback={<div>Loading EditCard...</div>}>
+                    <EditBigCardDrinks {...props} />
+                </Suspense>)}
         />
     )
 }

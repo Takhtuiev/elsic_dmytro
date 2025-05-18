@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {Suspense} from 'react';
 import {useDeleteUserMutation, useGetLoadRoleListQuery, useGetPageUserListQuery} from "../../services/api/userApi";
 import CardUser from "../../components/UserCard/CardUser";
 import {USER_COLUMNS} from "../../CONSTANTS/Constants";
@@ -31,14 +31,17 @@ function UserList() {
         <GenericList
             useGetPage={useGetPageUserListQuery}
             useGetLists={useGetLoadRoleListQuery}
+            useDeleteMutation={useDeleteUserMutation}
             HEAD_PARAMS={HEAD_PARAMS}
             FILTER_PARAMS={FILTER_PARAMS}
             TEXT_COLUMNS={USER_COLUMNS}
             SORT_LIST={SORT_LIST}
-            useDeleteMutation={useDeleteUserMutation}
             CardComponent={CardUser}
             CardLineComponent={CardUser}
-            EditCard={UserEditPropertiesCard}
+            EditCard={(props) => (
+                <Suspense fallback={<div>Loading EditCard...</div>}>
+                    <UserEditPropertiesCard {...props} />
+                </Suspense>)}
         />
     )
 }
