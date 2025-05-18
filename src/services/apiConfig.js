@@ -50,7 +50,7 @@ const refreshJwtToken = async (api, extraOptions) => {
 };
 
 export const baseQueryWithReauth = async (args, api, extraOptions) => {
-    // Прямой refresh-запрос (например, вызван вручную) — не оборачиваем в mutex
+    // Прямой refresh-запрос (например, вызван при запуске страници)
     if (args.url === REFRESH_JWT) {
         return refreshJwtToken(api, extraOptions);
     }
