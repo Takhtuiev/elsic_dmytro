@@ -3,7 +3,7 @@ import { Mutex } from "async-mutex";
 import { API_URL, LOGIN, LOGOUT, REFRESH_JWT } from "../config";
 
 let accessToken = undefined;
-const mutex = new Mutex(); // глобальный мьютекс
+const mutex = new Mutex(); // глобальный мьютекс для защиты refresh
 
 const getPayloadToken = (token) => {
     try {
@@ -30,69 +30,61 @@ const baseQuery = fetchBaseQuery({
 });
 
 const refreshJwtToken = async (api, extraOptions) => {
-    const refreshResult = await baseQuery({
-        url: REFRESH_JWT,
-        method: "POST",
-    }, api, extraOptions);
+    // Запускаем блокировку через mutex, чтобы только один поток делал refresh
+    return await mutex.runExclusive(async () => {
+        const refreshResult = await baseQuery({
+            url: REFRESH_JWT,
+            method: "POST",
+        }, api, extraOptions);
 
-    if (refreshResult.data?.accessToken) {
-        accessToken = refreshResult.data.accessToken;
-        console.log("✅ Token refreshed");
-        return { data: { userDetails: getPayloadToken(accessToken) } };
-    } else {
-        accessToken = null;
-        console.warn("❌ Failed to refresh token:", refreshResult.error || refreshResult);
-        return { error: refreshResult.error || "No accessToken in response" };
-    }
+        if (refreshResult.data?.accessToken) {
+            accessToken = refreshResult.data.accessToken;
+            console.log("✅ Token refreshed");
+            return { data: { userDetails: getPayloadToken(accessToken) } };
+        } else {
+            accessToken = null;
+            console.warn("❌ Failed to refresh token:", refreshResult.error || refreshResult);
+            return { error: refreshResult.error || "No accessToken in response" };
+        }
+    });
 };
 
 export const baseQueryWithReauth = async (args, api, extraOptions) => {
-    // не блокируем refresh-запросы
+    // Прямой refresh-запрос (например, вызван вручную) — не оборачиваем в mutex
     if (args.url === REFRESH_JWT) {
-        return refreshJwtToken(api, extraOptions);
+        return baseQuery(args, api, extraOptions);
     }
-
-    await mutex.waitForUnlock(); // если идёт обновление — ждём
 
     let result = await baseQuery(args, api, extraOptions);
 
+    // Если токен просрочен — пробуем обновить и повторить запрос
     if (result.error?.status === 401 && accessToken) {
-        // если токен просрочен и никто не обновляет — обновляем сами
-        if (!mutex.isLocked()) {
-            const release = await mutex.acquire();
-            try {
-                const refreshResult = await refreshJwtToken(api, extraOptions);
-                if (refreshResult.error) {
-                    return {
-                        error: {
-                            ...result.error,
-                            data: [refreshResult.error.data?.[0], ...(result.error.data || [])],
-                            errorReAuth: true,
-                        },
-                    };
-                }
-            } finally {
-                release(); // обязательно освободить
-            }
-        } else {
-            await mutex.waitForUnlock(); // другой поток уже обновляет — просто ждём
+        const refreshResult = await refreshJwtToken(api, extraOptions);
+
+        if (refreshResult.error) {
+            return {
+                error: {
+                    ...result.error,
+                    data: [refreshResult.error.data?.[0], ...(result.error.data || [])],
+                    errorReAuth: true,
+                },
+            };
         }
 
-        // повторяем запрос с новым токеном
+        // Повторяем исходный запрос после успешного обновления токена
         result = await baseQuery(args, api, extraOptions);
     }
 
-    // логин
+    // Обработка логина — сохраняем токен
     if (args.url === LOGIN && result.data?.accessToken) {
         accessToken = result.data.accessToken;
         result.data = {
             userDetails: getPayloadToken(accessToken),
             ...result.data,
         };
-        return result;
     }
 
-    // логаут
+    // Обработка логаута — сбрасываем токен
     if (args.url === LOGOUT) {
         accessToken = null;
         return { data: "Logout" };
