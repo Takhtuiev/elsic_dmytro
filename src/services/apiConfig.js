@@ -1,8 +1,9 @@
 import { fetchBaseQuery } from "@reduxjs/toolkit/query/react";
+import { Mutex } from "async-mutex";
 import { API_URL, LOGIN, LOGOUT, REFRESH_JWT } from "../config";
 
 let accessToken = undefined;
-let refreshingPromise = null; // Защита от гонки
+const mutex = new Mutex(); // глобальный мьютекс
 
 const getPayloadToken = (token) => {
     try {
@@ -29,60 +30,59 @@ const baseQuery = fetchBaseQuery({
 });
 
 const refreshJwtToken = async (api, extraOptions) => {
-    if (!refreshingPromise) {
-        refreshingPromise = (async () => {
-            const refreshResult = await baseQuery({
-                url: REFRESH_JWT,
-                method: "POST",
-            }, api, extraOptions);
+    const refreshResult = await baseQuery({
+        url: REFRESH_JWT,
+        method: "POST",
+    }, api, extraOptions);
 
-            if (refreshResult.data?.accessToken) {
-                accessToken = refreshResult.data.accessToken;
-                console.log("✅ Token refreshed");
-                return { data: { userDetails: getPayloadToken(accessToken) } };
-            } else {
-                accessToken = null;
-                console.warn("❌ Failed to refresh token:", refreshResult.error || refreshResult);
-                return { error: refreshResult.error || "No accessToken in response" };
-            }
-        })();
-
-        // Сбросим после завершения, независимо от результата
-        refreshingPromise.finally(() => {
-            refreshingPromise = null;
-        });
+    if (refreshResult.data?.accessToken) {
+        accessToken = refreshResult.data.accessToken;
+        console.log("✅ Token refreshed");
+        return { data: { userDetails: getPayloadToken(accessToken) } };
+    } else {
+        accessToken = null;
+        console.warn("❌ Failed to refresh token:", refreshResult.error || refreshResult);
+        return { error: refreshResult.error || "No accessToken in response" };
     }
-
-    return refreshingPromise;
 };
 
 export const baseQueryWithReauth = async (args, api, extraOptions) => {
-    // Отдельно обрабатываем refresh-запрос (важно!)
+    // не блокируем refresh-запросы
     if (args.url === REFRESH_JWT) {
         return refreshJwtToken(api, extraOptions);
     }
 
+    await mutex.waitForUnlock(); // если идёт обновление — ждём
+
     let result = await baseQuery(args, api, extraOptions);
 
-    // Если accessToken просрочен (401), пробуем обновить токен
     if (result.error?.status === 401 && accessToken) {
-        const resultRefresh = await refreshJwtToken(api, extraOptions);
-
-        if (resultRefresh.error) {
-            return {
-                error: {
-                    ...result.error,
-                    data: [resultRefresh.error.data?.[0], ...(result.error.data || [])],
-                    errorReAuth: true,
-                },
-            };
+        // если токен просрочен и никто не обновляет — обновляем сами
+        if (!mutex.isLocked()) {
+            const release = await mutex.acquire();
+            try {
+                const refreshResult = await refreshJwtToken(api, extraOptions);
+                if (refreshResult.error) {
+                    return {
+                        error: {
+                            ...result.error,
+                            data: [refreshResult.error.data?.[0], ...(result.error.data || [])],
+                            errorReAuth: true,
+                        },
+                    };
+                }
+            } finally {
+                release(); // обязательно освободить
+            }
+        } else {
+            await mutex.waitForUnlock(); // другой поток уже обновляет — просто ждём
         }
 
-        // Повторяем исходный запрос уже с новым токеном
-        return await baseQuery(args, api, extraOptions);
+        // повторяем запрос с новым токеном
+        result = await baseQuery(args, api, extraOptions);
     }
 
-    // Обработка логина
+    // логин
     if (args.url === LOGIN && result.data?.accessToken) {
         accessToken = result.data.accessToken;
         result.data = {
@@ -92,7 +92,7 @@ export const baseQueryWithReauth = async (args, api, extraOptions) => {
         return result;
     }
 
-    // Обработка логаута
+    // логаут
     if (args.url === LOGOUT) {
         accessToken = null;
         return { data: "Logout" };
