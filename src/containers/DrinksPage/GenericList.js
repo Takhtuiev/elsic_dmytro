@@ -7,7 +7,6 @@ import ErrorCard from "../../components/ErrorBoard/ErrorCard";
 import FiltersSortViewBar from "../../components/Filter/FiltersSortViewBar";
 import FiltersAccordion from "../../components/Filter/FiltersAccordion";
 import WithRoleContent from "../../components/MyComponent/WithRoleContent";
-import LoadingSpinner from "../../components/MyComponent/LoadingSpinnerBoard/LoadingSpinner";
 import MyDialog from "../../components/MyComponent/MyDialog";
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 import NotFound from "../NotFoundPage/NotFound";
