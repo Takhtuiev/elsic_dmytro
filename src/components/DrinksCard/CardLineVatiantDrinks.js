@@ -1,7 +1,7 @@
 import {
     CardMedia, Divider,
     Link,
-    Rating, Typography
+    Rating, Typography, Skeleton
 } from "@mui/material";
 import React from "react";
 import { API_URL } from "../../config";
@@ -11,7 +11,6 @@ import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {Box} from '@mui/system';
 import { VariantActionsMas } from "./VariantActionsMas";
 import MyCard from "../MyComponent/MyCard";
-import {Skeleton} from "@mui/lab";
 
 function CardLineVariantDrink({ item, setAction }) {
     const navigate = useNavigate();

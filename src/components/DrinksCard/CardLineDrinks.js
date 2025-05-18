@@ -1,7 +1,7 @@
 import {
     CardMedia,
     Divider, Link,
-    Rating, Typography
+    Rating, Typography, Skeleton
 } from "@mui/material";
 import React, {useState} from "react";
 import {useNavigate} from "react-router-dom";
@@ -13,7 +13,6 @@ import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
 import {API_URL} from "../../config";
 import Grid from "@mui/material/Grid2";
-import {Skeleton} from "@mui/lab";
 
 function CardLineDrinks({ item, setAction }) {
 

@@ -1,6 +1,7 @@
 import {
     Card,
     Typography,
+    Skeleton
 } from "@mui/material";
 import React from "react";
 import BlockIcon from '@mui/icons-material/Block';
@@ -12,7 +13,6 @@ import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import Grid from "@mui/material/Grid2";
 import {Box} from "@mui/system";
-import {Skeleton} from "@mui/lab";
 
 function CardUser({ item, setAction }) {
 

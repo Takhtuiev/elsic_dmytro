@@ -1,7 +1,7 @@
 import {
     CardMedia,
     Divider, Link,
-    Rating, Typography,
+    Rating, Typography, Skeleton,
 } from "@mui/material";
 import React, {useState} from "react";
 import { API_URL } from "../../config";
@@ -12,7 +12,6 @@ import {DrinkActionsMas} from "./DrinkActionsMas";
 import {Box} from "@mui/system";
 import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
-import {Skeleton} from "@mui/lab";
 
 function CardDrinks({ item, setAction }) {
     const [varItem, setVarItem] = useState(0);

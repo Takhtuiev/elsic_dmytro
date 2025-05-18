@@ -1,7 +1,6 @@
-import {Checkbox, FormControlLabel, FormGroup, Typography} from "@mui/material";
+import {Checkbox, FormControlLabel, FormGroup, Typography, Skeleton} from "@mui/material";
 import React from "react";
 import {ID_EL_START} from "../../CONSTANTS/Constants";
-import {Skeleton} from "@mui/lab";
 
 const ContentCheckBoxList = ({ field, obj, updateObj }) => {
 

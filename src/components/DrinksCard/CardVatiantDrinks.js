@@ -2,7 +2,8 @@ import {
     CardMedia, Divider,
     Link,
     Rating,
-    Typography
+    Typography,
+    Skeleton
 } from "@mui/material";
 import React from "react";
 import { API_URL } from "../../config";
@@ -12,7 +13,6 @@ import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {VariantActionsMas} from "./VariantActionsMas";
 import {Box} from "@mui/system";
 import MyCard from "../MyComponent/MyCard";
-import {Skeleton} from "@mui/lab";
 
 
 function CardVariantDrink({ item, setAction }) {
