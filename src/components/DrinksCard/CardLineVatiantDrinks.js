@@ -11,11 +11,12 @@ import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {Box} from '@mui/system';
 import { VariantActionsMas } from "./VariantActionsMas";
 import MyCard from "../MyComponent/MyCard";
+import Grid from "@mui/material/Grid2";
 
 function CardLineVariantDrink({ item, setAction }) {
     const navigate = useNavigate();
 
-    if (!item || !item.product) {
+    if (!item) {
         return (
             <MyCard sx={{ alignItems: 'center', gap: 2 }}>
                 <Skeleton variant="rectangular" width={96} height={128} />
@@ -27,27 +28,27 @@ function CardLineVariantDrink({ item, setAction }) {
 
                     <Divider />
 
-                    <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
-                        <Box sx={{ minWidth: "8rem", flexGrow: 1 }}>
-                            <Skeleton variant="text" width="80%" height={20} />
-                            <Skeleton variant="text" width="60%" height={20} />
-                        </Box>
-                        <Box sx={{ minWidth: "8rem", flexGrow: 1 }}>
-                            <Skeleton variant="text" width="90%" height={20} />
-                            <Skeleton variant="text" width="50%" height={20} />
-                            <Skeleton variant="text" width="60%" height={20} />
-                        </Box>
-                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: "5rem" }}>
-                            <Skeleton variant="text" width={60} height={28} />
-                            <Skeleton variant="text" width={40} height={20} />
-                        </Box>
-                    </Box>
+                    <Grid container spacing={2} alignItems="center" justifyContent={"space-between"}>
+                        <Grid container spacing={2} minWidth={"10rem"}>
+                            <Grid>
+                                <Skeleton variant="text" width={80} />
+                                <Skeleton variant="text" width={60} />
+                            </Grid>
+                            <Grid>
+                                <Skeleton variant="text" width={80} />
+                                <Skeleton variant="text" width={40} />
+                                <Skeleton variant="text" width={60} />
+                            </Grid>
+                        </Grid>
+                        <Grid>
+                            <Skeleton variant="text" width={60} />
+                            <Skeleton variant="text" width={30} />
+                        </Grid>
+                    </Grid>
 
                     <Divider />
-
                     <Skeleton variant="text" width="100%" height={20} />
                 </Box>
-                <Skeleton variant="rectangular" width={32} height={64} sx={{ borderRadius: 1 }} />
             </MyCard>
         );
     }
@@ -91,17 +92,9 @@ function CardLineVariantDrink({ item, setAction }) {
                     />
                 </Box>
                 <Divider/>
-                <Box sx={{display: "flex", flexGrow: 1, justifyContent: "space-between", alignItems: "center", gap:1}}>
-                    <Box
-                        sx={{
-                            display: "flex",
-                            flexWrap: "wrap", // Позволяет перенос на новую строку
-                            columnGap: 2, // Отступ между элементами в строку (горизонтальный)
-                            rowGap: 0, // Отступ между строками (вертикальный)
-                            justifyContent: "space-between",
-                        }}
-                    >
-                        <Box sx={{ minWidth: "8rem", flexGrow: 1 }}>
+                <Grid container spacing={2} alignItems="center" justifyContent={"space-between"}>
+                    <Grid container spacing={2} size={"grow"} minWidth={"10rem"}>
+                        <Grid size={{ xs: 12, sm:6 }} sx={{ textAlign: { xs: "left", sm: "right" } }}>
                             <Link
                                 component="button"
                                 variant="body2"
@@ -109,27 +102,27 @@ function CardLineVariantDrink({ item, setAction }) {
                                     e.stopPropagation();
                                     navigate("/brand/" + item.product.brand);
                                 }}
-                                sx={{ textAlign: "left", display: "block" }}
+                                sx={{ textAlign: { xs: "left", sm: "right" } }}
                             >
                                 {item.product.brand}
                             </Link>
                             <Typography variant="body2">{item.product.country}</Typography>
-                        </Box>
+                        </Grid>
 
-                        <Box sx={{ minWidth: "8rem", flexGrow: 1 }}>
+                        <Grid  size={{ xs: 12, sm:6 }}>
                             <Typography variant="body2">{item.product.productType}</Typography>
                             <Typography variant="body2">{item.product.alcohol}%</Typography>
                             <Typography variant="body2">{item.product.expirationDays} днів</Typography>
-                        </Box>
-                    </Box>
+                        </Grid>
+                    </Grid>
 
-                    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center"}}>
+                    <Grid container direction={"column"} alignItems={"center"} >
                         <Typography variant="h5" sx={{ whiteSpace: "nowrap" }}>
                             {item.price.toFixed(2)}
                         </Typography>
                         <Typography variant="body1">грн.</Typography>
-                    </Box>
-                </Box>
+                    </Grid>
+                </Grid>
                 <Divider/>
                 {item.product.description && <ExpandableText text={item.product.description}  lines={1}/>}
             </Box>

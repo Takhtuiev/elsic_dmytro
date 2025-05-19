@@ -55,8 +55,7 @@ const navigate = useNavigate();
                     <Divider />
                     <Skeleton variant="text" width="100%" height={20} />
                 </Box>
-                <Skeleton variant="rectangular" width={32} height={64} sx={{ borderRadius: 1 }} />
-            </MyCard>
+             </MyCard>
         );
     }
 
