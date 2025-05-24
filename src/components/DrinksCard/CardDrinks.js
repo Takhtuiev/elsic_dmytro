@@ -4,7 +4,6 @@ import {
     Rating, Typography, Skeleton,
 } from "@mui/material";
 import React, {useState} from "react";
-import { API_URL } from "../../config";
 import {useNavigate} from "react-router-dom";
 import ExpandableText from "../MyComponent/ExpandableText";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
@@ -12,6 +11,7 @@ import {DrinkActionsMas} from "./DrinkActionsMas";
 import {Box} from "@mui/system";
 import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
+import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 function CardDrinks({ item, setAction }) {
     const [varItem, setVarItem] = useState(0);
@@ -71,11 +71,7 @@ function CardDrinks({ item, setAction }) {
                 {/* Левая половина - изображение */}
                 <CardMedia
                     component="img"
-                    image={
-                        variant.imageUrl
-                            ? `${API_URL}/${variant.imageUrl}?ts=${item.lastUpdated}`
-                            : "/default-image.png"
-                    }
+                    image={getCloudinaryUrl(variant.imageUrl)}
                     alt={item.name}
                     sx={{
                         width: "48%",

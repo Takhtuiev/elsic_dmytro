@@ -4,7 +4,6 @@ import {
     Rating, Typography, Skeleton
 } from "@mui/material";
 import React from "react";
-import { API_URL } from "../../config";
 import { useNavigate } from "react-router-dom";
 import ExpandableText from "../MyComponent/ExpandableText";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
@@ -12,6 +11,7 @@ import {Box} from '@mui/system';
 import { VariantActionsMas } from "./VariantActionsMas";
 import MyCard from "../MyComponent/MyCard";
 import Grid from "@mui/material/Grid2";
+import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 function CardLineVariantDrink({ item, setAction }) {
     const navigate = useNavigate();
@@ -62,7 +62,7 @@ function CardLineVariantDrink({ item, setAction }) {
             {/* Левая половина - изображение */}
             <CardMedia
                 component="img"
-                image={item.imageUrl && API_URL + "/" + item.imageUrl + "?ts=" + item.product.lastUpdated}
+                image={getCloudinaryUrl(item.imageUrl)}
                 alt={`${item.product.name} (${item.volume}л.), ${item.packagingType}`}
                 sx={{
                     height: "8rem",

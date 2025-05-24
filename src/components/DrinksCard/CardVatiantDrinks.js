@@ -6,13 +6,13 @@ import {
     Skeleton
 } from "@mui/material";
 import React from "react";
-import { API_URL } from "../../config";
 import {useNavigate} from "react-router-dom";
 import ExpandableText from "../MyComponent/ExpandableText";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {VariantActionsMas} from "./VariantActionsMas";
 import {Box} from "@mui/system";
 import MyCard from "../MyComponent/MyCard";
+import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 
 function CardVariantDrink({ item, setAction }) {
@@ -80,7 +80,7 @@ function CardVariantDrink({ item, setAction }) {
                 {/* Левая половина - изображение */}
                 <CardMedia
                     component="img"
-                    image={item.imageUrl && API_URL + "/" + item.imageUrl + "?ts=" + item.product.lastUpdated}
+                    image={getCloudinaryUrl(item.imageUrl)}
                     alt={`${item.product.name} (${item.volume}л.), ${item.packagingType}`}
                     sx={{
                         width: "48%",

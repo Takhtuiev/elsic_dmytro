@@ -57,6 +57,7 @@ function BrandDetails() {
                             <EditBrandCard
                                 selectedBrandName={action?.brand.name}
                                 setSelectedItem={setSelectedBrand}
+                                funcCancel={() => setAction(null)}
                             />
                         </MyDialog>
                     )}

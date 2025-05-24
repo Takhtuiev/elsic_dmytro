@@ -5,16 +5,16 @@ import { useState, useCallback } from "react";
 import React from "react";
 import ModalImage from "./ModalImage";
 import MyImageBox from "./MyImageBox";
-import { API_URL } from "../../../config";
 import IconButtonWithTooltip from "./IconButtonWithTooltip";
 import {convertImage} from "./UtilsImage";
+import {getCloudinaryUrl} from "../../../services/Utils/CloudinaryUtils";
 
 
-const ImageUpload = ({ obj, setValue, lastUpdated }) => {
+const ImageUpload = ({ obj, setValue}) => {
     const [openImage, setOpenImage] = useState(false);
 
     // URL изображения
-    const urlImage = obj.value ? (obj.value.startsWith("blob:") ? obj.value : `${API_URL}/${obj.value}?ts=${lastUpdated}`) : "";
+    const urlImage = obj.value ? (obj.value.startsWith("blob:") ? obj.value : getCloudinaryUrl(obj.value)) : "";
 
     // Открытие изображения в модалке
     const showImage = useCallback((src) => setOpenImage(src), []);

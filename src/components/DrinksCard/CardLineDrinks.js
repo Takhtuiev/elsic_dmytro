@@ -11,15 +11,18 @@ import {DrinkActionsMas} from "./DrinkActionsMas";
 import {Box} from "@mui/system";
 import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
-import {API_URL} from "../../config";
 import Grid from "@mui/material/Grid2";
+import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 function CardLineDrinks({ item, setAction }) {
 
 const [varItem, setVarItem] = useState(0);
 const navigate = useNavigate();
 
-    if (!item || !item.variants) {
+    // Безопасное извлечение варианта
+    const variant = item?.variants?.[varItem];
+
+    if (!item || !variant) {
         return (
             <MyCard sx={{ alignItems: 'center', gap: 2 }}>
                 <Skeleton variant="rectangular" width={96} height={128} />
@@ -68,7 +71,7 @@ return (
         {/* Левая половина - изображение */}
         <CardMedia
             component="img"
-            image={item.variants[varItem].imageUrl && API_URL + "/" + item.variants[varItem].imageUrl + '?ts=' + item.lastUpdated}
+            image={getCloudinaryUrl(variant.imageUrl)}
             alt={item.name}
             sx={{
                 height: "8rem",
@@ -141,7 +144,7 @@ return (
                     }}
                 >
                     <Typography variant="h5">
-                        {item.variants[varItem].price.toFixed(2)}
+                        {variant.price.toFixed(2)}
                     </Typography>
                     <Typography variant="body1">грн.</Typography>
                 </Grid>

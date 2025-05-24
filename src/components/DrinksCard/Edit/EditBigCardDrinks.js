@@ -90,11 +90,10 @@ function EditBigCardDrinks({ action, funcCancel }) {
             if (variant.imageUrl && variant.imageUrl.startsWith('blob:')) {
                 try {
                     // Загрузить изображение и добавить его в массив файлов
-                    const nameFile = `variant_${index}.png`
-                    const file = await uploadBlobFile(variant.imageUrl, nameFile);
+                    const file = await uploadBlobFile(variant.imageUrl, `variant_${index}`);
                     if (file) {
                         imageFiles.push(file);
-                        variant.imageUrl = nameFile;  // Меняем imageUrl после загрузки
+                        variant.imageUrl = file.name;  // Меняем imageUrl после загрузки
                     }
                 } catch (error) {
                     console.error("Ошибка загрузки изображения для варианта", index, error);

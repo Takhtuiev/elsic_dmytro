@@ -14,7 +14,7 @@ import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import DeleteConfirmationModal from "../../ModalWindow/DeleteConfirmationModal";
 
 
-function EditBrandCard({ selectedBrandName, setSelectedItem }) {
+function EditBrandCard({ selectedBrandName, setSelectedItem, funcCancel }) {
 
     const { data: brand, error: errorGetProduct, isFetching: loading, reset: resetBrand } = useGetBrandQuery( { name: selectedBrandName}, { skip: !selectedBrandName } );
 
@@ -45,13 +45,13 @@ function EditBrandCard({ selectedBrandName, setSelectedItem }) {
         let result;
         if (editedItem.imageUrl && editedItem.imageUrl.startsWith('blob:')) {
             try {
-                // Загрузить изображение и добавить его в массив файлов
-                const nameFile = `brand_img.png`
-                const imageFile = await uploadBlobFile(editedItem.imageUrl, nameFile);
-                if (imageFile) {
-                    editedItem.imageUrl = nameFile;  // Меняем imageUrl после загрузки
+                const file = await uploadBlobFile(editedItem.imageUrl, `brand_img`);
+                if (file) {
+                    //imageFiles.push(file);
+                    editedItem.imageUrl = file.name;  // Меняем imageUrl после загрузки
                 }
-                result = await updateBrand({newBrand: editedItem, altName: brand?.name, image: imageFile});
+
+                result = await updateBrand({newBrand: editedItem, altName: brand?.name, image: file});
             } catch (error) {
                 console.error("Ошибка загрузки изображения для ", editedItem.name, error);
             }
@@ -62,6 +62,7 @@ function EditBrandCard({ selectedBrandName, setSelectedItem }) {
         if (!result.error) {
             setError(null)
             setSelectedItem(editedItem.name)
+            funcCancel();
         } else {
             setError(filterDrinksErrorKey(brand, result.error.data))
         }

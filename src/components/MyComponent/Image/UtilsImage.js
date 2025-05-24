@@ -42,8 +42,8 @@ export const convertImage = (file) => {
                 // Преобразуем канвас в Blob и возвращаем как файл
                 canvas.toBlob((blob) => {
                     if (blob) {
-                        const compressedFile = new File([blob], file.name.replace(/\.[^.]+$/, ".png"), {
-                            type: 'image/png',
+                        const compressedFile = new File([blob], file.name, {
+                            type: file.type,
                             lastModified: Date.now(),
                         });
                         resolve(compressedFile);

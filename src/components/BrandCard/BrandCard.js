@@ -6,16 +6,11 @@ import React from "react";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {BrandActionsMas} from "./BrandActionsMas";
 import {Box} from "@mui/system";
-import {API_URL} from "../../config";
+import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 function BrandCard({ brand, setAction }) {
 
-
     if (!brand) { return null }
-
-    const src = brand.imageUrl
-        ? API_URL + "/" + brand.imageUrl + '?ts=' + brand.lastUpdated
-        : null;
 
     return (
         <Box display="flex" justifyContent="center">
@@ -29,10 +24,10 @@ function BrandCard({ brand, setAction }) {
                      backgroundColor: theme.palette.background.paper
                  })}
             >
-                {src && (
+                {brand.imageUrl && (
                     <CardMedia
                         component="img"
-                        image={src}
+                        image={getCloudinaryUrl(brand.imageUrl)}
                         alt={brand.name}
                         sx={{
                             m:2,
