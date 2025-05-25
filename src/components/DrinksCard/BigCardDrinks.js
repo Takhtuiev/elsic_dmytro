@@ -1,5 +1,5 @@
 import {
-    CardMedia, Link,
+    CardMedia, Link, Skeleton,
     ToggleButton, ToggleButtonGroup,
     Typography
 } from "@mui/material";
@@ -33,8 +33,23 @@ function BigCardDrinks({ product, setAction }) {
     const [varItem, setVarItem] = useState(findInitialIndex());
     const [viewImage, setViewImage] = useState(null);
 
-    if (!product) { return null; }
-
+    if (!product) {
+        return (
+            <Box display="flex" justifyContent="center">
+                <Box sx={{ width: '100%', maxWidth: 'md', p: 2 }}>
+                    <Skeleton variant="text" height={60} />
+                    <Box display="flex" flexDirection="row" gap={2} mt={2}>
+                        <Skeleton variant="rectangular" width="30%" height={180} />
+                        <Box flex={2} display="flex" flexDirection="column" gap={2}>
+                            <Skeleton variant="text" width="100%" height={30} />
+                            <Skeleton variant="text" width="80%" height={30} />
+                            <Skeleton variant="rectangular" width="100%" height={120} />
+                        </Box>
+                    </Box>
+                </Box>
+            </Box>
+        );
+    }
     function showImage(src) {
         setViewImage(src);
     }
