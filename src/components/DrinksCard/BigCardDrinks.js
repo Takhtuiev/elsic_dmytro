@@ -13,6 +13,7 @@ import {useLocation, useNavigate} from "react-router-dom";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {DrinkActionsMas} from "./DrinkActionsMas";
 import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
+import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 function BigCardDrinks({ product, setAction }) {
 
@@ -64,7 +65,7 @@ function BigCardDrinks({ product, setAction }) {
                         <Rating name="read-only" readOnly precision={0.5} value={product.rating} />
                         <CardMedia
                             component="img"
-                            image={API_URL + "/" + product.variants[varItem].imageUrl + '?ts=' + product.lastUpdated}
+                            image={getCloudinaryUrl(product.variants[varItem].imageUrl)}
                             alt={product.name}
                             onClick={() => showImage(API_URL + "/" + product.variants[varItem].imageUrl)}
                             sx={{
@@ -141,8 +142,10 @@ function BigCardDrinks({ product, setAction }) {
                                 textTransform: 'none',
                             }}
                         >
-                            <Box component="img" sx={{ width: '3rem', height: '3rem', objectFit: 'contain' }}
-                                 src={API_URL + "/" + variant.imageUrl} alt={product.name} />
+                            <Box component="img"
+                                 sx={{ width: '3rem', height: '3rem', objectFit: 'contain' }}
+                                 src={getCloudinaryUrl(variant.imageUrl)}
+                                 alt={product.name} />
                             <span>{variant.packagingType}</span>
                             <span>{variant.volume} л.</span>
                             <span><strong>{variant.price}</strong> грн.</span>
