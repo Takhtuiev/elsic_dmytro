@@ -22,6 +22,7 @@ const baseQuery = fetchBaseQuery({
     baseUrl: API_URL,
     credentials: "include",
     prepareHeaders: (headers) => {
+        console.log(API_URL)
         if (accessToken) {
             headers.set("Authorization", `Bearer ${accessToken}`);
         }
