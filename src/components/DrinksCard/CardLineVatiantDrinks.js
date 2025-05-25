@@ -64,6 +64,7 @@ function CardLineVariantDrink({ item, setAction }) {
                 component="img"
                 image={getCloudinaryUrl(item.imageUrl)}
                 alt={`${item.product.name} (${item.volume}л.), ${item.packagingType}`}
+                loading="lazy"
                 sx={{
                     height: "8rem",
                     width: "6rem",

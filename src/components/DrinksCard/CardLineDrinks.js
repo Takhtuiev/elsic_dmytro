@@ -73,6 +73,7 @@ return (
             component="img"
             image={getCloudinaryUrl(variant.imageUrl)}
             alt={item.name}
+            loading="lazy"
             sx={{
                 height: "8rem",
                 width: "6rem",

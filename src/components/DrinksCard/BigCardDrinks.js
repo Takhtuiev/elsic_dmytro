@@ -161,6 +161,7 @@ function BigCardDrinks({ product, setAction }) {
                                  sx={{ width: '3rem', height: '3rem', objectFit: 'contain' }}
                                  src={getCloudinaryUrl(variant.imageUrl)}
                                  alt={product.name} />
+
                             <span>{variant.packagingType}</span>
                             <span>{variant.volume} л.</span>
                             <span><strong>{variant.price}</strong> грн.</span>

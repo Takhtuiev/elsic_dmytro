@@ -82,6 +82,7 @@ function CardVariantDrink({ item, setAction }) {
                     component="img"
                     image={getCloudinaryUrl(item.imageUrl)}
                     alt={`${item.product.name} (${item.volume}л.), ${item.packagingType}`}
+                    loading="lazy"
                     sx={{
                         width: "48%",
                         height: "auto", // Не растягивает по высоте

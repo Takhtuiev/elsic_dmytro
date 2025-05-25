@@ -73,6 +73,7 @@ function CardDrinks({ item, setAction }) {
                     component="img"
                     image={getCloudinaryUrl(variant.imageUrl)}
                     alt={item.name}
+                    loading="lazy"
                     sx={{
                         width: "48%",
                         height: "auto",
