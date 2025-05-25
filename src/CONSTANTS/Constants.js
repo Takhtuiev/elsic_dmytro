@@ -1,9 +1,8 @@
 
 export const ID_EL_START = 'my-element-'
 
-export const CLOUD_NAME = "dsprli69j"
-
 export const UPLOAD_IMAGE = {maxWidth: 1920, maxHeight: 1080}
+
 export const WATERMARK = null;
 export const FONT_WATERMARK = 'Roboto';
 

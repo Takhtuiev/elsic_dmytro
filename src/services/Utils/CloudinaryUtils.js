@@ -1,5 +1,4 @@
-
-import {CLOUD_NAME} from "../../CONSTANTS/Constants";
+import {CLOUD_NAME} from "../../config";
 
 
 /**
