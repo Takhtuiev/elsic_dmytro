@@ -9,7 +9,7 @@ import FilterAltIcon from '@mui/icons-material/FilterAlt';
 import FiltersAccordion from "./FiltersAccordion";
 import Grid from "@mui/material/Grid2";
 
-function FiltersDrawer({ params, FILTER_PARAMS, TEXT_COLUMNS, updateParams, selectLists }) {
+function FiltersDrawer({ params, FILTER_PARAMS, TEXT_COLUMNS, updateParams, selectLists, minMaxPrice }) {
 
     const [filtersOpen, setFiltersOpen] = useState(false); // Добавлено состояние для отслеживания видимости SortBar
 
@@ -93,6 +93,7 @@ function FiltersDrawer({ params, FILTER_PARAMS, TEXT_COLUMNS, updateParams, sele
                             TEXT_COLUMNS={TEXT_COLUMNS}
                             updateParams={updateParams}
                             selectLists={selectLists}
+                            minMaxPrice={minMaxPrice}
                             mode={'drawer'}
                             closeDrawer={()=>setFiltersOpen(false)}
                         />

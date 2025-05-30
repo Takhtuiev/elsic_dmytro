@@ -52,7 +52,7 @@ function GenericList({
         const currentPage = Number(getPage.data?.number + 1) || 1; // текущая страница (начинается с 1)
 
         // Условие: не на первой и переход не на первую
-        if ( !(currentPage === 1 && newPage === 1) ) {
+        if ( currentPage !== newPage ) {
             updateParams("page", newPage);
             window.scrollTo({ top: 0, behavior: "smooth" });
         }
@@ -108,6 +108,7 @@ function GenericList({
                     updateParams={updateParams}
                     selectLists={getLists.data}
                     sortList={SORT_LIST}
+                    minMaxPrice={getPage.data?.minMaxPrice}
                     view={viewMode}
                     setView={setViewMode}
                     countProducts={getPage.data?.totalElements}
@@ -124,11 +125,11 @@ function GenericList({
                     >
                         <FiltersAccordion
                             params={params}
+                            updateParams={updateParams}
                             FILTER_PARAMS={FILTER_PARAMS}
                             TEXT_COLUMNS={TEXT_COLUMNS}
-                            updateParams={updateParams}
                             selectLists={getLists.data}
-                            countProducts={getPage.data?.totalElements}
+                            minMaxPrice={getPage.data?.minMaxPrice}
                         />
                     </Box>
 

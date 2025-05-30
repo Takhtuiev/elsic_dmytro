@@ -36,7 +36,16 @@ function BigCardDrinks({ product, setAction }) {
     if (!product) {
         return (
             <Box display="flex" justifyContent="center">
-                <Box sx={{ width: '100%', maxWidth: 'md', p: 2 }}>
+                <Box
+                    sx={(theme) => ({
+                        m: 1,
+                        p: 1,
+                        width: "100%",
+                        maxWidth: 'md',
+                        height: "100%",
+                        backgroundColor: theme.palette.background.paper
+                    })}
+                >
                     <Skeleton variant="text" height={60} />
                     <Box display="flex" flexDirection="row" gap={2} mt={2}>
                         <Skeleton variant="rectangular" width="30%" height={180} />

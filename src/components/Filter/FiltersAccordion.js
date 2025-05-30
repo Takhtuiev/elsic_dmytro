@@ -13,7 +13,7 @@ import ContentCheckBoxList from "./ContentCheckBoxList";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import FilterDrawerField from "./FilterDrawerField";
 
-const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, selectLists, mode, closeDrawer }) => {
+const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, selectLists, minMaxPrice, mode, closeDrawer }) => {
     const [expanded, setExpanded] = useState(false);
 
     // Создание объекта один раз
@@ -24,11 +24,10 @@ const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, s
             case 'slider':
                 return {
                     value: selectedArr?.map(Number), // Преобразуем строковые значения в числа
-                    range: selectLists?.minMaxPrice || [0, 0] // Минимум и максимум для слайдера
+                    range: minMaxPrice || [0, 0] // Минимум и максимум для слайдера
                 };
             case 'checkbox':
                 if (!selectLists) return {}; // Если нет selectLists, возвращаем пустой объект
-
                 return selectLists[field].reduce((acc, item) => {
                     acc[item] = selectedArr?.includes(String(item)); // Отмечаем, выбран ли элемент
                     return acc;
@@ -82,7 +81,10 @@ const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, s
                 {Object.keys(FILTER_PARAMS).map((field, index) => {
                     const obj = createObj(field); // Создаем obj один раз для каждого поля
                     return (
-                        <MenuItem key={index} onClick={() => setExpanded(field)} sx={{ p: 1.4 }}>
+                        <MenuItem
+                            key={index}
+                            onClick={() => setExpanded(field)} sx={{ p: 1.4 }}
+                        >
                             <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
                                 <Typography variant="body1" sx={{ flexGrow: 1 }}>
                                     {TEXT_COLUMNS[field]}
