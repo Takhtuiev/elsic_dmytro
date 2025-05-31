@@ -151,10 +151,10 @@ function BigCardDrinks({ product, setAction }) {
                         />
                     </Box>
 
+                    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                     <Table
                         size="small"
                         sx={(theme) => ({
-                            width: 'auto',
                             border: `1px solid ${theme.palette.divider}`,
                             borderRadius: 2,
                             borderCollapse: 'separate',
@@ -162,8 +162,8 @@ function BigCardDrinks({ product, setAction }) {
                             '& td, & th': {
                                 px: 1,
                                 py: 0,
+                                m: 'auto',
                                 borderBottom: 'none',
-                                whiteSpace: 'nowrap', // чтобы текст не переносился
                             },
                         })}
                     >
@@ -244,6 +244,7 @@ function BigCardDrinks({ product, setAction }) {
                             </TableRow>
                         </TableBody>
                     </Table>
+                    </Box>
 
                 </Box>
 
