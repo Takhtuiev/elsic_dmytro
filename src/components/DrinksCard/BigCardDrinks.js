@@ -42,49 +42,41 @@ function BigCardDrinks({ product, setAction }) {
                         p: 1,
                         width: "100%",
                         maxWidth: 'md',
-                        height: "100%",
                         backgroundColor: theme.palette.background.paper,
                         border: `1px solid ${theme.palette.divider}`,
-                        borderRadius: 2
+                        borderRadius: 2,
                     })}
                 >
-                    {/* Название */}
-                    <Box mb={2}>
-                        <Skeleton variant="text" width="60%" height={40} sx={{ mx: 'auto' }} />
-                    </Box>
+                    {/* Заголовок */}
+                    <Skeleton variant="text" width="60%" height={40} sx={{ mx: 'auto', mb: 2 }} />
 
-                    <Box display="flex" flexDirection="row" gap={2}>
-                        {/* Левая часть: рейтинг и картинка */}
+                    {/* Контент: изображение + таблица */}
+                    <Box
+                        display="flex"
+                        sx={{
+                            flexDirection: { xs: 'column', sm: 'row' },
+                            gap: 2,
+                        }}
+                    >
+                        {/* Левая часть: рейтинг + картинка */}
                         <Box display="flex" flexDirection="column" alignItems="center" minWidth="20%" gap={1}>
-                            <Skeleton variant="text" width="60%" height={20} />
-                            <Skeleton variant="rectangular" width="100%" height={190} />
+                            <Skeleton variant="text" width="60%" height={24} />
+                            <Skeleton variant="rectangular" width="100%" height="12rem" />
                         </Box>
 
                         {/* Правая часть: таблица */}
-                        <Box
-                            flex={1}
-                            sx={(theme) => ({
-                                maxWidth: 400,
-                                border: `1px solid ${theme.palette.divider}`,
-                                borderRadius: 2,
-                                overflow: 'hidden'
-                            })}
-                        >
+                        <Box flex={1}>
                             {[...Array(5)].map((_, i) => (
-                                <Box display="flex" flexDirection="row" alignItems="center">
-                                    <Box sx={{ minWidth: 150, p: 1 }}>
-                                        <Skeleton variant="text" width="100%" height={20} />
-                                    </Box>
-                                    <Box sx={{ flex: 1, p: 1 }}>
-                                        <Skeleton variant="text" width= { i === 0 ? "100%" : "60%"} height={20} />
-                                    </Box>
+                                <Box key={i} display="flex" flexDirection="row">
+                                    <Skeleton variant="text" width="40%" height={20} sx={{ px: 1, py: 0 }} />
+                                    <Skeleton variant="text" width="60%" height={20} sx={{ px: 1, py: 0 }} />
                                 </Box>
                             ))}
                         </Box>
                     </Box>
 
                     {/* Описание */}
-                    <Box display="flex" flexDirection="column" gap={1} mt={2}>
+                    <Box mt={2} display="flex" flexDirection="column" gap={1}>
                         <Skeleton variant="text" width="100%" height={20} />
                         <Skeleton variant="text" width="90%" height={20} />
                         <Skeleton variant="text" width="95%" height={20} />
@@ -146,7 +138,7 @@ function BigCardDrinks({ product, setAction }) {
                             component="img"
                             image={getCloudinaryUrl(product.variants[varItem].imageUrl)}
                             alt={product.name}
-                            onClick={() => showImage(API_URL + "/" + product.variants[varItem].imageUrl)}
+                            onClick={() => showImage(getCloudinaryUrl(product.variants[varItem].imageUrl))}
                             sx={{
                                 width: '100%',
                                 maxHeight: '12rem',
@@ -160,19 +152,19 @@ function BigCardDrinks({ product, setAction }) {
                     </Box>
 
                     <Table
-                        size={"small"}
+                        size="small"
                         sx={(theme) => ({
-                            p: 1,
+                            width: 'auto',
                             border: `1px solid ${theme.palette.divider}`,
                             borderRadius: 2,
-                            overflow: 'hidden',
                             borderCollapse: 'separate',
+                            overflow: 'hidden',
                             '& td, & th': {
-                                borderBottom: 'none', // Убираем границы между строками
                                 px: 1,
                                 py: 0,
+                                borderBottom: 'none',
+                                whiteSpace: 'nowrap', // чтобы текст не переносился
                             },
-                            //borderSpacing: '0 8px', // отступы между строками
                         })}
                     >
                         <TableBody>
