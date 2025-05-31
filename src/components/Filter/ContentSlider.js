@@ -1,4 +1,4 @@
-import {Box, Button, Slider, TextField, Typography} from "@mui/material";
+import {Box, Button, Skeleton, Slider, TextField, Typography} from "@mui/material";
 import React, { useState, useEffect } from "react";
 
 
@@ -51,6 +51,17 @@ const ContentSlider = ({ field, obj, updateObj }) => {
             }
         }
     };
+
+    console.log(obj.range)
+    // Пока obj не загружен — рендерим скелетон
+    if (!obj || obj.range[1] === 0) {
+       return (
+            <Box maxWidth="18rem" m={0} p={1}>
+                <Skeleton height={40} sx={{ mb: 2 }} />
+                <Skeleton variant="rectangular" height={30} />
+            </Box>
+        );
+    }
 
     return (
         <Box maxWidth="18rem" m={0} p={1}>

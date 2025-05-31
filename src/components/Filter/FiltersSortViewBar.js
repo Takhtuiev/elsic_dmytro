@@ -51,21 +51,23 @@ const FiltersSortViewBar = ({
             </Grid>
 
             {/* количество найденных */}
-            <Grid  flexShrink={0} >
-                <Typography
-                    variant="body2"
-                    component="span"
-                    sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        py: 0.5,
-                        px: 1,
-                        backgroundColor: theme => theme.palette.background.paper,
-                    }}
-                >
-                    знайдено {countProducts}
-                </Typography>
-            </Grid>
+            {countProducts &&
+                <Grid  flexShrink={0} >
+                    <Typography
+                        variant="body2"
+                        component="span"
+                        sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            py: 0.5,
+                            px: 1,
+                            backgroundColor: theme => theme.palette.background.paper,
+                        }}
+                    >
+                        знайдено {countProducts}
+                    </Typography>
+                </Grid>
+            }
 
             {/* Фильтр (десктоп) */}
             <Grid  sx={{ display: { xs: 'none', md: 'block' } }}>
