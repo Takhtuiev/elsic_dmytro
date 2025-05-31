@@ -33,7 +33,7 @@ function BigCardDrinks({ product, setAction }) {
     const [varItem, setVarItem] = useState(findInitialIndex());
     const [viewImage, setViewImage] = useState(null);
 
-    if (!product) {
+    if (!product || true) {
         return (
             <Box display="flex" justifyContent="center">
                 <Box
@@ -64,18 +64,19 @@ function BigCardDrinks({ product, setAction }) {
                         <Box
                             flex={1}
                             sx={(theme) => ({
+                                maxWidth: 400,
                                 border: `1px solid ${theme.palette.divider}`,
                                 borderRadius: 2,
                                 overflow: 'hidden'
                             })}
                         >
                             {[...Array(5)].map((_, i) => (
-                                <Box key={i} display="flex" flexDirection="row" alignItems="center">
+                                <Box display="flex" flexDirection="row" alignItems="center">
                                     <Box sx={{ minWidth: 150, p: 1 }}>
                                         <Skeleton variant="text" width="100%" height={20} />
                                     </Box>
                                     <Box sx={{ flex: 1, p: 1 }}>
-                                        <Skeleton variant="text" width="80%" height={20} />
+                                        <Skeleton variant="text" width= { i === 0 ? "100%" : "60%"} height={20} />
                                     </Box>
                                 </Box>
                             ))}
