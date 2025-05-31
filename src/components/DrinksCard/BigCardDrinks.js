@@ -33,7 +33,7 @@ function BigCardDrinks({ product, setAction }) {
     const [varItem, setVarItem] = useState(findInitialIndex());
     const [viewImage, setViewImage] = useState(null);
 
-    if (!product || true) {
+    if (!product) {
         return (
             <Box display="flex" justifyContent="center">
                 <Box
