@@ -155,6 +155,8 @@ function BigCardDrinks({ product, setAction }) {
                     <Table
                         size="small"
                         sx={(theme) => ({
+                            width: 'auto',
+                            p: 1,
                             border: `1px solid ${theme.palette.divider}`,
                             borderRadius: 2,
                             borderCollapse: 'separate',
