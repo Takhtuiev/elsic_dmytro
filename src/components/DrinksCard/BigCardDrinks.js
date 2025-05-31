@@ -1,5 +1,5 @@
 import {
-    CardMedia, Link, Skeleton,
+    CardMedia, Link, Skeleton, Table, TableBody, TableCell, TableRow,
     ToggleButton, ToggleButtonGroup,
     Typography
 } from "@mui/material";
@@ -133,7 +133,13 @@ function BigCardDrinks({ product, setAction }) {
                     </Typography>
                 </Box>
 
-                <Box display="flex" flexDirection={'row'} gap={2}>
+                <Box
+                    display="flex"
+                    sx={{
+                        flexDirection: { xs: 'column', sm: 'row' },
+                        gap: 1,
+                    }}
+                >
                     <Box display="flex" flexDirection="column" alignItems="center" minWidth={'20%'}>
                         <Rating name="read-only" readOnly precision={0.5} value={product.rating} />
                         <CardMedia
@@ -153,75 +159,100 @@ function BigCardDrinks({ product, setAction }) {
                         />
                     </Box>
 
-                    <Box
-                        display="flex"
-                        flexDirection="column"
+                    <Table
+                        size={"small"}
                         sx={(theme) => ({
+                            p: 1,
                             border: `1px solid ${theme.palette.divider}`,
                             borderRadius: 2,
-                            overflow: 'hidden'
+                            overflow: 'hidden',
+                            borderCollapse: 'separate',
+                            '& td, & th': {
+                                borderBottom: 'none', // Убираем границы между строками
+                                px: 1,
+                                py: 0,
+                            },
+                            //borderSpacing: '0 8px', // отступы между строками
                         })}
                     >
-                        {/* Строка 1 */}
-                        <Box display="flex" flexDirection="row" alignItems="center">
-                            <Box sx={{ minWidth: 150, p: 1, textAlign: 'right'}}>
-                                <Typography variant="body2" color="text.secondary">{DRINKS_COLUMNS['brand']}</Typography>
-                            </Box>
-                            <Box sx={{ flex: 1, p: 1 }}>
-                                <Link
-                                    component="button"
-                                    variant="body1"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        navigate("/brand/" + product.brand);
-                                    }}
-                                    sx={{ textAlign: 'left'}}
+                        <TableBody>
+                            {/* Строка 1 */}
+                            <TableRow>
+                                <TableCell
+                                    sx={{ textAlign: 'right'}}
+                                    component="th"
+                                    scope="row"
+                                    //variant="head"
                                 >
-                                    {product.brand}
-                                </Link>
-                            </Box>
-                        </Box>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {DRINKS_COLUMNS['brand']}
+                                    </Typography>
+                                </TableCell>
+                                <TableCell>
+                                    <Link
+                                        component="button"
+                                        variant="body1"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigate('/brand/' + product.brand);
+                                        }}
+                                        sx={{ textAlign: 'left' }}
+                                    >
+                                        {product.brand}
+                                    </Link>
+                                </TableCell>
+                            </TableRow>
 
-                        {/* Строка 2 */}
-                        <Box display="flex" flexDirection="row" alignItems="center">
-                            <Box sx={{ minWidth: 150, p: 1, textAlign: 'right'}}>
-                                <Typography variant="body2" color="text.secondary">{DRINKS_COLUMNS['country']}</Typography>
-                            </Box>
-                            <Box sx={{ flex: 1, p: 1 }}>
-                                <Typography variant="body1">{product.country}</Typography>
-                            </Box>
-                        </Box>
+                            {/* Строка 2 */}
+                            <TableRow>
+                                <TableCell sx={{ textAlign: 'right'}}>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {DRINKS_COLUMNS['country']}
+                                    </Typography>
+                                </TableCell>
+                                <TableCell>
+                                    <Typography variant="body1">{product.country}</Typography>
+                                </TableCell>
+                            </TableRow>
 
-                        {/* Строка 3 */}
-                        <Box display="flex" flexDirection="row" alignItems="center">
-                            <Box sx={{ minWidth: 150, p: 1, textAlign: 'right'}}>
-                                <Typography variant="body2" color="text.secondary">{DRINKS_COLUMNS['productType']}</Typography>
-                            </Box>
-                            <Box sx={{ flex: 1, p: 1 }}>
-                                <Typography variant="body1">{product.productType}</Typography>
-                            </Box>
-                        </Box>
+                            {/* Строка 3 */}
+                            <TableRow>
+                                <TableCell sx={{ textAlign: 'right'}}>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {DRINKS_COLUMNS['productType']}
+                                    </Typography>
+                                </TableCell>
+                                <TableCell>
+                                    <Typography variant="body1">{product.productType}</Typography>
+                                </TableCell>
+                            </TableRow>
 
-                        {/* Строка 4 */}
-                        <Box display="flex" flexDirection="row" alignItems="center">
-                            <Box sx={{ minWidth: 150, p: 1, textAlign: 'right'}}>
-                                <Typography variant="body2" color="text.secondary">{DRINKS_COLUMNS['alcohol']}</Typography>
-                            </Box>
-                            <Box sx={{ flex: 1, p: 1 }}>
-                                <Typography variant="body1">{product.alcohol} %</Typography>
-                            </Box>
-                        </Box>
+                            {/* Строка 4 */}
+                            <TableRow>
+                                <TableCell sx={{ textAlign: 'right'}}>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {DRINKS_COLUMNS['alcohol']}
+                                    </Typography>
+                                </TableCell>
+                                <TableCell>
+                                    <Typography variant="body1">{product.alcohol} %</Typography>
+                                </TableCell>
+                            </TableRow>
 
-                        {/* Строка 5 */}
-                        <Box display="flex" flexDirection="row" alignItems="center">
-                            <Box sx={{ minWidth: 150, p: 1, textAlign: 'right'}}>
-                                <Typography variant="body2" color="text.secondary">{DRINKS_COLUMNS['expirationDays']}</Typography>
-                            </Box>
-                            <Box sx={{ flex: 1, p: 1 }}>
-                                <Typography variant="body1">{product.expirationDays} днів</Typography>
-                            </Box>
-                        </Box>
-                    </Box>
+                            {/* Строка 5 */}
+                            <TableRow>
+                                <TableCell sx={{ textAlign: 'right'}}>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {DRINKS_COLUMNS['expirationDays']}
+                                    </Typography>
+                                </TableCell>
+                                <TableCell>
+                                    <Typography variant="body1">{product.expirationDays} днів</Typography>
+                                </TableCell>
+                            </TableRow>
+                        </TableBody>
+                    </Table>
+
                 </Box>
 
                 <Box flex={2} display="flex" flexDirection="column" gap={1} p={2}>
