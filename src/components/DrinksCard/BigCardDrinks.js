@@ -104,45 +104,80 @@ function BigCardDrinks({ product, setAction }) {
                         />
                     </Box>
 
-                    <Box flex={2} display="flex" flexDirection="column" gap={2}>
-                        <Typography variant="body1">{product.description}</Typography>
-                        <Typography variant='body2'>{product.specifications}</Typography>
-
-                        <Box display={'flex'} flexDirection={'row'} gap={2}>
-                            <Box display={'flex'}
-                                 flexDirection={'column'}
-                                 alignItems="flex-end"
-                                 sx={(theme) => ({ color: theme.palette.text.secondary })}
-                            >
-                                <Typography variant='body2'>{DRINKS_COLUMNS['brand'].text}</Typography>
-                                <Typography variant='body2'>{DRINKS_COLUMNS['country'].text}</Typography>
-                                <Typography variant='body2'>{DRINKS_COLUMNS['productType'].text}</Typography>
-                                <Typography variant='body2'>{DRINKS_COLUMNS['alcohol'].text}</Typography>
-                                <Typography variant='body2'>{DRINKS_COLUMNS['expirationDays'].text}</Typography>
+                    <Box
+                        display="flex"
+                        flexDirection="column"
+                        sx={(theme) => ({
+                            border: `1px solid ${theme.palette.divider}`,
+                            borderRadius: 2,
+                            overflow: 'hidden'
+                        })}
+                    >
+                        {/* Строка 1 */}
+                        <Box display="flex" flexDirection="row" alignItems="center">
+                            <Box sx={{ minWidth: 150, p: 1, textAlign: 'right'}}>
+                                <Typography variant="body2" color="text.secondary">{DRINKS_COLUMNS['brand']}</Typography>
                             </Box>
-                            <Box display={'flex'} flexDirection={'column'}>
+                            <Box sx={{ flex: 1, p: 1 }}>
                                 <Link
                                     component="button"
-                                    variant="body2"
+                                    variant="body1"
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         navigate("/brand/" + product.brand);
                                     }}
-                                    sx={{
-                                        textAlign: "left",
-                                        display: "block", // Позволяет тексту занимать всю ширину контейнера
-                                    }}
+                                    sx={{ textAlign: 'left'}}
                                 >
                                     {product.brand}
                                 </Link>
-                                <Typography variant="body2">{product['country']}</Typography>
-                                <Typography variant="body2">{product['productType']}</Typography>
-                                <Typography variant="body2">{product['alcohol']} %</Typography>
-                                <Typography variant="body2">{product['expirationDays']} днів</Typography>
                             </Box>
+                        </Box>
 
+                        {/* Строка 2 */}
+                        <Box display="flex" flexDirection="row" alignItems="center">
+                            <Box sx={{ minWidth: 150, p: 1, textAlign: 'right'}}>
+                                <Typography variant="body2" color="text.secondary">{DRINKS_COLUMNS['country']}</Typography>
+                            </Box>
+                            <Box sx={{ flex: 1, p: 1 }}>
+                                <Typography variant="body1">{product.country}</Typography>
+                            </Box>
+                        </Box>
+
+                        {/* Строка 3 */}
+                        <Box display="flex" flexDirection="row" alignItems="center">
+                            <Box sx={{ minWidth: 150, p: 1, textAlign: 'right'}}>
+                                <Typography variant="body2" color="text.secondary">{DRINKS_COLUMNS['productType']}</Typography>
+                            </Box>
+                            <Box sx={{ flex: 1, p: 1 }}>
+                                <Typography variant="body1">{product.productType}</Typography>
+                            </Box>
+                        </Box>
+
+                        {/* Строка 4 */}
+                        <Box display="flex" flexDirection="row" alignItems="center">
+                            <Box sx={{ minWidth: 150, p: 1, textAlign: 'right'}}>
+                                <Typography variant="body2" color="text.secondary">{DRINKS_COLUMNS['alcohol']}</Typography>
+                            </Box>
+                            <Box sx={{ flex: 1, p: 1 }}>
+                                <Typography variant="body1">{product.alcohol} %</Typography>
+                            </Box>
+                        </Box>
+
+                        {/* Строка 5 */}
+                        <Box display="flex" flexDirection="row" alignItems="center">
+                            <Box sx={{ minWidth: 150, p: 1, textAlign: 'right'}}>
+                                <Typography variant="body2" color="text.secondary">{DRINKS_COLUMNS['expirationDays']}</Typography>
+                            </Box>
+                            <Box sx={{ flex: 1, p: 1 }}>
+                                <Typography variant="body1">{product.expirationDays} днів</Typography>
+                            </Box>
                         </Box>
                     </Box>
+                </Box>
+
+                <Box flex={2} display="flex" flexDirection="column" gap={1} p={2}>
+                    <Typography variant="body1">{product.description}</Typography>
+                    <Typography variant='body1'>{product.specifications}</Typography>
                 </Box>
 
                 <ToggleButtonGroup

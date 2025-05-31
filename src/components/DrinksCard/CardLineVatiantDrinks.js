@@ -75,26 +75,15 @@ function CardLineVariantDrink({ item, setAction }) {
             />
             <Box sx={{ display: "flex", flexDirection: "column", justifyContent: "space-between", width: "100%", height: "100%"}} >
                 <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
-                    <Box
-                        sx={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            alignItems: "baseline", // 🔧 Выровнять по базовой линии шрифта
-                            whiteSpace: "normal",
-                            wordBreak: "break-word",
-                        }}                  >
-                        <Typography
-                            variant="h6"
-                            component="span"
-                            sx={{ display: "inline-block", mr: 0.5 }}
-                        >
+                    <Box sx={{ display: "inline", whiteSpace: "normal", wordBreak: "break-word" }}>
+                        <Typography variant="h6" component="span">
                             {item.product.name}
-                        </Typography>
+                        </Typography>{" "}
                         <Typography
                             variant="body2"
                             component="span"
                             color="text.secondary"
-                            sx={{ display: "inline-block" }}
+                            sx={{ whiteSpace: "nowrap" }}
                         >
                             ({item.volume}л.), {item.packagingType}
                         </Typography>
