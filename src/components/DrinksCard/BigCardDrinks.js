@@ -43,22 +43,70 @@ function BigCardDrinks({ product, setAction }) {
                         width: "100%",
                         maxWidth: 'md',
                         height: "100%",
-                        backgroundColor: theme.palette.background.paper
+                        backgroundColor: theme.palette.background.paper,
+                        border: `1px solid ${theme.palette.divider}`,
+                        borderRadius: 2
                     })}
                 >
-                    <Skeleton variant="text" height={60} />
-                    <Box display="flex" flexDirection="row" gap={2} mt={2}>
-                        <Skeleton variant="rectangular" width="30%" height={180} />
-                        <Box flex={2} display="flex" flexDirection="column" gap={2}>
-                            <Skeleton variant="text" width="100%" height={30} />
-                            <Skeleton variant="text" width="80%" height={30} />
-                            <Skeleton variant="rectangular" width="100%" height={120} />
+                    {/* Название */}
+                    <Box mb={2}>
+                        <Skeleton variant="text" width="60%" height={40} sx={{ mx: 'auto' }} />
+                    </Box>
+
+                    <Box display="flex" flexDirection="row" gap={2}>
+                        {/* Левая часть: рейтинг и картинка */}
+                        <Box display="flex" flexDirection="column" alignItems="center" minWidth="20%" gap={1}>
+                            <Skeleton variant="text" width="60%" height={20} />
+                            <Skeleton variant="rectangular" width="100%" height={190} />
                         </Box>
+
+                        {/* Правая часть: таблица */}
+                        <Box
+                            flex={1}
+                            sx={(theme) => ({
+                                border: `1px solid ${theme.palette.divider}`,
+                                borderRadius: 2,
+                                overflow: 'hidden'
+                            })}
+                        >
+                            {[...Array(5)].map((_, i) => (
+                                <Box key={i} display="flex" flexDirection="row" alignItems="center">
+                                    <Box sx={{ minWidth: 150, p: 1 }}>
+                                        <Skeleton variant="text" width="100%" height={20} />
+                                    </Box>
+                                    <Box sx={{ flex: 1, p: 1 }}>
+                                        <Skeleton variant="text" width="80%" height={20} />
+                                    </Box>
+                                </Box>
+                            ))}
+                        </Box>
+                    </Box>
+
+                    {/* Описание */}
+                    <Box display="flex" flexDirection="column" gap={1} mt={2}>
+                        <Skeleton variant="text" width="100%" height={20} />
+                        <Skeleton variant="text" width="90%" height={20} />
+                        <Skeleton variant="text" width="95%" height={20} />
+                    </Box>
+
+                    {/* Переключатели вариантов */}
+                    <Box mt={2}>
+                        {[...Array(2)].map((_, i) => (
+                            <Skeleton
+                                key={i}
+                                variant="rectangular"
+                                width="100%"
+                                height={50}
+                                sx={{ mb: 1 }}
+                            />
+                        ))}
                     </Box>
                 </Box>
             </Box>
         );
     }
+
+
     function showImage(src) {
         setViewImage(src);
     }
@@ -204,8 +252,8 @@ function BigCardDrinks({ product, setAction }) {
                             <Box component="img"
                                  sx={{ width: '3rem', height: '3rem', objectFit: 'contain' }}
                                  src={getCloudinaryUrl(variant.imageUrl)}
-                                 alt={product.name} />
-
+                                 alt={product.name}
+                            />
                             <span>{variant.packagingType}</span>
                             <span>{variant.volume} л.</span>
                             <span><strong>{variant.price}</strong> грн.</span>
