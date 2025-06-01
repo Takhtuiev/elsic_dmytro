@@ -1,8 +1,10 @@
 import React from "react";
 import { Dialog, DialogContent, DialogTitle, IconButton } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import {useMediaQuery, useTheme} from "@mui/system";
 
 function MyDialog({ open, onClose, title, children, maxWidth = "md", fullWidth}) {
+
 
     const handleClose = (event, reason) => {
         if (reason && reason === "backdropClick") return;
@@ -18,6 +20,7 @@ function MyDialog({ open, onClose, title, children, maxWidth = "md", fullWidth})
             onClose={handleClose}
             scroll="body"
             aria-labelledby="custom-dialog-title"
+            fullScreen={useMediaQuery(useTheme().breakpoints.down('sm'))}
         >
             <DialogTitle id="custom-dialog-title">
                 {title}
