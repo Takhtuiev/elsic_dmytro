@@ -62,7 +62,9 @@ function EditBrandCard({ selectedBrandName, setSelectedItem, funcCancel }) {
         if (!result.error) {
             setError(null)
             setSelectedItem(editedItem.name)
-            funcCancel();
+            if (funcCancel) {
+                funcCancel();
+            }
         } else {
             setError(filterDrinksErrorKey(brand, result.error.data))
         }
