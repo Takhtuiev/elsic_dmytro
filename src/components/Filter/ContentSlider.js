@@ -52,8 +52,9 @@ const ContentSlider = ({ field, obj, updateObj }) => {
         }
     };
 
+    console.log(obj.range)
     // Пока obj не загружен — рендерим скелетон
-    if (!obj || obj.range[1] === 0) {
+    if (!obj || obj.range[0] === undefined) {
        return (
             <Box maxWidth="18rem" m={0} p={1}>
                 <Skeleton height={40} sx={{ mb: 2 }} />
@@ -71,7 +72,7 @@ const ContentSlider = ({ field, obj, updateObj }) => {
                         type="number"
                         label="Min"
                         size="small"
-                        value={priceRange[0]}
+                        value={priceRange[0] || 0}
                         onChange={handleMinInputChange}
                         onBlur={handleInputBlur}
                         sx={textFieldStyles}
@@ -82,7 +83,7 @@ const ContentSlider = ({ field, obj, updateObj }) => {
                         type="number"
                         label="Max"
                         size="small"
-                        value={priceRange[1]}
+                        value={priceRange[1] || 0}
                         onChange={handleMaxInputChange}
                         onBlur={handleInputBlur}
                         sx={textFieldStyles}

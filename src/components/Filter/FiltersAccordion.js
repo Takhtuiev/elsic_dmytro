@@ -24,7 +24,7 @@ const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, s
             case 'slider':
                 return {
                     value: selectedArr?.map(Number), // Преобразуем строковые значения в числа
-                    range: minMaxPrice || [0, 0] // Минимум и максимум для слайдера
+                    range: minMaxPrice || [undefined, undefined] // Минимум и максимум для слайдера
                 };
             case 'checkbox':
                 if (!selectLists) return {}; // Если нет selectLists, возвращаем пустой объект
@@ -47,7 +47,7 @@ const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, s
                 const selected = Object.values(obj).filter(Boolean).length;
                 return `${selected}/${total}`;
             case 'slider': {
-                const [min, max] = obj.value || [0, 0];
+                const [min, max] = obj.value || [undefined, undefined];
                 return params[field] !== obj[field] ? `${min} - ${max}` : "";
             }
             default:
