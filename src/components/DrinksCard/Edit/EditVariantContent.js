@@ -39,7 +39,7 @@ function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewV
             <Grid  container size={'grow'} direction="column" spacing={1} >
                 <Grid  container spacing={1}>
 
-                    <Grid  size={{ xs:6, md:3 }}>
+                    <Grid  size={{ xs:12, sm:6, md:3 }}>
                         <MySelect
                             obj={createObj('packagingType', index)}
                             setValue={updateVariant}
@@ -47,7 +47,7 @@ function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewV
                             editOptions={dialogEditOptions}
                         />
                     </Grid>
-                    <Grid  size={{ xs:6, md:3 }}>
+                    <Grid  size={{ xs:12, sm:6, md:3 }}>
                         <MyTextField
                             obj={createObj('volume', index)}
                             setValue={updateVariant}
@@ -55,7 +55,7 @@ function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewV
                             type={'number'}
                         />
                     </Grid>
-                    <Grid  size={{ xs:6, md:3 }}>
+                    <Grid  size={{ xs:12, sm:6, md:3 }}>
                         <MyTextField
                             obj={createObj('price', index)}
                             setValue={updateVariant}
@@ -63,7 +63,7 @@ function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewV
                             sx={{minWidth: '100%'}}
                         />
                     </Grid>
-                    <Grid  size={{ xs:6, md:3 }}>
+                    <Grid  size={{ xs:12, sm:6, md:3 }}>
                         <MyTextField
                             obj={createObj('stockQuantity', index)}
                             setValue={updateVariant}
