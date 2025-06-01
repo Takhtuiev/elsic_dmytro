@@ -29,7 +29,7 @@ const FiltersSortViewBar = ({
     };
 
     return (
-        <Grid container size={12} spacing={2} alignItems="flex-end"
+        <Grid container size={12} spacing={2} alignItems="flex-end" width={'100%'}
               sx={{
                   my: 1,
                   flexWrap: {

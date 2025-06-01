@@ -86,7 +86,7 @@ function GenericList({
             };
 
         return viewMode === "module" ? (
-            <Grid key={resolvedItem?.id || index} size={{xs:6, sm:4, md:4, lg:3 }}>
+            <Grid key={resolvedItem?.id || index} size={{xs:12, sm:4, md:4, lg:3 }}>
                 <CardComponent item={resolvedItem} setAction={setAction} />
             </Grid>
         ) : (
@@ -100,7 +100,8 @@ function GenericList({
         <>
             <TopLinearLoading active={getPage.isFetching || getLists.isFetching} />
 
-            <Box width="100%" display="flex" flexDirection="column" p={1}>
+            <Box width="100%" display="flex" flexDirection="column" alignItems="center" p={1}>
+
                 <FiltersSortViewBar
                     params={params}
                     FILTER_PARAMS={FILTER_PARAMS}
@@ -114,7 +115,7 @@ function GenericList({
                     countProducts={getPage.data?.totalElements}
                 />
 
-                <Box display="flex" flexDirection="row" gap={1}>
+                <Box display="flex" flexDirection="row" gap={1} width={"100%"}>
                     {/* Filter panel for larger screens */}
                     <Box
                         sx={{
@@ -133,7 +134,7 @@ function GenericList({
                         />
                     </Box>
 
-                    <Grid container spacing={1} justifyContent="center" width="100%" height="100%">
+                    <Grid container spacing={1} justifyContent="center" height={"100%"} width={"100%"}>
                         {getPage.isFetching
                             ? Array.from({ length: 12 }).map(renderCard)
                             : getPage.data?.content.length > 0
