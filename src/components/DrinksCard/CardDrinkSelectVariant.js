@@ -1,54 +1,84 @@
-import {Tab, Tabs} from "@mui/material";
-import {Box} from "@mui/system";
 import React from "react";
+import { ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { Box } from "@mui/system";
 
-function CardDrinkSelectVariant({ product, selectedVariant, setSelectedVariant }) {
-
+function CardDrinkSelectVariant({
+                                    variants,
+                                    selectedVariant,
+                                    setSelectedVariant,
+                                    displayFields,
+                                    formatFieldValue
+                                }) {
+    const handleChange = (event, newIndex) => {
+        if (newIndex !== null) {
+            event.stopPropagation();
+            setSelectedVariant(newIndex);
+        }
+    };
 
     return (
-        <Tabs
-            value={selectedVariant}
-            onChange={(event, newIndex) => {
-                event.stopPropagation();
-                setSelectedVariant(newIndex);
-            }}
+        <ToggleButtonGroup
             orientation="vertical"
-            variant="scrollable"
-            slotProps={{ indicator: { style: { left: 0, right: "auto", } } }}
+            exclusive
+            value={selectedVariant}
+            onChange={handleChange}
+            fullWidth
+            sx={{
+                '& .MuiToggleButton-root': {
+                    justifyContent: "start",
+                    textTransform: "none",
+                    px: 1,
+                    py: 0.5,
+                    borderRadius: 1,
+                    border: "1px solid",
+                    borderColor: "divider",
+                    '&.Mui-selected': {
+                        backgroundColor: 'action.selected',
+                        fontWeight: "bold",
+                    },
+                    '&:hover': {
+                        backgroundColor: "action.hover",
+                    },
+                },
+                gap: 0.5,
+            }}
         >
-            {product.variants.map((variant, index) => (
-                <Tab
-                    key={index}
-                    label={
-                        <Box
-                            sx={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                width: "100%",
-                                gap: 1,
-                                whiteSpace: "nowrap", // ❗ Запрещает перенос текста
-                            }}                        >
-                            <span>{`${variant.packagingType}`}</span>
-                            <span>{`${variant.volume} л.`}</span>
-                        </Box>
-                    }
-                    sx={{
-                        minHeight: "1.4rem", // Минимальная высота строки
-                        padding: "0 0.5rem", // Уменьшаем отступы
-                        textTransform: "none",
-                        "&:hover:not(.Mui-selected)": {
-                            backgroundColor: "action.hover", // Цвет фона при наведении, если элемент не выбран
-                        },
-                        "&.Mui-selected": {
-                            fontWeight: "bold",
-                            color: "primary.main",
-                        },
-                    }}
-                />
+            {variants.map((variant, index) => (
+                <ToggleButton key={index} value={index}>
+                    <Box
+                        sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            width: "100%",
+                            whiteSpace: "nowrap",
+                            gap: 1,
+                        }}
+                    >
+                        {displayFields.map((field, fieldIndex) => (
+                            <Box
+                                key={fieldIndex}
+                                sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 0.5,
+                                }}
+                            >
+                                {formatFieldValue
+                                    ? (() => {
+                                        const content = formatFieldValue(field, variant[field]);
+                                        return (typeof content === "string" || typeof content === "number")
+                                            ? <Typography variant="caption">{content}</Typography>
+                                            : content;
+                                    })()
+                                    : <Typography variant="caption">{variant[field]}</Typography>}
+                            </Box>
+                        ))}
+                    </Box>
+                </ToggleButton>
             ))}
-        </Tabs>
-
-    )
+        </ToggleButtonGroup>
+    );
 }
 
 export default CardDrinkSelectVariant;

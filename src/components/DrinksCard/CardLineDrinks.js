@@ -22,6 +22,11 @@ const navigate = useNavigate();
     // Безопасное извлечение варианта
     const variant = item?.variants?.[varItem];
 
+    const onClick = () => {
+        navigate(`/drinksDetails/${item.id}?variant=${variant.id}`);
+    };
+
+
     if (!item || !variant) {
         return (
             <MyCard sx={{ alignItems: 'center', gap: 2 }}>
@@ -64,7 +69,7 @@ const navigate = useNavigate();
 
 return (
     <MyCard
-        onClick={() => { navigate("/drinksDetails/" + item.id)}}
+        onClick={onClick}
         sx={{alignItems: 'center'}}
     >
 

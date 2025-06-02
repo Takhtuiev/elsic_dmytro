@@ -20,6 +20,11 @@ function CardDrinks({ item, setAction }) {
     // Безопасное извлечение варианта
     const variant = item?.variants?.[varItem];
 
+    const onClick = () => {
+        navigate(`/drinksDetails/${item.id}?variant=${variant.id}`);
+    };
+
+
 // Если нет данных — показываем скелетон
     if (!item || !variant) {
         return (
@@ -57,7 +62,7 @@ function CardDrinks({ item, setAction }) {
 
     return (
         <MyCard
-            onClick={() => { navigate("/drinksDetails/" + item.id )}}
+            onClick={onClick}
             sx={{flexDirection: 'column'}}
         >
             <Box sx={{ display: "flex", flexDirection: "column", alignItems: 'center' }}>
@@ -113,12 +118,21 @@ function CardDrinks({ item, setAction }) {
                 </Box>
             </Box>
 
-            <Divider/>
-
             <CardDrinkSelectVariant
-                product={item}
+                variants={item.variants}
                 selectedVariant={varItem}
                 setSelectedVariant={setVarItem}
+                displayFields={["packagingType", "volume", "price"]}
+                formatFieldValue={(field, value) => {
+                    switch (field) {
+                        case "volume":
+                            return `${value} л`;
+                        case "price":
+                            return `${value} грн`;
+                        default:
+                            return value;
+                    }
+                }}
             />
 
             <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}>

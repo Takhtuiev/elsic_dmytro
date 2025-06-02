@@ -4,7 +4,6 @@ import {
     Typography
 } from "@mui/material";
 import React, {useState} from "react";
-import { API_URL } from "../../config";
 import { Rating } from '@mui/material';
 import ModalImage from "../MyComponent/Image/ModalImage";
 import {Box} from "@mui/system";
@@ -14,6 +13,7 @@ import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {DrinkActionsMas} from "./DrinkActionsMas";
 import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
+import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 
 function BigCardDrinks({ product, setAction }) {
 
@@ -21,16 +21,16 @@ function BigCardDrinks({ product, setAction }) {
     const navigate = useNavigate();
 
     const queryParams = new URLSearchParams(location.search);
-    const findInitialIndex = () => {
+    const findVariantIndex = () => {
         if (product){
-            const variantId = parseInt(queryParams.get('variantId'));
+            const variantId = parseInt(queryParams.get('variant'));
             const varIndex = product.variants.findIndex(variant => variant.id === variantId);
             return varIndex !== -1 ? varIndex : 0;
         }
         return 0;
    };
 
-    const [varItem, setVarItem] = useState(findInitialIndex());
+    const [variantIndex, setVariantIndex] = useState(findVariantIndex());
     const [viewImage, setViewImage] = useState(null);
 
     if (!product) {
@@ -136,9 +136,9 @@ function BigCardDrinks({ product, setAction }) {
                         <Rating name="read-only" readOnly precision={0.5} value={product.rating} />
                         <CardMedia
                             component="img"
-                            image={getCloudinaryUrl(product.variants[varItem].imageUrl)}
+                            image={getCloudinaryUrl(product.variants[variantIndex].imageUrl)}
                             alt={product.name}
-                            onClick={() => showImage(getCloudinaryUrl(product.variants[varItem].imageUrl))}
+                            onClick={() => showImage(getCloudinaryUrl(product.variants[variantIndex].imageUrl))}
                             sx={{
                                 width: '100%',
                                 maxHeight: '12rem',
@@ -255,39 +255,37 @@ function BigCardDrinks({ product, setAction }) {
                     <Typography variant='body1'>{product.specifications}</Typography>
                 </Box>
 
-                <ToggleButtonGroup
-                    value={varItem}
-                    fullWidth
-                    exclusive
-                    orientation="vertical"
-                    onChange={(event, newIndex) => { setVarItem(newIndex); }}
-                >
-                    {product.variants.map((variant, index) => (
-                        <ToggleButton
-                            key={index}
-                            value={index}
-                            disabled={varItem === index}
-                            onClick={() => setVarItem(index)}
-                            sx={{
-                                justifyContent: 'space-between',
-                                px: 1,
-                                py: 0.5,
-                                textAlign: 'center',
-                                textTransform: 'none',
-                            }}
-                        >
-                            <Box component="img"
-                                 sx={{ width: '3rem', height: '3rem', objectFit: 'contain' }}
-                                 src={getCloudinaryUrl(variant.imageUrl)}
-                                 alt={product.name}
-                            />
-                            <span>{variant.packagingType}</span>
-                            <span>{variant.volume} л.</span>
-                            <span><strong>{variant.price}</strong> грн.</span>
-                            <span>{variant.stockQuantity} шт.</span>
-                        </ToggleButton>
-                    ))}
-                </ToggleButtonGroup>
+
+                <CardDrinkSelectVariant
+                    variants={product.variants}
+                    selectedVariant={variantIndex}
+                    setSelectedVariant={setVariantIndex}
+                    displayFields={["imageUrl", "packagingType", "volume", "price"]}
+                    formatFieldValue={(field, value) => {
+                        switch (field) {
+                            case "packagingType":
+                                return <Typography variant={"body2"} fontWeight={"bold"}>{value}</Typography>;
+                            case "volume":
+                                return <Typography variant={"body2"} fontWeight={"bold"}>{value} л</Typography>;
+                            case "price":
+                                return <Typography variant={"body2"} fontWeight={"bold"}>{value} грн</Typography>;
+                            case "imageUrl":
+                                return <img
+                                    src={getCloudinaryUrl(value)}
+                                    alt=""
+                                    style={{
+                                        width: 40,
+                                        height: 40,
+                                        borderRadius: 4,
+                                        objectFit: "contain",
+                                        display: "block"
+                                    }} />;
+                            default:
+                                return value;
+                        }
+                    }}
+                />
+
 
                 <WithRoleContent allowedRoles={['PRODUCT_EDIT', 'PRODUCT_DEL']}>
                     <Box display="flex" justifyContent="center" mt={2}>
