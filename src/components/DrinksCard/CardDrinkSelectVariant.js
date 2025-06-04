@@ -1,18 +1,44 @@
 import React from "react";
 import { ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { Box } from "@mui/system";
+import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 function CardDrinkSelectVariant({
                                     variants,
                                     selectedVariant,
                                     setSelectedVariant,
-                                    displayFields,
-                                    formatFieldValue
+                                    displayFields
                                 }) {
+
+    const sizeBig = displayFields[0] === "imageUrl"
+
     const handleChange = (event, newIndex) => {
         if (newIndex !== null) {
             event.stopPropagation();
             setSelectedVariant(newIndex);
+        }
+    };
+
+    // Локальная функция для форматирования значения по полю
+    const formatFieldValue = (field, value) => {
+        switch (field) {
+            case "volume":
+                return `${value} л`;
+            case "price":
+                return `${value} грн`;
+            case "imageUrl":
+                return <img
+                    src={getCloudinaryUrl(value)}
+                    alt=""
+                    style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 4,
+                        objectFit: "contain",
+                        display: "block"
+                    }}/>;
+            default:
+                return value;
         }
     };
 
@@ -64,14 +90,9 @@ function CardDrinkSelectVariant({
                                     gap: 0.5,
                                 }}
                             >
-                                {formatFieldValue
-                                    ? (() => {
-                                        const content = formatFieldValue(field, variant[field]);
-                                        return (typeof content === "string" || typeof content === "number")
-                                            ? <Typography variant="caption">{content}</Typography>
-                                            : content;
-                                    })()
-                                    : <Typography variant="caption">{variant[field]}</Typography>}
+                                <Typography variant={ sizeBig ? "body1" : "caption"}>
+                                    {formatFieldValue(field, variant[field])}
+                                </Typography>
                             </Box>
                         ))}
                     </Box>

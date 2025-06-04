@@ -261,29 +261,6 @@ function BigCardDrinks({ product, setAction }) {
                     selectedVariant={variantIndex}
                     setSelectedVariant={setVariantIndex}
                     displayFields={["imageUrl", "packagingType", "volume", "price"]}
-                    formatFieldValue={(field, value) => {
-                        switch (field) {
-                            case "packagingType":
-                                return <Typography variant={"body2"} fontWeight={"bold"}>{value}</Typography>;
-                            case "volume":
-                                return <Typography variant={"body2"} fontWeight={"bold"}>{value} л</Typography>;
-                            case "price":
-                                return <Typography variant={"body2"} fontWeight={"bold"}>{value} грн</Typography>;
-                            case "imageUrl":
-                                return <img
-                                    src={getCloudinaryUrl(value)}
-                                    alt=""
-                                    style={{
-                                        width: 40,
-                                        height: 40,
-                                        borderRadius: 4,
-                                        objectFit: "contain",
-                                        display: "block"
-                                    }} />;
-                            default:
-                                return value;
-                        }
-                    }}
                 />
 
 

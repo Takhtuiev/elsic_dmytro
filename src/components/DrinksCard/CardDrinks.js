@@ -123,17 +123,7 @@ function CardDrinks({ item, setAction }) {
                 selectedVariant={varItem}
                 setSelectedVariant={setVarItem}
                 displayFields={["packagingType", "volume", "price"]}
-                formatFieldValue={(field, value) => {
-                    switch (field) {
-                        case "volume":
-                            return `${value} л`;
-                        case "price":
-                            return `${value} грн`;
-                        default:
-                            return value;
-                    }
-                }}
-            />
+             />
 
             <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
                 {/* Цена */}

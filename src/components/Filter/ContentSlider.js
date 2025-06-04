@@ -52,7 +52,6 @@ const ContentSlider = ({ field, obj, updateObj }) => {
         }
     };
 
-    console.log(obj.range)
     // Пока obj не загружен — рендерим скелетон
     if (!obj || obj.range[0] === undefined) {
        return (
