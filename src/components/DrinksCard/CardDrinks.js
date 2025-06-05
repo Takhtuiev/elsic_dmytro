@@ -108,7 +108,10 @@ function CardDrinks({ item, setAction }) {
                             e.stopPropagation();
                             navigate("/brand/" + item.brand);
                         }}
-                        sx={{ textAlign: "left", display: "block" }}
+                        sx={{
+                            textAlign: "left",
+                            alignSelf: "flex-start",  // Важно! не растягиваться по ширине
+                        }}
                     >
                         {item.brand}
                     </Link>
