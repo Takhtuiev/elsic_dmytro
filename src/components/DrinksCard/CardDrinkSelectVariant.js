@@ -1,25 +1,22 @@
 import React from "react";
-import { ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
-import { Box } from "@mui/system";
-import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
+import {
+    ToggleButton,
+    ToggleButtonGroup,
+    Typography,
+    Box
+} from "@mui/material";
+import { getCloudinaryUrl } from "../../services/Utils/CloudinaryUtils";
 
-function CardDrinkSelectVariant({
-                                    variants,
-                                    varIndex,
-                                    setVarIndex,
-                                    displayFields
-                                }) {
+function CardDrinkSelectVariant({ variants, varIndex, setVarIndex, displayFields }) {
+    const isBig = displayFields[0] === "imageUrl";
 
-    const sizeBig = displayFields[0] === "imageUrl"
-
-    const handleChange = (event, newVarItem) => {
-        if (newVarItem !== null) {
+    const handleChange = (event, newIndex) => {
+        if (newIndex !== null) {
             event.stopPropagation();
-            setVarIndex(newVarItem);
+            setVarIndex(newIndex);
         }
     };
 
-    // Локальная функция для форматирования значения по полю
     const formatFieldValue = (field, value) => {
         switch (field) {
             case "volume":
@@ -27,20 +24,24 @@ function CardDrinkSelectVariant({
             case "price":
                 return `${value} грн`;
             case "imageUrl":
-                return <img
-                    src={getCloudinaryUrl(value)}
-                    alt=""
-                    style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 4,
-                        objectFit: "contain",
-                        display: "block"
-                    }}/>;
+                return (
+                    <img
+                        src={getCloudinaryUrl(value)}
+                        alt=""
+                        style={{
+                            width: 48,
+                            height: 48,
+                            borderRadius: 4,
+                            objectFit: "contain",
+                            display: "block"
+                        }}
+                    />
+                );
             default:
                 return value;
         }
     };
+
 
 
     return (
@@ -51,23 +52,27 @@ function CardDrinkSelectVariant({
             onChange={handleChange}
             fullWidth
             sx={{
+                gap: 0.25,
                 '& .MuiToggleButton-root': {
                     justifyContent: "start",
                     textTransform: "none",
                     px: 1,
-                    py: 0.5,
+                    py: 0.25,
                     borderRadius: 1,
                     border: "1px solid",
                     borderColor: "divider",
                     '&.Mui-selected': {
                         backgroundColor: 'action.selected',
                         fontWeight: "bold",
+                        '&:hover': {
+                            backgroundColor: 'action.selected', // Отключаем hover для активной
+                        }
+
                     },
                     '&:hover': {
                         backgroundColor: "action.hover",
                     },
                 },
-                gap: 0.5,
             }}
         >
             {variants.map((variant, index) => (
@@ -78,24 +83,22 @@ function CardDrinkSelectVariant({
                             alignItems: "center",
                             justifyContent: "space-between",
                             width: "100%",
-                            whiteSpace: "nowrap",
                             gap: 1,
+                            whiteSpace: "nowrap",
                         }}
                     >
-                        {displayFields.map((field, fieldIndex) => (
-                            <Box
-                                key={fieldIndex}
-                                sx={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 0.5,
-                                }}
-                            >
-                                <Typography variant={ sizeBig ? "body1" : "caption"}>
-                                    {formatFieldValue(field, variant[field])}
-                                </Typography>
-                            </Box>
-                        ))}
+                        {displayFields.map((field, idx) => {
+                            const content = formatFieldValue(field, variant[field]);
+                            return (
+                                <Box key={idx} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                    {typeof content === "string" || typeof content === "number" ? (
+                                        <Typography variant={isBig ? "body1" : "caption"} fontWeight={index === varIndex ? "bold" : "normal"}>
+                                            {content}
+                                        </Typography>
+                                    ) : content}
+                                </Box>
+                            );
+                        })}
                     </Box>
                 </ToggleButton>
             ))}
