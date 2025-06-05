@@ -5,17 +5,17 @@ import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 function CardDrinkSelectVariant({
                                     variants,
-                                    selectedVariant,
-                                    setSelectedVariant,
+                                    varIndex,
+                                    setVarIndex,
                                     displayFields
                                 }) {
 
     const sizeBig = displayFields[0] === "imageUrl"
 
-    const handleChange = (event, newIndex) => {
-        if (newIndex !== null) {
+    const handleChange = (event, newVarItem) => {
+        if (newVarItem !== null) {
             event.stopPropagation();
-            setSelectedVariant(newIndex);
+            setVarIndex(newVarItem);
         }
     };
 
@@ -42,11 +42,12 @@ function CardDrinkSelectVariant({
         }
     };
 
+
     return (
         <ToggleButtonGroup
             orientation="vertical"
             exclusive
-            value={selectedVariant}
+            value={varIndex}
             onChange={handleChange}
             fullWidth
             sx={{

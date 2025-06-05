@@ -14,19 +14,18 @@ import MyCard from "../MyComponent/MyCard";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 function CardDrinks({ item, setAction }) {
-    const [varItem, setVarItem] = useState(0);
+
+    const [varIndex, setVarIndex] = useState(0);
+
     const navigate = useNavigate();
 
-    // Безопасное извлечение варианта
-    const variant = item?.variants?.[varItem];
-
     const onClick = () => {
-        navigate(`/drinksDetails/${item.id}?variant=${variant.id}`);
+        navigate(`/drinksDetails/${item.id}?variant=${varIndex}`);
     };
 
 
 // Если нет данных — показываем скелетон
-    if (!item || !variant) {
+    if (!item || !item.variants) {
         return (
             <MyCard sx={{ flexDirection: 'column' }}>
                 <Box sx={{ display: "flex", flexDirection: "column", alignItems: 'center' }}>
@@ -76,7 +75,7 @@ function CardDrinks({ item, setAction }) {
                 {/* Левая половина - изображение */}
                 <CardMedia
                     component="img"
-                    image={getCloudinaryUrl(variant.imageUrl)}
+                    image={getCloudinaryUrl(item?.variants[varIndex].imageUrl)}
                     alt={item.name}
                     loading="lazy"
                     sx={{
@@ -110,7 +109,8 @@ function CardDrinks({ item, setAction }) {
                         }}
                         sx={{
                             textAlign: "left",
-                            alignSelf: "flex-start",  // Важно! не растягиваться по ширине
+                            width: "fit-content", // 👈 только по ширине текста
+                            alignSelf: "flex-start", // 👈 если родитель — flex, закрепит слева
                         }}
                     >
                         {item.brand}
@@ -123,8 +123,8 @@ function CardDrinks({ item, setAction }) {
 
             <CardDrinkSelectVariant
                 variants={item.variants}
-                selectedVariant={varItem}
-                setSelectedVariant={setVarItem}
+                varIndex={varIndex}
+                setVarIndex={setVarIndex}
                 displayFields={["packagingType", "volume", "price"]}
              />
 
@@ -132,7 +132,7 @@ function CardDrinks({ item, setAction }) {
                 {/* Цена */}
                 <Box sx={{ display: "flex", alignItems: "end" }}>
                     <Typography variant="h5">
-                        {typeof variant.price === "number" ? variant.price.toFixed(2) : '—'}
+                        {typeof item?.variants[varIndex].price === "number" ? item?.variants[varIndex].price.toFixed(2) : '—'}
                     </Typography>
                     <Typography variant="body1">грн.</Typography>
                 </Box>

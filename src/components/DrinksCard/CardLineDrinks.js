@@ -16,18 +16,14 @@ import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 function CardLineDrinks({ item, setAction }) {
 
-const [varItem, setVarItem] = useState(0);
+const [varIndex, setVarIndex] = useState(0);
 const navigate = useNavigate();
 
-    // Безопасное извлечение варианта
-    const variant = item?.variants?.[varItem];
-
     const onClick = () => {
-        navigate(`/drinksDetails/${item.id}?variant=${variant.id}`);
+        navigate(`/drinksDetails/${item.id}?variant=${varIndex}`);
     };
 
-
-    if (!item || !variant) {
+    if (!item || !item.variants) {
         return (
             <MyCard sx={{ alignItems: 'center', gap: 2 }}>
                 <Skeleton variant="rectangular" width={96} height={128} />
@@ -76,7 +72,7 @@ return (
         {/* Левая половина - изображение */}
         <CardMedia
             component="img"
-            image={getCloudinaryUrl(variant.imageUrl)}
+            image={getCloudinaryUrl(item?.variants[varIndex].imageUrl)}
             alt={item.name}
             loading="lazy"
             sx={{
@@ -109,9 +105,10 @@ return (
                 {/* Селектор вариантов */}
                 <Grid >
                     <CardDrinkSelectVariant
-                        product={item}
-                        selectedVariant={varItem}
-                        setSelectedVariant={setVarItem}
+                        variants={item.variants}
+                        varIndex={varIndex}
+                        setVarIndex={setVarIndex}
+                        displayFields={["packagingType", "volume", "price"]}
                     />
                 </Grid>
 
@@ -150,9 +147,9 @@ return (
                     }}
                 >
                     <Typography variant="h5">
-                        {variant.price.toFixed(2)}
+                        {typeof item?.variants[varIndex].price === "number" ? item?.variants[varIndex].price.toFixed(2) : '—'}
                     </Typography>
-                    <Typography variant="body1">грн.</Typography>
+                   <Typography variant="body1">грн.</Typography>
                 </Grid>
             </Grid>
 

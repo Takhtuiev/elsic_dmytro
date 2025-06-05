@@ -21,16 +21,13 @@ function BigCardDrinks({ product, setAction }) {
     const navigate = useNavigate();
 
     const queryParams = new URLSearchParams(location.search);
-    const findVariantIndex = () => {
-        if (product){
-            const variantId = parseInt(queryParams.get('variant'));
-            const varIndex = product.variants.findIndex(variant => variant.id === variantId);
-            return varIndex !== -1 ? varIndex : 0;
-        }
-        return 0;
-   };
 
-    const [variantIndex, setVariantIndex] = useState(findVariantIndex());
+    const [variantIndex, setVariantIndex] = useState(() => {
+        const param = queryParams.get('variant');
+        const index = parseInt(param, 10);
+        return isNaN(index) ? 0 : index;
+    });
+
     const [viewImage, setViewImage] = useState(null);
 
     if (!product) {
@@ -258,8 +255,8 @@ function BigCardDrinks({ product, setAction }) {
 
                 <CardDrinkSelectVariant
                     variants={product.variants}
-                    selectedVariant={variantIndex}
-                    setSelectedVariant={setVariantIndex}
+                    varIndex={variantIndex}
+                    setVarIndex={setVariantIndex}
                     displayFields={["imageUrl", "packagingType", "volume", "price"]}
                 />
 
