@@ -5,7 +5,7 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 import TopStringFilter from "./TopStringFilter";
 import SortBar from "./SortBar";
 import FiltersDrawer from "./FiltersDrawer";
-import Grid from "@mui/material/Grid2";
+import Grid from "@mui/material/Grid";
 
 const FiltersSortViewBar = ({
                                 params,

@@ -5,20 +5,21 @@ import MenuItem from "@mui/material/MenuItem";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import {useNavigate} from "react-router-dom";
-import {lazy, Suspense, useState} from "react";
-import {useUserLogoutMutation} from "../../services/api/authApi.js";
+import {useState} from "react";
+import {useUserLogoutMutation} from "../../services/Slice/authApi.js";
 import {useJwtUserDetails} from "../../Providers/JwtProvider";
-import LoadingSpinner from "../MyComponent/LoadingSpinnerBoard/LoadingSpinner";
-import {Avatar, IconButton} from "@mui/material";
 
-const LoginRegistrationModal = lazy(() => import('../ModalWindow/LoginRegistration/DialogLoginRegistration'));
+import {Avatar, IconButton} from "@mui/material";
+import {openDialog} from "../../services/Slice/dialogSlice";
+import {useDispatch} from "react-redux";
 
 function UserBar() {
+
+    const dispatch = useDispatch();
 
     const [logoutUser, { isLoading: logoutResp, error, reset }] = useUserLogoutMutation();
     const { jwtUserDetails, setJwtUserDetails } = useJwtUserDetails(); // Детали авторизованного пользователя
     const [anchorElUser, setAnchorElUser] = useState(null);
-    const [showLogin, setShowLogin] = useState(false);
     const navigate = useNavigate();
 
     const handleOpenUserMenu = (event) => {
@@ -35,6 +36,14 @@ function UserBar() {
         handleCloseUserMenu();
     };
 
+    const handleLogin = () => {
+        dispatch(openDialog({
+            title: "Login",
+            maxWidth: "sm",
+            componentKey: "LoginCard",
+            props: {},
+        }));
+    };
 
     return (
         <>
@@ -91,9 +100,7 @@ function UserBar() {
                 </>
                 :
                 <Button  // "LOGIN"
-                        onClick={() => {
-                            setShowLogin(true)
-                        }}
+                        onClick={handleLogin}
                         sx={{
                             textTransform: 'none',
                             fontSize: '0.9rem',
@@ -103,14 +110,6 @@ function UserBar() {
                 </Button>
             }
 
-            {showLogin &&
-                <Suspense fallback={<LoadingSpinner/>} >
-                    <LoginRegistrationModal
-                        show={showLogin}
-                        setShow={setShowLogin}
-                    />
-                </Suspense>
-            }
         </>
 
     )

@@ -1,7 +1,9 @@
 import { FormControl, InputLabel, Select, MenuItem } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 
-function MySelect({ obj, setValue, sx, editOptions }) {
+
+function MySelect({ obj, setValue, sx, editable=false}) {
+
     const valueIndex = obj.valueList?.indexOf(obj.value) ?? -1;
 
     const idElement = obj.indexVariant !== undefined
@@ -10,13 +12,11 @@ function MySelect({ obj, setValue, sx, editOptions }) {
 
     const label = obj.label || "Select"
 
-    const handleEditOption = () => {
-        editOptions(obj.key);
-    };
-
     const handleChange = (event) => {
         const newIndex = event.target.value;
-        if (newIndex !== -2) {
+        if (newIndex === -2) {
+            setValue(obj.valueList?.[valueIndex], obj.key, obj.indexVariant, "EditList");
+        } else {
             setValue(obj.valueList?.[newIndex], obj.key, obj.indexVariant);
         }
     };
@@ -28,6 +28,7 @@ function MySelect({ obj, setValue, sx, editOptions }) {
             </InputLabel>
             <Select
                 id={idElement}
+                variant="outlined"
                 label={label}
                 labelId={`${idElement}-label`}
                 value={valueIndex !== -1 ? valueIndex : ""}
@@ -38,9 +39,8 @@ function MySelect({ obj, setValue, sx, editOptions }) {
                         {String(item)}
                     </MenuItem>
                 ))}
-                {editOptions && (
+                {editable && (
                     <MenuItem value={-2}
-                              onClick={handleEditOption}
                               sx={{ fontStyle: "italic", color: "text.disabled" }}
                     >
                         Edit list...

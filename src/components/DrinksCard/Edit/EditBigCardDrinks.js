@@ -1,6 +1,6 @@
 import {alpha, Button, Collapse, Typography} from "@mui/material";
-import React, {lazy, Suspense, useEffect, useState} from "react";
-import {useGetDrinksQuery, useGetLoadEditListsQuery, useUpdateDrinksMutation} from "../../../services/api/drinksApi";
+import React, {useEffect, useState} from "react";
+import {useGetDrinksQuery, useGetLoadEditListsQuery, useUpdateDrinksMutation} from "../../../services/Slice/drinksApi";
 import MyTextField from "../../MyComponent/MyTextField";
 import ErrorBox from "../../ErrorBoard/ErrorBox";
 import LoadingSpinner from "../../MyComponent/LoadingSpinnerBoard/LoadingSpinner";
@@ -8,26 +8,27 @@ import SaveIcon from "@mui/icons-material/Save";
 import {DRINKS_COLUMNS} from "../../../CONSTANTS/Constants";
 import MyRating from "../../MyComponent/MyRating";
 import MySelect from "../../MyComponent/MySelect";
-import {filterDrinksErrorKey} from "../../ErrorBoard/Utils/FilterDrinksErrorKey";
 import EditVariantContent from "./EditVariantContent";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import MenuItem from "@mui/material/MenuItem";
-import Grid from '@mui/material/Grid2';
+import Grid from '@mui/material/Grid';
 import {uploadBlobFile} from "../../../services/Utils/Utils";
+import {openDialog, updateDialogProps} from "../../../services/Slice/dialogSlice";
+import {useDispatch, useSelector} from "react-redux";
+import {filterItemErrorKey} from "../../ErrorBoard/Utils/FilterDrinksErrorKey";
 
-const MyDialog = lazy(() => import('../../MyComponent/MyDialog'))
-const EditList = lazy(() => import('./EditList'))
+function EditBigCardDrinks({ itemId, selectVariantId, mode, onClose}) {
 
-
-function EditBigCardDrinks({ action, funcCancel }) {
-
-    const { data: product, error: errorGetProduct, isLoading: loadingProduct} = useGetDrinksQuery( { id: action.itemId} );
+    const { data: product, error: errorGetProduct, isLoading: loadingProduct} = useGetDrinksQuery( { id: itemId} );
     const { data: loadEditLists, error: errorLoadEditList, isLoading: loadingEditList} = useGetLoadEditListsQuery({});
     const [updateDrink, { error: errorUpdate, isLoading: updating}] = useUpdateDrinksMutation();
 
-    const findActiveVariantIndex = (product, variantId) => {
-        return product?.variants?.findIndex(variant => variant.id === variantId) ?? -1;
-    }
+    const dispatch = useDispatch();
+    const dialogStack = useSelector((state) => state.dialog.stack);
+
+    // Получаем lastReturnedData из Redux
+    const lastReturnedData = useSelector(state => state.dialog.lastReturnedData);
+
     const createCopy = (product) => {
         if (product) {
             return {
@@ -45,26 +46,59 @@ function EditBigCardDrinks({ action, funcCancel }) {
         }
     }
 
-    const [editedItem, setEditedItem] = useState(action.action === 'copy' ? createCopy(product) : product);
-    const [allVariant, setAllVariant] = useState(!action.variantId);
-    const [indexActiveVariant, setIndexActiveVariant] = useState(findActiveVariantIndex(product,action.variantId))
+    const [editedItem, setEditedItem] = useState();
+    const [allVariant, setAllVariant] = useState(mode !== 'editVariant');
 
-    const [dialogEditList, setDialogEditList] = useState(null);
+    const findIndexVariant = (variantId) => {
+        if (product?.variants?.length === 1 || mode === 'copy' || mode === 'createNew') return 0;
+        return  product?.variants?.findIndex(variant => variant.id === variantId);
+    }
+    const [indexActiveVariant, setIndexActiveVariant] = useState()
+
     const [error, setError] = useState(null);
 
+    const resetFunc = () => {
+        setEditedItem(mode === 'copy' ? createCopy(product) : product);
+
+        setIndexActiveVariant(findIndexVariant(selectVariantId));
+    }
+
     useEffect(() => {    // Перезагрузка при изменении product
-        resetFunc()
+        resetFunc();
     }, [product]);
 
-    const resetFunc = () => {
-        setEditedItem(action.action === 'copy' ? createCopy(product) : product)
-        setIndexActiveVariant(findActiveVariantIndex(product,action.variantId))
-    }
+    useEffect(() => {
+        if (!lastReturnedData) return;
+
+         if (lastReturnedData.dialogType === 'EditList') {
+            if (lastReturnedData.data) {
+                const { field, newValue, index } = lastReturnedData.data;
+                setNewValue(newValue, field, index)
+            }
+        }
+    }, [lastReturnedData, dispatch]);
+
+    //Обновление пропсов верхнего диалога
+    useEffect(() => {
+        const targetKey = "EditList"; // componentKey нужного диалога
+        const index = dialogStack.findIndex(d => d.componentKey === targetKey);
+        if (index !== -1) {
+            const field = dialogStack[index]?.props?.editedObj?.field;
+
+            if (field && loadEditLists[field]) {
+                dispatch(updateDialogProps({
+                    index: index,
+                    newProps: { listItem: loadEditLists[field] },
+                }));
+            }
+        }
+    }, [loadEditLists]);
 
     // Добавляет новый вариант с пустыми полями
     const addNewVariant = () => {
         setEditedItem(prevState => {
-            const newVariant = { ...prevState.variants[0] }; // Создаем новый вариант на основе первого варианта
+            // Создаем новый вариант на основе первого варианта
+            const newVariant = { ...prevState.variants[0] };
             // Обнуляем значения всех свойств нового варианта
             Object.keys(newVariant).forEach(key => {
                 if( key === 'id' ) {
@@ -106,36 +140,49 @@ function EditBigCardDrinks({ action, funcCancel }) {
 
         if (!result.error) {
             setError(null)
-            funcCancel();
+            onClose()
         } else {
-            setError(filterDrinksErrorKey(product, result.error.data))
+            setError(filterItemErrorKey(product, result.error.data))
         }
     }
 
     // Функция изменяет editedItem, если в элементах ввода произошли изменения
-    const setNewValue = (value, key, index) => {
-        setEditedItem(prevState => {
-            if (index === undefined) {
-                // Обновляем значение непосредственно в editedItem
-                return { ...prevState, [key]: value };
-            } else {
-                // Обработка варианта. Возвращаем обновленное состояние с измененным массивом вариантов
-                if (key === null && value === null) {
-                    if (index === indexActiveVariant) {
-                        setIndexActiveVariant(-1)
-                    }
-                    if (index < indexActiveVariant) {
-                        setIndexActiveVariant(indexActiveVariant-1)
-                    }
+    const setNewValue = (value, field, index, action) => {
+
+        if(action === "EditList") {
+            dispatch(
+                openDialog({
+                    title: `Edit ${field} list`,
+                    maxWidth: "md",
+                    componentKey: action,  // ключ твоего компонента в AppDialog.componentMap
+                    props: {
+                        editedObj: { field: field, selected: value, index: index },
+                        listItem: loadEditLists[field],
+                    },
+                })
+            );
+        } else {
+            setEditedItem(prevState => {
+                if (index === undefined) {
+                    // Обновляем значение непосредственно в editedItem
+                    return { ...prevState, [field]: value };
+                } else {
+                    // Обработка варианта. Возвращаем обновленное состояние с измененным массивом вариантов
+                    if (field === null && value === null) {
+                        if (index === indexActiveVariant) {
+                            setIndexActiveVariant(-1);
+                        } else if (index < indexActiveVariant) {
+                            setIndexActiveVariant(prev => prev - 1);
+                        }                }
+                    return { ...prevState, variants: (field === null && value === null)
+                            ? prevState.variants.filter((_, i) => i !== index) // Удаление варианта
+                            : prevState.variants.map((variant, i) =>
+                                i === index ? { ...variant, [field]: value } : variant // Обновление варианта
+                            )
+                    };
                 }
-                return { ...prevState, variants: (key === null && value === null)
-                        ? prevState.variants.filter((_, i) => i !== index) // Удаление варианта
-                        : prevState.variants.map((variant, i) =>
-                            i === index ? { ...variant, [key]: value } : variant // Обновление варианта
-                        )
-                };
-            }
-        });
+            });
+        }
     };
 
     const TimeStampToString = (timestamp) => {
@@ -165,9 +212,9 @@ function EditBigCardDrinks({ action, funcCancel }) {
                 <Grid size={12}>
                     <ErrorBox error={errorGetProduct || errorLoadEditList || error}/>
                 </Grid>
-                {funcCancel &&
+                {onClose &&
                     <Grid container size={12} justifyContent="flex-end">
-                        <Button onClick={funcCancel} >
+                        <Button onClick={onClose} >
                             Cancel
                         </Button>
                     </Grid>
@@ -177,7 +224,11 @@ function EditBigCardDrinks({ action, funcCancel }) {
 
     return (
         <LoadingSpinner active={updating || editedItem===undefined || loadingProduct || loadingEditList}>
-            <Grid container size={12} direction="column" spacing={2}>
+            <Grid
+                container size={12}
+                direction="column"
+                spacing={2}
+            >
                 <Grid>
                     <MyTextField
                         obj={createObj('name')}
@@ -186,7 +237,7 @@ function EditBigCardDrinks({ action, funcCancel }) {
                         sxInput={{fontSize: '1.5rem'}}
                         multiline={true}
                     />
-                    {action.action === 'edit' && (
+                    {(mode === 'editDrink' || mode === 'editVariant') && (
                         <Typography variant="body2">
                             останнє оновлення {TimeStampToString(editedItem?.lastUpdated)}
                         </Typography>
@@ -199,7 +250,7 @@ function EditBigCardDrinks({ action, funcCancel }) {
                                 obj={createObj('brand')}
                                 setValue={setNewValue}
                                 sx={{width: '100%'}}
-                                editOptions={setDialogEditList}
+                                editable={true}
                             />
                         </Grid>
                         <Grid  size={12}>
@@ -207,7 +258,7 @@ function EditBigCardDrinks({ action, funcCancel }) {
                                 obj={createObj('country')}
                                 setValue={setNewValue}
                                 sx={{width: '100%'}}
-                                editOptions={setDialogEditList}
+                                editable={true}
                             />
                         </Grid>
                         <Grid  size={12}>
@@ -215,7 +266,7 @@ function EditBigCardDrinks({ action, funcCancel }) {
                                 obj={createObj('productType')}
                                 setValue={setNewValue}
                                 sx={{width: '100%'}}
-                                editOptions={setDialogEditList}
+                                editable={true}
                             />
                         </Grid>
                         <Grid  size={12}>
@@ -298,7 +349,6 @@ function EditBigCardDrinks({ action, funcCancel }) {
                                                         loadEditLists={loadEditLists}
                                                         lastUpdated={editedItem?.lastUpdated}
                                                         setNewValue={setNewValue}
-                                                        dialogEditOptions={setDialogEditList}
                                                         errorData={errorUpdate?.data}
                                                         isDeletable={editedItem?.variants.length > 1}
                                     />
@@ -310,7 +360,6 @@ function EditBigCardDrinks({ action, funcCancel }) {
                                                 loadEditLists={loadEditLists}
                                                 lastUpdated={editedItem?.lastUpdated}
                                                 setNewValue={setNewValue}
-                                                dialogEditOptions={setDialogEditList}
                                                 errorData={errorUpdate?.data}
                                                 isDeletable={editedItem?.variants.length > 1}
                                                 sx={(theme) => ({
@@ -329,7 +378,6 @@ function EditBigCardDrinks({ action, funcCancel }) {
                                                 loadEditLists={loadEditLists}
                                                 lastUpdated={editedItem?.lastUpdated}
                                                 setNewValue={setNewValue}
-                                                dialogEditOptions={setDialogEditList}
                                                 errorData={errorUpdate?.data}
                                                 isDeletable={editedItem?.variants.length > 1}
                             />
@@ -360,11 +408,11 @@ function EditBigCardDrinks({ action, funcCancel }) {
                             Reset
                         </Button>
                     </Grid>
-                    {funcCancel &&
+                    {onClose &&
                         <Grid >
                             <Button
                                 variant="outlined"
-                                onClick={funcCancel}
+                                onClick={()=>onClose()}
                             >
                                 Cancel
                             </Button>
@@ -380,29 +428,7 @@ function EditBigCardDrinks({ action, funcCancel }) {
                         </Button>
                     </Grid>
                 </Grid>
-
             </Grid>
-            {
-//                JSON.stringify(product)
-            }
-
-            {dialogEditList &&
-                <Suspense fallback={<LoadingSpinner/>}>
-                    <MyDialog
-                        open={!!dialogEditList}
-                        fullWidth={true}
-                        onClose={() => setDialogEditList(null)}
-                        title={dialogEditList && `Edit list "${DRINKS_COLUMNS[dialogEditList]}"`}
-                    >
-                        <EditList
-                            editedField={dialogEditList}
-                            listItem = {loadEditLists[dialogEditList]}
-                            setDialogEditList={setDialogEditList}
-                        />
-                    </MyDialog>
-                </Suspense>
-            }
-
         </LoadingSpinner>
     );
 }

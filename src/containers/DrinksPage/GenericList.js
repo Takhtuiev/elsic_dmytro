@@ -1,18 +1,18 @@
 import React, { Suspense, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Box, Button, Pagination } from "@mui/material";
-import Grid from "@mui/material/Grid2";
+import Grid from "@mui/material/Grid";
 import AddIcon from "@mui/icons-material/Add";
 import ErrorCard from "../../components/ErrorBoard/ErrorCard";
 import FiltersSortViewBar from "../../components/Filter/FiltersSortViewBar";
 import FiltersAccordion from "../../components/Filter/FiltersAccordion";
 import WithRoleContent from "../../components/MyComponent/WithRoleContent";
-import MyDialog from "../../components/MyComponent/MyDialog";
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 import NotFound from "../NotFoundPage/NotFound";
 import { updateSearchParams } from "../../components/Filter/utils";
-
-const DeleteConfirmationModal = React.lazy(() => import("../../components/ModalWindow/DeleteConfirmationModal"));
+import AppDialog from "../../components/MyComponent/AppDialog";
+import {openDialog} from "../../services/Slice/dialogSlice";
+import {useDispatch, useSelector} from "react-redux";
 
 function GenericList({
                          useGetPage,
@@ -32,10 +32,10 @@ function GenericList({
 
     const getPage = useGetPage({ params });
     const getLists = useGetLists({ params });
-    const [deleteItem, { error: errorDeletingVariant }] = useDeleteMutation();
+
+    const dispatch = useDispatch();
 
     const [viewMode, setViewModeState] = useState(localStorage.getItem("viewMode") || "module");
-    const [action, setAction] = useState(null);
 
     const setViewMode = (mode) => {
         setViewModeState(mode);
@@ -56,11 +56,6 @@ function GenericList({
             updateParams("page", newPage);
             window.scrollTo({ top: 0, behavior: "smooth" });
         }
-    };
-
-    const funcDelete = async (action) => {
-        const result = await deleteItem(action.itemId);
-        return errorDeletingVariant ? { error: errorDeletingVariant } : result;
     };
 
     const refProduct = useMemo(() => {
@@ -87,11 +82,11 @@ function GenericList({
 
         return viewMode === "module" ? (
             <Grid key={resolvedItem?.id || index} size={{xs:12, sm:4, md:4, lg:3 }}>
-                <CardComponent item={resolvedItem} setAction={setAction} />
+                <CardComponent item={resolvedItem}/>
             </Grid>
         ) : (
             <Grid key={resolvedItem?.id || index} size={12}>
-                <CardLineComponent item={resolvedItem} setAction={setAction} />
+                <CardLineComponent item={resolvedItem}/>
             </Grid>
         );
     };
@@ -151,8 +146,19 @@ function GenericList({
                                 <Box display="flex" justifyContent="flex-end" mb={1}>
                                     <Button
                                         variant="contained"
-                                        onClick={() => setAction({ action: "createNew", itemId: "0" })}
-                                        size="small"
+                                        onClick={() =>
+                                            dispatch(
+                                                openDialog({
+                                                    title: "Create new Drink",
+                                                    componentKey: "EditBigCardDrinks", // строка
+                                                    props: {
+                                                        itemId: 0,
+                                                        mode: "createNew",
+                                                   },
+                                                })
+                                            )}
+
+                                     size="small"
                                     >
                                         <AddIcon style={{ fontSize: "1.5rem" }} /> Create new
                                     </Button>
@@ -179,26 +185,6 @@ function GenericList({
                     </Grid>
                 </Box>
             </Box>
-
-            {["edit", "copy", "delete", "createNew"].includes(action?.action) && (
-                <>
-                    {["edit", "copy", "createNew"].includes(action?.action) && (
-                        <MyDialog open={!!action} onClose={() => setAction(null)} title="Edit">
-                            <EditCard action={action} funcCancel={() => setAction(null)} />
-                        </MyDialog>
-                    )}
-                    {action?.action === "delete" && (
-                        <Suspense fallback={<div>Loading DeleteCard...</div>}>
-                            <DeleteConfirmationModal
-                                action={action}
-                                setShowDelete={setAction}
-                                bodyText={`Are you sure you want to delete "${action?.itemName}" with ID ${action?.itemId}?`}
-                                funcDelete={funcDelete}
-                            />
-                        </Suspense>
-                    )}
-                </>
-            )}
         </>
     );
 }

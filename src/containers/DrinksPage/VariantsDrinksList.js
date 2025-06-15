@@ -3,7 +3,7 @@ import {
     useDeleteVariantDrinksMutation,
     useGetLoadEditListsQuery,
     useGetPageVariantsDrinksQuery
-} from "../../services/api/drinksApi";
+} from "../../services/Slice/drinksApi";
 import CardVariantDrinks from "../../components/DrinksCard/CardVatiantDrinks";
 import CardLineVariantDrink from "../../components/DrinksCard/CardLineVatiantDrinks";
 import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
@@ -44,7 +44,7 @@ function VariantsDrinksList() {
             TEXT_COLUMNS={DRINKS_COLUMNS}
             SORT_LIST={SORT_LIST}
             CREATE_NEW_ROLE={"PRODUCT_EDIT"}
-             CardComponent={CardVariantDrinks}
+            CardComponent={CardVariantDrinks}
             CardLineComponent={CardLineVariantDrink}
             EditCard={(props) => (
                 <Suspense fallback={<div>Loading EditCard...</div>}>

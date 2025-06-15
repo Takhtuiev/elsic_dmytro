@@ -7,7 +7,7 @@ import React from "react";
 import {useState} from "react";
 import FilterAltIcon from '@mui/icons-material/FilterAlt';
 import FiltersAccordion from "./FiltersAccordion";
-import Grid from "@mui/material/Grid2";
+import Grid from "@mui/material/Grid";
 
 function FiltersDrawer({ params, FILTER_PARAMS, TEXT_COLUMNS, updateParams, selectLists, minMaxPrice }) {
 

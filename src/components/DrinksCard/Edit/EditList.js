@@ -1,52 +1,71 @@
+import React, {useState, useCallback, useEffect} from "react";
 import {
-    List,
-    ListItemButton,
-    ListItemText,
-    Button
+    List, ListItemButton, ListItemText,
+    Grid, Button
 } from "@mui/material";
-import React, {useState, useCallback} from "react";
-import Grid from "@mui/material/Grid2";
-import EditListName from "./EditListName";
-import EditBrandCard from "../../BrandCard/Edit/EditBrandCard";
+import {useDispatch, useSelector} from "react-redux";
+import {closeDialog, dialogDataReturned} from "../../../services/Slice/dialogSlice";
+import EditListItemCard from "./EditListItemCard";
 
-function EditList({ editedField, listItem, setDialogEditList }) {
+function EditList({ editedObj, listItem }) {
+    const dispatch = useDispatch();
+    // Получаем lastReturnedData из Redux
+    const lastReturnedData = useSelector(state => state.dialog.lastReturnedData);
 
-    const [selectedItem, setSelectedItem] = useState('');
+    const [selectedItem, setSelectedItem] = useState(editedObj.selected || '');
 
-    const addNew = 'Add new ' + editedField;
+    const addNew = 'Add new ' + editedObj.field;
 
-    const handleClose = useCallback(() => {
-        setDialogEditList(null);
-    }, [setDialogEditList]);
+    // Закрытие диалога и передача результата, если нужно
+    const onClose = (updatedObj) => {
+        if (updatedObj) {
+            dispatch(dialogDataReturned({
+                dialogType: 'EditList',
+                data: updatedObj,
+            }));
+        }
+        dispatch(closeDialog());
+    };
 
-    const handleSelectItem = useCallback((item) => {
-        setSelectedItem(item);
+    useEffect(() => {
+        if (!lastReturnedData) return;
+
+        if (lastReturnedData.dialogType === 'EditListItemCard') {
+            setSelectedItem(lastReturnedData.data.name)
+        }
+
+        if (lastReturnedData.dialogType === 'DeleteConfirm') {
+            setSelectedItem(null)
+        }
+    }, [lastReturnedData, dispatch]);
+
+
+    const updateSelectItem = useCallback((item) => {
+            setSelectedItem(item);
     }, []);
 
-    if (!editedField) {
-        return null;
-    }
+    if (!editedObj.field) return null;
 
     return (
-        <Grid container spacing={1} py={1} direction={'row'} minHeight={'10rem'}>
-            {/* Первый Grid - Список элементов */}
+        <Grid container spacing={1} py={1} direction="row" minHeight="10rem">
+            {/* Список */}
             <Grid
                 sx={{
-                    maxHeight: '80vh', // Ограничиваем высоту списка по высоте текста
-                    overflowY: "auto", // Прокрутка, если список больше
+                    maxHeight: '80vh',
+                    overflowY: "auto",
                     minWidth: '20%',
-                    maxWidth: '40%', // Ограничение по ширине
+                    maxWidth: '40%',
                     border: 1,
                     borderColor: 'divider',
                     borderRadius: '4px',
                 }}
             >
                 <List sx={{ overflowY: 'auto', maxHeight: '100%' }}>
-                    {["", ...listItem].map((item, index) => (
+                    {[null, ...listItem].map((item, index) => (
                         <ListItemButton
                             key={index}
-                            selected={selectedItem === item}
-                            onClick={() => handleSelectItem(item)}
+                            selected={selectedItem ? selectedItem === item : index === 0}
+                            onClick={() => updateSelectItem(item)}
                             sx={{
                                 px: 1,
                                 py: 0,
@@ -65,32 +84,30 @@ function EditList({ editedField, listItem, setDialogEditList }) {
                 </List>
             </Grid>
 
-            {/* Второй Grid - Формирует высоту */}
-            <Grid container size={'grow'} direction="column" justifyContent={'space-between'}>
-                <Grid >
-                    {editedField === "brand" ? (
-                        <EditBrandCard
-                            selectedBrandName={selectedItem}
-                            setSelectedItem={setSelectedItem}
-                        />
-                    ) : (
-                        <EditListName
-                            editedField={editedField}
-                            selectedItem={selectedItem}
-                            setSelectedItem={setSelectedItem}
-                        />
-                    )}
+            {/* Правая часть */}
+            <Grid container flex={1} direction="column" justifyContent="space-between">
+                <Grid>
+                    <EditListItemCard
+                        field={editedObj.field}
+                        selectedItemName={selectedItem}
+                     />
                 </Grid>
 
-                {/* Кнопка закрытия */}
-                <Grid container justifyContent="flex-end">
-                    <Button onClick={handleClose} variant="text">
+                {/* Кнопки */}
+                <Grid container justifyContent="flex-end" spacing={1} mt={2}>
+                    <Button onClick={() => onClose(null)} variant="text">
                         Close dialog
+                    </Button>
+                    <Button onClick={() => onClose({
+                        field: editedObj.field,
+                        newValue: selectedItem,
+                        index: editedObj.index
+                    })} variant="contained">
+                        Select and close
                     </Button>
                 </Grid>
             </Grid>
         </Grid>
-
     );
 }
 

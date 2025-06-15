@@ -15,7 +15,7 @@ import MyCard from "../MyComponent/MyCard";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 
-function CardVariantDrink({ item, setAction }) {
+function CardVariantDrink({ item }) {
 
     const navigate = useNavigate();
 
@@ -136,7 +136,10 @@ function CardVariantDrink({ item, setAction }) {
                 </Box>
 
                 {item.product.description && <ExpandableText text={item.product.description} />}
-                <ActionGroupButton masActions={VariantActionsMas(item)} setAction={setAction} />
+
+                <ActionGroupButton
+                    masActions={VariantActionsMas(item)}
+                />
             </Box>
 
         </MyCard>

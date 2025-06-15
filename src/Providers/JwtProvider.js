@@ -1,5 +1,5 @@
 import React, {createContext, useContext, useEffect, useState} from 'react';
-import {useRefreshAccessTokenQuery} from "../services/api/authApi";
+import {useRefreshAccessTokenQuery} from "../services/Slice/authApi";
 
 // Создаем контекст
 const TokenContext = createContext();

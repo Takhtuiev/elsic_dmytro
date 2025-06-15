@@ -3,14 +3,13 @@ import React from "react";
 import {useEffect, useState} from "react";
 import SaveIcon from '@mui/icons-material/Save';
 import {ID_EL_START, USER_COLUMNS} from "../../CONSTANTS/Constants";
-import {useGetLoadRoleListQuery, useUpdateUserPropertyMutation} from "../../services/api/userApi";
+import {useGetLoadRoleListQuery, useUpdateUserPropertyMutation} from "../../services/Slice/userApi";
 import ErrorBox from "../ErrorBoard/ErrorBox";
-import Grid from '@mui/material/Grid2';
+import Grid from '@mui/material/Grid';
 
 
-function UserEditPropertiesCard({action, funcCancel}) {
+function UserEditPropertiesCard({user, onClose}) {
 
-    const user = action.item
     const [updateUserProperty, { isLoading: updating, error: errorUpdate, reset }] = useUpdateUserPropertyMutation();
     const { data: roleList, error: errorRoleList } = useGetLoadRoleListQuery();
 
@@ -36,7 +35,6 @@ function UserEditPropertiesCard({action, funcCancel}) {
         setEditedUser({ ...editedUser, authorities: newAuthorities });
     }
 
-
     if(errorRoleList) {
         return (
             <ErrorBox error={errorRoleList}/>
@@ -46,7 +44,7 @@ function UserEditPropertiesCard({action, funcCancel}) {
     async function saveClick() {
         const result = await updateUserProperty(editedUser);
         if (!result.error) {
-            funcCancel();
+            onClose();
         }
     }
 
@@ -161,11 +159,11 @@ function UserEditPropertiesCard({action, funcCancel}) {
                         Reset
                     </Button>
                 </Grid>
-                {funcCancel &&
+                {onClose &&
                     <Grid>
                         <Button
                             variant="outlined"
-                            onClick={funcCancel}
+                            onClick={onClose}
                         >
                             Cancel
                         </Button>

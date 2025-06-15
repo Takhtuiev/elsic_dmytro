@@ -1,6 +1,7 @@
-export function filterDrinksErrorKey(item, errorData) {
 
-    if (!item) { // Если item === null , то возвращаем как есть
+export function filterItemErrorKey(item, errorData) {
+
+    if (!item) { // Если item === null, то возвращаем как есть
         return errorData
     }
     // Получаем все ключи из объекта `item` и его `variants`

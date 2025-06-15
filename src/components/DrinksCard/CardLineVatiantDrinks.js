@@ -10,7 +10,7 @@ import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {Box} from '@mui/system';
 import { VariantActionsMas } from "./VariantActionsMas";
 import MyCard from "../MyComponent/MyCard";
-import Grid from "@mui/material/Grid2";
+import Grid from "@mui/material/Grid";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 function CardLineVariantDrink({ item, setAction }) {

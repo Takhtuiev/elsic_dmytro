@@ -13,7 +13,7 @@ import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
-function CardDrinks({ item, setAction }) {
+function CardDrinks({ item }) {
 
     const [varIndex, setVarIndex] = useState(0);
 
@@ -140,8 +140,7 @@ function CardDrinks({ item, setAction }) {
                 {item.description && <ExpandableText text={item.description} />}
 
                 <ActionGroupButton
-                    masActions={DrinkActionsMas(item)}
-                    setAction={setAction}
+                    masActions={DrinkActionsMas(item, item.variants[varIndex].id)}
                 />
             </Box>
         </MyCard>

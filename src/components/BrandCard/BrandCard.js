@@ -10,7 +10,7 @@ import {BrandActionsMas} from "./BrandActionsMas";
 import {Box} from "@mui/system";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
-function BrandCard({ brand, setAction }) {
+function BrandCard({ brand, setBrand }) {
     const theme = useTheme();
 
     if (!brand) {
@@ -109,7 +109,9 @@ function BrandCard({ brand, setAction }) {
                     </Typography>
 
                     <Box display="flex" justifyContent="flex-end">
-                        <ActionGroupButton masActions={BrandActionsMas(brand)} setAction={setAction} />
+                        <ActionGroupButton
+                            masActions={BrandActionsMas(brand)}
+                        />
                     </Box>
                 </Box>
             </Box>

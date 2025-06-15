@@ -1,15 +1,36 @@
-import { Button, ButtonGroup } from "@mui/material";
 import React from "react";
-import Tooltip from "@mui/material/Tooltip";
+import { Button, ButtonGroup, Tooltip } from "@mui/material";
 import { useJwtUserDetails } from "../../Providers/JwtProvider";
+import { useDispatch } from "react-redux";
+import { openDialog } from "../../services/Slice/dialogSlice";
 
-function ActionGroupButton({ masActions, setAction, orientation }) {
-    const { jwtUserDetails } = useJwtUserDetails(); // Получаем детали JWT-пользователя из контекста
+/**
+ * Компонент рендерит группу кнопок действий, доступных в зависимости от ролей пользователя.
+ *
+ * @param {Object[]} masActions - Массив объектов-действий.
+ * @param {"horizontal"|"vertical"} orientation - Ориентация кнопок (по умолчанию — горизонтальная).
+ */
+function ActionGroupButton({ masActions, orientation = "horizontal" }) {
+    const { jwtUserDetails } = useJwtUserDetails(); // Получаем данные пользователя (с ролями)
+    const dispatch = useDispatch();
 
-    // Фильтруем доступные действия на основе ролей пользователя
-    const availableActions = masActions.filter((action) => jwtUserDetails?.roles.includes(action.role));
+    // Оставляем только действия, которые разрешены пользователю по ролям
+    const availableActions = masActions.filter((action) =>
+        jwtUserDetails?.roles.includes(action.role)
+    );
 
-    // Если ни одно действие не доступно, ничего не рендерим
+    // Обработчик клика по кнопке действия
+    const handleActionClick = (obj) => (event) => {
+        event.stopPropagation(); // Предотвращаем всплытие клика
+        dispatch(openDialog({
+            title: obj.title,
+            maxWidth: obj.maxWidth,
+            componentKey: obj.componentKey,
+            props: obj.props,
+        }));
+    };
+
+    // Если нет доступных действий — не рендерим ничего
     if (availableActions.length === 0) {
         return null;
     }
@@ -18,23 +39,18 @@ function ActionGroupButton({ masActions, setAction, orientation }) {
         <ButtonGroup
             size="small"
             variant="outlined"
-            aria-label="small button group"
+            aria-label="action button group"
             orientation={orientation}
             sx={{ margin: "3px 0" }}
         >
-            {availableActions.map(({ title, setNewAction, content }, index) => (
+            {availableActions.map((obj, index) => (
                 <Tooltip
-                    title={title}
                     key={index}
-                    placement= {orientation === 'vertical' ? 'right' : 'bottom'}
+                    title={obj.title}
+                    placement={orientation === "vertical" ? "right" : "bottom"}
                 >
-                    <Button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setAction(setNewAction)
-                        }}
-                    >
-                        {content}
+                    <Button onClick={handleActionClick(obj)}>
+                        {obj.content}
                     </Button>
                 </Tooltip>
             ))}

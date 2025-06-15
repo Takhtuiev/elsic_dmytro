@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, CircularProgress, Typography } from "@mui/material";
 
-function BoardSpinner() {
+export function BoardSpinner() {
     return (
         <Box
             sx={{

@@ -11,7 +11,7 @@ import {DrinkActionsMas} from "./DrinkActionsMas";
 import {Box} from "@mui/system";
 import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
-import Grid from "@mui/material/Grid2";
+import Grid from "@mui/material/Grid";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
 function CardLineDrinks({ item, setAction }) {

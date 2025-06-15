@@ -1,5 +1,5 @@
 import React, {Suspense} from 'react';
-import {useDeleteUserMutation, useGetLoadRoleListQuery, useGetPageUserListQuery} from "../../services/api/userApi";
+import {useDeleteUserMutation, useGetLoadRoleListQuery, useGetPageUserListQuery} from "../../services/Slice/userApi";
 import CardUser from "../../components/UserCard/CardUser";
 import {USER_COLUMNS} from "../../CONSTANTS/Constants";
 import GenericList from "../DrinksPage/GenericList";

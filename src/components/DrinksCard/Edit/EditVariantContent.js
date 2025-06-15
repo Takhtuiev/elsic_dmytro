@@ -6,14 +6,10 @@ import {IconButton} from "@mui/material";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import React from "react";
 import {DRINKS_COLUMNS} from "../../../CONSTANTS/Constants";
-import Grid from '@mui/material/Grid2';
+import Grid from '@mui/material/Grid';
 
 
-function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewValue, dialogEditOptions, errorData, isDeletable, sx} ) {
-
-    const updateVariant = (value, key) => {
-        setNewValue(value, key, index);
-    };
+function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewValue, errorData, isDeletable, sx} ) {
 
     function createObj(name, indexVariant) {
         return {
@@ -31,7 +27,7 @@ function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewV
             <Grid >
                 <ImageUpload
                     obj={createObj('imageUrl', index)}
-                    setValue={updateVariant}
+                    setValue={setNewValue}
                     lastUpdated={lastUpdated}
                 />
             </Grid>
@@ -42,15 +38,15 @@ function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewV
                     <Grid  size={{ xs:12, sm:6, md:3 }}>
                         <MySelect
                             obj={createObj('packagingType', index)}
-                            setValue={updateVariant}
+                            setValue={setNewValue}
                             sx={{width: '100%'}}
-                            editOptions={dialogEditOptions}
+                            editable={true}
                         />
                     </Grid>
                     <Grid  size={{ xs:12, sm:6, md:3 }}>
                         <MyTextField
                             obj={createObj('volume', index)}
-                            setValue={updateVariant}
+                            setValue={setNewValue}
                             sx={{minWidth: '100%'}}
                             type={'number'}
                         />
@@ -58,7 +54,7 @@ function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewV
                     <Grid  size={{ xs:12, sm:6, md:3 }}>
                         <MyTextField
                             obj={createObj('price', index)}
-                            setValue={updateVariant}
+                            setValue={setNewValue}
                             type={'number'}
                             sx={{minWidth: '100%'}}
                         />
@@ -66,7 +62,7 @@ function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewV
                     <Grid  size={{ xs:12, sm:6, md:3 }}>
                         <MyTextField
                             obj={createObj('stockQuantity', index)}
-                            setValue={updateVariant}
+                            setValue={setNewValue}
                             type={'number'}
                             sx={{minWidth: '100%'}}
                         />
@@ -75,7 +71,7 @@ function EditVariantContent({index, variant, loadEditLists, lastUpdated, setNewV
                 <Grid  >
                     <MyTextField
                         obj={createObj('promotionsAndDiscounts', index)}
-                        setValue={updateVariant}
+                        setValue={setNewValue}
                         sx={{ width: '100%' }}
                         sxInput={{fontSize: '0.8rem'}}
                         multiline={true}

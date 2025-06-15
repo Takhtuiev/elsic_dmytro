@@ -3,38 +3,44 @@ import {
     Link,
     Typography
 } from "@mui/material";
-import {useRegisterNewUserMutation} from "../../../services/api/userApi";
+import {useRegisterNewUserMutation} from "../../../services/Slice/userApi";
 import ErrorBox from "../../ErrorBoard/ErrorBox";
 import React from "react";
 import {useState} from "react";
 import MyTextField from "../../MyComponent/MyTextField";
-import {ID_EL_START, USER_COLUMNS} from "../../../CONSTANTS/Constants";
+import {ID_EL_START} from "../../../CONSTANTS/Constants";
 import MyInputPassword from "../../MyComponent/MyInputPassword";
-import Grid from "@mui/material/Grid2";
+import Grid from "@mui/material/Grid";
+import {closeDialog} from "../../../services/Slice/dialogSlice";
+import {useDispatch} from "react-redux";
 
-function RegistrationCard({ logReg }) {
+function RegistrationCard() {
+
+    const dispatch = useDispatch();
 
     const USER_DATA_EMPTY = {username:'', password:'', confirm_password:'', email:'', phone:''}
 
     const [registerUser, { isLoading, error, reset }] = useRegisterNewUserMutation();
     const [errorConfirmPassword, setErrorConfirmPassword] = useState(null);
 
-    const handleLog = async () => {
-        logReg();
-        reset();
+    const handleClose = () => {
+        dispatch(closeDialog());
     };
+
 
     const handleRegistration = async () => {
 
         const newValue = {};
         for (const key of Object.keys(USER_DATA_EMPTY)) {
-            const element = document.getElementById(ID_EL_START + key);
+            const element = document.getElementById(ID_EL_START+ 'user_registration' + key);
 
             if (element) {
                 newValue[key] = element.textContent || element.value;
             } else {
                 newValue[key] = null;
             }
+
+            console.log(newValue)
         }
 
         if (newValue.password === newValue.confirm_password) {
@@ -43,7 +49,7 @@ function RegistrationCard({ logReg }) {
             const result = await registerUser( newValue );
 
             if (!result.error) {
-                logReg();
+                handleClose();
             }
 
         } else {
@@ -51,19 +57,20 @@ function RegistrationCard({ logReg }) {
             reset()
         }
 
-    };
+    }
 
     function createObj(name, label) {
         return {
             key: name,
             value: '',
+            field: 'user_registration',
             label: label,
             error: error?.data[name],
         }
     }
 
     return (
-        <form onSubmit={handleRegistration} style={{ minWidth: '33vw' }}>
+        <form onSubmit={handleRegistration}>
             <Grid container direction={'column'} spacing={2}>
                 <Grid>
                     <table style={{width: '100%'}}>
@@ -143,9 +150,9 @@ function RegistrationCard({ logReg }) {
                     <Grid sx={{ textAlign: 'center' }}>
                         <Link
                             style={{ cursor: 'pointer' }}
-                            onClick={handleLog}
+                            onClick={handleClose}
                         >
-                            Login
+                            Close
                         </Link>
                     </Grid>
                 </Grid>

@@ -11,10 +11,12 @@ import PhoneIcon from '@mui/icons-material/Phone';
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
-import Grid from "@mui/material/Grid2";
+import Grid from "@mui/material/Grid";
 import {Box} from "@mui/system";
+import {UserActionsMas} from "./UserActionsMas";
+import {DrinkActionsMas} from "../DrinksCard/DrinkActionsMas";
 
-function CardUser({ item, setAction }) {
+function CardUser({ item }) {
 
     if (!item) {
         return (
@@ -127,28 +129,9 @@ function CardUser({ item, setAction }) {
 
                 <Grid  sx={{ ml: "auto" }}>
                     <ActionGroupButton
-                        masActions={[
-                            {
-                                role: "USER_EDIT",
-                                title: "Edit",
-                                setNewAction: { action: "edit", item: item },
-                                content: <EditIcon sx={{ fontSize: "1.2rem" }} />,
-                            },
-                            {
-                                role: "USER_DEL",
-                                title: "Delete",
-                                setNewAction: {
-                                    action: "delete",
-                                    itemId: item.id,
-                                    itemName: item.username,
-                                },
-
-                                content: <DeleteForeverIcon sx={{ fontSize: "1.2rem" }} color="error" />,
-                            },
-                        ]}
-                        setAction={setAction}
-                        orientation={"vertical"}
-                    />
+                        masActions = {UserActionsMas(item)}
+                        orientation={'vertical'}
+                   />
                 </Grid>
             </Grid>
         </Card>

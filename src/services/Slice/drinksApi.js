@@ -57,13 +57,22 @@ const drinksApi = createApi({
             invalidatesTags: ['Drinks'],
         }),
 
-        getBrand: builder.query({
+        getBrandByName: builder.query({
             query: ({ name }) => ({
                 url: `/rest/brand/${name}`,
                 method: 'GET',
             }),
             providesTags: ['Brand'],
         }),
+
+        getBrandById: builder.query({
+            query: ({ id }) => ({
+                url: `/rest/brand/id/${id}`,
+                method: 'GET',
+            }),
+            providesTags: ['Brand'],
+        }),
+
         updateBrand: builder.mutation({
             query: ({ newBrand, altName, image }) => {
 
@@ -128,20 +137,48 @@ const drinksApi = createApi({
             },
             providesTags: ['EditList'],
         }),
-        updateLoadEditLists: builder.mutation({
-            query: ({key, newItem, altItem}) => ({
-                url: `/rest/drinks/load_edit_lists/${key}`,
-                method: 'POST',
-                body: {newName: newItem, altName: altItem},
+
+        getLoadEditListsByName: builder.query({
+            query: ({ field, name }) => ({
+                url: `/rest/drinks/load_edit_lists/${field}?name=${name ?? ''}`,
+                method: 'GET',
             }),
+            providesTags: ['EditList'],
+        }),
+
+        updateLoadEditLists: builder.mutation({
+            query: ({ field, newItem, altName, image }) => {
+
+                const formData = new FormData();
+
+                // Добавляем JSON-объект как Blob
+                // Безопасная проверка: если newItem валиден — добавляем его
+                if (newItem && typeof newItem === 'object') {
+                    formData.append('item', new Blob([JSON.stringify(newItem)], { type: 'application/json' }));
+                } else {
+                    // Можно бросить исключение, вернуть ошибку или просто ничего не добавлять
+                    console.warn('newItem is invalid:', newItem);
+                    throw new Error('newItem must be a valid object');
+                }
+
+                if (image) {
+                    formData.append(`image`, image); // Добавляем изображение
+                }
+
+                return {
+                    url: `/rest/drinks/load_edit_lists/${field}?name=${altName ?? ''}`,
+                    method: 'POST',
+                    body: formData,
+                };
+            },
             invalidatesTags: ['Drinks','EditList'],
         }),
+
         deleteItemList: builder.mutation({
             query: ( {key, name} ) => ({
-                url: `/rest/drinks/load_edit_lists/${key}`,
+                url: `/rest/drinks/load_edit_lists/${key}?name=${name}`,
                 method: 'DELETE',
-                body: name,
-            }),
+             }),
             invalidatesTags: ['EditList'],
         }),
 
@@ -154,7 +191,8 @@ export const {
     useUpdateDrinksMutation,
     useDeleteDrinksMutation,
 
-    useGetBrandQuery,
+    useGetBrandByNameQuery,
+    useGetBrandByIdQuery,
     useUpdateBrandMutation,
     useDeleteBrandMutation,
 
@@ -162,6 +200,7 @@ export const {
     useDeleteVariantDrinksMutation,
 
     useGetLoadEditListsQuery,
+    useGetLoadEditListsByNameQuery,
     useUpdateLoadEditListsMutation,
     useDeleteItemListMutation,
 } = drinksApi;

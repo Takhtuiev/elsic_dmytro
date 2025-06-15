@@ -1,7 +1,7 @@
 import React from 'react';
 import {Button, Typography} from "@mui/material";
 import CloseIcon from '@mui/icons-material/Close';
-import Grid from "@mui/material/Grid2";
+import Grid from "@mui/material/Grid";
 
 const TopStringFilter = ({ params, FILTER_PARAMS, updateParams }) => {
     // Проверяем, что есть хотя бы одно поле из FILTER_PARAMS в params

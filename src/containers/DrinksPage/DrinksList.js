@@ -3,7 +3,7 @@ import {
     useDeleteDrinksMutation,
     useGetLoadEditListsQuery,
     useGetPageDrinksQuery,
-} from "../../services/api/drinksApi";
+} from "../../services/Slice/drinksApi";
 import CardDrinks from "../../components/DrinksCard/CardDrinks";
 import CardLineDrinks from "../../components/DrinksCard/CardLineDrinks";
 import GenericList from "./GenericList";

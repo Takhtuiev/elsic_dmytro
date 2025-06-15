@@ -1,15 +1,16 @@
 import {
-    Box, Button, Divider, Paper, Typography,
+    Box, Button, Divider, Typography,
 } from "@mui/material";
 import React, {useState} from "react";
 import SaveIcon from '@mui/icons-material/Save';
 import MyTextField from "../MyComponent/MyTextField";
 import {USER_COLUMNS} from "../../CONSTANTS/Constants";
-import {useUpdateMyAccountMutation} from "../../services/api/userApi";
+import {useUpdateMyAccountMutation} from "../../services/Slice/userApi";
 import MyInputPassword from "../MyComponent/MyInputPassword";
 import ErrorBox from "../ErrorBoard/ErrorBox";
 import {useEffect} from "react";
-import Grid from '@mui/material/Grid2';
+import Grid from '@mui/material/Grid';
+import Container from "@mui/material/Container";
 
 
 function AccountEditCard({user}) {
@@ -68,11 +69,16 @@ function AccountEditCard({user}) {
     }
 
     return (
-        <Paper sx={{
-            p:1,
-            m:1,
-            maxWidth: 'md',
-        }}>
+        <Container
+            maxWidth="md"
+            sx={{
+                p: { xs: 1, sm: 2 },
+                m: { xs: 0, sm: 2 },
+                backgroundColor: 'background.paper',
+                borderRadius: { xs: 0, sm: 2 },
+                boxShadow: { xs: 'none', sm: 1 },
+            }}
+        >
             <form>
                 <Grid container spacing={2} >
                     <Grid container direction={'column'} size={'grow'}>
@@ -133,7 +139,7 @@ function AccountEditCard({user}) {
                 <Divider sx={{my:1}}/>
                 <Grid container spacing={2} alignItems="center">
                     {error &&
-                        <Grid container justifyContent="center">
+                        <Grid container size={12} justifyContent="center">
                             <ErrorBox error={error} />
                         </Grid>
                     }
@@ -164,7 +170,7 @@ function AccountEditCard({user}) {
                     </Grid>
                 </Grid>
             </form>
-        </Paper>
+        </Container>
 
     );
 }

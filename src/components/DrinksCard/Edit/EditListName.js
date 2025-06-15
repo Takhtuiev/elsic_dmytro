@@ -1,49 +1,68 @@
-import Grid from "@mui/material/Grid2";
+import Grid from "@mui/material/Grid";
 import MyTextField from "../../MyComponent/MyTextField";
-import {DRINKS_COLUMNS} from "../../../CONSTANTS/Constants";
 import {Button, Tooltip} from "@mui/material";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import SaveIcon from "@mui/icons-material/Save";
 import ErrorBox from "../../ErrorBoard/ErrorBox";
-import React, {lazy, Suspense, useState, useEffect} from "react";
-import {useDeleteItemListMutation, useUpdateLoadEditListsMutation} from "../../../services/api/drinksApi";
-import LoadingSpinner from "../../MyComponent/LoadingSpinnerBoard/LoadingSpinner";
+import React, {useState, useEffect} from "react";
+import {useUpdateLoadEditListsMutation} from "../../../services/Slice/drinksApi";
+import {openDialog} from "../../../services/Slice/dialogSlice";
+import {useDispatch} from "react-redux";
+import {filterDrinksErrorKey} from "../../ErrorBoard/Utils/FilterDrinksErrorKey";
+import {DRINKS_COLUMNS} from "../../../CONSTANTS/Constants";
 
-const DeleteConfirmationModalUI = lazy(() => import("../../ModalWindow/DeleteConfirmationModal"));
+function EditListName({ editedField, selectedItem, setSelectedItem, funcCancel }) {
 
-function EditListName({ editedField, selectedItem, setSelectedItem }) {
+    const dispatch = useDispatch();
 
-    const [updateList, { isLoading: updating, error: errorUpdateList, reset: resetUpdateList }] = useUpdateLoadEditListsMutation();
-    const [deleteList, { isLoading: deleting, error: errorDeleteList}] = useDeleteItemListMutation();
+    const [updateList, { isLoading: updating, error: errorUpdateList}] = useUpdateLoadEditListsMutation();
 
     const [editedItem, setEditedItem] = useState(selectedItem);
-    const [showDelete, setShowDelete] = useState(null);
 
-    const addNew = 'Add new ' + editedField
+    const [error, setError] = useState(null);
 
     useEffect(() => {
+        if (!selectedItem) {
+            setEditedItem(null)
+        }
+        setError(null);
+
         setEditedItem(selectedItem)
-        resetUpdateList()
     }, [selectedItem]);
 
     const saveItem = async (altValue, newValue) => {
+
+        setSelectedItem(null);
+
         const result = await updateList({ key: editedField, newItem: newValue, altItem: altValue });
 
         console.log(result)
         if (!result.error) {
+            if (error) {
+                setError(null);
+            }
             setSelectedItem(newValue)
+            if (funcCancel) funcCancel();
+
+        } else {
+            setError(filterDrinksErrorKey(altValue, result.error.data));
         }
 
     };
 
-    const deleteItem = async (name) => {
-        const result = await deleteList({ key: editedField, name: name });
-
-        if (!result.error) {
-            setSelectedItem(null);
-        }
-
-        return result
+    const deleteItem = async (obj) => {
+        dispatch(
+            openDialog({
+                title: `Delete ${obj.name}`,
+                maxWidth: "md",
+                componentKey: "DeleteConfirm",  // ключ твоего компонента в AppDialog.componentMap
+                props: {
+                    entityType: "ItemList",
+                    entityIdentifier: obj,
+                    bodyText: `Are you sure you want to delete "${obj.name}"?`,
+                },
+            })
+        );
     };
 
     return (
@@ -54,7 +73,7 @@ function EditListName({ editedField, selectedItem, setSelectedItem }) {
                         key: 'name',
                         field: editedField,
                         value: editedItem,
-                        label: selectedItem || addNew,
+                        label: DRINKS_COLUMNS.name,
                         error: errorUpdateList?.data.name,
                     }}
                     multiline={true}
@@ -62,6 +81,13 @@ function EditListName({ editedField, selectedItem, setSelectedItem }) {
                     sx={{ width: "100%" }}
                 />
             </Grid>
+
+            {error &&
+                <Grid >
+                    <ErrorBox error={error} />
+                </Grid>
+            }
+
 
             {/* Кнопки Сохранить и Удалить */}
             <Grid size={12} container justifyContent="flex-end" spacing={1} >
@@ -78,10 +104,10 @@ function EditListName({ editedField, selectedItem, setSelectedItem }) {
                     <Grid>
                         <Tooltip title="Delete">
                             <Button
-                                disabled={updating || deleting}
+                                disabled={updating}
                                 color="error"
                                 variant="outlined"
-                                onClick={() => setShowDelete(selectedItem)}
+                                onClick={() => deleteItem({key: editedField, name: editedItem })}
                             >
                                 Delete <DeleteForeverIcon fontSize="small"/>
                             </Button>
@@ -92,7 +118,7 @@ function EditListName({ editedField, selectedItem, setSelectedItem }) {
                 <Grid>
                     <Tooltip title="Save">
                         <Button
-                            disabled={updating || deleting}
+                            disabled={updating}
                             variant="contained"
                             onClick={() => saveItem(selectedItem, editedItem)}
                         >
@@ -102,22 +128,7 @@ function EditListName({ editedField, selectedItem, setSelectedItem }) {
                 </Grid>
             </Grid>
 
-            <Grid size={12} sx={{ flexGrow: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {errorUpdateList && <ErrorBox error={errorUpdateList} />}
-            </Grid>
-
-
-            {showDelete && (
-                <Suspense fallback={<LoadingSpinner />}>
-                    <DeleteConfirmationModalUI
-                        action={showDelete}
-                        setShowDelete={setShowDelete}
-                        bodyText={`Are you sure you want to delete ${showDelete}?`}
-                        funcDelete={() => deleteItem(showDelete)}
-                    />
-                </Suspense>
-            )}
-        </Grid>
+     </Grid>
 
     )
 }

@@ -8,8 +8,8 @@ function MyInputPassword({ obj, setValue, sx }) {
     const inputRef = useRef(null);
 
     const idElement = obj.indexVariant !== undefined
-        ? `${ID_EL_START}${obj.key}-${obj.indexVariant}`
-        : `${ID_EL_START}${obj.key}`;
+        ? `${ID_EL_START}${obj.field}${obj.key}-${obj.indexVariant}`
+        : `${ID_EL_START}${obj.field}${obj.key}`;
 
     // Функция срабатывает при потере фокуса
     function onChange(event) {

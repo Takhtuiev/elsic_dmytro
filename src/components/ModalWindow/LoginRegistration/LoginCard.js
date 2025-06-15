@@ -3,25 +3,37 @@ import {
     DialogContent,
     Link,
 } from "@mui/material";
-import { useUserLoginMutation} from "../../../services/api/authApi.js";
+import { useUserLoginMutation} from "../../../services/Slice/authApi.js";
 import { useJwtUserDetails } from "../../../Providers/JwtProvider";
 import ErrorBox from "../../ErrorBoard/ErrorBox";
 import MyInputPassword from "../../MyComponent/MyInputPassword";
 import React from "react";
 import MyTextField from "../../MyComponent/MyTextField";
 import {useState} from "react";
-import Grid from "@mui/material/Grid2";
+import Grid from "@mui/material/Grid";
+import {closeDialog, openDialog} from "../../../services/Slice/dialogSlice";
+import {useDispatch} from "react-redux";
 
-function LoginCard({ close, logReg }) {
+function LoginCard() {
+    const dispatch = useDispatch();
 
     const [loginUser, { data, error, isLoading, reset }] = useUserLoginMutation();
     const { jwtUserDetails, setJwtUserDetails } = useJwtUserDetails(); // Детали авторизованного пользователя
     const [logPass, setLogPass] = useState({username:'', password:''});
 
     const handleClose = () => {
-        close();
-//        reset();
+        dispatch(closeDialog());
     };
+
+    const handleRegistration = () => {
+        dispatch(openDialog({
+            title: "Registration",
+            maxWidth: "sm",
+            componentKey: "RegistrationCard",
+            props: {},
+        }));
+    };
+
 
     const setNewValue = (value, key) => {
         setLogPass(prevState => {
@@ -31,17 +43,15 @@ function LoginCard({ close, logReg }) {
 
     const handleLogin = async () => {
         const result = await loginUser(logPass);
-        if (result.error) {
-            console.error("login error ", result.error);
-        } else {
+        if (!result.error) {
             setJwtUserDetails(result.data.userDetails);
             handleClose();
         }
     };
 
     return (
-        <form onSubmit={handleLogin} style={{ minWidth: '33vw' }}>
-            <Grid container direction={'column'} spacing={1} sx={{pt: 1}}>
+        <form onSubmit={handleLogin} >
+            <Grid container direction={'column'} spacing={2} >
                 <Grid>
                     <MyTextField
                         obj={{
@@ -74,26 +84,24 @@ function LoginCard({ close, logReg }) {
                     </Grid>
                 }
                 <Grid>
-                    <Grid>
-                        <Button
-                            fullWidth={true}
-                            loading={isLoading}
-                            onClick={handleLogin}
-                            variant="contained"
-                        >
-                            Login
-                        </Button>
-                    </Grid>
-                    <Grid sx={{ textAlign: 'center' }}>
-                        <Link
-                            style={{cursor: 'pointer'}}
-                            onClick={logReg}
-                        >
-                            Registration
-                        </Link>
-                    </Grid>
-
+                    <Button
+                        fullWidth={true}
+                        loading={isLoading}
+                        onClick={handleLogin}
+                        variant="contained"
+                    >
+                        Login
+                    </Button>
                 </Grid>
+                <Grid sx={{ textAlign: 'center' }}>
+                    <Link
+                        style={{cursor: 'pointer'}}
+                        onClick={handleRegistration}
+                    >
+                        Registration
+                    </Link>
+                </Grid>
+
             </Grid>
         </form>
     );
