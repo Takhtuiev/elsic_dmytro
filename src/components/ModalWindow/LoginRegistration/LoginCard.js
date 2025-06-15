@@ -50,9 +50,9 @@ function LoginCard() {
     };
 
     return (
-        <form onSubmit={handleLogin} >
+        <form onSubmit={handleLogin}>
             <Grid container direction={'column'} spacing={2} >
-                <Grid>
+                <Grid pt={1}>
                     <MyTextField
                         obj={{
                             key: 'username',

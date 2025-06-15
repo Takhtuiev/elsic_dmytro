@@ -72,7 +72,7 @@ function RegistrationCard() {
     return (
         <form onSubmit={handleRegistration}>
             <Grid container direction={'column'} spacing={2}>
-                <Grid>
+                <Grid pt={1}>
                     <table style={{width: '100%'}}>
                         <tbody>
                         <tr>
