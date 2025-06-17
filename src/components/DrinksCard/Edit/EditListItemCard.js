@@ -11,6 +11,7 @@ import {
     useUpdateLoadEditListsMutation
 } from "../../../services/Slice/drinksApi";
 import {
+    closeDialog,
     dialogDataReturned, openDialog
 } from "../../../services/Slice/dialogSlice";
 
@@ -24,11 +25,11 @@ import { DRINKS_COLUMNS } from "../../../CONSTANTS/Constants";
 import {filterItemErrorKey} from "../../ErrorBoard/Utils/FilterDrinksErrorKey";
 
 
-function EditListItemCard({ field, selectedItemName, funcCancel, deletable = true }) {
+function EditListItemCard({ field, selectedItemName, saveAndClose = true, deletable = true }) {
     const dispatch = useDispatch();
 
     const { data: item, error: errorGetItem, isFetching: loading } =
-        useGetLoadEditListsByNameQuery({ field, name: selectedItemName });
+        useGetLoadEditListsByNameQuery({ field: field, name: selectedItemName });
 
     const [updateItem, { error: errorUpdate, isLoading: updating, reset: resetUpdaring }] =
         useUpdateLoadEditListsMutation();
@@ -89,12 +90,16 @@ function EditListItemCard({ field, selectedItemName, funcCancel, deletable = tru
             if (!result.error) {
                 setError(null);
 
+                // передача результата, если нужно
                 dispatch(dialogDataReturned({
                     dialogType: 'EditListItemCard',
                     data: {name: newItem.name},
                 }));
 
-                if (funcCancel) funcCancel();
+                if (saveAndClose) {
+                    // Закрытие диалога и передача результата, если нужно
+                    dispatch(closeDialog());
+                }
             } else {
                 setError(filterItemErrorKey(item, result.error.data));
             }

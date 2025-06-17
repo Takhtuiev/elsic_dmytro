@@ -57,50 +57,6 @@ const drinksApi = createApi({
             invalidatesTags: ['Drinks'],
         }),
 
-        getBrandByName: builder.query({
-            query: ({ name }) => ({
-                url: `/rest/brand/${name}`,
-                method: 'GET',
-            }),
-            providesTags: ['Brand'],
-        }),
-
-        getBrandById: builder.query({
-            query: ({ id }) => ({
-                url: `/rest/brand/id/${id}`,
-                method: 'GET',
-            }),
-            providesTags: ['Brand'],
-        }),
-
-        updateBrand: builder.mutation({
-            query: ({ newBrand, altName, image }) => {
-
-                const formData = new FormData();
-
-                // Добавляем JSON-объект как Blob
-                formData.append('item', new Blob([JSON.stringify(newBrand)], { type: 'application/json' }));
-
-                if (image) {
-                    formData.append(`image`, image); // Добавляем изображение
-                }
-
-                return {
-                    url: `/rest/brand/` + (altName || ''),
-                    method: 'PUT',
-                    body: formData,
-                };
-            },
-            invalidatesTags: ['Drinks','Brand','EditList'],
-        }),
-        deleteBrand: builder.mutation({
-            query: ( name ) => ({
-                url: `/rest/brand/${name}`,
-                method: 'DELETE',
-            }),
-            invalidatesTags: ['Brand','EditList'],
-        }),
-
         getPageVariantsDrinks: builder.query({
             query: ({ params }) => {
                 const queryString = new URLSearchParams(params).toString();
@@ -190,11 +146,6 @@ export const {
     useGetDrinksQuery,
     useUpdateDrinksMutation,
     useDeleteDrinksMutation,
-
-    useGetBrandByNameQuery,
-    useGetBrandByIdQuery,
-    useUpdateBrandMutation,
-    useDeleteBrandMutation,
 
     useGetPageVariantsDrinksQuery,
     useDeleteVariantDrinksMutation,

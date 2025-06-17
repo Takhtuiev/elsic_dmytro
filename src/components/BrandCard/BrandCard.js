@@ -10,7 +10,7 @@ import {BrandActionsMas} from "./BrandActionsMas";
 import {Box} from "@mui/system";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 
-function BrandCard({ brand, setBrand }) {
+function BrandCard({ brand }) {
     const theme = useTheme();
 
     if (!brand) {

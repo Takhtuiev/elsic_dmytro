@@ -11,7 +11,7 @@ export const BrandActionsMas = (brand) => [
             field: 'brand',
             selectedItemName: brand.name,
             setSelectedItemName: null,
-            funcCancel: null,
+            saveAndClose: true,
             deletable: false,
         },
         content: <EditIcon />,
