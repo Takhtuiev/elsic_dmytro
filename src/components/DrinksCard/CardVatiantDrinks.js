@@ -53,7 +53,7 @@ function CardVariantDrink({ item }) {
 
     return (
         <MyCard
-            onClick={() => { navigate("/drinksDetails/" + item.product.id + "?variantId=" + item.id)}}
+            onClick={() => { navigate("/drinksDetails/" + item.product.id + "?variant=" + item.id)}}
             sx={{flexDirection: 'column'}}
         >
 

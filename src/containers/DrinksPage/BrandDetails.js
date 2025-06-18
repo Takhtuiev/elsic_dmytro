@@ -25,8 +25,6 @@ function BrandDetails() {
                 const newName = lastReturnedData.data.name;
                 if (newName !== brand) {
                     setBrand(newName)
-                } else {
-
                 }
             }
         }

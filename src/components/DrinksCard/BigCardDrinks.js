@@ -2,32 +2,33 @@ import {
     CardMedia, Link, Skeleton, Table, TableBody, TableCell, TableRow,
     Typography
 } from "@mui/material";
-import React, {useState} from "react";
+import React, {useEffect, useState} from "react";
 import { Rating } from '@mui/material';
 import ModalImage from "../MyComponent/Image/ModalImage";
 import {Box} from "@mui/system";
 import WithRoleContent from "../MyComponent/WithRoleContent";
-import {useLocation, useNavigate} from "react-router-dom";
+import {useNavigate} from "react-router-dom";
 import ActionGroupButton from "../MyComponent/ActionGroupButton";
 import {DrinkActionsMas} from "./DrinkActionsMas";
 import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 
-function BigCardDrinks({ product, setAction }) {
+function BigCardDrinks({ product, selectedVariantId = 0 }) {
 
-    const location = useLocation();
     const navigate = useNavigate();
 
-    const queryParams = new URLSearchParams(location.search);
-
-    const [variantIndex, setVariantIndex] = useState(() => {
-        const param = queryParams.get('variant');
-        const index = parseInt(param, 10);
-        return isNaN(index) ? 0 : index;
-    });
+    const [variantIndex, setVariantIndex] = useState(0);
 
     const [viewImage, setViewImage] = useState(null);
+
+    // Обновляем variantIndex, когда загружается новый product или меняется selectedVariantId
+    useEffect(() => {
+        if (product?.variants?.length) {
+            const newIndex = product.variants.findIndex(v => v.id === selectedVariantId);
+            setVariantIndex(newIndex >= 0 ? newIndex : 0);
+        }
+    }, [product, selectedVariantId]);
 
     if (!product) {
         return (
@@ -263,9 +264,8 @@ function BigCardDrinks({ product, setAction }) {
                 <WithRoleContent allowedRoles={['PRODUCT_EDIT', 'PRODUCT_DEL']}>
                     <Box display="flex" justifyContent="center" mt={2}>
                         <ActionGroupButton
-                            masActions={DrinkActionsMas(product)}
-                            setAction={setAction}
-                        />
+                            masActions={DrinkActionsMas(product, product.variants[variantIndex].id)}
+                         />
                     </Box>
                 </WithRoleContent>
             </Box>

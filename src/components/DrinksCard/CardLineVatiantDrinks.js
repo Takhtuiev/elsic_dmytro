@@ -56,7 +56,7 @@ function CardLineVariantDrink({ item, setAction }) {
 
     return (
         <MyCard
-            onClick={() => { navigate("/drinksDetails/" + item.product.id + "?variantId=" + item.id)}}
+            onClick={() => { navigate("/drinksDetails/" + item.product.id + "?variant=" + item.id)}}
             sx={{alignItems: 'center'}}
         >
             {/* Левая половина - изображение */}

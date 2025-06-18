@@ -20,7 +20,7 @@ const [varIndex, setVarIndex] = useState(0);
 const navigate = useNavigate();
 
     const onClick = () => {
-        navigate(`/drinksDetails/${item.id}?variant=${varIndex}`);
+        navigate(`/drinksDetails/${item.id}?variant=${item.variants[varIndex].id}`);
     };
 
     if (!item || !item.variants) {
