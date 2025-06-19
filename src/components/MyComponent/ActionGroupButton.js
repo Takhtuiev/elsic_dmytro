@@ -1,7 +1,6 @@
 import React from "react";
 import { Button, ButtonGroup, Tooltip } from "@mui/material";
-import { useJwtUserDetails } from "../../Providers/JwtProvider";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { openDialog } from "../../services/Slice/dialogSlice";
 
 /**
@@ -11,12 +10,14 @@ import { openDialog } from "../../services/Slice/dialogSlice";
  * @param {"horizontal"|"vertical"} orientation - Ориентация кнопок (по умолчанию — горизонтальная).
  */
 function ActionGroupButton({ masActions, orientation = "horizontal" }) {
-    const { jwtUserDetails } = useJwtUserDetails(); // Получаем данные пользователя (с ролями)
     const dispatch = useDispatch();
 
+    // Получаем данные пользователя из Redux
+    const jwtUserDetails = useSelector(state => state.jwtUser.userDetails);
+
     // Оставляем только действия, которые разрешены пользователю по ролям
-    const availableActions = masActions.filter((action) =>
-        jwtUserDetails?.roles.includes(action.role)
+    const availableActions = masActions.filter(action =>
+        jwtUserDetails?.roles?.includes(action.role)
     );
 
     // Обработчик клика по кнопке действия

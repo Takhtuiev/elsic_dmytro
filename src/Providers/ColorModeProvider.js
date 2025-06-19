@@ -10,7 +10,7 @@ const urlBackGroundImage = '/background3.webp'
 export const useColorMode = () => {
     const context = useContext(ColorModeProvider);
     if (!context) {
-        throw new Error('useColorMode must be used within a JwtUserDetailsProvider');
+        throw new Error('useColorMode must be used within a ColorModeProvider');
     }
     return context;
 }

@@ -7,6 +7,8 @@ import { TOP_MENU } from '../../CONSTANTS/Constants';
 import UserBar from './UserBar';
 import ThemeSwitch from './ThemeSwitch/ThemeSwitch';
 
+const urlBackGroundImage = '/background2_menu.webp'
+
 function NavigationTabs() {
     const theme = useTheme(); // Получаем текущую тему
 
@@ -39,7 +41,10 @@ function NavigationTabs() {
         <AppBar
             position="static"
             sx={{
-                backgroundColor: theme => theme.palette.background.paper,
+                backgroundImage: `url(${urlBackGroundImage})`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'center center',
+                backgroundSize: '100% auto', // ширина на 100%, высота — авто
                 color: theme.palette.text.primary,
             }}
         >

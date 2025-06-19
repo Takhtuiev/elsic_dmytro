@@ -21,7 +21,7 @@ function MyInputPassword({ obj, setValue, sx }) {
             <InputLabel htmlFor={idElement}>{obj.label}</InputLabel>
             <OutlinedInput
                 id={idElement}
-                defaultValue={obj.value !== undefined ? obj.value : ''} // Используем defaultValue для начального значения
+                value={obj.value !== undefined ? obj.value : ''} // Используем defaultValue для начального значения
                 onChange={setValue && onChange} // Сохраняем значение при потере фокуса
                 label={obj.label}
                 type={passwordVisibility ? 'text' : 'password'}

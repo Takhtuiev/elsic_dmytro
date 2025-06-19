@@ -1,6 +1,7 @@
 import { fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { Mutex } from "async-mutex";
 import { API_URL, LOGIN, LOGOUT, REFRESH_JWT } from "../config";
+import {clearJwtUserDetails, setJwtUserDetails} from "./Slice/jwtUserSlice";
 
 let accessToken = undefined;
 const mutex = new Mutex(); // глобальный мьютекс для защиты refresh
@@ -30,7 +31,6 @@ const baseQuery = fetchBaseQuery({
 });
 
 const refreshJwtToken = async (api, extraOptions) => {
-    // Запускаем блокировку через mutex, чтобы только один поток делал refresh
     return await mutex.runExclusive(async () => {
         const refreshResult = await baseQuery({
             url: REFRESH_JWT,
@@ -39,10 +39,19 @@ const refreshJwtToken = async (api, extraOptions) => {
 
         if (refreshResult.data?.accessToken) {
             accessToken = refreshResult.data.accessToken;
+            const userDetails = getPayloadToken(accessToken);
+
+            // ✅ Сохраняем в Redux
+            api.dispatch(setJwtUserDetails(userDetails));
+
             console.log("✅ Token refreshed");
-            return { data: { userDetails: getPayloadToken(accessToken) } };
+            return { data: { userDetails } };
         } else {
             accessToken = null;
+
+            // ❌ Сброс при ошибке
+            api.dispatch(clearJwtUserDetails());
+
             console.warn("❌ Failed to refresh token:", refreshResult.error || refreshResult);
             return { error: refreshResult.error || "No accessToken in response" };
         }

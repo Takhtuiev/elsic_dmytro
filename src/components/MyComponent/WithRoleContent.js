@@ -1,13 +1,13 @@
-import {useJwtUserDetails} from "../../Providers/JwtProvider";
+import React from "react";
+import { useSelector } from "react-redux";
 
 const WithRoleContent = ({ allowedRoles, children }) => {
-    const { jwtUserDetails } = useJwtUserDetails(); // Получаем детали JWT-пользователя из контекста
+    const jwtUserDetails = useSelector(state => state.jwtUser.userDetails);
 
-    // Проверяем, есть ли у пользователя хотя бы одна из разрешенных ролей, и если есть, то выводим children
-    if (jwtUserDetails?.roles.some(role => allowedRoles.includes(role))) {
-        return children;
+    if (jwtUserDetails?.roles?.some(role => allowedRoles.includes(role))) {
+        return <>{children}</>;
     } else {
-        return null; // Если роль не совпадает, то ничего не возвращаем
+        return null;
     }
 };
 
