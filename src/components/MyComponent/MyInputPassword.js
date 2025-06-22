@@ -3,7 +3,7 @@ import React, {useRef, useState} from "react";
 import {ID_EL_START} from "../../CONSTANTS/Constants";
 import {Visibility, VisibilityOff} from "@mui/icons-material";
 
-function MyInputPassword({ obj, setValue, sx }) {
+function MyInputPassword({ obj, setValue, type="password", sx }) {
     const [passwordVisibility, setPasswordVisibility] = useState(false);
     const inputRef = useRef(null);
 
@@ -17,15 +17,18 @@ function MyInputPassword({ obj, setValue, sx }) {
     }
 
     return (
-        <FormControl variant="outlined" sx={sx} size="small">
+        <FormControl
+            variant="outlined"
+            sx={sx} size="small"
+        >
             <InputLabel htmlFor={idElement}>{obj.label}</InputLabel>
             <OutlinedInput
                 id={idElement}
                 value={obj.value !== undefined ? obj.value : ''} // Используем defaultValue для начального значения
                 onChange={setValue && onChange} // Сохраняем значение при потере фокуса
                 label={obj.label}
-                type={passwordVisibility ? 'text' : 'password'}
-                autoComplete="current-password"
+                type={type}
+                autoComplete={type}
                 sx={sx || {}}
                 inputRef={inputRef}
                 endAdornment={

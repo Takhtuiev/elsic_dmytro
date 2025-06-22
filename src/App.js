@@ -17,14 +17,14 @@ import { BoardSpinner } from "./components/MyComponent/LoadingSpinnerBoard/Loadi
 import NavigationTabs from "./components/Navigation/NavigationTabs";
 import Footer from "./containers/Footer/Footer";
 import ScrollToTop from "./components/ScrollToTop";
-import AppDialog from "./components/MyComponent/AppDialog";
 import { Box } from "@mui/system";
 
 
 import {useRefreshAccessTokenQuery} from "./services/Slice/authApi";
 import {clearJwtUserDetails, setJwtUserDetails} from "./services/Slice/jwtUserSlice";
 
-// 🔁 Лениво загружаемые страницы (код-сплиттинг)
+// 🔁 Лениво загружаемые страницы
+const AppDialog = lazy(() => import('./components/MyComponent/AppDialog'));
 const Home = lazy(() => import('./containers/Home/Home'));
 const DrinksList = lazy(() => import('./containers/DrinksPage/DrinksList'));
 const VariantsDrinksList = lazy(() => import('./containers/DrinksPage/VariantsDrinksList'));
@@ -39,9 +39,14 @@ const NotFound = lazy(() => import('./containers/NotFoundPage/NotFound'));
  */
 function AppContent() {
     const dispatch = useDispatch();
-    const { data, error } = useRefreshAccessTokenQuery();
 
-    // При старте делаем запрос на получение юзера
+    // Проверяем наличие пользователя в localStorage
+    const hasUserInStorage = !!localStorage.getItem("jwtUser");
+
+    // Делаем запрос на обновление токена только если юзер есть
+    const { data, error } = useRefreshAccessTokenQuery(undefined, {skip: !hasUserInStorage,});
+
+    // Если пришли данные — устанавливаем, если ошибка — сбрасываем
     useEffect(() => {
         if (data?.userDetails) {
             dispatch(setJwtUserDetails(data.userDetails));
@@ -87,7 +92,11 @@ function AppContent() {
                     </Box>
 
                     {/* Диалоговое окно поверх всего */}
-                    {isDialogOpen && <AppDialog />}
+                    {isDialogOpen &&
+                        <Suspense fallback={<BoardSpinner />}>
+                            <AppDialog />
+                        </Suspense>
+                    }
                 </Box>
             </BrowserRouter>
         </ColorModeContextProvider>
@@ -95,7 +104,7 @@ function AppContent() {
 }
 
 /**
- * Внешний обертка с Redux-хранилищем
+ * Внешняя обертка с Redux-хранилищем
  */
 export default function App() {
     return (

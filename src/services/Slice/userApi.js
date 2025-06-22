@@ -38,7 +38,7 @@ const usersApi = createApi({
                 body: newValue,
             }),
         }),
-        registerNewUser: builder.mutation({
+         registerNewUser: builder.mutation({
             query: ( newUserValue ) => ({
                 url: `/admin/users/`,
                 method: 'POST',
@@ -53,6 +53,13 @@ const usersApi = createApi({
                 body: newUserValue,
             }),
             invalidatesTags: ['PageUsers'],
+        }),
+        changePassword: builder.mutation({
+            query: (body) => ({
+                url: "/admin/users/change_password",
+                method: "PUT",
+                body,
+            }),
         }),
         deleteUser: builder.mutation({
             query: ( id ) => ({
@@ -77,6 +84,7 @@ export const {
     useGetUserQuery,
     useGetMyAccountQuery,
     useUpdateMyAccountMutation,
+    useChangePasswordMutation,
     useRegisterNewUserMutation,
     useUpdateUserPropertyMutation,
     useDeleteUserMutation,

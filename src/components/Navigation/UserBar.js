@@ -39,7 +39,7 @@ function UserBar() {
         dispatch(
             openDialog({
                 title: "Login",
-                maxWidth: "sm",
+                maxWidth: "xs",
                 componentKey: "LoginCard",
                 props: {},
             })

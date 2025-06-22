@@ -10,7 +10,6 @@ import { BoardSpinner } from "./LoadingSpinnerBoard/LoadingSpinner";
 import { useDispatch, useSelector } from "react-redux";
 import {closeDialog} from "../../services/Slice/dialogSlice";
 import { useMediaQuery, useTheme } from "@mui/system";
-import RegistrationCard from "../ModalWindow/LoginRegistration/RegistrationCard";
 
 // Карта ленивых компонентов
 const componentMap = {
@@ -26,6 +25,7 @@ const componentMap = {
 
     LoginCard: React.lazy(() => import("../ModalWindow/LoginRegistration/LoginCard")),
     RegistrationCard: React.lazy(() => import("../ModalWindow/LoginRegistration/RegistrationCard")),
+    ChangePassword: React.lazy(() => import("../UserCard/ChangePassword")),
 };
 
 

@@ -7,7 +7,7 @@ import { TOP_MENU } from '../../CONSTANTS/Constants';
 import UserBar from './UserBar';
 import ThemeSwitch from './ThemeSwitch/ThemeSwitch';
 
-const urlBackGroundImage = '/background2_menu.webp'
+const urlBackGroundImage = '/background_menu7.webp'
 
 function NavigationTabs() {
     const theme = useTheme(); // Получаем текущую тему
@@ -41,11 +41,20 @@ function NavigationTabs() {
         <AppBar
             position="static"
             sx={{
-                backgroundImage: `url(${urlBackGroundImage})`,
-                backgroundRepeat: 'no-repeat',
-                backgroundPosition: 'center center',
-                backgroundSize: '100% auto', // ширина на 100%, высота — авто
+                position: 'relative', // чтобы псевдоэлемент позиционировался относительно AppBar
                 color: theme.palette.text.primary,
+                backgroundColor: theme.palette.background.paper, // основной цвет фона
+                '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundImage: `url(${urlBackGroundImage})`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'center center',
+                    backgroundSize: '100% auto',
+                    opacity: 0.1,   // уровень прозрачности изображения
+                    zIndex: 0,
+                },
             }}
         >
             <Toolbar disableGutters sx={{ justifyContent: 'space-between', px: 3 }}>
@@ -76,7 +85,9 @@ function NavigationTabs() {
                                 '&.Mui-selected': {
                                     color: theme.palette.primary.main,
                                 },
-                                '&:hover': { color: theme.palette.primary.dark },
+                                '&:hover': {
+                                    color: theme.palette.primary.dark
+                                },
                             }}
                         />
                     ))}

@@ -11,9 +11,13 @@ import ErrorBox from "../ErrorBoard/ErrorBox";
 import {useEffect} from "react";
 import Grid from '@mui/material/Grid';
 import Container from "@mui/material/Container";
+import {openDialog} from "../../services/Slice/dialogSlice";
+import {useDispatch} from "react-redux";
 
 
 function AccountEditCard({user}) {
+
+    const dispatch = useDispatch();
 
     const [updateAccount, { error: errorUpdate, isLoading: updating, reset}] = useUpdateMyAccountMutation();
     const [editedUser, setEditedUser] = useState({...user, password: ''});
@@ -137,13 +141,13 @@ function AccountEditCard({user}) {
                     </Grid>
                 </Grid>
                 <Divider sx={{my:1}}/>
+                {error &&
+                    <Grid container size={12} justifyContent="center">
+                        <ErrorBox error={error} />
+                    </Grid>
+                }
                 <Grid container spacing={2} alignItems="center">
-                    {error &&
-                        <Grid container size={12} justifyContent="center">
-                            <ErrorBox error={error} />
-                        </Grid>
-                    }
-                    <Grid size={'grow'}>
+                    <Grid size={'grow'} minWidth={"fit-content"}>
                         <Button
                             onClick={resetFunc}
                             variant="outlined"
@@ -152,6 +156,17 @@ function AccountEditCard({user}) {
                         </Button>
                     </Grid>
                     <Grid>
+                        <Button onClick={() => {
+                            dispatch(openDialog({
+                                title: `Change password`,
+                                maxWidth: "xs",
+                                componentKey: "ChangePassword",
+                                props: {},
+                            }));
+                        }}>
+                            Change Password
+                        </Button>
+
                         <MyInputPassword
                             obj={createObj('password', 'you password')}
                             setValue={setNewValue}
