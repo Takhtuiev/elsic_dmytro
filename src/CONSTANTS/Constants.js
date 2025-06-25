@@ -37,8 +37,8 @@ export const USER_COLUMNS = {
 };
 
 export const TOP_MENU = [
-    {name:'Variants', href:'/drinks/pagevar'},
-    {name:'Drinks', href:'/drinks/page'},
+    {name:'Усі позиції', href:'/drinks/pagevar'},
+    {name:'Сорти пива', href:'/drinks/page'},
     {name:'UserList', href:'/admin/userlist'},
     {name:'TestErrorPath', href:'/TestErrorPath'},
 ];

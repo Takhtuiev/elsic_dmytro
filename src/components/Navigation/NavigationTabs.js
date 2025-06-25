@@ -1,144 +1,206 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { AppBar, Toolbar, IconButton, Typography, Menu, MenuItem, Tab, Tabs, Box, useTheme, alpha } from '@mui/material';
+import {
+    Box,
+    IconButton,
+    MenuItem,
+    Drawer,
+    List,
+    ListItem,
+    ListItemButton,
+    ListItemText,
+    useTheme,
+    alpha, Typography, Button,
+} from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import { TOP_MENU } from '../../CONSTANTS/Constants';
 import UserBar from './UserBar';
 import ThemeSwitch from './ThemeSwitch/ThemeSwitch';
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 
-const urlBackGroundImage = '/background_menu7.webp'
+const urlBackGroundImage = '/background_menu7.webp';
 
-function NavigationTabs() {
-    const theme = useTheme(); // Получаем текущую тему
-
+export default function NavigationMenu() {
+    const theme = useTheme();
+    const location = useLocation();
     const [anchorElNav, setAnchorElNav] = useState(null);
-    const currentPath = useLocation().pathname;
 
-    const routePath = TOP_MENU.find((item) =>
-        currentPath.startsWith(item.href))?.href || (currentPath === '/' ? '/' : false);
+    const currentPath = location.pathname;
+    const matchedRoute = TOP_MENU.find((item) => currentPath.startsWith(item.href))?.href;
+    const routePath = matchedRoute || (currentPath === '/' ? '/' : '');
 
-    const handleOpenNavMenu = (event) => setAnchorElNav(event.currentTarget);
-    const handleCloseNavMenu = () => setAnchorElNav(null);
+    const isActive = (href) => routePath === href;
 
-    const homeTab = (
-        <Tab
-            label="Home"
+    const linkStyle = (active) => ({
+        px: 2,
+        py: 1,
+        textDecoration: 'none',
+        color: active ? theme.palette.primary.main : theme.palette.text.primary,
+        fontWeight: 500,
+        letterSpacing: '0.05rem',
+        fontSize: '1rem',
+        transition: 'color 0.3s ease',
+        '&:hover': {
+            color: theme.palette.primary.dark,
+        },
+    });
+
+    const renderLinkItem = (name, href) => (
+        <Box
+            key={name}
             component={Link}
-            value="/"
-            to="/"
-            sx={{
-                color: theme.palette.text.primary,
-                '&.Mui-selected': {
-                    color: theme.palette.primary.main,
-                },
-                '&:hover': { color: theme.palette.primary.dark },
-            }}
-        />
+            to={href}
+            sx={linkStyle(isActive(href))}
+        >
+            {name}
+        </Box>
     );
 
     return (
-        <AppBar
-            position="static"
+        <Box
+            component="nav"
             sx={{
-                position: 'relative', // чтобы псевдоэлемент позиционировался относительно AppBar
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                px: { xs: 2, sm: 4 },
+                py: 1,
+                backgroundColor: theme.palette.background.paper,
                 color: theme.palette.text.primary,
-                backgroundColor: theme.palette.background.paper, // основной цвет фона
                 '&::before': {
                     content: '""',
                     position: 'absolute',
-                    top: 0, left: 0, right: 0, bottom: 0,
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
                     backgroundImage: `url(${urlBackGroundImage})`,
                     backgroundRepeat: 'no-repeat',
                     backgroundPosition: 'center center',
                     backgroundSize: '100% auto',
-                    opacity: 0.1,   // уровень прозрачности изображения
+                    opacity: 0.15,
                     zIndex: 0,
                 },
+                zIndex: 10,
             }}
         >
-            <Toolbar disableGutters sx={{ justifyContent: 'space-between', px: 3 }}>
-
-                {/* Tabs для десктопа */}
-                <Box sx={{ display: { xs: 'none', sm: 'flex' } }}>{homeTab}</Box>
-                <Tabs
-                    value={routePath}
-                    textColor="inherit"
-                    sx={{
-                        display: { xs: 'none', sm: 'flex' },
-                        '.MuiTabs-indicator': { backgroundColor: theme.palette.primary.main },
-                    }}
-                >
-                    {TOP_MENU.map((item) => (
-                        <Tab
-                            key={item.name}
-                            label={item.name}
-                            component={Link}
-                            value={item.href}
-                            to={item.href}
-                            sx={{
-                                textTransform: 'none',
-                                fontSize: '1rem',
-                                fontWeight: 500,
-                                letterSpacing: '0.05rem',
-                                color: theme.palette.text.primary,
-                                '&.Mui-selected': {
-                                    color: theme.palette.primary.main,
-                                },
-                                '&:hover': {
-                                    color: theme.palette.primary.dark
-                                },
-                            }}
-                        />
-                    ))}
-                </Tabs>
-
-                {/* Меню для мобильных */}
-                <Box sx={{ display: { sm: 'none', xs: 'flex' } }}>
-                    <IconButton size="large" sx={{ color: theme.palette.text.primary }} onClick={handleOpenNavMenu}>
-                        <MenuIcon />
-                    </IconButton>
-                    <Menu
-                        id="menu-appbar"
-                        anchorEl={anchorElNav}
-                        open={Boolean(anchorElNav)}
-                        onClose={handleCloseNavMenu}
-                        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-                        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-                        keepMounted
-                        sx={{
-                            '& .MuiPaper-root': {
-                                backgroundColor: theme.palette.background.paper,
-                                borderRadius: 2,
-                            },
-                        }}
-                    >
-                        {TOP_MENU.map((item) => (
-                            <MenuItem
-                                key={item.name}
-                                component={Link}
-                                to={item.href}
-                                onClick={handleCloseNavMenu}
-                                sx={{
-                                    color: theme.palette.text.primary,
-                                    '&:hover': { backgroundColor: alpha(theme.palette.primary.light, 0.2) },
-                                }}
-                            >
-                                <Typography>{item.name}</Typography>
-                            </MenuItem>
-                        ))}
-                    </Menu>
+            {/* Десктоп меню */}
+            <Box
+                sx={{
+                    display: { xs: 'none', sm: 'flex' },
+                    width: '100%',
+                    gap: 2,
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    zIndex: 1,
+                }}
+            >
+                <Box>
+                    {renderLinkItem('Home', '/')}
                 </Box>
-                <Box sx={{ display: { sm: 'none', xs: 'flex' } }}>{homeTab}</Box>
 
-                {/* Блок переключателя темы и пользователя */}
-                <Box sx={{ display: 'flex', maxWidth: '16rem', gap: 2, alignItems: 'center' }}>
+                {/* Ссылки меню */}
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                    {TOP_MENU.map(({ name, href }) => renderLinkItem(name, href))}
+                </Box>
+
+                {/* Темы и юзербар справа */}
+                <Box sx={{ display: 'flex', gap: 1 }}>
                     <ThemeSwitch />
                     <UserBar />
                 </Box>
-            </Toolbar>
-        </AppBar>
+            </Box>
+
+            {/* Мобильное меню */}
+            <Box
+                sx={{
+                    display: { xs: 'flex', sm: 'none' },
+                    zIndex: 1,
+                    alignItems: 'center',
+                    width: '100%',
+                    justifyContent: 'space-between',
+                    gap: 1
+                }}
+            >
+                {/* Кнопка открытия Drawer */}
+                <IconButton
+                    size="large"
+                    onClick={() => setAnchorElNav(true)}
+                    sx={{ color: theme.palette.text.primary }}
+                    aria-label="menu"
+                >
+                    <MenuIcon />
+                </IconButton>
+
+                {/* Переключатель темы и пользователь */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <ThemeSwitch />
+                    <UserBar />
+                </Box>
+
+                {/* Drawer вместо Menu */}
+                <Drawer
+                    anchor="left"
+                    open={Boolean(anchorElNav)}
+                    onClose={() => setAnchorElNav(false)}
+                    slotProps={{
+                        paper: {
+                            sx: {
+                                width: 240,
+                                backgroundColor: theme.palette.background.paper,
+                                pt: 2,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                height: '100%',
+                            },
+                        },
+                    }}
+                >
+                    {/* Заголовок */}
+
+
+                    {/* Список меню */}
+                    <Box sx={{ flexGrow: 1, overflowY: 'auto' }}>
+                        <List disablePadding>
+                            <ListItemButton
+                                onClick={() => setAnchorElNav(false)}
+                                sx={{ px: 1, py: 1, color: "primary.main" }}
+                            >
+                                <ChevronLeftIcon sx={{ mr: 1 }} />
+                                <Typography variant="h6" color="primary">Меню</Typography>
+                            </ListItemButton>
+                            {[{ name: 'Home', href: '/' }, ...TOP_MENU].map(({ name, href }) => (
+                                <ListItemButton
+                                    key={href}
+                                    component={Link}
+                                    to={href}
+                                    onClick={() => setAnchorElNav(false)}
+                                    sx={{ px: 2, py: 1.2 }}
+                                >
+                                    <ListItemText primary={name} />
+                                </ListItemButton>
+                            ))}
+                        </List>
+                    </Box>
+
+                    {/* Нижняя кнопка */}
+                    <Box sx={{ p: 2 }}>
+                        <Button
+                            variant="contained"
+                            color="primary"
+                            size="small"
+                            fullWidth
+                            onClick={() => setAnchorElNav(false)}
+                        >
+                            Закрити
+                        </Button>
+                    </Box>
+                </Drawer>
+            </Box>
+
+
+        </Box>
     );
 }
-
-export default NavigationTabs;

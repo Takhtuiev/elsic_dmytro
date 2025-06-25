@@ -1,6 +1,6 @@
-import React, { Suspense, useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Box, Button, Pagination } from "@mui/material";
+import { Button, Pagination } from "@mui/material";
 import Grid from "@mui/material/Grid";
 import AddIcon from "@mui/icons-material/Add";
 import ErrorCard from "../../components/ErrorBoard/ErrorCard";
@@ -10,9 +10,8 @@ import WithRoleContent from "../../components/MyComponent/WithRoleContent";
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 import NotFound from "../NotFoundPage/NotFound";
 import { updateSearchParams } from "../../components/Filter/utils";
-import AppDialog from "../../components/MyComponent/AppDialog";
 import {openDialog} from "../../services/Slice/dialogSlice";
-import {useDispatch, useSelector} from "react-redux";
+import {useDispatch} from "react-redux";
 
 function GenericList({
                          useGetPage,
@@ -95,7 +94,7 @@ function GenericList({
         <>
             <TopLinearLoading active={getPage.isFetching || getLists.isFetching} />
 
-            <Box width="100%" display="flex" flexDirection="column" alignItems="center" p={1}>
+            <Grid container size={12} direction={"column"} spacing={1} alignItems="center" p={1}>
 
                 <FiltersSortViewBar
                     params={params}
@@ -110,14 +109,15 @@ function GenericList({
                     countProducts={getPage.data?.totalElements}
                 />
 
-                <Box display="flex" flexDirection="row" gap={1} width={"100%"}>
+                <Grid container spacing={1} size={12}>
                     {/* Filter panel for larger screens */}
-                    <Box
-                        sx={{
-                            display: { xs: "none", md: "block" },
-                            minWidth: "20%",
-                            maxWidth: "30%",
-                        }}
+                    <Grid size={{ xs:0, md:2.5}}
+                          sx={{
+                              display: { xs: "none", md: "block" },
+                              minWidth: "14rem",
+                              maxWidth: "20%", // чтобы не разрасталась слишком сильно, по желанию
+                              flexShrink: 0, // не уменьшалась
+                          }}
                     >
                         <FiltersAccordion
                             params={params}
@@ -127,9 +127,9 @@ function GenericList({
                             selectLists={getLists.data}
                             minMaxPrice={getPage.data?.minMaxPrice}
                         />
-                    </Box>
+                    </Grid>
 
-                    <Grid container spacing={1} justifyContent="center" height={"100%"} width={"100%"}>
+                    <Grid container size={'grow'} spacing={1} justifyContent="center" height={"100%"} >
                         {getPage.isFetching
                             ? Array.from({ length: 12 }).map(renderCard)
                             : getPage.data?.content.length > 0
@@ -143,7 +143,7 @@ function GenericList({
 
                         <Grid size={12}>
                             <WithRoleContent allowedRoles={[CREATE_NEW_ROLE]}>
-                                <Box display="flex" justifyContent="flex-end" mb={1}>
+                                <Grid container justifyContent="flex-end" mb={1}>
                                     <Button
                                         variant="contained"
                                         onClick={() =>
@@ -162,10 +162,10 @@ function GenericList({
                                     >
                                         <AddIcon style={{ fontSize: "1.5rem" }} /> Create new
                                     </Button>
-                                </Box>
+                                </Grid>
                             </WithRoleContent>
 
-                            <Box display="flex" justifyContent="center">
+                            <Grid container justifyContent="center">
                                 <Pagination
                                     count={Number(getPage.data?.totalPages) || 0}
                                     page={Number(getPage.data?.number + 1) || 1}
@@ -180,11 +180,11 @@ function GenericList({
                                         },
                                     }}
                                 />
-                            </Box>
+                            </Grid>
                         </Grid>
                     </Grid>
-                </Box>
-            </Box>
+                </Grid>
+            </Grid>
         </>
     );
 }

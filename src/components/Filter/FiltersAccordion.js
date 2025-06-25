@@ -4,169 +4,221 @@ import {
     AccordionDetails,
     AccordionSummary,
     Box,
-    MenuItem,
+    Button,
+    Drawer,
+    ListItemButton,
     Typography
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import CloseIcon from "@mui/icons-material/Close";
+
 import ContentSlider from "./ContentSlider";
 import ContentCheckBoxList from "./ContentCheckBoxList";
-import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import FilterDrawerField from "./FilterDrawerField";
 
-const FiltersAccordion = ({ params, updateParams, FILTER_PARAMS, TEXT_COLUMNS, selectLists, minMaxPrice, mode, closeDrawer }) => {
+const FiltersAccordion = ({
+                              params,
+                              updateParams,
+                              FILTER_PARAMS,
+                              TEXT_COLUMNS,
+                              selectLists,
+                              minMaxPrice,
+                              mode,
+                              closeDrawer
+                          }) => {
     const [expanded, setExpanded] = useState(false);
+    const isDrawerMode = mode === 'drawer';
 
-    // Создание объекта один раз
+    const filterInParams = Object.keys(FILTER_PARAMS).some(key => key in params);
+
+    const handleReset = () => {
+        updateParams(null, null);
+        closeDrawer(false);
+    };
+
     const createObj = (field) => {
-        const selectedArr = params[field]?.split(','); // Преобразуем строку в массив
+        const selectedArr = params[field]?.split(',');
 
         switch (FILTER_PARAMS[field]) {
             case 'slider':
                 return {
-                    value: selectedArr?.map(Number), // Преобразуем строковые значения в числа
-                    range: minMaxPrice || [undefined, undefined] // Минимум и максимум для слайдера
+                    value: selectedArr?.map(Number),
+                    range: minMaxPrice || [undefined, undefined]
                 };
             case 'checkbox':
-                if (!selectLists) return {}; // Если нет selectLists, возвращаем пустой объект
+                if (!selectLists || !selectLists[field]) return {};
                 return selectLists[field].reduce((acc, item) => {
-                    acc[item] = selectedArr?.includes(String(item)); // Отмечаем, выбран ли элемент
+                    acc[item] = selectedArr?.includes(String(item));
                     return acc;
                 }, {});
             default:
-                return null; // Если тип не найден, возвращаем null
+                return null;
         }
     };
 
-    // Получаем выбранное количество из obj
     const getSelectedCount = (field, obj) => {
         if (!FILTER_PARAMS[field]) return "";
-
         switch (FILTER_PARAMS[field]) {
-            case 'checkbox':
-                const total = Object.keys(obj).length;
+            case 'checkbox': {
                 const selected = Object.values(obj).filter(Boolean).length;
+                const total = Object.keys(obj).length;
                 return `${selected}/${total}`;
-            case 'slider': {
-                const [min, max] = obj.value || [undefined, undefined];
-                return params[field] !== obj[field] ? `${min} - ${max}` : "";
             }
+
+            case 'slider': {
+                if (!obj?.value) return "";
+
+                const [min, max] = obj?.value || [];
+                const [rangeMin, rangeMax] = obj?.range || [];
+
+                // Если ничего не выбрано или значения равны диапазону по умолчанию — ничего не отображаем
+                const isDefault = min === rangeMin && max === rangeMax;
+
+                return !isDefault ? `${min} - ${max}` : "";
+            }
+
             default:
                 return "";
         }
     };
 
-    // Обновление параметров
     const updateObj = (newObj, field) => {
-        let newValue = [];
-
+        let newValue;
         switch (FILTER_PARAMS[field]) {
             case 'slider':
                 newValue = newObj.join(',');
                 break;
             case 'checkbox':
                 newValue = Object.entries(newObj)
-                    .filter(([key, value]) => value) // Фильтруем только те пары, где value === true
-                    .map(([key]) => key).join(','); // Извлекаем ключи
+                    .filter(([, value]) => value)
+                    .map(([key]) => key)
+                    .join(',');
                 break;
             default:
-                return null;
+                return;
         }
-
         updateParams(field, newValue);
     };
 
-    if (mode === 'drawer') {
-        return (
-            <>
-                {Object.keys(FILTER_PARAMS).map((field, index) => {
-                    const obj = createObj(field); // Создаем obj один раз для каждого поля
-                    return (
-                        <MenuItem
-                            key={index}
-                            onClick={() => setExpanded(field)} sx={{ p: 1.4 }}
-                        >
-                            <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
-                                <Typography variant="body1" sx={{ flexGrow: 1 }}>
-                                    {TEXT_COLUMNS[field]}
-                                </Typography>
-                                <Typography variant="body2" color="textSecondary" sx={{ mx: 0.5 }}>
-                                    {getSelectedCount(field, obj)}
-                                </Typography>
-                                <ChevronRightIcon color="primary" />
-                            </Box>
-                        </MenuItem>
-                    );
-                })}
+    const renderFieldContent = (field) => {
+        const obj = createObj(field);
+        const type = FILTER_PARAMS[field];
 
-                <FilterDrawerField
-                    expanded={Boolean(expanded)}
-                    setExpanded={setExpanded}
-                    headText={TEXT_COLUMNS[expanded]}
-                    closeFilters={closeDrawer}
+        if (type === 'slider') {
+            return <ContentSlider field={field} obj={obj} updateObj={updateObj} />;
+        }
+
+        if (type === 'checkbox') {
+            return <ContentCheckBoxList field={field} obj={obj} updateObj={updateObj} />;
+        }
+
+        return null;
+    };
+
+    const renderField = (field, index) => {
+        const obj = createObj(field);
+
+        if (isDrawerMode) {
+            return (
+                <ListItemButton
+                    key={index}
+                    onClick={() => setExpanded(field)}
+                    sx={{ p: 1.4 }}
                 >
-                    {FILTER_PARAMS[expanded] === 'slider' ? (
-                        <ContentSlider
-                            field={expanded}
-                            obj={createObj(expanded)}
-                            updateObj={updateObj}
-                        />
-                    ) : ( FILTER_PARAMS[expanded] === 'checkbox' ? (
-                            <ContentCheckBoxList
-                                field={expanded}
-                                obj={createObj(expanded)}
-                                updateObj={updateObj}
-                            />
-                        ) : null
-                    )}
-                </FilterDrawerField>
-            </>
-        );
-    } else {
+                    <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
+                        <Typography variant="body1" sx={{ flexGrow: 1 }}>
+                            {TEXT_COLUMNS[field]}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary" sx={{ mx: 0.5 }}>
+                            {getSelectedCount(field, obj)}
+                        </Typography>
+                        <ChevronRightIcon color="primary" />
+                    </Box>
+                </ListItemButton>
+            );
+        }
+
         return (
-            <>
-                {Object.keys(FILTER_PARAMS).map((field, index) => {
-                    const obj = createObj(field); // Создаем obj один раз для каждого поля
-                    return (
-                        <Accordion
-                            key={index}
-                            defaultExpanded
-                        >
-                            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                <Typography variant="body1" sx={{ flexGrow: 1 }}>
-                                    {TEXT_COLUMNS[field]}
-                                </Typography>
-                                <Typography variant="body2" color="textSecondary" sx={{ mx: 0.5 }}>
-                                    {getSelectedCount(field, obj)} {/* Передаем obj в getSelectedCount */}
-                                </Typography>
-                            </AccordionSummary>
-                            <AccordionDetails
-                                sx={{
-                                    p: 0,
-                                    maxHeight: '12rem', // Максимальная высота
-                                    overflowY: 'auto',  // Вертикальная прокрутка
-                                }}
-                            >
-                                {FILTER_PARAMS[field] === 'slider' ? (
-                                    <ContentSlider
-                                        field={field}
-                                        obj={createObj(field)}
-                                        updateObj={updateObj}
-                                    />
-                                ) : ( FILTER_PARAMS[field] === 'checkbox' ? (
-                                        <ContentCheckBoxList
-                                            field={field}
-                                            obj={createObj(field)}
-                                            updateObj={updateObj}
-                                        />
-                                    ) : null
-                                )}
-                            </AccordionDetails>
-                        </Accordion>
-                    );
-                })}
-            </>
+            <Accordion key={index} defaultExpanded>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography variant="body1" sx={{ flexGrow: 1 }}>
+                        {TEXT_COLUMNS[field]}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary" sx={{ mx: 0.5 }}>
+                        {getSelectedCount(field, obj)}
+                    </Typography>
+                </AccordionSummary>
+                <AccordionDetails sx={{ p: 0, maxHeight: '12rem', overflowY: 'auto' }}>
+                    {renderFieldContent(field)}
+                </AccordionDetails>
+            </Accordion>
         );
-    }
+    };
+
+    return (
+        <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+            {isDrawerMode && (
+                <>
+                    {/* Верхняя панель */}
+                    <Box sx={{ display: "flex", alignItems: "center", px: 2, py: 1 }}>
+                        <ListItemButton onClick={() => closeDrawer(false)} sx={{ px: 0, color: "primary.main", flexGrow: 1 }}>
+                            <ChevronLeftIcon sx={{ mr: 1 }} />
+                            <Typography variant="h6">Фільтри</Typography>
+                        </ListItemButton>
+
+                        {filterInParams && (
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                color="error"
+                                onClick={handleReset}
+                                sx={{ borderRadius: "1rem", ml: 1, whiteSpace: "nowrap" }}
+                                endIcon={<CloseIcon fontSize="small" />}
+                            >
+                                Reset
+                            </Button>
+                        )}
+                    </Box>
+
+                    {/* Поля фильтра */}
+                    <Box sx={{ flexGrow: 1 }}>
+                        {Object.keys(FILTER_PARAMS).map(renderField)}
+                    </Box>
+
+                    {/* Кнопка "Показати" */}
+                    <Box sx={{ p: 1 }}>
+                        <Button variant="contained" color="primary" fullWidth onClick={() => closeDrawer()}>
+                            Показати
+                        </Button>
+                    </Box>
+
+                    {/* Внутренний Drawer по конкретному фильтру */}
+                    <Drawer anchor="left" open={!!expanded} onClose={() => setExpanded(false)}>
+                        <Box sx={{ minWidth: "18rem", height: "100%", display: "flex", flexDirection: "column" }}>
+                            <Box>
+                                <ListItemButton onClick={() => setExpanded(false)} sx={{ p: 1, color: "primary.main" }}>
+                                    <ChevronLeftIcon sx={{ mr: 1 }} />
+                                    <Typography variant="h6">{TEXT_COLUMNS[expanded]}</Typography>
+                                </ListItemButton>
+                            </Box>
+
+                            <Box sx={{ flexGrow: 1, overflowY: 'auto', borderTop: '1px solid #E0E0E0', borderBottom: '1px solid #E0E0E0' }}>
+                                {renderFieldContent(expanded)}
+                            </Box>
+
+                            <Box sx={{ display: "flex", gap: 1, p: 1 }}>
+                                <Button variant="outlined" size="small" fullWidth onClick={() => setExpanded(false)}>Назад</Button>
+                                <Button variant="contained" size="small" fullWidth onClick={() => { setExpanded(false); closeDrawer(); }}>Показати</Button>
+                            </Box>
+                        </Box>
+                    </Drawer>
+                </>
+            )}
+
+            {!isDrawerMode && Object.keys(FILTER_PARAMS).map(renderField)}
+        </Box>
+    );
 };
 
 export default FiltersAccordion;

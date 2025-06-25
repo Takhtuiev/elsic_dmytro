@@ -4,6 +4,8 @@ import CardUser from "../../components/UserCard/CardUser";
 import {USER_COLUMNS} from "../../CONSTANTS/Constants";
 import GenericList from "../DrinksPage/GenericList";
 import UserEditPropertiesCard from "../../components/UserCard/UserEditPropertiesCard";
+import PageHeader from "../../components/MyComponent/PageHeader";
+import {Box} from "@mui/system";
 
 
 const HEAD_PARAMS = {
@@ -28,21 +30,27 @@ const SORT_LIST = [
 function UserList() {
 
     return (
-        <GenericList
-            useGetPage={useGetPageUserListQuery}
-            useGetLists={useGetLoadRoleListQuery}
-            useDeleteMutation={useDeleteUserMutation}
-            HEAD_PARAMS={HEAD_PARAMS}
-            FILTER_PARAMS={FILTER_PARAMS}
-            TEXT_COLUMNS={USER_COLUMNS}
-            SORT_LIST={SORT_LIST}
-            CardComponent={CardUser}
-            CardLineComponent={CardUser}
-            EditCard={(props) => (
-                <Suspense fallback={<div>Loading EditCard...</div>}>
-                    <UserEditPropertiesCard {...props} />
-                </Suspense>)}
-        />
+        <Box>
+            <PageHeader
+                text={'Усі Юзери.'}
+            />
+
+            <GenericList
+                useGetPage={useGetPageUserListQuery}
+                useGetLists={useGetLoadRoleListQuery}
+                useDeleteMutation={useDeleteUserMutation}
+                HEAD_PARAMS={HEAD_PARAMS}
+                FILTER_PARAMS={FILTER_PARAMS}
+                TEXT_COLUMNS={USER_COLUMNS}
+                SORT_LIST={SORT_LIST}
+                CardComponent={CardUser}
+                CardLineComponent={CardUser}
+                EditCard={(props) => (
+                    <Suspense fallback={<div>Loading EditCard...</div>}>
+                        <UserEditPropertiesCard {...props} />
+                    </Suspense>)}
+            />
+        </Box>
     )
 }
 

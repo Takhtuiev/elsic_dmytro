@@ -9,6 +9,9 @@ import CardLineDrinks from "../../components/DrinksCard/CardLineDrinks";
 import GenericList from "./GenericList";
 import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
 import EditBigCardDrinks from "../../components/DrinksCard/Edit/EditBigCardDrinks";
+import {Box} from "@mui/system";
+import {Paper, Typography} from "@mui/material";
+import PageHeader from "../../components/MyComponent/PageHeader";
 
 
 const HEAD_PARAMS = {
@@ -32,6 +35,11 @@ const SORT_LIST = [
 function DrinksList() {
 
     return (
+        <Box>
+            <PageHeader
+                text={'Сорти пива. Усі доступні варіанти упаковки згруповані всередині.'}
+            />
+
             <GenericList
                 useGetPage={useGetPageDrinksQuery}
                 useGetLists={useGetLoadEditListsQuery}
@@ -48,6 +56,7 @@ function DrinksList() {
                         <EditBigCardDrinks {...props} />
                     </Suspense>)}
             />
+        </Box>
     )
 }
 

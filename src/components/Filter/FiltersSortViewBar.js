@@ -31,7 +31,6 @@ const FiltersSortViewBar = ({
     return (
         <Grid container size={12} spacing={2} alignItems="flex-end" width={'100%'}
               sx={{
-                  my: 1,
                   flexWrap: {
                       xs: 'wrap',  // по умолчанию — обертывание
                       md: 'nowrap' // только на md и выше — без обертывания
@@ -62,6 +61,7 @@ const FiltersSortViewBar = ({
                             py: 0.5,
                             px: 1,
                             backgroundColor: theme => theme.palette.background.paper,
+                            borderRadius: "4px",
                         }}
                     >
                         знайдено {countProducts}

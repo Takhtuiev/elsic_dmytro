@@ -3,6 +3,8 @@ import BigCardDrinks from "../../components/DrinksCard/BigCardDrinks";
 import {useGetDrinksQuery} from "../../services/Slice/drinksApi";
 import ErrorCard from "../../components/ErrorBoard/ErrorCard";
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
+import PageHeader from "../../components/MyComponent/PageHeader";
+import React from "react";
 
 function DrinksDetails() {
 
@@ -23,6 +25,10 @@ function DrinksDetails() {
     return (
         <>
             <TopLinearLoading active={loading} />
+
+            <PageHeader
+                text={'Опис пива.'}
+            />
 
             <BigCardDrinks product={product} selectedVariantId = {selectedVariantId}/>
 

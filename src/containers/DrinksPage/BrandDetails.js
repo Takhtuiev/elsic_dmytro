@@ -5,6 +5,7 @@ import ErrorCard from "../../components/ErrorBoard/ErrorCard";
 import BrandCard from "../../components/BrandCard/BrandCard";
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 import {useDispatch, useSelector} from "react-redux";
+import PageHeader from "../../components/MyComponent/PageHeader";
 
 function BrandDetails() {
 
@@ -44,6 +45,10 @@ function BrandDetails() {
     return (
         <>
             <TopLinearLoading active={loading}/>
+
+            <PageHeader
+                text={'Опис бренда.'}
+            />
 
             <BrandCard brand={brand}/>
         </>

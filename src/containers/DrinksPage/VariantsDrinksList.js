@@ -9,6 +9,8 @@ import CardLineVariantDrink from "../../components/DrinksCard/CardLineVatiantDri
 import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
 import GenericList from "./GenericList";
 import EditBigCardDrinks from "../../components/DrinksCard/Edit/EditBigCardDrinks";
+import PageHeader from "../../components/MyComponent/PageHeader";
+import {Box} from "@mui/system";
 
 
 const HEAD_PARAMS = {
@@ -35,22 +37,29 @@ const SORT_LIST = [
 function VariantsDrinksList() {
 
     return (
-        <GenericList
-            useGetPage={useGetPageVariantsDrinksQuery}
-            useGetLists={useGetLoadEditListsQuery}
-            useDeleteMutation={useDeleteVariantDrinksMutation}
-            HEAD_PARAMS={HEAD_PARAMS}
-            FILTER_PARAMS={FILTER_PARAMS}
-            TEXT_COLUMNS={DRINKS_COLUMNS}
-            SORT_LIST={SORT_LIST}
-            CREATE_NEW_ROLE={"PRODUCT_EDIT"}
-            CardComponent={CardVariantDrinks}
-            CardLineComponent={CardLineVariantDrink}
-            EditCard={(props) => (
-                <Suspense fallback={<div>Loading EditCard...</div>}>
-                    <EditBigCardDrinks {...props} />
-                </Suspense>)}
-        />
+        <Box>
+            <PageHeader
+                text={'Усі товари. Кожен варіант пива з різною тарою — окрема позиція у списку.'}
+            />
+
+
+            <GenericList
+                useGetPage={useGetPageVariantsDrinksQuery}
+                useGetLists={useGetLoadEditListsQuery}
+                useDeleteMutation={useDeleteVariantDrinksMutation}
+                HEAD_PARAMS={HEAD_PARAMS}
+                FILTER_PARAMS={FILTER_PARAMS}
+                TEXT_COLUMNS={DRINKS_COLUMNS}
+                SORT_LIST={SORT_LIST}
+                CREATE_NEW_ROLE={"PRODUCT_EDIT"}
+                CardComponent={CardVariantDrinks}
+                CardLineComponent={CardLineVariantDrink}
+                EditCard={(props) => (
+                    <Suspense fallback={<div>Loading EditCard...</div>}>
+                        <EditBigCardDrinks {...props} />
+                    </Suspense>)}
+            />
+        </Box>
     )
 }
 
