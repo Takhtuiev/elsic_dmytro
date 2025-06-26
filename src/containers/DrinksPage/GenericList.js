@@ -16,7 +16,6 @@ import {useDispatch} from "react-redux";
 function GenericList({
                          useGetPage,
                          useGetLists,
-                         useDeleteMutation,
                          HEAD_PARAMS,
                          FILTER_PARAMS,
                          TEXT_COLUMNS,
@@ -24,7 +23,6 @@ function GenericList({
                          CREATE_NEW_ROLE,
                          CardComponent,
                          CardLineComponent,
-                         EditCard
                      }) {
     const [searchParams, setSearchParams] = useSearchParams();
     const params = Object.fromEntries(searchParams.entries());
@@ -111,7 +109,7 @@ function GenericList({
 
                 <Grid container spacing={1} size={12}>
                     {/* Filter panel for larger screens */}
-                    <Grid size={{ xs:0, md:2.5}}
+                    <Grid
                           sx={{
                               display: { xs: "none", md: "block" },
                               minWidth: "14rem",
