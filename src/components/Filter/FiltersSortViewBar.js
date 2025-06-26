@@ -5,7 +5,7 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 import TopStringFilter from "./TopStringFilter";
 import SortBar from "./SortBar";
 import Grid from "@mui/material/Grid";
-import FiltersAccordion from "./FiltersAccordion";
+import FiltersButton from "./FiltersButton";
 
 const FiltersSortViewBar = ({
                                 params,
@@ -39,16 +39,15 @@ const FiltersSortViewBar = ({
         >
             {/* Фильтр (мобильная версия) */}
             <Grid sx={{ display: { xs: 'block', md: 'none' } }}>
-                <FiltersAccordion
+                <FiltersButton
                     params={params}
+                    updateParams={updateParams}
                     FILTER_PARAMS={FILTER_PARAMS}
                     TEXT_COLUMNS={TEXT_COLUMNS}
-                    updateParams={updateParams}
                     selectLists={selectLists}
-                    minMaxPrice={minMaxPrice}
-                    mode="drawer"
+                    minMaxPricee={minMaxPrice}
                 />
-             </Grid>
+            </Grid>
 
             {/* количество найденных */}
             {countProducts &&
