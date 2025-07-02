@@ -13,6 +13,7 @@ import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
 import Grid from "@mui/material/Grid";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
+import {buildPackagingVolume} from "../../services/Utils/ParsePackagingVolumeUtils";
 
 function CardLineDrinks({ item, setAction }) {
 
@@ -20,7 +21,14 @@ const [varIndex, setVarIndex] = useState(0);
 const navigate = useNavigate();
 
     const onClick = () => {
-        navigate(`/drinksDetails/${item.id}?variant=${item.variants[varIndex].id}`);
+        const packagingVolume = buildPackagingVolume(
+            {
+                packaging: item.variants[varIndex].packagingType.slug,
+                volume: item.variants[varIndex].volume
+            }
+        )
+
+        navigate(`/drinksDetails/${item.id}/${item.brand.slug}/${item.slug}/${packagingVolume}`);
     };
 
     if (!item || !item.variants) {
@@ -120,11 +128,11 @@ return (
                             variant="body2"
                             onClick={(e) => {
                                 e.stopPropagation();
-                                navigate("/brand/" + item.brand);
+                                navigate(`/brand/${item.brand.id}/${item.brand.slug}`);
                             }}
                             sx={{ textAlign: { xs: "left", sm: "right" } }}
                         >
-                            {item.brand}
+                            {item.brand.name}
                         </Link>
                         <Typography variant="body2">{item.country}</Typography>
                     </Grid>

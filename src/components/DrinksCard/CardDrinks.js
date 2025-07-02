@@ -12,6 +12,7 @@ import {Box} from "@mui/system";
 import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 import MyCard from "../MyComponent/MyCard";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
+import {buildPackagingVolume} from "../../services/Utils/ParsePackagingVolumeUtils";
 
 function CardDrinks({ item }) {
 
@@ -20,7 +21,14 @@ function CardDrinks({ item }) {
     const navigate = useNavigate();
 
     const onClick = () => {
-        navigate(`/drinksDetails/${item.id}?variant=${item.variants[varIndex].id}`);
+        const packagingVolume = buildPackagingVolume(
+            {
+                packaging: item.variants[varIndex].packagingType.slug,
+                volume: item.variants[varIndex].volume
+            }
+        )
+
+        navigate(`/drinksDetails/${item.id}/${item.brand.slug}/${item.slug}/${packagingVolume}`);
     };
 
 
@@ -105,7 +113,7 @@ function CardDrinks({ item }) {
                         variant="body2"
                         onClick={(e) => {
                             e.stopPropagation();
-                            navigate("/brand/" + item.brand);
+                            navigate(`/brand/${item.brand.id}/${item.brand.slug}`);
                         }}
                         sx={{
                             textAlign: "left",
@@ -113,7 +121,7 @@ function CardDrinks({ item }) {
                             alignSelf: "flex-start", // 👈 если родитель — flex, закрепит слева
                         }}
                     >
-                        {item.brand}
+                        {item.brand.name}
                     </Link>
                     <Typography variant="body2">{item.country}</Typography>
                     <Typography variant="body2">{item.alcohol}%</Typography>

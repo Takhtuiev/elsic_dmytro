@@ -20,12 +20,12 @@ import ImageUpload from "../../MyComponent/Image/ImageUpload";
 import ErrorBox from "../../ErrorBoard/ErrorBox";
 import LoadingSpinner from "../../MyComponent/LoadingSpinnerBoard/LoadingSpinner";
 
-import { uploadBlobFile } from "../../../services/Utils/Utils";
+import { uploadBlobFile } from "../../../services/Utils/BlobFileUtils";
 import { DRINKS_COLUMNS } from "../../../CONSTANTS/Constants";
 import {filterItemErrorKey} from "../../ErrorBoard/Utils/FilterDrinksErrorKey";
 
 
-function EditListItemCard({ field, selectedItemName, saveAndClose = true, deletable = true }) {
+function EditListItemCard({ field, selectedItemName, variantId, saveAndClose = false, deletable = true }) {
     const dispatch = useDispatch();
 
     const { data: item, error: errorGetItem, isFetching: loading } =
@@ -63,7 +63,6 @@ function EditListItemCard({ field, selectedItemName, saveAndClose = true, deleta
         if (errorUpdate) resetUpdaring();
     };
 
-
     const saveItem = async () => {
         if (!editedItem) return;
         let file = null;
@@ -93,11 +92,15 @@ function EditListItemCard({ field, selectedItemName, saveAndClose = true, deleta
                 // передача результата, если нужно
                 dispatch(dialogDataReturned({
                     dialogType: 'EditListItemCard',
-                    data: {name: newItem.name},
+                    data: {
+                        field: field,
+                        newValue: newItem.name,
+                        index: variantId,
+                    },
                 }));
 
                 if (saveAndClose) {
-                    // Закрытие диалога и передача результата, если нужно
+                    // Закрытие диалога если нужно
                     dispatch(closeDialog());
                 }
             } else {

@@ -4,7 +4,7 @@ import {
     Grid, Button
 } from "@mui/material";
 import {useDispatch, useSelector} from "react-redux";
-import {closeDialog, dialogDataReturned} from "../../../services/Slice/dialogSlice";
+import {clearDialogDataReturned, closeDialog, dialogDataReturned} from "../../../services/Slice/dialogSlice";
 import EditListItemCard from "./EditListItemCard";
 
 function EditList({ editedObj, listItem }) {
@@ -31,12 +31,15 @@ function EditList({ editedObj, listItem }) {
         if (!lastReturnedData) return;
 
         if (lastReturnedData.dialogType === 'EditListItemCard') {
-            setSelectedItem(lastReturnedData.data.name)
+            setSelectedItem(lastReturnedData.data.newValue)
+            dispatch(clearDialogDataReturned());
         }
 
         if (lastReturnedData.dialogType === 'DeleteConfirm') {
             setSelectedItem(null)
+            dispatch(clearDialogDataReturned());
         }
+
     }, [lastReturnedData, dispatch]);
 
 
@@ -90,6 +93,8 @@ function EditList({ editedObj, listItem }) {
                     <EditListItemCard
                         field={editedObj.field}
                         selectedItemName={selectedItem}
+                        variantId={editedObj.index}
+                        saveAndClose={false}
                      />
                 </Grid>
 

@@ -64,7 +64,7 @@ export const {
 export const selectCurrentDialog = (state) =>
     state.dialog.stack[state.dialog.stack.length - 1] || null;
 
-// ✅ Селектор для получения последнего закрытого диалога
+// Селектор для получения последнего закрытого диалога
 export const selectLastClosedDialog = (state) =>
     state.dialog.lastClosedDialog;
 

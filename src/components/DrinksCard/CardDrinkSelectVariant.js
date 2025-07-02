@@ -37,6 +37,10 @@ function CardDrinkSelectVariant({ variants, varIndex, setVarIndex, displayFields
                         }}
                     />
                 );
+            case "packagingType":
+                return `${value.name || value}`;
+
+
             default:
                 return value;
         }

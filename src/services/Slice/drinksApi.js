@@ -20,8 +20,8 @@ const drinksApi = createApi({
             providesTags: ['Drinks'],
         }),
         getDrinks: builder.query({
-            query: ({ id }) => ({
-                url: `/rest/drinks?id=${id}`,
+            query: ({ id, slug }) => ({
+                url: `/rest/drinks/${id}/${slug}`,
                 method: 'GET',
             }),
             providesTags: ['Drinks'],
@@ -83,7 +83,7 @@ const drinksApi = createApi({
         getLoadEditLists: builder.query({
             query: ({ params }) => {
                 const queryString = new URLSearchParams(params).toString();
-                const baseUrl = `/rest/drinks/load_edit_lists`;
+                const baseUrl = `/rest/load_edit_lists`;
                 const url = queryString ? `${baseUrl}?${queryString}` : baseUrl;
 
                 return {
@@ -94,9 +94,17 @@ const drinksApi = createApi({
             providesTags: ['EditList'],
         }),
 
+        getLoadEditListsById: builder.query({
+            query: ({ field, id, slug }) => ({
+                url: `/rest/load_edit_lists/${field}/${id}/${slug}`,
+                method: 'GET',
+            }),
+            providesTags: ['EditList'],
+        }),
+
         getLoadEditListsByName: builder.query({
             query: ({ field, name }) => ({
-                url: `/rest/drinks/load_edit_lists/${field}?name=${name ?? ''}`,
+                url: `/rest/load_edit_lists/${field}?name=${name ?? ''}`,
                 method: 'GET',
             }),
             providesTags: ['EditList'],
@@ -122,7 +130,7 @@ const drinksApi = createApi({
                 }
 
                 return {
-                    url: `/rest/drinks/load_edit_lists/${field}?name=${altName ?? ''}`,
+                    url: `/rest/load_edit_lists/${field}?name=${altName ?? ''}`,
                     method: 'POST',
                     body: formData,
                 };
@@ -132,7 +140,7 @@ const drinksApi = createApi({
 
         deleteItemList: builder.mutation({
             query: ( {key, name} ) => ({
-                url: `/rest/drinks/load_edit_lists/${key}?name=${name}`,
+                url: `/rest/load_edit_lists/${key}?name=${name}`,
                 method: 'DELETE',
              }),
             invalidatesTags: ['EditList'],
@@ -151,6 +159,7 @@ export const {
     useDeleteVariantDrinksMutation,
 
     useGetLoadEditListsQuery,
+    useGetLoadEditListsByIdQuery,
     useGetLoadEditListsByNameQuery,
     useUpdateLoadEditListsMutation,
     useDeleteItemListMutation,

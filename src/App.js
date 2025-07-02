@@ -76,8 +76,8 @@ function AppContent() {
                                 <Route path="/" element={<Home />} />
                                 <Route path="/drinks/pagevar" element={<VariantsDrinksList />} />
                                 <Route path="/drinks/page" element={<DrinksList />} />
-                                <Route path="/drinksDetails/:id" element={<DrinksDetails />} />
-                                <Route path="/brand/:name" element={<BrandDetails />} />
+                                <Route path="/drinksDetails/:id/:brandSlug/:slug/:packagingVolume" element={<DrinksDetails />} />
+                                <Route path="/brand/:id/:slug" element={<BrandDetails />} />
                                 <Route path="/admin/userlist" element={<UserList />} />
                                 <Route path="/admin/userlist/:page" element={<UserList />} />
                                 <Route path="/my_account" element={<MyAccountDetails />} />

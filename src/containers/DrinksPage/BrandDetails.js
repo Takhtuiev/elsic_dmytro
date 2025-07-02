@@ -1,11 +1,12 @@
 import {useNavigate, useParams} from "react-router-dom";
 import React, {useEffect} from "react";
-import {useGetLoadEditListsByNameQuery} from "../../services/Slice/drinksApi";
+import {useGetLoadEditListsByIdQuery} from "../../services/Slice/drinksApi";
 import ErrorCard from "../../components/ErrorBoard/ErrorCard";
 import BrandCard from "../../components/BrandCard/BrandCard";
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 import {useDispatch, useSelector} from "react-redux";
 import PageHeader from "../../components/MyComponent/PageHeader";
+import {clearDialogDataReturned} from "../../services/Slice/dialogSlice";
 
 function BrandDetails() {
 
@@ -14,29 +15,27 @@ function BrandDetails() {
     const lastReturnedData = useSelector(state => state.dialog.lastReturnedData);
 
     const navigate = useNavigate();
-    const { name } = useParams();
+    const { id, slug } = useParams();
     const { data: brand, error: errorGetBrand, isFetching: loading} =
-        useGetLoadEditListsByNameQuery({ field: "brand", name: name });
+        useGetLoadEditListsByIdQuery({ field: "brand", id: id,  slug: slug });
 
     useEffect(() => {
-        if (!lastReturnedData) return;
+        if (!lastReturnedData || !brand) return;
 
         if (lastReturnedData.dialogType === 'EditListItemCard') {
             if (lastReturnedData.data) {
-                const newName = lastReturnedData.data.name;
-                if (newName !== brand) {
-                    setBrand(newName)
+                const field = lastReturnedData.data.field
+                const newName = lastReturnedData.data.newValue;
+                const oldName = brand?.name;
+
+                if (newName !== oldName && field === "brand") {
+                    navigate(`/brand/${brand.id}/${newName}`, { replace: true });
+                    dispatch(clearDialogDataReturned());
                 }
             }
         }
     }, [lastReturnedData, dispatch]);
 
-
-    const setBrand = (brand) => {
-        if (brand !== name) {
-            navigate('/brand/' + brand);
-        }
-    };
 
     if (errorGetBrand) {
         return ( <ErrorCard error={errorGetBrand}/> );

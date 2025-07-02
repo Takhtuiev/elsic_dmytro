@@ -18,7 +18,7 @@ import { TOP_MENU } from '../../CONSTANTS/Constants';
 import UserBar from './UserBar';
 import ThemeSwitch from './ThemeSwitch/ThemeSwitch';
 
-const urlBackGroundImage = '/background_menu7.webp';
+const urlBackGroundImage = '/background_menu9.webp';
 
 export default function NavigationMenu() {
     const theme = useTheme();
@@ -117,20 +117,6 @@ export default function NavigationMenu() {
                 backgroundColor: theme.palette.background.paper,
                 color: theme.palette.text.primary,
                 zIndex: 10,
-                '&::before': {
-                    content: '""',
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    backgroundImage: `url(${urlBackGroundImage})`,
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'center',
-                    backgroundSize: '100% auto',
-                    opacity: 0.15,
-                    zIndex: 0,
-                },
             }}
         >
             {/* --- Desktop menu --- */}

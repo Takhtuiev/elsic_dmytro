@@ -12,7 +12,7 @@ import EditVariantContent from "./EditVariantContent";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import MenuItem from "@mui/material/MenuItem";
 import Grid from '@mui/material/Grid';
-import {uploadBlobFile} from "../../../services/Utils/Utils";
+import {uploadBlobFile} from "../../../services/Utils/BlobFileUtils";
 import {openDialog, updateDialogProps} from "../../../services/Slice/dialogSlice";
 import {useDispatch, useSelector} from "react-redux";
 import {filterItemErrorKey} from "../../ErrorBoard/Utils/FilterDrinksErrorKey";
@@ -59,8 +59,10 @@ function EditBigCardDrinks({ itemId, selectVariantId, mode, onClose}) {
 
     const resetFunc = () => {
         setEditedItem(mode === 'copy' ? createCopy(product) : product);
-
         setIndexActiveVariant(findIndexVariant(selectVariantId));
+        if (error) {
+            setError(null);
+        }
     }
 
     useEffect(() => {    // Перезагрузка при изменении product

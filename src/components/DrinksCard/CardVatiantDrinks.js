@@ -13,11 +13,23 @@ import {VariantActionsMas} from "./VariantActionsMas";
 import {Box} from "@mui/system";
 import MyCard from "../MyComponent/MyCard";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
+import {buildPackagingVolume} from "../../services/Utils/ParsePackagingVolumeUtils";
 
 
 function CardVariantDrink({ item }) {
 
     const navigate = useNavigate();
+
+    const onClick = () => {
+        const packagingVolume = buildPackagingVolume(
+            {
+                packaging: item.packagingType.slug,
+                volume: item.volume
+            }
+        )
+
+        navigate(`/drinksDetails/${item.product.id}/${item.product.brand.slug}/${item.slug}/${packagingVolume}`);
+    };
 
     if (!item) {
         return (
@@ -53,7 +65,7 @@ function CardVariantDrink({ item }) {
 
     return (
         <MyCard
-            onClick={() => { navigate("/drinksDetails/" + item.product.id + "?variant=" + item.id)}}
+            onClick={onClick}
             sx={{flexDirection: 'column'}}
         >
 
@@ -62,7 +74,7 @@ function CardVariantDrink({ item }) {
                     {item.product.name}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
-                    ({item.volume}л.), {item.packagingType}
+                    ({item.volume}л.), {item.packagingType.name}
                 </Typography>
             </Box>
 
@@ -81,7 +93,7 @@ function CardVariantDrink({ item }) {
                 <CardMedia
                     component="img"
                     image={getCloudinaryUrl(item.imageUrl)}
-                    alt={`${item.product.name} (${item.volume}л.), ${item.packagingType}`}
+                    alt={`${item.product.name} (${item.volume}л.), ${item.packagingType.name}`}
                     loading="lazy"
                     sx={{
                         width: "48%",
@@ -110,14 +122,14 @@ function CardVariantDrink({ item }) {
                         variant="body2"
                         onClick={(e) => {
                             e.stopPropagation();
-                            navigate("/brand/" + item.product.brand);
+                            navigate(`/brand/${item.product.brand.id}/${item.product.brand.slug}`);
                         }}
                         sx={{
                             textAlign: "left",
                             display: "block", // Позволяет тексту занимать всю ширину контейнера
                         }}
                     >
-                        {item.product.brand}
+                        {item.product.brand.name}
                     </Link>
                     <Typography variant="body2">{item.product.country}</Typography>
                     <Typography variant="body2">{item.product.alcohol}%</Typography>

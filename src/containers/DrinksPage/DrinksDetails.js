@@ -5,18 +5,15 @@ import ErrorCard from "../../components/ErrorBoard/ErrorCard";
 import TopLinearLoading from "../../components/MyComponent/LoadingSpinnerBoard/TopLinearLoading";
 import PageHeader from "../../components/MyComponent/PageHeader";
 import React from "react";
+import {parsePackagingVolume} from "../../services/Utils/ParsePackagingVolumeUtils";
 
 function DrinksDetails() {
 
-    const { id } = useParams();
+    const { id, brandSlug, slug, packagingVolume } = useParams();
 
-    const location = useLocation();
-    const queryParams = new URLSearchParams(location.search);
+    const { packaging: packagingSlug, volume: volume } = parsePackagingVolume(packagingVolume) || {};
 
-    const variantIdParam = queryParams.get('variant');
-    const selectedVariantId = /^\d+$/.test(variantIdParam ?? '') ? Number(variantIdParam) : 0;
-
-    const { data: product, error: errorGetProduct, isFetching: loading} = useGetDrinksQuery( { id: id}, );
+    const { data: product, error: errorGetProduct, isFetching: loading} = useGetDrinksQuery( { id: id, slug: slug } );
 
     if (errorGetProduct) {
         return ( <ErrorCard error={errorGetProduct}/> );
@@ -30,7 +27,7 @@ function DrinksDetails() {
                 text={'Опис пива.'}
             />
 
-            <BigCardDrinks product={product} selectedVariantId = {selectedVariantId}/>
+            <BigCardDrinks product={product} packagingSlug={packagingSlug} volume={volume}/>
 
         </>
     )

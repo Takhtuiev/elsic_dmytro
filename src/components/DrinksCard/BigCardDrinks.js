@@ -14,7 +14,7 @@ import {DRINKS_COLUMNS} from "../../CONSTANTS/Constants";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
 import CardDrinkSelectVariant from "./CardDrinkSelectVariant";
 
-function BigCardDrinks({ product, selectedVariantId = 0 }) {
+function BigCardDrinks({ product, packagingSlug, volume }) {
 
     const navigate = useNavigate();
 
@@ -22,13 +22,19 @@ function BigCardDrinks({ product, selectedVariantId = 0 }) {
 
     const [viewImage, setViewImage] = useState(null);
 
-    // Обновляем variantIndex, когда загружается новый product или меняется selectedVariantId
     useEffect(() => {
-        if (product?.variants?.length) {
-            const newIndex = product.variants.findIndex(v => v.id === selectedVariantId);
-            setVariantIndex(newIndex >= 0 ? newIndex : 0);
-        }
-    }, [product, selectedVariantId]);
+        if (!product?.variants?.length) return;
+
+        // Найти нужный вариант по упаковке и объему
+        const index = product.variants.findIndex(
+            (v) =>
+                v.packagingTypeSlug === packagingSlug &&
+                parseFloat(v.volume) === parseFloat(volume)
+        );
+
+        setVariantIndex(index >= 0 ? index : 0);
+    }, [product, packagingSlug, volume]);
+
 
     if (!product) {
         return (

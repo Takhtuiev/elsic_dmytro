@@ -12,9 +12,21 @@ import { VariantActionsMas } from "./VariantActionsMas";
 import MyCard from "../MyComponent/MyCard";
 import Grid from "@mui/material/Grid";
 import {getCloudinaryUrl} from "../../services/Utils/CloudinaryUtils";
+import {buildPackagingVolume} from "../../services/Utils/ParsePackagingVolumeUtils";
 
 function CardLineVariantDrink({ item, setAction }) {
     const navigate = useNavigate();
+
+    const onClick = () => {
+        const packagingVolume = buildPackagingVolume(
+            {
+                packaging: item.packagingType.slug,
+                volume: item.volume
+            }
+        )
+
+        navigate(`/drinksDetails/${item.product.id}/${item.product.brand.slug}/${item.slug}/${packagingVolume}`);
+    };
 
     if (!item) {
         return (
@@ -56,14 +68,14 @@ function CardLineVariantDrink({ item, setAction }) {
 
     return (
         <MyCard
-            onClick={() => { navigate("/drinksDetails/" + item.product.id + "?variant=" + item.id)}}
+            onClick={onClick}
             sx={{alignItems: 'center'}}
         >
             {/* Левая половина - изображение */}
             <CardMedia
                 component="img"
                 image={getCloudinaryUrl(item.imageUrl)}
-                alt={`${item.product.name} (${item.volume}л.), ${item.packagingType}`}
+                alt={`${item.product.name} (${item.volume}л.), ${item.packagingType.name}`}
                 loading="lazy"
                 sx={{
                     height: "8rem",
@@ -85,7 +97,7 @@ function CardLineVariantDrink({ item, setAction }) {
                             color="text.secondary"
                             sx={{ whiteSpace: "nowrap" }}
                         >
-                            ({item.volume}л.), {item.packagingType}
+                            ({item.volume}л.), {item.packagingType.name}
                         </Typography>
                     </Box>
                     <Rating
@@ -108,11 +120,11 @@ function CardLineVariantDrink({ item, setAction }) {
                                 variant="body2"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    navigate("/brand/" + item.product.brand);
+                                    navigate(`/brand/${item.product.brand.id}/${item.product.brand.slug}`);
                                 }}
                                 sx={{ textAlign: { xs: "left", sm: "right" } }}
                             >
-                                {item.product.brand}
+                                {item.product.brand.name}
                             </Link>
                             <Typography variant="body2">{item.product.country}</Typography>
                         </Grid>
