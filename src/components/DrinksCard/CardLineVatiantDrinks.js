@@ -25,7 +25,7 @@ function CardLineVariantDrink({ item, setAction }) {
             }
         )
 
-        navigate(`/drinksDetails/${item.product.id}/${item.product.brand.slug}/${item.slug}/${packagingVolume}`);
+        navigate(`/drinksDetails/${item.product.id}/${item.product.brand.slug}/${item.product.slug}/${packagingVolume}`);
     };
 
     if (!item) {

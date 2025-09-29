@@ -19,6 +19,7 @@ const drinksApi = createApi({
             },
             providesTags: ['Drinks'],
         }),
+
         getDrinks: builder.query({
             query: ({ id, slug }) => ({
                 url: `/rest/drinks/${id}/${slug}`,

@@ -191,11 +191,11 @@ function BigCardDrinks({ product, packagingSlug, volume }) {
                                         variant="body1"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            navigate('/brand/' + product.brand);
+                                            navigate(`/brand/${product.brand.id}/${product.brand.slug}`);
                                         }}
                                         sx={{ textAlign: 'left' }}
                                     >
-                                        {product.brand}
+                                        {product.brand.name}
                                     </Link>
                                 </TableCell>
                             </TableRow>
