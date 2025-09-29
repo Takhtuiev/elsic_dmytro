@@ -24,10 +24,10 @@ function MyCard({ children, onClick, sx }) {
 
                 //backgroundColor: theme => theme.palette.background.paper,
 
-                transition: "all 0.2s ease",  // Плавный переход фона
+                //transition: "all 0.2s ease",  // Плавный переход фона
                 "&:hover": {
                     cursor: "pointer",
-                    borderColor: theme => theme.palette.primary.main, // Цвет рамки
+                    //borderColor: theme => theme.palette.primary.main, // Цвет рамки
                 },
 
                 ...sx
