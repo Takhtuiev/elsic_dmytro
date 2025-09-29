@@ -23,11 +23,14 @@ const ExpandableText = ({ text, lines = 2 }) => {
         overflow: 'hidden',
         backgroundColor: isExpanded ? theme.palette.background.paper : "transparent",
         borderRadius: '4px',
-        boxShadow: isExpanded ? theme.shadows[5] : "none",
+        border: `1px solid`,
+        borderColor: isExpanded ? theme.palette.text.primary  : 'transparent',
+        //boxShadow: isExpanded ? theme.shadows[5] : "none",
         color: isExpanded ? theme.palette.text.primary : theme.palette.text.secondary,
         "&:hover": {
             color: theme.palette.text.primary,
-            boxShadow: theme.shadows[5],
+            //boxShadow: theme.shadows[5],
+            borderColor: theme.palette.text.primary,
         },
     };
 
