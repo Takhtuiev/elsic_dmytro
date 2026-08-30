@@ -8,7 +8,7 @@ import {
 
 function BendingProfilePreview({
     profile,
-    verticalShelf = 3,
+    verticalShelf,
 }) {
 
     // =====================================================

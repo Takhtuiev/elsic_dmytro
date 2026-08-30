@@ -911,49 +911,47 @@ max-content
 
                 <Box
                     sx={{
-                        display: "flex",
-
-                        gap: 1,
-
-                        flexWrap: "wrap",
-
                         mt: 3,
                     }}
                 >
+                    {/* Добавить гибку */}
 
                     <Button
                         variant="outlined"
-                        startIcon={
-                            <AddIcon />
-                        }
-                        onClick={
-                            addBend
-                        }
+                        startIcon={<AddIcon />}
+                        onClick={addBend}
+                        sx={{width:"100%"}}
                     >
                         Добавить гибку
                     </Button>
 
 
-                    <Button
-                        variant="contained"
-                        onClick={() => {
+                    {/* Получить данные */}
 
-                            console.log(
-                                getNumericProfile()
-                            );
-
-                            console.log(
-                                "Вертикальная полка:",
-                                verticalShelf
-                            );
-
+                    <Box
+                        sx={{
+                            mt: 2,
                         }}
                     >
-                        Получить данные
-                    </Button>
+                        <Button
+                            variant="contained"
+                            onClick={() => {
 
+                                console.log(
+                                    getNumericProfile()
+                                );
+
+                                console.log(
+                                    "Вертикальная полка:",
+                                    verticalShelf
+                                );
+
+                            }}
+                        >
+                            Получить данные
+                        </Button>
+                    </Box>
                 </Box>
-
             </Paper>
 
 
