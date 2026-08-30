@@ -24,6 +24,7 @@ import {useRefreshAccessTokenQuery} from "./services/Slice/authApi";
 import {clearJwtUserDetails, setJwtUserDetails} from "./services/Slice/jwtUserSlice";
 import WineKega from "./containers/WineKega";
 import BagInBoxPage from "./containers/WineBagInBox";
+import BendingProfileInput from "./containers/Elsic/BendingProfileInput";
 
 // 🔁 Лениво загружаемые страницы
 const AppDialog = lazy(() => import('./components/MyComponent/AppDialog'));
@@ -99,6 +100,9 @@ function AppContent() {
                                 <Route path="/admin/userlist" element={<UserList />} />
                                 <Route path="/admin/userlist/:page" element={<UserList />} />
                                 <Route path="/my_account" element={<MyAccountDetails />} />
+
+                                <Route path="/elsic/BendingProfileInput" element={<BendingProfileInput />} />
+
                                 <Route path="*" element={<NotFound message="URL не дійсний..." />} />
                             </Routes>
                         </Suspense>

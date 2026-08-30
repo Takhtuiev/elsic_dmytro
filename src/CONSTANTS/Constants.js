@@ -41,6 +41,8 @@ export const TOP_MENU = [
     {name:'Сорти пива', href:'/drinks/page'},
     {name:'UserList', href:'/admin/userlist'},
     {name:'TestErrorPath', href:'/TestErrorPath'},
+    {name:'Elsic', href:'/elsic/BendingProfileInput'},
+
 ];
 
 
