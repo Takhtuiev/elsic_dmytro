@@ -42,14 +42,16 @@ export const ColorModeContextProvider = ({ children }) => {
                 MuiCssBaseline: {
                     styleOverrides: {
                         body: {
-                            //backgroundColor: mode === 'light' ? '#f5f5f5' : '#121212', // фон для light/dark темы
                             minHeight: '100vh',
-                            backgroundImage: mode === 'dark'
-                                ? `linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.8)), url(${urlBackGroundImage})`
-                                : `url(${urlBackGroundImage})`,
-                            backgroundSize: 'cover', // Изображение будет покрывать весь экран
-                            backgroundPosition: 'center center', // Центрирование изображения
-                            backgroundAttachment: 'fixed', // Фон не будет двигаться при прокрутке
+                            backgroundColor: mode === 'light' ? '#FAFAF6' : '#121212',
+
+                        //    backgroundColor: mode === 'light' ? '#f5f5f5' : '#121212', // фон для light/dark темы
+                        //    backgroundImage: mode === 'dark'
+                        //        ? `linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.8)), url(${urlBackGroundImage})`
+                        //        : `url(${urlBackGroundImage})`,
+                        //    backgroundSize: 'cover', // Изображение будет покрывать весь экран
+                        //    backgroundPosition: 'center center', // Центрирование изображения
+                        //    backgroundAttachment: 'fixed', // Фон не будет двигаться при прокрутке
                         },
                     },
                 },

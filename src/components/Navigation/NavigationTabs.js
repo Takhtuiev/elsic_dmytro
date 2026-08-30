@@ -18,8 +18,6 @@ import { TOP_MENU } from '../../CONSTANTS/Constants';
 import UserBar from './UserBar';
 import ThemeSwitch from './ThemeSwitch/ThemeSwitch';
 
-const urlBackGroundImage = '/background_menu9.webp';
-
 export default function NavigationMenu() {
     const theme = useTheme();
     const location = useLocation();

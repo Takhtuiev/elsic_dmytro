@@ -22,10 +22,15 @@ import { Box } from "@mui/system";
 
 import {useRefreshAccessTokenQuery} from "./services/Slice/authApi";
 import {clearJwtUserDetails, setJwtUserDetails} from "./services/Slice/jwtUserSlice";
+import WineKega from "./containers/WineKega";
+import BagInBoxPage from "./containers/WineBagInBox";
 
 // 🔁 Лениво загружаемые страницы
 const AppDialog = lazy(() => import('./components/MyComponent/AppDialog'));
-const Home = lazy(() => import('./containers/Home/Home'));
+const Home = lazy(() => import('./containers/Home'));
+const Cooperation = lazy(() => import('./containers/Cooperation'));
+const Contacts = lazy(() => import('./containers/Contacts'));
+
 const DrinksList = lazy(() => import('./containers/DrinksPage/DrinksList'));
 const VariantsDrinksList = lazy(() => import('./containers/DrinksPage/VariantsDrinksList'));
 const DrinksDetails = lazy(() => import('./containers/DrinksPage/DrinksDetails'));
@@ -70,10 +75,23 @@ function AppContent() {
                     </Box>
 
                     {/* Основной контент */}
-                    <Box width="100%" maxWidth="xl" mx="auto">
+                    <Box
+                         sx={{
+                             width: "100%",
+                             minHeight: '100vh',
+                             maxWidth: 'lg',
+                             mx: 'auto',
+                         }}
+                    >
                         <Suspense fallback={<BoardSpinner />}>
                             <Routes>
                                 <Route path="/" element={<Home />} />
+                                <Route path="/home" element={<Home />} />
+                                <Route path="/cooperation" element={<Cooperation />} />
+                                <Route path="/contacts" element={<Contacts />} />
+                                <Route path="/drinks/wine_kega" element={<WineKega />} />
+                                <Route path="/drinks/wine_baginbox" element={<BagInBoxPage />} />
+
                                 <Route path="/drinks/pagevar" element={<VariantsDrinksList />} />
                                 <Route path="/drinks/page" element={<DrinksList />} />
                                 <Route path="/drinksDetails/:id/:brandSlug/:slug/:packagingVolume" element={<DrinksDetails />} />
