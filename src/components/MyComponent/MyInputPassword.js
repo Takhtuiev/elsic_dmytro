@@ -27,7 +27,7 @@ function MyInputPassword({ obj, setValue, type="password", sx }) {
                 value={obj.value !== undefined ? obj.value : ''} // Используем defaultValue для начального значения
                 onChange={setValue && onChange} // Сохраняем значение при потере фокуса
                 label={obj.label}
-                type={type}
+                type={passwordVisibility ? "text" : type}
                 autoComplete={type}
                 sx={sx || {}}
                 inputRef={inputRef}
