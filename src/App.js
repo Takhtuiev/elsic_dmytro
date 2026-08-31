@@ -22,9 +22,7 @@ import { Box } from "@mui/system";
 
 import {useRefreshAccessTokenQuery} from "./services/Slice/authApi";
 import {clearJwtUserDetails, setJwtUserDetails} from "./services/Slice/jwtUserSlice";
-import WineKega from "./containers/WineKega";
-import BagInBoxPage from "./containers/WineBagInBox";
-import BendingProfileInput from "./containers/Elsic/BendingProfileInput";
+import Biegeberechnung from "./containers/Elsic/Biegeberechnung";
 
 // 🔁 Лениво загружаемые страницы
 const AppDialog = lazy(() => import('./components/MyComponent/AppDialog'));
@@ -32,10 +30,6 @@ const Home = lazy(() => import('./containers/Home'));
 const Cooperation = lazy(() => import('./containers/Cooperation'));
 const Contacts = lazy(() => import('./containers/Contacts'));
 
-const DrinksList = lazy(() => import('./containers/DrinksPage/DrinksList'));
-const VariantsDrinksList = lazy(() => import('./containers/DrinksPage/VariantsDrinksList'));
-const DrinksDetails = lazy(() => import('./containers/DrinksPage/DrinksDetails'));
-const BrandDetails = lazy(() => import('./containers/DrinksPage/BrandDetails'));
 const UserList = lazy(() => import('./containers/UsersPage/UserList'));
 const MyAccountDetails = lazy(() => import('./containers/UsersPage/MyAccountDetails'));
 const NotFound = lazy(() => import('./containers/NotFoundPage/NotFound'));
@@ -90,18 +84,12 @@ function AppContent() {
                                 <Route path="/home" element={<Home />} />
                                 <Route path="/cooperation" element={<Cooperation />} />
                                 <Route path="/contacts" element={<Contacts />} />
-                                <Route path="/drinks/wine_kega" element={<WineKega />} />
-                                <Route path="/drinks/wine_baginbox" element={<BagInBoxPage />} />
 
-                                <Route path="/drinks/pagevar" element={<VariantsDrinksList />} />
-                                <Route path="/drinks/page" element={<DrinksList />} />
-                                <Route path="/drinksDetails/:id/:brandSlug/:slug/:packagingVolume" element={<DrinksDetails />} />
-                                <Route path="/brand/:id/:slug" element={<BrandDetails />} />
-                                <Route path="/admin/userlist" element={<UserList />} />
+                               <Route path="/admin/userlist" element={<UserList />} />
                                 <Route path="/admin/userlist/:page" element={<UserList />} />
                                 <Route path="/my_account" element={<MyAccountDetails />} />
 
-                                <Route path="/elsic/BendingProfileInput" element={<BendingProfileInput />} />
+                                <Route path="/biegeberechnung" element={<Biegeberechnung />} />
 
                                 <Route path="*" element={<NotFound message="URL не дійсний..." />} />
                             </Routes>

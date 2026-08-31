@@ -1,378 +1,682 @@
-import React from 'react';
+import React from "react";
 import {
+    Box,
     Button,
-    Card,
-    CardContent,
+    Container,
+    Grid,
+    Paper,
     Typography,
-    List,
-    ListItem,
-    ListItemIcon,
-    ListItemText, CardMedia, CardActionArea, Chip
+    useTheme,
 } from "@mui/material";
-import {Box} from "@mui/system";
-import Container from "@mui/material/Container";
-import Grid from "@mui/material/Grid";
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
+import { useNavigate } from "react-router-dom";
 
-const heroContent = {
-    imageUrl: '/home/hero.jpg',
-    title: "Наповнюємо змістом час і простір",
-    subtitle: "Дистрибуція пива, сидру, лимонадів, вин і мінеральної води — національні та європейські партнери."
-};
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import CalculateIcon from "@mui/icons-material/Calculate";
+import StraightenIcon from "@mui/icons-material/Straighten";
+import ConstructionIcon from "@mui/icons-material/Construction";
+import ArchitectureIcon from "@mui/icons-material/Architecture";
 
-const urlCooperation = '/home/cooperation.jpg'
+function Home() {
+    const theme = useTheme();
+    const navigate = useNavigate();
 
-const directions = [
-    {
-        title: "Дистрибуція напоїв",
-        desc: "Пиво, сидр, лимонади, вина, вода — у кегах і пляшках",
-        img: '/home/logistic.jpg',
-    },
-    {
-        title: "Імпорт італійських вин",
-        desc: "Prosecco, тихі вина, VINO DE BANDEIRA та інше",
-        img: '/home/import.jpg',
-    },
-    {
-        title: "Сервіс та обладнання",
-        desc: "Монтаж, обслуговування систем розливу та оренда",
-        img: '/home/service.jpg',
-    },
-    {
-        title: "Мережа барів",
-        desc: "РозлиWine — проекти у Києві",
-        img: '/home/chainofbars.jpg',
-    },
-];
-
-const drinks = [
-    { title: "Пиво в кегах", img: "/home/beer_kega.jpg", link: "/drinks/beer/kega" },
-    { title: "Пиво в пляшках та банках", img: "/home/beer.jpg", link: "/drinks/page" },
-    { title: "Вина в кегах", img: "/home/wine_kega.jpg", link: "/drinks/wine_kega" },
-    { title: "Вина в Bag\u202Fin\u202FBox", img: "/home/wine.jpg", link: "/drinks/wine_baginbox" },
-    { title: "Мінеральна вода", img: "/home/water.jpg", link: "/drinks/water" },
-    { title: "Лимонади / Сидр", img: "/home/lemonade.jpg", link: "/drinks/soft" },
-]
-
-
-const Home = () => {
+    const isDark = theme.palette.mode === "dark";
 
     return (
-        <Box my={2}>
+        <Box
+            sx={{
+                minHeight: "100vh",
+                bgcolor: "background.default",
+                color: "text.primary",
+            }}
+        >
 
-            {/* hero */}
+            {/* =====================================================
+                COMPACT HEADER
+            ===================================================== */}
+
             <Box
                 sx={{
-                    width: "100%",
-                    minHeight: { xs: "40vh", sm: "50vh", md: "60vh", lg: "70vh", xl: "80vh" },
-                    backgroundImage: `url(${heroContent.imageUrl})`,
-                    backgroundSize: "cover",
-                    backgroundPosition: "center",
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "space-between",
-                    color: "#fff",
+                    bgcolor: "background.paper",
+                    borderBottom: "1px solid",
+                    borderColor: "divider",
                 }}
             >
-                {/* Верхний текст */}
-                <Box sx={{ background: "rgba(0,0,0,0.5)", p: 2, textAlign: "center" }}>
-                    <Typography
-                        variant="h3"
-                        fontWeight={700}
-                        sx={{ textShadow: "0 3px 10px rgba(0,0,0,1)" }}
-                    >
-                        {heroContent.title}
-                    </Typography>
-                </Box>
+                <Container maxWidth="lg">
 
-                {/* Нижний текст */}
-                <Box sx={{ background: "rgba(0,0,0,0.5)", p: 2, textAlign: "center" }}>
-                    <Typography
-                        variant="h6"
-                        sx={{ mx: "auto", maxWidth: "800px", textShadow: "0 2px 5px rgba(0,0,0,1)" }}
+                    <Box
+                        sx={{
+                            py: {
+                                xs: 3.5,
+                                md: 4.5,
+                            },
+                        }}
                     >
-                        {heroContent.subtitle}
-                    </Typography>
-                </Box>
+
+                        <Typography
+                            sx={{
+                                color: "primary.main",
+                                fontSize: 12,
+                                fontWeight: 800,
+                                letterSpacing: 2,
+                                mb: 1,
+                            }}
+                        >
+                            ELSIC • TECHNICAL TOOLS
+                        </Typography>
+
+
+                        <Typography
+                            component="h1"
+                            sx={{
+                                fontSize: {
+                                    xs: "2rem",
+                                    md: "2.7rem",
+                                },
+
+                                fontWeight: 800,
+                                lineHeight: 1.15,
+                                letterSpacing: "-.03em",
+
+                                mb: 1,
+                            }}
+                        >
+                            Technische Werkzeuge
+                        </Typography>
+
+
+                        <Typography
+                            color="text.secondary"
+                            sx={{
+                                maxWidth: 650,
+                                lineHeight: 1.6,
+                            }}
+                        >
+                            Praktische Berechnungen und Hilfswerkzeuge
+                            für die tägliche Arbeit in der Fertigung.
+                        </Typography>
+
+                    </Box>
+
+                </Container>
             </Box>
 
-            {/* Блок с информацией между баннером и направлениями */}
-            <Container maxWidth="md" sx={{ my: 8 }}>
-                <Typography
-                    variant="h5"
-                    sx={{ fontWeight: 500, textAlign: "center", mb: 2 }}
+
+            {/* =====================================================
+                CONTENT
+            ===================================================== */}
+
+            <Container maxWidth="lg">
+
+                <Box
+                    sx={{
+                        py: {
+                            xs: 4,
+                            md: 5,
+                        },
+                    }}
                 >
-                    Ми об'єднуємо якість, надійність та інновації у сфері дистрибуції напоїв
-                </Typography>
-                <Typography
-                    variant="body1"
-                    sx={{ textAlign: "center" }}
-                >
-                    Наша мета — забезпечити партнерів продуктами найвищої якості та сервісом, який перевищує очікування. Ми завжди відкриті до нових ідей та співпраці.
-                </Typography>
-            </Container>
+
+                    {/* SECTION TITLE */}
+
+                    <Box
+                        sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1.5,
+                            mb: 2.5,
+                        }}
+                    >
+
+                        <Box
+                            sx={{
+                                width: 4,
+                                height: 25,
+                                bgcolor: "primary.main",
+                                borderRadius: 1,
+                            }}
+                        />
+
+                        <Typography
+                            component="h2"
+                            sx={{
+                                fontSize: {
+                                    xs: "1.5rem",
+                                    md: "1.8rem",
+                                },
+                                fontWeight: 800,
+                            }}
+                        >
+                            Werkzeuge
+                        </Typography>
+
+                    </Box>
 
 
-            {/* Основные направления */}
-            <Container >
-                <Typography variant="h3" sx={{ fontWeight: 400, mb: 3 }}>Основні напрямки діяльності</Typography>
+                    {/* =================================================
+                        MAIN TOOL
+                    ================================================= */}
 
-                <Grid container spacing={3}>
-                    {directions.map((item, index) => (
-                        <Grid key={index} size={{ xs: 12, md: 6 }}>
-                            <Card
-                                variant="outlined"
-                                sx={{
-                                    height: "100%",
-                                    display: "flex",
-                                    flexDirection: "column",
+                    <Paper
+                        component="button"
+                        type="button"
+                        onClick={() =>
+                            navigate("/biegeberechnung")
+                        }
+                        elevation={0}
+                        sx={{
+                            width: "100%",
+
+                            textAlign: "left",
+
+                            p: 0,
+
+                            overflow: "hidden",
+
+                            cursor: "pointer",
+
+                            font: "inherit",
+
+                            color: "inherit",
+
+                            bgcolor:
+                                "background.paper",
+
+                            border: "1px solid",
+
+                            borderColor:
+                                "divider",
+
+                            borderRadius: 2,
+
+                            mb: 2.5,
+
+                            transition:
+                                "all .2s ease",
+
+                            "&:hover": {
+                                borderColor:
+                                    "primary.main",
+
+                                transform:
+                                    "translateY(-2px)",
+
+                                boxShadow: isDark
+                                    ? "0 10px 30px rgba(0,0,0,.3)"
+                                    : "0 10px 30px rgba(20,70,80,.10)",
+                            },
+
+                            "&:focus-visible": {
+                                outline: "3px solid",
+                                outlineColor:
+                                    "primary.main",
+                                outlineOffset: 2,
+                            },
+                        }}
+                    >
+
+                        {/* ACCENT */}
+
+                        <Box
+                            sx={{
+                                height: 4,
+                                bgcolor: "primary.main",
+                            }}
+                        />
+
+
+                        <Grid container>
+
+                            {/* LEFT */}
+
+                            <Grid
+                                size={{
+                                    xs: 12,
+                                    md: 8,
                                 }}
                             >
-                                <CardActionArea
-                                    onClick={() => console.log(item.title)}
-                                    //data-active={true}
+
+                                <Box
                                     sx={{
-                                        height: '100%',
-                                        '&[data-active]': {
-                                            backgroundColor: 'action.selected',
-                                            '&:hover': {
-                                                backgroundColor: 'action.selectedHover',
-                                            },
+                                        p: {
+                                            xs: 2.5,
+                                            md: 3.5,
                                         },
                                     }}
                                 >
-                                    <CardMedia
-                                        component="img"
-                                        image={item.img}
-                                        alt={item.title}
+
+                                    <Box
                                         sx={{
-                                            height: "8rem",
-                                            width: "100%",
-                                            objectFit: "cover",
-                                        }}
-                                    />
-                                    <CardContent>
-                                        <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                                            {item.title}
-                                        </Typography>
-                                        <Typography variant="body1" color="text.secondary">
-                                            {item.desc}
-                                        </Typography>
-                                    </CardContent>
-                                </CardActionArea>
-                            </Card>
-                        </Grid>
-                    ))}
-                </Grid>
-            </Container>
-
-            <Container maxWidth="md" sx={{ my: 8 }}>
-                <Typography variant="h4" sx={{ fontWeight: 500, mb: 4, textAlign: "center" }}>
-                    Про нас
-                </Typography>
-
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    {[
-                        "2007: Компанія ШАНДРУК заснована у Києві як дистриб'ютор пива та напоїв у кегах і пляшках.",
-                        "Перші партнери: регіональні пивоварні заводи малої та середньої потужності (Бердичівський, Уманьпиво, Опілля, Микулинецький, Славутський, Хмельпиво, Павлівський).",
-                        "2017: Власна ТМ Alt Hopfen стала популярною серед поціновувачів живого пива.",
-                        "Розширення асортименту: імпорт Birra Dolomiti, сидр, квас, лимонади, вина в бег-ін-боксах.",
-                        "Тривала співпраця з великими мережами супермаркетів та регіональними дистриб'юторами."
-                    ].map((fact, i) => (
-                        <Typography key={i} variant="body1">
-                            • {fact}
-                        </Typography>
-                    ))}
-                </Box>
-            </Container>
-
-
-
-            {/* Представлені напої */}
-            <Container sx={{ my: 8 }}>
-                <Typography
-                    variant="h4"
-                    sx={{
-                        fontWeight: 500,
-                        mb: 4,
-                        textAlign: "center",
-                    }}
-                >
-                    Напої, доступні для дистрибуції вже сьогодні
-                </Typography>
-
-                <Grid container spacing={3} justifyContent={'center'}>
-                    {drinks.map((item, i) => (
-                        <Grid key={i} size={{xs:12, sm:6, md:3}}>
-                            <Card
-                                onClick={() => (window.location.href = item.link)}
-                                sx={{
-                                    //width: 250,
-                                    height: 250,
-                                    borderRadius: 3,
-                                    overflow: "hidden",
-                                    cursor: "pointer",
-                                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-                                    transition: "transform 0.3s ease, box-shadow 0.3s ease",
-                                    backgroundImage: `url(${item.img})`,
-                                    backgroundSize: "cover",
-                                    backgroundPosition: "center",
-                                    display: "flex",
-                                    alignItems: "flex-end",
-                                    "&:hover": {
-                                        transform: "translateY(-4px)",
-                                        boxShadow: "0 8px 20px rgba(0,0,0,0.15)",
-                                    },
-                                }}
-                            >
-                                <Box
-                                    sx={{
-                                        width: "100%",
-                                        background: "rgba(0,0,0,0.5)",
-                                        color: "#fff",
-                                        p: 2,
-                                        textAlign: "center",
-                                    }}
-                                >
-                                    <Typography
-                                        variant="h6"
-                                        sx={{
-                                            fontWeight: 600,
-                                            textTransform: "uppercase",
-                                            letterSpacing: 1,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 1.5,
+                                            mb: 2,
                                         }}
                                     >
-                                        {item.title}
+
+                                        <Box
+                                            sx={{
+                                                width: 44,
+                                                height: 44,
+
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent:
+                                                    "center",
+
+                                                borderRadius: 1.5,
+
+                                                bgcolor:
+                                                    isDark
+                                                        ? "rgba(80,190,210,.12)"
+                                                        : "rgba(40,150,170,.10)",
+
+                                                color:
+                                                    "primary.main",
+                                            }}
+                                        >
+                                            <ArchitectureIcon
+                                                sx={{
+                                                    fontSize: 25,
+                                                }}
+                                            />
+                                        </Box>
+
+
+                                        <Box>
+
+                                            <Typography
+                                                sx={{
+                                                    fontSize: 11,
+                                                    fontWeight: 800,
+                                                    letterSpacing: 1.2,
+                                                    color:
+                                                        "primary.main",
+                                                }}
+                                            >
+                                                BERECHNUNG
+                                            </Typography>
+
+
+                                            <Typography
+                                                variant="caption"
+                                                color="text.secondary"
+                                            >
+                                                Thermoplastische Materialien
+                                            </Typography>
+
+                                        </Box>
+
+                                    </Box>
+
+
+                                    <Typography
+                                        component="h3"
+                                        sx={{
+                                            fontSize: {
+                                                xs: "1.4rem",
+                                                md: "1.7rem",
+                                            },
+
+                                            fontWeight: 800,
+
+                                            mb: 1,
+                                        }}
+                                    >
+                                        Thermische Biegung
                                     </Typography>
+
+
+                                    <Typography
+                                        color="text.secondary"
+                                        sx={{
+                                            maxWidth: 680,
+
+                                            lineHeight: 1.65,
+
+                                            mb: 2.5,
+                                        }}
+                                    >
+                                        Berechnung der Parameter
+                                        für die thermische Biegung
+                                        von PVC und anderen
+                                        thermoplastischen Materialien.
+                                    </Typography>
+
+
+                                    <Button
+                                        variant="contained"
+                                        size="small"
+                                        endIcon={
+                                            <ArrowForwardIcon
+                                                sx={{
+                                                    fontSize:
+                                                        "17px !important",
+                                                }}
+                                            />
+                                        }
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            navigate(
+                                                "/biegeberechnung"
+                                            );
+                                        }}
+                                        sx={{
+                                            textTransform: "none",
+                                            fontWeight: 700,
+                                            boxShadow: "none",
+                                            px: 2,
+
+                                            "&:hover": {
+                                                boxShadow: "none",
+                                            },
+                                        }}
+                                    >
+                                        Öffnen
+                                    </Button>
+
                                 </Box>
-                            </Card>
-                        </Grid>
-                    ))}
-                </Grid>
-            </Container>
+
+                            </Grid>
 
 
-            {/* Чому обирають нас */}
-            <Container maxWidth="sm" sx={{my: 8}}>
-                <Typography
-                    variant="h4"
-                    sx={{ fontWeight: 500, mb: 2, textAlign: "center" }}
-                >
-                    Чому обирають нас
-                </Typography>
+                            {/* RIGHT */}
 
-                <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, md: 6 }}>
-                        <List>
-                            <ListItem>
-                                <ListItemIcon sx={{ minWidth: "auto", mr: 2 }}>
-                                    <CheckCircleOutlineIcon  sx={{ color: 'success.main' }} />
-                                </ListItemIcon>
-                                <ListItemText primary="Надійні постачальники" />
-                            </ListItem>
-                            <ListItem>
-                                <ListItemIcon sx={{ minWidth: "auto", mr: 2 }}>
-                                    <CheckCircleOutlineIcon  sx={{ color: 'success.main' }} />
-                                </ListItemIcon>
-                                <ListItemText primary="Європейські партнери" />
-                            </ListItem>
-                        </List>
-                    </Grid>
+                            <Grid
+                                size={{
+                                    xs: 12,
+                                    md: 4,
+                                }}
+                            >
 
-                    <Grid size={{ xs: 12, md: 6 }}>
-                        <List>
-                            <ListItem>
-                                <ListItemIcon sx={{ minWidth: "auto", mr: 2 }}>
-                                    <CheckCircleOutlineIcon  sx={{ color: 'success.main' }} />
-                                </ListItemIcon>
-                                <ListItemText primary="Гнучкі умови співпраці" />
-                            </ListItem>
-                            <ListItem>
-                                <ListItemIcon sx={{ minWidth: "auto", mr: 2 }}>
-                                    <CheckCircleOutlineIcon  sx={{ color: 'success.main' }} />
-                                </ListItemIcon>
-                                <ListItemText primary="Мережа барів у Київі" />
-                            </ListItem>
-                        </List>
-                    </Grid>
-                </Grid>
-            </Container>
-
-            {/* Співпраця */}
-            <Container maxWidth="lg" sx={{ my: 8 }}>
-                <Card sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, borderRadius: 3, boxShadow: 3, overflow: "hidden" }}>
-                    {/* Текстовая часть */}
-                    <Box sx={{ flex: 1, p: 4, display: "flex", flexDirection: "column", gap: 3 }}>
-                        <Typography variant="h3" sx={{ fontWeight: 500 }}>
-                            Співпраця
-                        </Typography>
-                        <Typography variant="body1" color="text.secondary" sx={{ lineHeight: 1.7 }}>
-                            Ми віримо, що у бізнесі та у житті найвигідніша стратегія — це win-win.
-                            Ми завжди готові до будь-якої форми взаємовигідної колаборації зі всіма, хто сповідує цей принцип.
-                        </Typography>
-
-                        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-start" }}>
-                            {[
-                                "Поставка продукції",
-                                "Імпортні контракти",
-                                "Обладнання для розливу",
-                                "Оренда обладнання",
-                                "Комплексний супровід",
-                                "Обладнання LINDR",
-                                "Партнерство у барному бізнесі",
-                            ].map((item, index) => (
-                                <Chip
-                                    key={index}
-                                    label={item}
+                                <Box
                                     sx={{
-                                        fontWeight: 500,
-                                        fontSize: "1.2rem",
-                                        backgroundColor: "background.paper",
-                                        border: "1px solid",
-                                        borderColor: "divider",
-                                        borderRadius: 2,
-                                        px: 3,
-                                        py: 1.5,
-                                        // width не указываем — Chip занимает только ширину текста
-                                    }}
-                                />
-                            ))}
-                        </Box>
+                                        height: "100%",
 
-                        <Button
-                            variant="contained"
-                            href="/cooperation"
-                            sx={{
-                                textTransform: "none",
-                                px: 4,
-                                py: 1.5,
-                                borderRadius: 2,
-                                fontWeight: 600,
-                                alignSelf: "start",
+                                        minHeight: {
+                                            xs: 120,
+                                            md: 210,
+                                        },
+
+                                        p: 3,
+
+                                        bgcolor:
+                                            isDark
+                                                ? "rgba(255,255,255,.025)"
+                                                : "#f2f9fa",
+
+                                        borderLeft: {
+                                            xs: "none",
+                                            md: "1px solid",
+                                        },
+
+                                        borderTop: {
+                                            xs: "1px solid",
+                                            md: "none",
+                                        },
+
+                                        borderColor:
+                                            "divider",
+
+                                        display: "flex",
+                                        alignItems:
+                                            "center",
+                                        justifyContent:
+                                            "center",
+                                    }}
+                                >
+
+                                    <Box
+                                        sx={{
+                                            textAlign: "center",
+                                        }}
+                                    >
+
+                                        <Typography
+                                            sx={{
+                                                fontSize: 11,
+                                                fontWeight: 800,
+                                                letterSpacing: 1.3,
+                                                color:
+                                                    "text.secondary",
+                                                mb: 1,
+                                            }}
+                                        >
+                                            MATERIAL
+                                        </Typography>
+
+
+                                        <Typography
+                                            sx={{
+                                                fontSize: "2.3rem",
+                                                fontWeight: 800,
+                                                lineHeight: 1,
+                                                color:
+                                                    "primary.main",
+                                            }}
+                                        >
+                                            PVC
+                                        </Typography>
+
+
+                                        <Typography
+                                            variant="caption"
+                                            color="text.secondary"
+                                        >
+                                            & weitere Thermoplaste
+                                        </Typography>
+
+                                    </Box>
+
+                                </Box>
+
+                            </Grid>
+
+                        </Grid>
+
+                    </Paper>
+
+
+                    {/* =================================================
+                        OTHER TOOLS
+                    ================================================= */}
+
+                    <Grid
+                        container
+                        spacing={2}
+                    >
+
+                        <Grid
+                            size={{
+                                xs: 12,
+                                sm: 6,
+                                md: 4,
                             }}
                         >
-                            Дізнатися більше...
-                        </Button>
+
+                            <ToolCard
+                                icon={<CalculateIcon />}
+                                title="Berechnungen"
+                                text="Weitere technische Berechnungen."
+                            />
+
+                        </Grid>
+
+
+                        <Grid
+                            size={{
+                                xs: 12,
+                                sm: 6,
+                                md: 4,
+                            }}
+                        >
+
+                            <ToolCard
+                                icon={<StraightenIcon />}
+                                title="Maße & Geometrie"
+                                text="Maße, Winkel und geometrische Berechnungen."
+                            />
+
+                        </Grid>
+
+
+                        <Grid
+                            size={{
+                                xs: 12,
+                                sm: 6,
+                                md: 4,
+                            }}
+                        >
+
+                            <ToolCard
+                                icon={<ConstructionIcon />}
+                                title="Fertigung"
+                                text="Hilfswerkzeuge für die praktische Arbeit."
+                            />
+
+                        </Grid>
+
+                    </Grid>
+
+
+                    {/* =================================================
+                        INFO
+                    ================================================= */}
+
+                    <Box
+                        sx={{
+                            mt: 4,
+                            px: 2,
+                            py: 2,
+
+                            borderLeft: "3px solid",
+                            borderColor: "primary.main",
+
+                            bgcolor: isDark
+                                ? "rgba(255,255,255,.025)"
+                                : "rgba(40,150,170,.04)",
+                        }}
+                    >
+
+                        <Typography
+                            variant="body2"
+                            color="text.secondary"
+                            sx={{
+                                lineHeight: 1.65,
+                            }}
+                        >
+                            Die Werkzeuge dienen als technische
+                            Unterstützung bei Berechnungen und der
+                            Vorbereitung von Arbeitsprozessen.
+                            Ergebnisse sind anhand der jeweiligen
+                            technischen Zeichnungen, Maschinenparameter
+                            und betrieblichen Vorgaben zu prüfen.
+                        </Typography>
+
                     </Box>
 
-                    {/* Изображение справа */}
-                    <CardMedia
-                        component="img"
-                        image={urlCooperation}
-                        alt="Співпраця баннер"
-                        sx={{
-                            width: { xs: "100%", md: 400 },
-                            height: { xs: 300, md: "auto" },
-                            objectFit: "cover",
-                        }}
-                    />
-                </Card>
+                </Box>
+
             </Container>
 
         </Box>
-
-    )
+    );
 }
+
+
+/* =========================================================
+   TOOL CARD
+========================================================= */
+
+function ToolCard({
+    icon,
+    title,
+    text,
+}) {
+    return (
+        <Paper
+            elevation={0}
+            sx={{
+                height: "100%",
+
+                minHeight: 145,
+
+                p: 2.5,
+
+                bgcolor: "background.paper",
+
+                border: "1px solid",
+
+                borderColor: "divider",
+
+                borderRadius: 2,
+
+                transition:
+                    "all .2s ease",
+
+                "&:hover": {
+                    borderColor:
+                        "primary.main",
+
+                    transform:
+                        "translateY(-2px)",
+                },
+            }}
+        >
+
+            <Box
+                sx={{
+                    width: 40,
+                    height: 40,
+
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent:
+                        "center",
+
+                    borderRadius: 1.5,
+
+                    bgcolor:
+                        "action.hover",
+
+                    color:
+                        "primary.main",
+
+                    mb: 2,
+                }}
+            >
+                {React.cloneElement(icon, {
+                    sx: {
+                        fontSize: 22,
+                    },
+                })}
+            </Box>
+
+
+            <Typography
+                sx={{
+                    fontWeight: 700,
+                    mb: 0.7,
+                }}
+            >
+                {title}
+            </Typography>
+
+
+            <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{
+                    lineHeight: 1.55,
+                }}
+            >
+                {text}
+            </Typography>
+
+        </Paper>
+    );
+}
+
 
 export default Home;

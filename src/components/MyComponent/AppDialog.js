@@ -13,14 +13,10 @@ import { useMediaQuery, useTheme } from "@mui/system";
 
 // Карта ленивых компонентов
 const componentMap = {
-    EditBigCardDrinks: React.lazy(() => import("../DrinksCard/Edit/EditBigCardDrinks")),
-    DeleteDrink: React.lazy(() => import("../DrinksCard/Edit/DeleteDrink")),
 
     UserEditPropertiesCard: React.lazy(() => import("../UserCard/UserEditPropertiesCard")),
     DeleteUser: React.lazy(() => import("../UserCard/DeleteUser")),
 
-    EditList: React.lazy(() => import("../DrinksCard/Edit/EditList")),
-    EditListItemCard: React.lazy(() => import("../DrinksCard/Edit/EditListItemCard")),
     DeleteConfirm: React.lazy(() => import("../ModalWindow/DeleteConfirm")),
 
     LoginCard: React.lazy(() => import("../ModalWindow/LoginRegistration/LoginCard")),

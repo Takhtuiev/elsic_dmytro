@@ -27,7 +27,7 @@ import {
 // Component
 // =====================================================
 
-function BendingProfileInput() {
+function Biegeberechnung() {
 
     const [profile, setProfile,] = useState({
 
@@ -587,4 +587,4 @@ function BendingProfileInput() {
 }
 
 
-export default BendingProfileInput;
+export default Biegeberechnung;
