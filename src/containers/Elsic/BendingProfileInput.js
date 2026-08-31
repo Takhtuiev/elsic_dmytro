@@ -3,33 +3,24 @@ import React, { useState } from "react";
 import {
     Box,
     Button,
-    IconButton,
+    InputAdornment,
     Paper,
     Stack,
     TextField,
-    ToggleButton,
-    ToggleButtonGroup,
     Typography,
 } from "@mui/material";
 
 import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
 
 import BendingProfilePreview
     from "./BendingProfilePreview";
 
+import BendingProfileRow
+    from "./BendingProfileRow";
 
-// =====================================================
-// Настройки
-// =====================================================
-
-const SHELF_FIELD_WIDTH = "16ch";
-const ANGLE_FIELD_WIDTH = "12ch";
-
-const FIELD_COLUMN_WIDTH = "16ch";
-
-const SHELF_LABEL = "Полка";
-const ANGLE_LABEL = "Угол";
+import {
+    calculateBlankLength,
+} from "./bendingCalculations";
 
 
 // =====================================================
@@ -38,28 +29,35 @@ const ANGLE_LABEL = "Угол";
 
 function BendingProfileInput() {
 
-    const [
-        profile,
-        setProfile,
-    ] = useState({
+    const [profile, setProfile,] = useState({
 
+        // =================================================
+        // Параметры материала и инструмента
+        // =================================================
+        thickness: "4",
+        kFactor: "0.32",
+        rTool: "1.2",
+
+        // =================================================
+        // Полки
+        // =================================================
         shelves: [
-
             {
-                length: "",
+                length: "20",
                 side: "right",
             },
-
             {
-                length: "",
+                length: "20",
                 side: "right",
             },
         ],
 
+        // =================================================
+        // Гибки
+        // =================================================
         bends: [
-
             {
-                angle: "",
+                angle: "180",
                 direction: "right",
             },
         ],
@@ -67,42 +65,33 @@ function BendingProfileInput() {
 
 
     // =================================================
-    // Какая полка должна быть вертикальной
-    // Нумерация начинается с 1
+    // Вертикальная полка
     // =================================================
 
-    const [
-        verticalShelf,
-        setVerticalShelf,
-    ] = useState(1);
+    const [verticalShelf, setVerticalShelf,] = useState(1);
+
+
+    // =================================================
+    // Изменение параметра профиля
+    // =================================================
+
+    const handleProfileParameterChange = (parameter, value) => {
+
+        setProfile((prev) => ({...prev, [parameter]: value,}));
+    };
 
 
     // =================================================
     // Изменение длины полки
     // =================================================
 
-    const handleShelfChange = (
-        index,
-        value
-    ) => {
+    const handleShelfChange = (index, value) => {
 
         setProfile(
             (prev) => ({
-
                 ...prev,
-
-                shelves:
-                    prev.shelves.map(
-                        (
-                            shelf,
-                            i
-                        ) =>
-                            i === index
-                                ? {
-                                    ...shelf,
-                                    length: value,
-                                }
-                                : shelf
+                shelves: prev.shelves.map((shelf, i) =>
+                            i === index ? {...shelf, length: value,} : shelf
                     ),
             })
         );
@@ -113,33 +102,16 @@ function BendingProfileInput() {
     // Изменение направления размера полки
     // =================================================
 
-    const handleShelfSideChange = (
-        index,
-        side
-    ) => {
+    const handleShelfSideChange = (index, side) => {
 
-        if (side === null) {
-            return;
-        }
-
+        if (side === null) {return;}
 
         setProfile(
             (prev) => ({
-
                 ...prev,
-
                 shelves:
-                    prev.shelves.map(
-                        (
-                            shelf,
-                            i
-                        ) =>
-                            i === index
-                                ? {
-                                    ...shelf,
-                                    side,
-                                }
-                                : shelf
+                    prev.shelves.map((shelf, i) =>
+                            i === index ? {...shelf, side} : shelf
                     ),
             })
         );
@@ -150,13 +122,9 @@ function BendingProfileInput() {
     // Выбор вертикальной полки
     // =================================================
 
-    const handleVerticalShelfChange = (
-        index
-    ) => {
+    const handleVerticalShelfChange = (index) => {
 
-        setVerticalShelf(
-            index + 1
-        );
+        setVerticalShelf(index + 1);
     };
 
 
@@ -164,28 +132,13 @@ function BendingProfileInput() {
     // Изменение угла
     // =================================================
 
-    const handleBendChange = (
-        index,
-        value
-    ) => {
+    const handleBendChange = (index, value) => {
 
         setProfile(
             (prev) => ({
-
                 ...prev,
-
-                bends:
-                    prev.bends.map(
-                        (
-                            bend,
-                            i
-                        ) =>
-                            i === index
-                                ? {
-                                    ...bend,
-                                    angle: value,
-                                }
-                                : bend
+                bends: prev.bends.map((bend, i) =>
+                            i === index ? {...bend, angle: value,} : bend
                     ),
             })
         );
@@ -196,34 +149,16 @@ function BendingProfileInput() {
     // Изменение направления гибки
     // =================================================
 
-    const handleBendDirectionChange = (
-        index,
-        direction
-    ) => {
+    const handleBendDirectionChange = (index, direction) => {
 
-        if (direction === null) {
-            return;
-        }
-
+        if (direction === null) {return;}
 
         setProfile(
             (prev) => ({
-
                 ...prev,
-
                 bends:
-                    prev.bends.map(
-                        (
-                            bend,
-                            i
-                        ) =>
-                            i === index
-                                ? {
-                                    ...bend,
-                                    direction,
-                                }
-                                : bend
-                    ),
+                    prev.bends.map((bend, i) =>
+                            i === index ? {...bend, direction} : bend),
             })
         );
     };
@@ -237,26 +172,9 @@ function BendingProfileInput() {
 
         setProfile(
             (prev) => ({
-
-                shelves: [
-
-                    ...prev.shelves,
-
-                    {
-                        length: "",
-                        side: "right",
-                    },
-                ],
-
-                bends: [
-
-                    ...prev.bends,
-
-                    {
-                        angle: "",
-                        direction: "right",
-                    },
-                ],
+                ...prev,
+                shelves: [...prev.shelves, {length: "20", side: "right",},],
+                bends: [...prev.bends, {angle: "180", direction: "right",},],
             })
         );
     };
@@ -266,133 +184,71 @@ function BendingProfileInput() {
     // Удалить гибку
     // =================================================
 
-    const removeBend = (
-        index
-    ) => {
+    const removeBend = (index) => {
 
-        if (
-            profile.bends.length <= 1
-        ) {
-            return;
-        }
-
+        if (profile.bends.length <= 1) {return;}
 
         setProfile(
             (prev) => ({
-
-                shelves:
-                    prev.shelves.filter(
-                        (_, i) =>
-                            i !== index + 1
-                    ),
-
-                bends:
-                    prev.bends.filter(
-                        (_, i) =>
-                            i !== index
-                    ),
+                ...prev,
+                shelves: prev.shelves.filter((_, i) => i !== index + 1),
+                bends: prev.bends.filter((_, i) => i !== index),
             })
         );
 
 
         // =============================================
-        // Корректируем выбранную вертикальную полку
+        // Корректируем вертикальную полку
         // =============================================
 
-        const removedShelf =
-            index + 2;
+        const removedShelf = index + 2;
 
+        if (verticalShelf === removedShelf) {
+            setVerticalShelf(Math.max(1, verticalShelf - 1));
 
-        if (
-            verticalShelf ===
-            removedShelf
-        ) {
-
-            setVerticalShelf(
-                Math.max(
-                    1,
-                    verticalShelf - 1
-                )
-            );
-
-        } else if (
-            verticalShelf >
-            removedShelf
-        ) {
-
-            setVerticalShelf(
-                verticalShelf - 1
-            );
+        } else if (verticalShelf > removedShelf) {
+            setVerticalShelf(verticalShelf - 1);
         }
     };
 
 
     // =================================================
-    // Сетка строки
-    // =================================================
-
-    const rowGrid = {
-
-        display: "grid",
-
-        gridTemplateColumns: `
-${FIELD_COLUMN_WIDTH}
-3ch
-max-content
-max-content
-max-content
-    `,
-
-        alignItems: "center",
-
-        columnGap: 1,
-
-        width: "max-content",
-
-        maxWidth: "100%",
-    };
-
-
-    // =================================================
-    // Получение числовых данных
+    // Числовой профиль
     // =================================================
 
     const getNumericProfile = () => {
 
         return {
 
-            shelves:
-                profile.shelves.map(
+            thickness: profile.thickness === "" ? null : Number(profile.thickness),
+
+            kFactor: profile.kFactor === "" ? null : Number(profile.kFactor),
+
+            rTool: profile.rTool === "" ? null : Number(profile.rTool),
+
+            shelves: profile.shelves.map(
                     (shelf) => ({
-
                         ...shelf,
-
-                        length:
-                            shelf.length === ""
-                                ? null
-                                : Number(
-                                    shelf.length
-                                ),
+                        length: shelf.length === "" ? null : Number(shelf.length),
                     })
                 ),
 
-            bends:
-                profile.bends.map(
-                    (bend) => ({
-
-                        ...bend,
-
-                        angle:
-                            bend.angle === ""
-                                ? null
-                                : Number(
-                                    bend.angle
-                                ),
+            bends: profile.bends.map(
+                    (bend) => ({...bend,
+                        angle: bend.angle === ""
+                            ? null
+                            : Number(bend.angle)
                     })
-                ),
+            ),
         };
     };
 
+
+    // =================================================
+    // Размер заготовки
+    // =================================================
+
+    const blankLength = calculateBlankLength(profile);
 
     // =================================================
     // Render
@@ -403,556 +259,303 @@ max-content
         <Box
             sx={{
                 display: "flex",
-
                 gap: 3,
-
                 alignItems: "flex-start",
-
                 width: "100%",
-
                 flexWrap: "wrap",
             }}
         >
 
             {/* ================================================= */}
-            {/* Левая часть — ввод данных */}
+            {/* Левая часть */}
             {/* ================================================= */}
 
-            <Paper
-                elevation={2}
+            <Box
                 sx={{
-                    p: 3,
-
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
                     width: "fit-content",
-
                     maxWidth: "100%",
-
                     flexShrink: 0,
-
-                    boxSizing: "border-box",
                 }}
             >
 
-                <Typography
-                    variant="h6"
+                {/* ================================================= */}
+                {/* Профиль детали */}
+                {/* ================================================= */}
+
+                <Paper
+                    elevation={2}
                     sx={{
-                        mb: 3,
+                        p: 3,
+                        width: "fit-content",
+                        maxWidth: "100%",
+                        boxSizing: "border-box",
                     }}
                 >
-                    Профиль детали
-                </Typography>
+
+                    <Typography
+                        variant="h6"
+                        sx={{
+                            mb: 3,
+                        }}
+                    >
+                        Профиль детали
+                    </Typography>
 
 
-                <Stack spacing={2}>
+                    <Stack spacing={2}>
 
-                    {/* ================================================= */}
-                    {/* Полки + углы */}
-                    {/* ================================================= */}
+                        {/* ================================================= */}
+                        {/* Полки + гибки */}
+                        {/* ================================================= */}
 
-                    {profile.bends.map(
-                        (
-                            bend,
-                            index
-                        ) => (
+                        {profile.bends.map(
+                            (
+                                bend,
+                                index
+                            ) => (
 
-                            <React.Fragment
-                                key={index}
-                            >
+                                <BendingProfileRow
+                                    key={index}
+                                    shelf={profile.shelves[index]}
+                                    bend={bend}
+                                    index={index}
+                                    verticalShelf={verticalShelf}
+                                    onShelfChange={handleShelfChange}
+                                    onShelfSideChange={handleShelfSideChange}
+                                    onVerticalShelfChange={handleVerticalShelfChange}
+                                    onBendChange={handleBendChange}
+                                    onBendDirectionChange={handleBendDirectionChange}
+                                    onRemoveBend={removeBend}
+                                    canRemove={profile.bends.length > 1}
+                                />
 
-                                {/* ===================================== */}
-                                {/* Полка */}
-                                {/* ===================================== */}
-
-                                <Box
-                                    sx={
-                                        rowGrid
-                                    }
-                                >
-
-                                    <TextField
-                                        label={`${SHELF_LABEL} ${index + 1}`}
-                                        type="number"
-                                        value={
-                                            profile
-                                                .shelves[
-                                                index
-                                                ].length
-                                        }
-                                        size="small"
-                                        sx={{
-                                            width:
-                                            SHELF_FIELD_WIDTH,
-                                        }}
-                                        onChange={(
-                                            e
-                                        ) =>
-                                            handleShelfChange(
-                                                index,
-                                                e
-                                                    .target
-                                                    .value
-                                            )
-                                        }
-                                        slotProps={{
-                                            htmlInput:
-                                                {
-                                                    min: 0,
-                                                    step: 0.01,
-                                                },
-                                        }}
-                                    />
+                            )
+                        )}
 
 
-                                    {/* Единица */}
+                        {/* ================================================= */}
+                        {/* Последняя полка */}
+                        {/* ================================================= */}
 
-                                    <Typography
-                                        color="
-                                            text.secondary
-                                        "
-                                        sx={{
-                                            textAlign:
-                                                "center",
-                                        }}
-                                    >
-                                        мм
-                                    </Typography>
+                        <BendingProfileRow
+                            shelf={profile.shelves[profile.shelves.length - 1]}
+                            bend={null}
+                            index={profile.shelves.length - 1}
+                            verticalShelf={verticalShelf}
+                            onShelfChange={handleShelfChange}
+                            onShelfSideChange={handleShelfSideChange}
+                            onVerticalShelfChange={handleVerticalShelfChange}
+                            onBendChange={handleBendChange}
+                            onBendDirectionChange={handleBendDirectionChange}
+                            onRemoveBend={removeBend}
+                            canRemove={false}
+                        />
 
-
-                                    {/* Направление размера */}
-
-                                    <ToggleButtonGroup
-                                        exclusive
-                                        size="small"
-                                        value={
-                                            profile
-                                                .shelves[index].side
-                                        }
-                                        onChange={(
-                                            e,
-                                            value
-                                        ) =>
-                                            handleShelfSideChange(
-                                                index,
-                                                value
-                                            )
-                                        }
-                                    >
-
-                                        <ToggleButton
-                                            value="left"
-                                        >
-                                            ←
-                                        </ToggleButton>
-
-                                        <ToggleButton
-                                            value="right"
-                                        >
-                                            →
-                                        </ToggleButton>
-
-                                    </ToggleButtonGroup>
-
-
-                                    {/* ================================= */}
-                                    {/* Выбор вертикальной полки */}
-                                    {/* ================================= */}
-
-                                    <IconButton
-                                        size="small"
-                                        color={
-                                            verticalShelf === index + 1
-                                                ? "primary"
-                                                : "default"
-                                        }
-                                        onClick={() =>
-                                            handleVerticalShelfChange(index)
-                                        }
-                                        title="Сделать полку вертикальной"
-                                        sx={{
-                                            borderRadius: "4px",
-
-                                            border:
-                                                verticalShelf === index + 1
-                                                    ? "1px solid"
-                                                    : "1px solid transparent",
-                                        }}
-                                    >
-
-                                        <span
-                                            style={{
-                                                fontSize: "20px",
-                                                lineHeight: 1,
-                                            }}
-                                        >
-                                            ↕
-
-                                        </span>
-                                    </IconButton>
-
-                                    {/* Место под кнопку удаления */}
-
-                                    <Box />
-
-                                </Box>
-
-
-                                {/* ===================================== */}
-                                {/* Угол */}
-                                {/* ===================================== */}
-
-                                <Box
-                                    sx={
-                                        rowGrid
-                                    }
-                                >
-
-                                    <TextField
-                                        label={`${ANGLE_LABEL} ${index + 1}`}
-                                        type="number"
-                                        value={
-                                            bend.angle
-                                        }
-                                        size="small"
-                                        sx={{
-                                            width:
-                                            ANGLE_FIELD_WIDTH,
-
-                                            justifySelf:
-                                                "end",
-                                        }}
-                                        onChange={(
-                                            e
-                                        ) =>
-                                            handleBendChange(
-                                                index,
-                                                e
-                                                    .target
-                                                    .value
-                                            )
-                                        }
-                                        slotProps={{
-                                            htmlInput:
-                                                {
-                                                    min: 0,
-                                                    max: 180,
-                                                    step: 0.01,
-                                                },
-                                        }}
-                                    />
-
-
-                                    {/* Единица */}
-
-                                    <Typography
-                                        color="
-                                            text.secondary
-                                        "
-                                        sx={{
-                                            textAlign:
-                                                "center",
-                                        }}
-                                    >
-                                        °
-                                    </Typography>
-
-
-                                    {/* Направление гибки */}
-
-                                    <ToggleButtonGroup
-                                        exclusive
-                                        size="small"
-                                        value={
-                                            bend.direction
-                                        }
-                                        onChange={(
-                                            e,
-                                            value
-                                        ) =>
-                                            handleBendDirectionChange(
-                                                index,
-                                                value
-                                            )
-                                        }
-                                    >
-
-                                        <ToggleButton
-                                            value="right"
-                                        >
-
-                                            <span
-                                                style={{
-                                                    display:
-                                                        "inline-block",
-
-                                                    transform:
-                                                        "rotate(180deg)",
-                                                }}
-                                            >
-                                                ↷
-                                            </span>
-
-                                        </ToggleButton>
-
-
-                                        <ToggleButton
-                                            value="left"
-                                        >
-
-                                            <span
-                                                style={{
-                                                    display:
-                                                        "inline-block",
-
-                                                    transform:
-                                                        "rotate(180deg)",
-                                                }}
-                                            >
-                                                ↶
-                                            </span>
-
-                                        </ToggleButton>
-
-                                    </ToggleButtonGroup>
-
-
-                                    {/* Удаление угла */}
-
-                                    {profile.bends
-                                        .length >
-                                    1 ? (
-
-                                        <IconButton
-                                            color="error"
-                                            size="small"
-                                            title={
-                                                `Удалить ${
-                                                    ANGLE_LABEL
-                                                } ${
-                                                    index + 1
-                                                }`
-                                            }
-                                            onClick={() =>
-                                                removeBend(
-                                                    index
-                                                )
-                                            }
-                                        >
-
-                                            <DeleteIcon />
-
-                                        </IconButton>
-
-                                    ) : (
-
-                                        <Box />
-
-                                    )}
-
-                                </Box>
-
-                            </React.Fragment>
-                        )
-                    )}
+                    </Stack>
 
 
                     {/* ================================================= */}
-                    {/* Последняя полка */}
+                    {/* Добавить гибку */}
                     {/* ================================================= */}
 
                     <Box
-                        sx={
-                            rowGrid
-                        }
+                        sx={{
+                            mt: 3,
+                        }}
                     >
 
+                        <Button
+                            variant="outlined"
+                            startIcon={<AddIcon />}
+                            onClick={addBend}
+                            sx={{
+                                width: "100%",
+                            }}
+                        >
+                            Добавить гибку
+                        </Button>
+
+                    </Box>
+
+                </Paper>
+
+
+                {/* ================================================= */}
+                {/* Параметры */}
+                {/* ================================================= */}
+
+                <Paper
+                    elevation={2}
+                    sx={{
+                        p: 3,
+                        width: "100%",
+                        maxWidth: "100%",
+                        boxSizing: "border-box",
+                    }}
+                >
+
+                    <Typography
+                        variant="h6"
+                        sx={{
+                            mb: 3,
+                        }}
+                    >
+                        Параметры
+                    </Typography>
+
+
+                    <Stack spacing={2}>
+
+                        {/* ================================================= */}
+                        {/* Толщина */}
+                        {/* ================================================= */}
+
                         <TextField
-                            label={`${SHELF_LABEL} ${profile.shelves.length}`}
+                            label="Dicke"
                             type="number"
                             value={
-                                profile
-                                    .shelves[
-                                profile
-                                    .shelves
-                                    .length -
-                                1
-                                    ].length
+                                profile.thickness
                             }
                             size="small"
                             sx={{
-                                width:
-                                SHELF_FIELD_WIDTH,
+                                width: "16ch",
                             }}
-                            onChange={(
-                                e
-                            ) =>
-                                handleShelfChange(
-                                    profile
-                                        .shelves
-                                        .length -
-                                    1,
+                            onChange={(e) =>
+                                handleProfileParameterChange(
+                                    "thickness",
                                     e.target.value
                                 )
                             }
                             slotProps={{
-                                htmlInput:
-                                    {
-                                        min: 0,
-                                        step: 0.01,
-                                    },
+                                htmlInput: {
+                                    min: 0,
+                                    step: 0.01,
+                                },
+
+                                input: {
+                                    endAdornment: (
+                                        <InputAdornment position="end">
+                                            mm
+                                        </InputAdornment>
+                                    ),
+                                },
                             }}
                         />
 
 
-                        <Typography
-                            color="
-                                text.secondary
-                            "
-                            sx={{
-                                textAlign:
-                                    "center",
-                            }}
-                        >
-                            мм
-                        </Typography>
+                        {/* ================================================= */}
+                        {/* K-Faktor */}
+                        {/* ================================================= */}
 
-
-                        <ToggleButtonGroup
-                            exclusive
-                            size="small"
+                        <TextField
+                            label="K-Faktor"
+                            type="number"
                             value={
-                                profile
-                                    .shelves[
-                                profile
-                                    .shelves
-                                    .length -
-                                1
-                                    ].side
+                                profile.kFactor
                             }
-                            onChange={(
-                                e,
-                                value
-                            ) =>
-                                handleShelfSideChange(
-                                    profile
-                                        .shelves
-                                        .length -
-                                    1,
-                                    value
-                                )
-                            }
-                        >
-
-                            <ToggleButton
-                                value="left"
-                            >
-                                ←
-                            </ToggleButton>
-
-                            <ToggleButton
-                                value="right"
-                            >
-                                →
-                            </ToggleButton>
-
-                        </ToggleButtonGroup>
-
-
-                        {/* ============================================= */}
-                        {/* Выбор вертикальной последней полки */}
-                        {/* ============================================= */}
-
-
-                        <IconButton
                             size="small"
-                            color={
-                                verticalShelf ===
-                                profile.shelves.length
-                                    ? "primary"
-                                    : "default"
-                            }
-                            onClick={() =>
-                                setVerticalShelf(
-                                    profile.shelves.length
+                            sx={{
+                                width: "16ch",
+                            }}
+                            onChange={(e) =>
+                                handleProfileParameterChange(
+                                    "kFactor",
+                                    e.target.value
                                 )
                             }
-                            title="Сделать полку вертикальной"
-                            sx={{
-                                borderRadius: "4px",
-
-                                border:
-                                    verticalShelf ===
-                                    profile.shelves.length
-                                        ? "1px solid"
-                                        : "1px solid transparent",
+                            slotProps={{
+                                htmlInput: {
+                                    min: 0,
+                                    max: 1,
+                                    step: 0.01,
+                                },
                             }}
-                        >
-
-                            <span
-                                style={{
-                                    fontSize: "20px",
-                                    lineHeight: 1,
-                                }}
-                            >
-                                ↕
-                            </span>
-                        </IconButton>
+                        />
 
 
-                        <Box />
+                        {/* ================================================= */}
+                        {/* R_tool */}
+                        {/* ================================================= */}
 
-                    </Box>
+                        <TextField
+                            label="R_tool"
+                            type="number"
+                            value={
+                                profile.rTool
+                            }
+                            size="small"
+                            sx={{
+                                width: "16ch",
+                            }}
+                            onChange={(e) =>
+                                handleProfileParameterChange(
+                                    "rTool",
+                                    e.target.value
+                                )
+                            }
+                            slotProps={{
+                                htmlInput: {
+                                    min: 0,
+                                    step: 0.01,
+                                },
 
-                </Stack>
+                                input: {
+                                    endAdornment: (
+                                        <InputAdornment position="end">
+                                            mm
+                                        </InputAdornment>
+                                    ),
+                                },
+                            }}
+                        />
+
+                    </Stack>
 
 
-                {/* ================================================= */}
-                {/* Кнопки */}
-                {/* ================================================= */}
-
-                <Box
-                    sx={{
-                        mt: 3,
-                    }}
-                >
-                    {/* Добавить гибку */}
-
-                    <Button
-                        variant="outlined"
-                        startIcon={<AddIcon />}
-                        onClick={addBend}
-                        sx={{width:"100%"}}
-                    >
-                        Добавить гибку
-                    </Button>
-
-
-                    {/* Получить данные */}
+                    {/* ================================================= */}
+                    {/* Размер заготовки */}
+                    {/* ================================================= */}
 
                     <Box
                         sx={{
-                            mt: 2,
+                            mt: 3,
+
+                            pt: 2,
+
+                            borderTop: "1px solid",
+
+                            borderColor: "divider",
                         }}
                     >
-                        <Button
-                            variant="contained"
-                            onClick={() => {
 
-                                console.log(
-                                    getNumericProfile()
-                                );
-
-                                console.log(
-                                    "Вертикальная полка:",
-                                    verticalShelf
-                                );
-
+                        <Typography
+                            variant="body2"
+                            color="text.secondary"
+                            sx={{
+                                mb: 0.5,
                             }}
                         >
-                            Получить данные
-                        </Button>
+                            Размер заготовки
+                        </Typography>
+
+
+                        <Typography
+                            variant="h5"
+                        >
+                            {blankLength !== null
+                                ? `${blankLength.toFixed(2)} mm`
+                                : "—"
+                            }
+                        </Typography>
+
                     </Box>
-                </Box>
-            </Paper>
+
+                </Paper>
+
+            </Box>
 
 
             {/* ================================================= */}
@@ -962,9 +565,7 @@ max-content
             <Box
                 sx={{
                     flex: "1 1 400px",
-
                     minWidth: 0,
-
                     maxWidth: 700,
                 }}
             >

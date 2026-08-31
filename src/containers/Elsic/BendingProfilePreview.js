@@ -1,1284 +1,508 @@
 import React from "react";
-import {
-    Box,
-    Paper,
-    Typography,
-} from "@mui/material";
+import { Box, Paper, Typography } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import { calculateBlankLength } from "./bendingCalculations";
 
-
-function BendingProfilePreview({
-    profile,
-    verticalShelf,
-}) {
-
-    // =====================================================
-    // Настройки
-    // =====================================================
+function BendingProfilePreview({ profile, verticalShelf }) {
+    const theme = useTheme();
+    const blankLength = calculateBlankLength(profile);
 
     const VIEWBOX_WIDTH = 600;
     const VIEWBOX_HEIGHT = 450;
-
-    const PADDING = 30;
-
+    const PADDING = 40;
+    const BOTTOM_INFO_HEIGHT = 30;
     const MIN_LENGTH_FOR_DRAW = 20;
 
-    // Размер текста всех размеров
     const DIMENSION_FONT_SIZE = 12;
-
-    // Смещение текста размера полки
     const LENGTH_TEXT_OFFSET = 15;
-
-    // Радиус дуги обозначения внутреннего угла
     const ANGLE_RADIUS = 12;
-
-    // Расстояние текста угла от дуги
     const ANGLE_TEXT_GAP = 6;
 
+    const textColor = theme.palette.text.primary;
+    const profileFill = theme.palette.action.hover;
 
-    // =====================================================
-    // Построение профиля
-    // =====================================================
-
+    // Центральная линия
     const points = [];
     const segments = [];
     const bends = [];
 
-    let x = 0;
-    let y = 0;
-
-    // =====================================================
-    // Накопленный угол направления текущей полки
-    // =====================================================
-
+    let x = 0, y = 0;
     let currentAngle = 0;
 
+    points.push({ x, y });
 
-    points.push({
-        x,
-        y,
-    });
+    profile.shelves.forEach((shelf, index) => {
+        const originalLength = Number(shelf.length);
+        const length = originalLength > 0 ? originalLength : MIN_LENGTH_FOR_DRAW;
+        const start = { x, y };
+        const angleRad = currentAngle * Math.PI / 180;
 
+        x += Math.cos(angleRad) * length;
+        y -= Math.sin(angleRad) * length;
 
-    // =====================================================
-    // Полки + гибки
-    // =====================================================
+        const end = { x, y };
+        points.push(end);
 
-    profile.shelves.forEach(
-        (shelf, index) => {
+        segments.push({
+            index,
+            start,
+            end,
+            length: originalLength,
+            side: shelf.side,
+            angle: currentAngle,
+        });
 
-            const originalLength =
-                Number(shelf.length);
+        if (profile.bends[index]) {
+            const bend = profile.bends[index];
+            const innerAngle = Number(bend.angle) || 0;
 
-
-            const length =
-                originalLength > 0
-                    ? originalLength
-                    : MIN_LENGTH_FOR_DRAW;
-
-
-            // -------------------------------------------------
-            // Начало полки
-            // -------------------------------------------------
-
-            const start = {
-                x,
-                y,
-            };
-
-
-            // -------------------------------------------------
-            // Направление текущей полки
-            // -------------------------------------------------
-
-            const angleRad =
-                currentAngle *
-                Math.PI /
-                180;
-
-
-            // -------------------------------------------------
-            // Конец полки
-            // -------------------------------------------------
-
-            x +=
-                Math.cos(angleRad) *
-                length;
-
-
-            y -=
-                Math.sin(angleRad) *
-                length;
-
-
-            const end = {
-                x,
-                y,
-            };
-
-
-            points.push(end);
-
-
-            // -------------------------------------------------
-            // Сохраняем полку
-            // -------------------------------------------------
-
-            segments.push({
-
+            bends.push({
                 index,
-
-                start,
-
-                end,
-
-                length:
-                    originalLength,
-
-                side:
-                    shelf.side,
-
-                angle:
-                    currentAngle,
+                vertex: { x, y },
+                innerAngle,
+                direction: bend.direction,
+                incomingAngle: currentAngle,
             });
 
+            const turningAngle = 180 - innerAngle;
 
-            // =================================================
-            // Гибка после полки
-            // =================================================
-
-            if (
-                profile.bends[index]
-            ) {
-
-                const bend =
-                    profile.bends[index];
-
-
-                // -------------------------------------------------
-                // ВАЖНО:
-                //
-                // bend.angle — внутренний угол
-                // между двумя полками.
-                // -------------------------------------------------
-
-                const innerAngle =
-                    Number(
-                        bend.angle
-                    ) || 0;
-
-
-                // -------------------------------------------------
-                // Вершина гибки
-                // -------------------------------------------------
-
-                const vertex = {
-                    x,
-                    y,
-                };
-
-
-                bends.push({
-
-                    index,
-
-                    vertex,
-
-                    innerAngle,
-
-                    direction:
-                        bend.direction,
-
-                    incomingAngle:
-                        currentAngle,
-                });
-
-
-                // =================================================
-                // Изменение направления
-                //
-                // Внутренний угол != угол поворота.
-                //
-                // turningAngle =
-                //     180 - innerAngle
-                // =================================================
-
-                const turningAngle =
-                    180 -
-                    innerAngle;
-
-
-                // =================================================
-                // Учитываем направление гибки
-                // =================================================
-
-                if (
-                    bend.direction ===
-                    "right"
-                ) {
-
-                    currentAngle -=
-                        turningAngle;
-
-                } else if (
-                    bend.direction ===
-                    "left"
-                ) {
-
-                    currentAngle +=
-                        turningAngle;
-                }
+            if (bend.direction === "right") {
+                currentAngle -= turningAngle;
+            } else if (bend.direction === "left") {
+                currentAngle += turningAngle;
             }
         }
-    );
+    });
 
-
-    // =====================================================
-    // Расчёт угла выбранной полки
-    // =====================================================
-
-    /*
-        Здесь заново суммируем все предыдущие гибки.
-
-        Для полки №1:
-            нет предыдущих гибок -> 0°
-
-        Для полки №2:
-            учитывается bend[0]
-
-        Для полки №3:
-            учитываются bend[0] + bend[1]
-
-        И т.д.
-    */
-
+    // Направление выбранной полки
     let selectedShelfAngle = 0;
 
+    for (let i = 0; i < verticalShelf - 1; i++) {
+        const bend = profile.bends[i];
+        if (!bend) continue;
 
-    for (
-        let i = 0;
-        i < verticalShelf - 1;
-        i++
-    ) {
+        const turningAngle = 180 - Number(bend.angle || 0);
 
-        const bend =
-            profile.bends[i];
-
-
-        if (!bend) {
-            continue;
-        }
-
-
-        const innerAngle =
-            Number(
-                bend.angle
-            ) || 0;
-
-
-        const turningAngle =
-            180 -
-            innerAngle;
-
-
-        if (
-            bend.direction ===
-            "right"
-        ) {
-
-            selectedShelfAngle -=
-                turningAngle;
-
-        } else if (
-            bend.direction ===
-            "left"
-        ) {
-
-            selectedShelfAngle +=
-                turningAngle;
+        if (bend.direction === "right") {
+            selectedShelfAngle -= turningAngle;
+        } else if (bend.direction === "left") {
+            selectedShelfAngle += turningAngle;
         }
     }
 
-
-    // =====================================================
-    // Целевое направление выбранной полки
-    //
-    // 0°  -> вправо
-    // 90° -> вверх
-    // =====================================================
-
+    // Поворот схемы
     const TARGET_ANGLE = -90;
-
-
-    // =====================================================
-    // Общий поворот всей схемы
-    // =====================================================
-
-    /*
-        Хотим получить:
-
-        selectedShelfAngle +
-        rotationAngle =
-        90°
-
-        Поэтому:
-
-        rotationAngle =
-            90° -
-            selectedShelfAngle
-    */
-
-    const rotationAngle =
-        TARGET_ANGLE -
-        selectedShelfAngle;
-
-
-    // =====================================================
-    // Поворот всей геометрии
-    // =====================================================
-
-    const rotationRad =
-        rotationAngle *
-        Math.PI /
-        180;
-
-
-    const cosRotation =
-        Math.cos(
-            rotationRad
-        );
-
-
-    const sinRotation =
-        Math.sin(
-            rotationRad
-        );
-
-
-    // =====================================================
-    // Поворот точки
-    //
-    // ВАЖНО:
-    //
-    // SVG имеет Y вниз.
-    //
-    // Поэтому здесь используется матрица,
-    // соответствующая нашей системе углов:
-    //
-    // 0°  -> вправо
-    // 90° -> вверх
-    // =====================================================
-
-    const rotatePoint = (
-        point
-    ) => {
-
-        return {
-
-            x:
-                point.x *
-                cosRotation +
-                point.y *
-                sinRotation,
-
-            y:
-                -point.x *
-                sinRotation +
-                point.y *
-                cosRotation,
-        };
-    };
-
-
-    // =====================================================
-    // Поворачиваем профиль
-    // =====================================================
-
-    const rotatedPoints =
-        points.map(
-            rotatePoint
-        );
-
-
-    // =====================================================
-    // Поворачиваем полки
-    // =====================================================
-
-    const rotatedSegments =
-        segments.map(
-            (segment) => ({
-
-                ...segment,
-
-                start:
-                    rotatePoint(
-                        segment.start
-                    ),
-
-                end:
-                    rotatePoint(
-                        segment.end
-                    ),
-            })
-        );
-
-
-    // =====================================================
-    // Поворачиваем гибки
-    // =====================================================
-
-    const rotatedBends =
-        bends.map(
-            (bend) => ({
-
-                ...bend,
-
-                vertex:
-                    rotatePoint(
-                        bend.vertex
-                    ),
-            })
-        );
-
-
-    // =====================================================
-    // Границы профиля
-    // =====================================================
-
-    const xs =
-        rotatedPoints.map(
-            (point) => point.x
-        );
-
-
-    const ys =
-        rotatedPoints.map(
-            (point) => point.y
-        );
-
-
-    const minX =
-        Math.min(...xs);
-
-
-    const maxX =
-        Math.max(...xs);
-
-
-    const minY =
-        Math.min(...ys);
-
-
-    const maxY =
-        Math.max(...ys);
-
-
-    const profileWidth =
-        maxX -
-        minX;
-
-
-    const profileHeight =
-        maxY -
-        minY;
-
-
-    // =====================================================
-    // Автомасштабирование
-    // =====================================================
-
-    const availableWidth =
-        VIEWBOX_WIDTH -
-        PADDING * 2;
-
-
-    const availableHeight =
-        VIEWBOX_HEIGHT -
-        PADDING * 2;
-
-
-    const scaleX =
-        profileWidth > 0
-            ? availableWidth /
-              profileWidth
-            : 1;
-
-
-    const scaleY =
-        profileHeight > 0
-            ? availableHeight /
-              profileHeight
-            : 1;
-
-
-    let scale =
-        Math.min(
-            scaleX,
-            scaleY
-        );
-
-
-    scale =
-        Math.min(
-            scale,
-            5
-        );
-
-
-    scale =
-        Math.max(
-            scale,
-            0.05
-        );
-
-
-    // =====================================================
-    // Перевод координат в SVG
-    // =====================================================
-
-    const toSvg = (
-        point
-    ) => ({
-
-        x:
-            PADDING +
-            (point.x - minX) *
-            scale,
-
-        y:
-            PADDING +
-            (point.y - minY) *
-            scale,
+    const rotationAngle = TARGET_ANGLE - selectedShelfAngle;
+    const rotationRad = rotationAngle * Math.PI / 180;
+
+    const cosRotation = Math.cos(rotationRad);
+    const sinRotation = Math.sin(rotationRad);
+
+    const rotatePoint = point => ({
+        x: point.x * cosRotation + point.y * sinRotation,
+        y: -point.x * sinRotation + point.y * cosRotation,
     });
 
+    const rotatedPoints = points.map(rotatePoint);
 
-    const svgPoints =
-        rotatedPoints.map(
-            toSvg
-        );
+    const rotatedSegments = segments.map(segment => ({
+        ...segment,
+        start: rotatePoint(segment.start),
+        end: rotatePoint(segment.end),
+    }));
 
+    const rotatedBends = bends.map(bend => ({
+        ...bend,
+        vertex: rotatePoint(bend.vertex),
+    }));
 
-    // =====================================================
-    // Polyline
-    // =====================================================
+    // Границы и масштаб
+    const xs = rotatedPoints.map(p => p.x);
+    const ys = rotatedPoints.map(p => p.y);
 
-    const pointsString =
-        svgPoints
-            .map(
-                (point) =>
-                    `${point.x},${point.y}`
-            )
-            .join(" ");
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
 
+    const profileWidth = maxX - minX;
+    const profileHeight = maxY - minY;
 
-    // =====================================================
-    // Перпендикуляр
-    // =====================================================
+    const availableWidth = VIEWBOX_WIDTH - PADDING * 2;
+    const availableHeight =
+        VIEWBOX_HEIGHT - PADDING * 2 - BOTTOM_INFO_HEIGHT;
 
-    const getPerpendicular = (
-        start,
-        end
-    ) => {
+    const scaleX = profileWidth > 0 ? availableWidth / profileWidth : 1;
+    const scaleY = profileHeight > 0 ? availableHeight / profileHeight : 1;
+    const scale = Math.max(0.05, Math.min(scaleX, scaleY, 5));
 
-        const dx =
-            end.x -
-            start.x;
+    const drawingWidth = profileWidth * scale;
+    const drawingHeight = profileHeight * scale;
 
+    const offsetX =
+        PADDING + (availableWidth - drawingWidth) / 2;
 
-        const dy =
-            end.y -
-            start.y;
+    const offsetY =
+        PADDING + (availableHeight - drawingHeight) / 2;
 
+    const toSvg = point => ({
+        x: offsetX + (point.x - minX) * scale,
+        y: offsetY + (point.y - minY) * scale,
+    });
 
-        const length =
-            Math.sqrt(
-                dx * dx +
-                dy * dy
-            );
+    const svgPoints = rotatedPoints.map(toSvg);
 
+    // Пересечение двух прямых
+    const lineIntersection = (p1, p2, p3, p4) => {
+        const denominator =
+            (p1.x - p2.x) * (p3.y - p4.y) -
+            (p1.y - p2.y) * (p3.x - p4.x);
 
-        if (
-            length === 0
-        ) {
+        if (Math.abs(denominator) < 0.000001) return p2;
 
-            return {
-                x: 0,
-                y: 0,
-            };
-        }
-
+        const a = p1.x * p2.y - p1.y * p2.x;
+        const b = p3.x * p4.y - p3.y * p4.x;
 
         return {
-
             x:
-                -dy /
-                length,
+                (a * (p3.x - p4.x) -
+                    (p1.x - p2.x) * b) /
+                denominator,
 
             y:
-                dx /
-                length,
+                (a * (p3.y - p4.y) -
+                    (p1.y - p2.y) * b) /
+                denominator,
         };
     };
 
+    // Нормаль к полке
+    const getNormal = (start, end) => {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const length = Math.hypot(dx, dy);
 
-    // =====================================================
-    // Нормализация вектора
-    // =====================================================
-
-    const normalize = (
-        vector
-    ) => {
-
-        const length =
-            Math.sqrt(
-                vector.x *
-                    vector.x +
-                vector.y *
-                    vector.y
-            );
-
-
-        if (
-            length === 0
-        ) {
-
-            return {
-                x: 0,
-                y: 0,
-            };
-        }
-
+        if (!length) return { x: 0, y: 0 };
 
         return {
-
-            x:
-                vector.x /
-                length,
-
-            y:
-                vector.y /
-                length,
+            x: -dy / length,
+            y: dx / length,
         };
     };
 
+    // Контур материала
+    const halfThickness = Number(profile.thickness) / 2;
+    const upperLines = [];
+    const lowerLines = [];
 
-    // =====================================================
+    rotatedSegments.forEach(segment => {
+        const normal = getNormal(segment.start, segment.end);
+
+        upperLines.push({
+            start: {
+                x: segment.start.x + normal.x * halfThickness,
+                y: segment.start.y + normal.y * halfThickness,
+            },
+            end: {
+                x: segment.end.x + normal.x * halfThickness,
+                y: segment.end.y + normal.y * halfThickness,
+            },
+        });
+
+        lowerLines.push({
+            start: {
+                x: segment.start.x - normal.x * halfThickness,
+                y: segment.start.y - normal.y * halfThickness,
+            },
+            end: {
+                x: segment.end.x - normal.x * halfThickness,
+                y: segment.end.y - normal.y * halfThickness,
+            },
+        });
+    });
+
+    // Апексы контура
+    const upperContour = [];
+    const lowerContour = [];
+
+    if (upperLines.length) {
+        upperContour.push(upperLines[0].start);
+        lowerContour.push(lowerLines[0].start);
+
+        for (let i = 0; i < upperLines.length - 1; i++) {
+            upperContour.push(
+                lineIntersection(
+                    upperLines[i].start,
+                    upperLines[i].end,
+                    upperLines[i + 1].start,
+                    upperLines[i + 1].end
+                )
+            );
+
+            lowerContour.push(
+                lineIntersection(
+                    lowerLines[i].start,
+                    lowerLines[i].end,
+                    lowerLines[i + 1].start,
+                    lowerLines[i + 1].end
+                )
+            );
+        }
+
+        upperContour.push(upperLines.at(-1).end);
+        lowerContour.push(lowerLines.at(-1).end);
+    }
+
+    const profileContour = [
+        ...upperContour,
+        ...lowerContour.reverse(),
+    ];
+
+    const contourPath =
+        profileContour.length > 1
+            ? profileContour
+                  .map(
+                      (point, index) =>
+                          `${index === 0 ? "M" : "L"} ${
+    toSvg(point).x
+} ${toSvg(point).y}`
+                  )
+                  .join(" ") + " Z"
+            : "";
+
     // Размеры полок
-    // =====================================================
-
-    const lengthLabels =
-        rotatedSegments.map(
-            (segment) => {
-
-                const start =
-                    toSvg(
-                        segment.start
-                    );
-
-
-                const end =
-                    toSvg(
-                        segment.end
-                    );
-
-
-                const middle = {
-
-                    x:
-                        (
-                            start.x +
-                            end.x
-                        ) / 2,
-
-                    y:
-                        (
-                            start.y +
-                            end.y
-                        ) / 2,
-                };
-
-
-                const perpendicular =
-                    getPerpendicular(
-                        start,
-                        end
-                    );
-
-
-                const direction =
-                    segment.side ===
-                    "left"
-                        ? 1
-                        : -1;
-
-
-                const labelPoint = {
-
-                    x:
-                        middle.x +
-                        perpendicular.x *
-                        LENGTH_TEXT_OFFSET *
-                        direction,
-
-                    y:
-                        middle.y +
-                        perpendicular.y *
-                        LENGTH_TEXT_OFFSET *
-                        direction,
-                };
-
-
-                let textAngle =
-                    Math.atan2(
-                        end.y -
-                            start.y,
-
-                        end.x -
-                            start.x
-                    ) *
-                    180 /
-                    Math.PI;
-
-
-                if (
-                    textAngle > 90 ||
-                    textAngle < -90
-                ) {
-
-                    textAngle +=
-                        180;
-                }
-
-
-                return {
-
-                    ...segment,
-
-                    labelPoint,
-
-                    textAngle,
-                };
-            }
-        );
-
-
-    // =====================================================
-    // Дуги внутренних углов
-    // =====================================================
-
-    const angleDimensions =
-        rotatedBends.map(
-            (bend) => {
-
-                const bendIndex =
-                    bend.index;
-
-
-                const previousSegment =
-                    rotatedSegments[
-                        bendIndex
-                    ];
-
-
-                const nextSegment =
-                    rotatedSegments[
-                        bendIndex + 1
-                    ];
-
-
-                if (
-                    !previousSegment ||
-                    !nextSegment
-                ) {
-
-                    return null;
-                }
-
-
-                // -------------------------------------------------
-                // Центр угла
-                // -------------------------------------------------
-
-                const center =
-                    toSvg(
-                        bend.vertex
-                    );
-
-
-                // =================================================
-                // Вектор от вершины назад
-                // по первой полке
-                // =================================================
-
-                const v1 =
-                    normalize({
-
-                        x:
-                            previousSegment
-                                .start.x -
-                            previousSegment
-                                .end.x,
-
-                        y:
-                            previousSegment
-                                .start.y -
-                            previousSegment
-                                .end.y,
-                    });
-
-
-                // =================================================
-                // Вектор от вершины
-                // по второй полке
-                // =================================================
-
-                const v2 =
-                    normalize({
-
-                        x:
-                            nextSegment
-                                .end.x -
-                            nextSegment
-                                .start.x,
-
-                        y:
-                            nextSegment
-                                .end.y -
-                            nextSegment
-                                .start.y,
-                    });
-
-
-                // =================================================
-                // Начало дуги
-                // =================================================
-
-                const startPoint = {
-
-                    x:
-                        center.x +
-                        v1.x *
-                        ANGLE_RADIUS,
-
-                    y:
-                        center.y +
-                        v1.y *
-                        ANGLE_RADIUS,
-                };
-
-
-                // =================================================
-                // Конец дуги
-                // =================================================
-
-                const endPoint = {
-
-                    x:
-                        center.x +
-                        v2.x *
-                        ANGLE_RADIUS,
-
-                    y:
-                        center.y +
-                        v2.y *
-                        ANGLE_RADIUS,
-                };
-
-
-                // =================================================
-                // Биссектриса внутреннего угла
-                // =================================================
-
-                let bisector =
-                    normalize({
-
-                        x:
-                            v1.x +
-                            v2.x,
-
-                        y:
-                            v1.y +
-                            v2.y,
-                    });
-
-
-                // -------------------------------------------------
-                // Защита для 180°
-                // -------------------------------------------------
-
-                if (
-                    Math.abs(
-                        bisector.x
-                    ) < 0.0001 &&
-                    Math.abs(
-                        bisector.y
-                    ) < 0.0001
-                ) {
-
-                    bisector = {
-
-                        x: 0,
-
-                        y: -1,
-                    };
-                }
-
-
-                // =================================================
-                // Положение текста
-                // =================================================
-
-                const textRadius =
-                    ANGLE_RADIUS +
-                    ANGLE_TEXT_GAP +
-                    DIMENSION_FONT_SIZE /
-                    2;
-
-
-                const textPoint = {
-
-                    x:
-                        center.x +
-                        bisector.x *
-                        textRadius,
-
-                    y:
-                        center.y +
-                        bisector.y *
-                        textRadius,
-                };
-
-
-                // =================================================
-                // Направление дуги
-                // =================================================
-
-                const cross =
-                    v1.x *
-                    v2.y -
-                    v1.y *
-                    v2.x;
-
-
-                const sweepFlag =
-                    cross > 0
-                        ? 1
-                        : 0;
-
-
-                return {
-
-                    ...bend,
-
-                    center,
-
-                    startPoint,
-
-                    endPoint,
-
-                    textPoint,
-
-                    sweepFlag,
-                };
-            }
-        );
-
-
-    // =====================================================
-    // Render
-    // =====================================================
+    const lengthLabels = rotatedSegments.map(segment => {
+        const start = toSvg(segment.start);
+        const end = toSvg(segment.end);
+
+        const middle = {
+            x: (start.x + end.x) / 2,
+            y: (start.y + end.y) / 2,
+        };
+
+        const normal = getNormal(start, end);
+        const direction = segment.side === "left" ? 1 : -1;
+
+        const labelPoint = {
+            x:
+                middle.x +
+                normal.x *
+                    LENGTH_TEXT_OFFSET *
+                    direction,
+
+            y:
+                middle.y +
+                normal.y *
+                    LENGTH_TEXT_OFFSET *
+                    direction,
+        };
+
+        let textAngle =
+            Math.atan2(
+                end.y - start.y,
+                end.x - start.x
+            ) *
+            180 /
+            Math.PI;
+
+        if (textAngle > 90 || textAngle < -90) {
+            textAngle += 180;
+        }
+
+        return {
+            ...segment,
+            labelPoint,
+            textAngle,
+        };
+    });
+
+    // Нормализация
+    const normalize = vector => {
+        const length = Math.hypot(vector.x, vector.y);
+        if (!length) return { x: 0, y: 0 };
+
+        return {
+            x: vector.x / length,
+            y: vector.y / length,
+        };
+    };
+
+    // Угловые размеры
+    const angleDimensions = rotatedBends.map(bend => {
+        const i = bend.index;
+        const previousSegment = rotatedSegments[i];
+        const nextSegment = rotatedSegments[i + 1];
+
+        if (!previousSegment || !nextSegment) return null;
+
+        const center = toSvg(bend.vertex);
+
+        const v1 = normalize({
+            x: previousSegment.start.x - previousSegment.end.x,
+            y: previousSegment.start.y - previousSegment.end.y,
+        });
+
+        const v2 = normalize({
+            x: nextSegment.end.x - nextSegment.start.x,
+            y: nextSegment.end.y - nextSegment.start.y,
+        });
+
+        const startPoint = {
+            x: center.x + v1.x * ANGLE_RADIUS,
+            y: center.y + v1.y * ANGLE_RADIUS,
+        };
+
+        const endPoint = {
+            x: center.x + v2.x * ANGLE_RADIUS,
+            y: center.y + v2.y * ANGLE_RADIUS,
+        };
+
+        let bisector;
+
+        if (Math.abs(bend.innerAngle - 180) < 0.001) {
+            bisector =
+                bend.direction === "right"
+                    ? normalize({ x: v1.y, y: -v1.x })
+                    : normalize({ x: -v1.y, y: v1.x });
+        } else {
+            bisector = normalize({
+                x: v1.x + v2.x,
+                y: v1.y + v2.y,
+            });
+        }
+
+        const textRadius =
+            ANGLE_RADIUS +
+            ANGLE_TEXT_GAP +
+            DIMENSION_FONT_SIZE / 2;
+
+        const textPoint = {
+            x: center.x + bisector.x * textRadius,
+            y: center.y + bisector.y * textRadius,
+        };
+
+        const cross =
+            v1.x * v2.y -
+            v1.y * v2.x;
+
+        return {
+            ...bend,
+            center,
+            startPoint,
+            endPoint,
+            textPoint,
+            sweepFlag: cross > 0 ? 1 : 0,
+        };
+    });
 
     return (
-
         <Paper
             elevation={2}
             sx={{
                 p: 2,
-
                 width: "100%",
-
                 minWidth: 0,
-
-                boxSizing:
-                    "border-box",
+                boxSizing: "border-box",
             }}
         >
-
-            <Typography
-                variant="h6"
-                sx={{
-                    mb: 1,
-                }}
-            >
+            <Typography variant="h6" sx={{ mb: 1 }}>
                 Схема профиля
             </Typography>
 
-            <Box
-                sx={{
-                    width: "100%",
-
-                    aspectRatio:
-                        "4 / 3",
-                }}
-            >
-
+            <Box sx={{ width: "100%", aspectRatio: "4 / 3" }}>
                 <svg
-                    viewBox={`
-0
-0
-${VIEWBOX_WIDTH}
-${VIEWBOX_HEIGHT}
-`}
-
+                    viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
                     width="100%"
-
                     height="100%"
-
-                    preserveAspectRatio="
-                        xMidYMid meet
-                    "
+                    preserveAspectRatio="xMidYMid meet"
+                    style={{ color: textColor }}
                 >
-
-                    {/* ================================================= */}
                     {/* Размеры полок */}
-                    {/* ================================================= */}
-
-                    {lengthLabels.map(
-                        (
-                            segment,
-                            index
-                        ) => (
-
-                            <text
-                                key={
-                                    `length-${index}`
-                                }
-
-                                x={
-                                    segment
-                                        .labelPoint
-                                        .x
-                                }
-
-                                y={
-                                    segment
-                                        .labelPoint
-                                        .y
-                                }
-
-                                textAnchor="
-                                    middle
-                                "
-
-                                dominantBaseline="
-                                    middle
-                                "
-
-                                fontSize={
-                                    DIMENSION_FONT_SIZE
-                                }
-
-                                transform={`
-rotate(
-    ${segment.textAngle}
-${segment.labelPoint.x}
-${segment.labelPoint.y}
-)
-`}
+                    {lengthLabels.map((segment, index) => (
+                        <text
+                            key={`length-${index}`}
+                            x={segment.labelPoint.x}
+                            y={segment.labelPoint.y}
+                            textAnchor="middle"
+                            dominantBaseline="middle"
+                            fontSize={DIMENSION_FONT_SIZE}
+                            fill={textColor}
+                            transform={`rotate(${segment.textAngle} ${segment.labelPoint.x} ${segment.labelPoint.y})`}
+                        >
+                            <tspan>{segment.length}</tspan>
+                            <tspan
+                                fontSize={DIMENSION_FONT_SIZE - 2}
+                                dx="3"
                             >
+                                mm
+                            </tspan>
+                        </text>
+                    ))}
 
-                                {
-                                    segment.length >
-                                    0
-                                        ? `${segment.length} мм`
-                                        : "—"
-                                }
+                    {/* Углы */}
+                    {angleDimensions.map((bend, index) => {
+                        if (!bend || bend.innerAngle <= 0) return null;
 
-                            </text>
-                        )
-                    )}
+                        return (
+                            <React.Fragment key={`angle-${index}`}>
+                                <path
+                                    d={`M ${bend.startPoint.x} ${bend.startPoint.y}
+A ${ANGLE_RADIUS} ${ANGLE_RADIUS}
+0 0 ${bend.sweepFlag}
+${bend.endPoint.x} ${bend.endPoint.y}`}
+                                    fill="none"
+                                    stroke={textColor}
+                                    strokeWidth="1"
+                                />
 
-
-                    {/* ================================================= */}
-                    {/* Внутренние углы */}
-                    {/* ================================================= */}
-
-                    {angleDimensions.map(
-                        (
-                            bend,
-                            index
-                        ) => {
-
-                            if (
-                                !bend ||
-                                bend.innerAngle <=
-                                    0
-                            ) {
-
-                                return null;
-                            }
-
-
-                            return (
-
-                                <React.Fragment
-                                    key={
-                                        `angle-${index}`
-                                    }
+                                <text
+                                    x={bend.textPoint.x}
+                                    y={bend.textPoint.y}
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                    fontSize={DIMENSION_FONT_SIZE}
+                                    fill={textColor}
                                 >
+                                    {bend.innerAngle}°
+                                </text>
+                            </React.Fragment>
+                        );
+                    })}
 
-                                    {/* ================================= */}
-                                    {/* Дуга внутреннего угла */}
-                                    {/* ================================= */}
-
-                                    <path
-                                        d={`
-M
-${bend.startPoint.x}
-${bend.startPoint.y}
-
-A
-${ANGLE_RADIUS}
-${ANGLE_RADIUS}
-0
-0
-${bend.sweepFlag}
-${bend.endPoint.x}
-${bend.endPoint.y}
-`}
-
-                                        fill="none"
-
-                                        stroke="
-                                            currentColor
-                                        "
-
-                                        strokeWidth="1.5"
-                                    />
-
-
-                                    {/* ================================= */}
-                                    {/* Значение угла */}
-                                    {/* ================================= */}
-
-                                    <text
-                                        x={
-                                            bend
-                                                .textPoint
-                                                .x
-                                        }
-
-                                        y={
-                                            bend
-                                                .textPoint
-                                                .y
-                                        }
-
-                                        textAnchor="
-                                            middle
-                                        "
-
-                                        dominantBaseline="
-                                            middle
-                                        "
-
-                                        fontSize={
-                                            DIMENSION_FONT_SIZE
-                                        }
-                                    >
-
-                                        {
-                                            bend.innerAngle
-                                        }°
-
-                                    </text>
-
-                                </React.Fragment>
-                            );
-                        }
-                    )}
-
-
-                    {/* ================================================= */}
-                    {/* Профиль */}
-                    {/* ================================================= */}
-
-                    <polyline
-                        points={
-                            pointsString
-                        }
-
-                        fill="none"
-
-                        stroke="
-                            currentColor
-                        "
-
-                        strokeWidth="4"
-
-                        strokeLinecap="
-                            round
-                        "
-
-                        strokeLinejoin="
-                            round
-                        "
+                    {/* Контур материала */}
+                    <path
+                        d={contourPath}
+                        fill={profileFill}
+                        stroke={textColor}
+                        strokeWidth="1.2"
+                        strokeLinejoin="round"
                     />
 
 
-                    {/* ================================================= */}
-                    {/* Вершины гибок */}
-                    {/* ================================================= */}
-
-                    {svgPoints.map(
-                        (
-                            point,
-                            index
-                        ) => {
-
-                            if (
-                                index === 0 ||
-                                index ===
-                                    svgPoints.length -
-                                    1
-                            ) {
-
-                                return null;
-                            }
-
-
-                            return (
-
-                                <circle
-                                    key={
-                                        `point-${index}`
-                                    }
-
-                                    cx={
-                                        point.x
-                                    }
-
-                                    cy={
-                                        point.y
-                                    }
-
-                                    r="3"
-
-                                    fill="
-                                        currentColor
-                                    "
-                                />
-
-                            );
-                        }
-                    )}
-
+                    {/* Длина заготовки */}
+                    <text
+                        x={VIEWBOX_WIDTH / 2}
+                        y={VIEWBOX_HEIGHT - 15}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fontSize="12"
+                        fill={textColor}
+                    >
+                        Materialstärke:{" "}
+                        <tspan fontWeight="bold">
+                            {Number(profile.thickness)}
+                        </tspan>
+                        {" mm | "}
+                        Zuschnittlänge:{" "}
+                        <tspan fontWeight="bold">
+                            {blankLength.toFixed(2)}
+                        </tspan>
+                        {" mm"}
+                    </text>
                 </svg>
-
             </Box>
-
         </Paper>
     );
 }
-
 
 export default BendingProfilePreview;
