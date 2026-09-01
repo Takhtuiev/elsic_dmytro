@@ -757,13 +757,6 @@ function BendingProfilePreview({ profile, verticalShelf }) {
         };
     });
 
-    const svgPoints =
-        rotatedPoints.map(toSvg);
-
-    const pointsString =
-        svgPoints
-            .map(p => `${p.x},${p.y}`)
-            .join(" ");
 
     return (
         <Paper

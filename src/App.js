@@ -1,7 +1,5 @@
-import React, {lazy, Suspense, useEffect} from "react";
+import React, {lazy, Suspense} from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import {Provider, useDispatch, useSelector} from "react-redux";
-import { store } from "./Store/store";
 
 // ✅ Подключение шрифтов Roboto для Material UI
 import '@fontsource/roboto/300.css';
@@ -13,51 +11,25 @@ import '@fontsource/roboto/700.css';
 import { ColorModeContextProvider } from "./Providers/ColorModeProvider";
 
 // ✅ Компоненты
-import { BoardSpinner } from "./components/MyComponent/LoadingSpinnerBoard/LoadingSpinner";
 import NavigationTabs from "./components/Navigation/NavigationTabs";
 import Footer from "./containers/Footer/Footer";
 import ScrollToTop from "./components/ScrollToTop";
 import { Box } from "@mui/system";
 
-
-import {useRefreshAccessTokenQuery} from "./services/Slice/authApi";
-import {clearJwtUserDetails, setJwtUserDetails} from "./services/Slice/jwtUserSlice";
 import Biegeberechnung from "./containers/Elsic/Biegeberechnung";
+import MyAccount from "./components/Navigation/MyAccount";
+import ProtectedRoute from "./components/Auth/ProtectedRoute";
 
 // 🔁 Лениво загружаемые страницы
-const AppDialog = lazy(() => import('./components/MyComponent/AppDialog'));
 const Home = lazy(() => import('./containers/Home'));
-const Cooperation = lazy(() => import('./containers/Cooperation'));
 const Contacts = lazy(() => import('./containers/Contacts'));
 
-const UserList = lazy(() => import('./containers/UsersPage/UserList'));
-const MyAccountDetails = lazy(() => import('./containers/UsersPage/MyAccountDetails'));
 const NotFound = lazy(() => import('./containers/NotFoundPage/NotFound'));
 
 /**
  * Основное приложение без store обертки — используется внутри <Provider>
  */
 function AppContent() {
-    const dispatch = useDispatch();
-
-    // Проверяем наличие пользователя в localStorage
-    const hasUserInStorage = !!localStorage.getItem("jwtUser");
-
-    // Делаем запрос на обновление токена только если юзер есть
-    const { data, error } = useRefreshAccessTokenQuery(undefined, {skip: !hasUserInStorage,});
-
-    // Если пришли данные — устанавливаем, если ошибка — сбрасываем
-    useEffect(() => {
-        if (data?.userDetails) {
-            dispatch(setJwtUserDetails(data.userDetails));
-        }
-        if (error) {
-            dispatch(clearJwtUserDetails());
-        }
-    }, [data, error, dispatch]);
-
-    // Есть ли хоть одно диалоговое окно в стеке
-    const isDialogOpen = useSelector((state) => state.dialog.stack.length > 0);
 
     return (
         <ColorModeContextProvider>
@@ -78,22 +50,22 @@ function AppContent() {
                              mx: 'auto',
                          }}
                     >
-                        <Suspense fallback={<BoardSpinner />}>
                             <Routes>
                                 <Route path="/" element={<Home />} />
                                 <Route path="/home" element={<Home />} />
-                                <Route path="/cooperation" element={<Cooperation />} />
                                 <Route path="/contacts" element={<Contacts />} />
 
-                               <Route path="/admin/userlist" element={<UserList />} />
-                                <Route path="/admin/userlist/:page" element={<UserList />} />
-                                <Route path="/my_account" element={<MyAccountDetails />} />
+                                <Route path="/my_account/*" element={<MyAccount />}/>
 
-                                <Route path="/biegeberechnung" element={<Biegeberechnung />} />
+                                <Route element={<ProtectedRoute permission="org:engineer:engineer" />}>
+                                    <Route
+                                        path="/biegeberechnung"
+                                        element={<Biegeberechnung />}
+                                    />
+                                </Route>
 
                                 <Route path="*" element={<NotFound message="URL не дійсний..." />} />
                             </Routes>
-                        </Suspense>
                     </Box>
 
                     {/* Футер прижат к низу */}
@@ -101,12 +73,6 @@ function AppContent() {
                         <Footer />
                     </Box>
 
-                    {/* Диалоговое окно поверх всего */}
-                    {isDialogOpen &&
-                        <Suspense fallback={<BoardSpinner />}>
-                            <AppDialog />
-                        </Suspense>
-                    }
                 </Box>
             </BrowserRouter>
         </ColorModeContextProvider>
@@ -118,8 +84,6 @@ function AppContent() {
  */
 export default function App() {
     return (
-        <Provider store={store}>
             <AppContent />
-        </Provider>
     );
 }

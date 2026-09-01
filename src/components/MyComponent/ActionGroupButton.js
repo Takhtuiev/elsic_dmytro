@@ -1,7 +1,6 @@
 import React from "react";
 import { Button, ButtonGroup, Tooltip } from "@mui/material";
 import { useDispatch, useSelector } from "react-redux";
-import { openDialog } from "../../services/Slice/dialogSlice";
 
 /**
  * Компонент рендерит группу кнопок действий, доступных в зависимости от ролей пользователя.
@@ -22,13 +21,7 @@ function ActionGroupButton({ masActions, orientation = "horizontal" }) {
 
     // Обработчик клика по кнопке действия
     const handleActionClick = (obj) => (event) => {
-        event.stopPropagation(); // Предотвращаем всплытие клика
-        dispatch(openDialog({
-            title: obj.title,
-            maxWidth: obj.maxWidth,
-            componentKey: obj.componentKey,
-            props: obj.props,
-        }));
+
     };
 
     // Если нет доступных действий — не рендерим ничего

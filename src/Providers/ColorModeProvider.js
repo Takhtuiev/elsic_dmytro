@@ -4,7 +4,6 @@ import {createTheme, CssBaseline, ThemeProvider} from "@mui/material";
 // Создание контекста для цветовой темы
 const ColorModeProvider = createContext();
 
-const urlBackGroundImage = '/background3.webp'
 
 // Кастомный хук для доступа к значению цветовой темы и функции обновления
 export const useColorMode = () => {
