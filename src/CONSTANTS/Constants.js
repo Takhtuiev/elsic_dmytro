@@ -19,7 +19,7 @@ export const USER_COLUMNS = {
 
 export const TOP_MENU = [
     {name:'Biegeberechnung', href:'/biegeberechnung'},
-    {name:'UserList', href:'/admin/userlist'},
+    {name:'Admin', href:'/administration'},
     {name:'TestErrorPath', href:'/TestErrorPath'},
 
 ];

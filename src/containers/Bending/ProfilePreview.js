@@ -1,9 +1,9 @@
 import React from "react";
 import { Box, Paper, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import { calculateBlankLength } from "./bendingCalculations";
+import { calculateBlankLength } from "./Calculations";
 
-function BendingProfilePreview({ profile, verticalShelf }) {
+function ProfilePreview({ profile, verticalShelf }) {
     const theme = useTheme();
     const blankLength = calculateBlankLength(profile);
 
@@ -919,4 +919,4 @@ ${bend.endPoint.y}
     );
 }
 
-export default BendingProfilePreview;
+export default ProfilePreview;

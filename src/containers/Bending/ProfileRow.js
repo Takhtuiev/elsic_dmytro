@@ -44,7 +44,7 @@ const sanitizeNumber = (value) => {
     return result;
 };
 
-function BendingProfileRow({
+function ProfileRow({
                                shelf,
                                bend,
                                index,
@@ -169,4 +169,4 @@ function BendingProfileRow({
     );
 }
 
-export default BendingProfileRow;
+export default ProfileRow;

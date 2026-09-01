@@ -12,15 +12,15 @@ import {
 
 import AddIcon from "@mui/icons-material/Add";
 
-import BendingProfilePreview
-    from "./BendingProfilePreview";
+import ProfilePreview
+    from "./ProfilePreview";
 
-import BendingProfileRow
-    from "./BendingProfileRow";
+import ProfileRow
+    from "./ProfileRow";
 
 import {
     calculateBlankLength,
-} from "./bendingCalculations";
+} from "./Calculations";
 
 
 // =====================================================
@@ -213,38 +213,6 @@ function Biegeberechnung() {
 
 
     // =================================================
-    // Числовой профиль
-    // =================================================
-
-    const getNumericProfile = () => {
-
-        return {
-
-            thickness: profile.thickness === "" ? null : Number(profile.thickness),
-
-            kFactor: profile.kFactor === "" ? null : Number(profile.kFactor),
-
-            rTool: profile.rTool === "" ? null : Number(profile.rTool),
-
-            shelves: profile.shelves.map(
-                    (shelf) => ({
-                        ...shelf,
-                        length: shelf.length === "" ? null : Number(shelf.length),
-                    })
-                ),
-
-            bends: profile.bends.map(
-                    (bend) => ({...bend,
-                        angle: bend.angle === ""
-                            ? null
-                            : Number(bend.angle)
-                    })
-            ),
-        };
-    };
-
-
-    // =================================================
     // Размер заготовки
     // =================================================
 
@@ -317,7 +285,7 @@ function Biegeberechnung() {
                                 index
                             ) => (
 
-                                <BendingProfileRow
+                                <ProfileRow
                                     key={index}
                                     shelf={profile.shelves[index]}
                                     bend={bend}
@@ -340,7 +308,7 @@ function Biegeberechnung() {
                         {/* Последняя полка */}
                         {/* ================================================= */}
 
-                        <BendingProfileRow
+                        <ProfileRow
                             shelf={profile.shelves[profile.shelves.length - 1]}
                             bend={null}
                             index={profile.shelves.length - 1}
@@ -570,7 +538,7 @@ function Biegeberechnung() {
                 }}
             >
 
-                <BendingProfilePreview
+                <ProfilePreview
                     profile={
                         profile
                     }

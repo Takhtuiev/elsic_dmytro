@@ -18,7 +18,8 @@ const NotFound = ({ message = "Ні чого не знайдено...", sx }) =>
             >
                 <Typography>{message}</Typography>
             </Alert>
-        </Box>    )
+        </Box>
+    )
 };
 
 export default NotFound;
