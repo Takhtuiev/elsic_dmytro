@@ -1,8 +1,20 @@
-import React, { useState, useCallback } from "react";
-import { Box, Button, InputAdornment, Paper, Stack, TextField, Typography } from "@mui/material";
+import React, { useState, useCallback, useEffect } from "react";
+import {
+ Box,
+ Button,
+ InputAdornment,
+ Paper,
+ Stack,
+ TextField,
+ Typography
+} from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import ProfileRow from "./ProfileRow";
-import { calculateBlankLength } from "./Calculations";
+import {
+ calculateBlankLength,
+ calculateDistanceToOuterApexViaNeutral,
+ calculateBendingMachineParams
+} from "./Calculations";
 import ProfileGeometryPreview from "./ProfileGeometryPreview";
 
 const INITIAL_STATE = {
@@ -18,8 +30,12 @@ const INITIAL_STATE = {
  ],
  verticalShelf: 1,
  firstBendIndex: -1,
- bendViewMode: "toEnd", // "toEnd" (до угла) или "fromStart" (после угла)
- referenceBend: { index: -1, direction: "right" }
+ bendViewMode: "toEnd",
+ referenceBend: {
+  index: -1,
+  direction: "right",
+  length: null
+ }
 };
 
 function Biegeberechnung() {
@@ -35,47 +51,67 @@ function Biegeberechnung() {
    nextArray[index] = { ...nextArray[index], [field]: value };
 
    let nextReferenceBend = { ...prev.referenceBend };
-   if (arrayKey === "bends" && field === "direction" && prev.firstBendIndex === index) {
+
+   if (
+       arrayKey === "bends" &&
+       field === "direction" &&
+       prev.firstBendIndex === index
+   ) {
     nextReferenceBend.direction = value;
    }
 
-   return { ...prev, [arrayKey]: nextArray, referenceBend: nextReferenceBend };
+   return {
+    ...prev,
+    [arrayKey]: nextArray,
+    referenceBend: nextReferenceBend
+   };
   });
  }, []);
 
- const handleShelfChange = (i, v) => updateNestedItem("shelves", i, "length", Number(v) || 0);
- const handleShelfSideChange = (i, v) => v !== null && updateNestedItem("shelves", i, "side", v);
- const handleBendChange = (i, v) => updateNestedItem("bends", i, "angle", Number(v) || 0);
- const handleBendDirectionChange = (i, v) => v !== null && updateNestedItem("bends", i, "direction", v);
- const handleVerticalShelfChange = i => updateParam("verticalShelf", i + 1);
+ const handleShelfChange = (i, v) =>
+     updateNestedItem("shelves", i, "length", Number(v) || 0);
 
- // ТРЕХПОЗИЦИОННЫЙ КЛИК: Переключение режимов обрыва по кругу на одной кнопке
- const handleSelectFirstBend = useCallback((index) => {
+ const handleShelfSideChange = (i, v) =>
+     v !== null && updateNestedItem("shelves", i, "side", v);
+
+ const handleBendChange = (i, v) =>
+     updateNestedItem("bends", i, "angle", Number(v) || 0);
+
+ const handleBendDirectionChange = (i, v) =>
+     v !== null && updateNestedItem("bends", i, "direction", v);
+
+ const handleVerticalShelfChange = i =>
+     updateParam("verticalShelf", i + 1);
+
+ const handleSelectFirstBend = useCallback(index => {
   setState(prev => {
    let nextFirstBendIndex = prev.firstBendIndex;
    let nextViewMode = prev.bendViewMode;
 
    if (prev.firstBendIndex !== index) {
-    // Кликнули на НОВЫЙ угол -> включаем режим "До угла"
     nextFirstBendIndex = index;
     nextViewMode = "toEnd";
    } else if (prev.bendViewMode === "toEnd") {
-    // Кликнули ПОВТОРНО на тот же угол -> переключаем в режим "После угла"
     nextViewMode = "fromStart";
    } else {
-    // Кликнули в ТРЕТИЙ раз -> сбрасываем обрыв, показываем весь профиль
     nextFirstBendIndex = -1;
     nextViewMode = "toEnd";
    }
 
    const currentBend = prev.bends[nextFirstBendIndex];
-   const nextDirection = currentBend ? currentBend.direction : "right";
+   const nextDirection = currentBend
+       ? currentBend.direction
+       : "right";
 
    return {
     ...prev,
     firstBendIndex: nextFirstBendIndex,
     bendViewMode: nextViewMode,
-    referenceBend: { index: nextFirstBendIndex, direction: nextDirection }
+    referenceBend: {
+     index: nextFirstBendIndex,
+     direction: nextDirection,
+     length: null
+    }
    };
   });
  }, []);
@@ -83,24 +119,47 @@ function Biegeberechnung() {
  const addBend = () => {
   setState(prev => ({
    ...prev,
-   bends: [...prev.bends, { angle: 180, direction: "right" }],
-   shelves: [...prev.shelves, { length: 20, side: "right" }]
+   bends: [
+    ...prev.bends,
+    { angle: 180, direction: "right" }
+   ],
+   shelves: [
+    ...prev.shelves,
+    { length: 20, side: "right" }
+   ]
   }));
  };
 
  const removeBend = i => {
   if (state.bends.length <= 1) return;
+
   const s = i + 1;
 
   setState(prev => {
    const nextBends = prev.bends.filter((_, x) => x !== i);
    const nextShelves = prev.shelves.filter((_, x) => x !== s);
 
-   const nextVertical = prev.verticalShelf === s ? Math.max(1, prev.verticalShelf - 1) : prev.verticalShelf > s ? prev.verticalShelf - 1 : prev.verticalShelf;
+   const nextVertical =
+       prev.verticalShelf === s
+           ? Math.max(1, prev.verticalShelf - 1)
+           : prev.verticalShelf > s
+               ? prev.verticalShelf - 1
+               : prev.verticalShelf;
 
-   const nextFirstBend = prev.firstBendIndex === i ? -1 : prev.firstBendIndex > i ? prev.firstBendIndex - 1 : prev.firstBendIndex;
-   const currentBendAfterRemove = nextBends[nextFirstBend];
-   const nextRefDirection = currentBendAfterRemove ? currentBendAfterRemove.direction : "right";
+   const nextFirstBend =
+       prev.firstBendIndex === i
+           ? -1
+           : prev.firstBendIndex > i
+               ? prev.firstBendIndex - 1
+               : prev.firstBendIndex;
+
+   const currentBendAfterRemove =
+       nextBends[nextFirstBend];
+
+   const nextRefDirection =
+       currentBendAfterRemove
+           ? currentBendAfterRemove.direction
+           : "right";
 
    return {
     ...prev,
@@ -108,19 +167,121 @@ function Biegeberechnung() {
     shelves: nextShelves,
     verticalShelf: nextVertical,
     firstBendIndex: nextFirstBend,
-    referenceBend: { index: nextFirstBend, direction: nextRefDirection }
+    referenceBend: {
+     index: nextFirstBend,
+     direction: nextRefDirection,
+     length: null
+    }
    };
   });
  };
 
  const blankLength = calculateBlankLength(state);
 
- return (
-     <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start", width: "100%", flexWrap: "wrap", p: 1 }}>
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 2, width: "fit-content", maxWidth: "100%", flexShrink: 0 }}>
+ const selectedBend = state.firstBendIndex >= 0
+     ? state.bends[state.firstBendIndex]
+     : null;
 
-       <Paper elevation={2} sx={{ p: 3, width: "fit-content", maxWidth: "100%", boxSizing: "border-box" }}>
-        <Typography variant="h6" fontWeight="500" sx={{ mb: 3 }}>Part Profile</Typography>
+ const machineParams =
+     selectedBend && state.referenceBend.length !== null
+         ? calculateBendingMachineParams({
+          alpha: selectedBend.angle,
+          lInput: state.referenceBend.length,
+          isInnerMode: state.bendViewMode === "fromStart" ? 1 : 0,
+          t: state.thickness,
+          rTool: state.rTool
+         })
+         : null;
+
+ useEffect(() => {
+  if (state.firstBendIndex < 0) {
+   if (
+       state.referenceBend.length !== null ||
+       state.referenceBend.index !== -1
+   ) {
+    setState(prev => ({
+     ...prev,
+     referenceBend: {
+      index: -1,
+      direction: "right",
+      length: null
+     }
+    }));
+   }
+   return;
+  }
+
+  const bend = state.bends[state.firstBendIndex];
+  if (!bend) return;
+
+  const length = Number(
+      calculateDistanceToOuterApexViaNeutral(state).toFixed(2)
+  );
+
+  const direction = bend.direction;
+
+  if (
+      state.referenceBend.length !== length ||
+      state.referenceBend.direction !== direction ||
+      state.referenceBend.index !== state.firstBendIndex
+  ) {
+   setState(prev => ({
+    ...prev,
+    referenceBend: {
+     index: prev.firstBendIndex,
+     direction,
+     length
+    }
+   }));
+  }
+ }, [
+  state.firstBendIndex,
+  state.bendViewMode,
+  state.bends,
+  state.shelves,
+  state.thickness,
+  state.kFactor,
+  state.rTool
+ ]);
+
+ return (
+     <Box
+         sx={{
+          display: "flex",
+          gap: 3,
+          alignItems: "flex-start",
+          width: "100%",
+          flexWrap: "wrap",
+          p: 1
+         }}
+     >
+      <Box
+          sx={{
+           display: "flex",
+           flexDirection: "column",
+           gap: 2,
+           width: "fit-content",
+           maxWidth: "100%",
+           flexShrink: 0
+          }}
+      >
+       <Paper
+           elevation={2}
+           sx={{
+            p: 3,
+            width: "fit-content",
+            maxWidth: "100%",
+            boxSizing: "border-box"
+           }}
+       >
+        <Typography
+            variant="h6"
+            fontWeight="500"
+            sx={{ mb: 3 }}
+        >
+         Part Profile
+        </Typography>
+
         <Stack spacing={2}>
          {state.shelves.map((shelf, i) => (
              <ProfileRow
@@ -130,7 +291,7 @@ function Biegeberechnung() {
                  index={i}
                  verticalShelf={state.verticalShelf}
                  firstBendIndex={state.firstBendIndex}
-                 bendViewMode={state.bendViewMode} // Прокидываем режим отображения в строку
+                 bendViewMode={state.bendViewMode}
                  onShelfChange={handleShelfChange}
                  onShelfSideChange={handleShelfSideChange}
                  onVerticalShelfChange={handleVerticalShelfChange}
@@ -138,41 +299,142 @@ function Biegeberechnung() {
                  onBendDirectionChange={handleBendDirectionChange}
                  onSelectFirstBend={handleSelectFirstBend}
                  onRemoveBend={removeBend}
-                 canRemove={!!state.bends[i] && state.bends.length > 1}
+                 canRemove={
+                     !!state.bends[i] &&
+                     state.bends.length > 1
+                 }
              />
          ))}
         </Stack>
+
         <Box sx={{ mt: 3 }}>
-         <Button variant="outlined" startIcon={<AddIcon />} onClick={addBend} sx={{ width: "100%", py: 1, textTransform: "none" }}>
+         <Button
+             variant="outlined"
+             startIcon={<AddIcon />}
+             onClick={addBend}
+             sx={{
+              width: "100%",
+              py: 1,
+              textTransform: "none"
+             }}
+         >
           Add Bend
          </Button>
         </Box>
        </Paper>
 
-       <Paper elevation={2} sx={{ p: 3, width: "100%", boxSizing: "border-box" }}>
-        <Typography variant="h6" fontWeight="500" sx={{ mb: 3 }}>Parameters</Typography>
+       <Paper
+           elevation={2}
+           sx={{
+            p: 3,
+            width: "100%",
+            boxSizing: "border-box"
+           }}
+       >
+        <Typography
+            variant="h6"
+            fontWeight="500"
+            sx={{ mb: 3 }}
+        >
+         Parameters
+        </Typography>
+
         <Stack spacing={2}>
-         <TextField label="Thickness" type="number" value={state.thickness} size="small" sx={{ width: "16ch" }}
-                    onChange={e => updateParam("thickness", Number(e.target.value) || 0)}
-                    slotProps={{ htmlInput: { min: 0, step: .01 }, input: { endAdornment: <InputAdornment position="end">mm</InputAdornment> } }} />
-         <TextField label="K-Factor" type="number" value={state.kFactor} size="small" sx={{ width: "16ch" }}
-                    onChange={e => updateParam("kFactor", Number(e.target.value) || 0)}
-                    slotProps={{ htmlInput: { min: 0, max: 1, step: .01 } }} />
-         <TextField label="R_tool" type="number" value={state.rTool} size="small" sx={{ width: "16ch" }}
-                    onChange={e => updateParam("rTool", Number(e.target.value) || 0)}
-                    slotProps={{ htmlInput: { min: 0, step: .01 }, input: { endAdornment: <InputAdornment position="end">mm</InputAdornment> } }} />
+         <TextField
+             label="Thickness"
+             type="number"
+             value={state.thickness}
+             size="small"
+             sx={{ width: "16ch" }}
+             onChange={e =>
+                 updateParam(
+                     "thickness",
+                     Number(e.target.value) || 0
+                 )
+             }
+             slotProps={{
+              htmlInput: {
+               min: 0,
+               step: .01
+              },
+              input: {
+               endAdornment: (
+                   <InputAdornment position="end">
+                    mm
+                   </InputAdornment>
+               )
+              }
+             }}
+         />
+
+         <TextField
+             label="K-Factor"
+             type="number"
+             value={state.kFactor}
+             size="small"
+             sx={{ width: "16ch" }}
+             onChange={e =>
+                 updateParam(
+                     "kFactor",
+                     Number(e.target.value) || 0
+                 )
+             }
+             slotProps={{
+              htmlInput: {
+               min: 0,
+               max: 1,
+               step: .01
+              }
+             }}
+         />
+
+         <TextField
+             label="R_tool"
+             type="number"
+             value={state.rTool}
+             size="small"
+             sx={{ width: "16ch" }}
+             onChange={e =>
+                 updateParam(
+                     "rTool",
+                     Number(e.target.value) || 0
+                 )
+             }
+             slotProps={{
+              htmlInput: {
+               min: 0,
+               step: .01
+              },
+              input: {
+               endAdornment: (
+                   <InputAdornment position="end">
+                    mm
+                   </InputAdornment>
+               )
+              }
+             }}
+         />
         </Stack>
-        <Box sx={{ mt: 3, pt: 2, borderTop: "1px solid", borderColor: "divider" }}>
-         <Typography variant="body2" color="text.secondary" sx={{ mb: .5 }}>Blank Length</Typography>
-         <Typography variant="h5" fontWeight="bold" color="primary.main">
-          {blankLength !== null ? `${blankLength.toFixed(2)} mm` : "—"}
-         </Typography>
-        </Box>
+
+
        </Paper>
       </Box>
 
-      <Box sx={{ flex: "1 1 400px", minWidth: 0, maxWidth: 700, display: "flex", flexDirection: "column", gap: 2 }}>
-       <ProfileGeometryPreview profile={state}  blankLength={blankLength} />
+      <Box
+          sx={{
+           flex: "1 1 400px",
+           minWidth: 0,
+           maxWidth: 700,
+           display: "flex",
+           flexDirection: "column",
+           gap: 2
+          }}
+      >
+       <ProfileGeometryPreview
+           profile={state}
+           blankLength={blankLength}
+           machineParams={machineParams}
+       />
       </Box>
      </Box>
  );
