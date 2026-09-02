@@ -1,424 +1,222 @@
-import React from "react";
-
-import {
-    Box,
-    IconButton,
-    InputAdornment,
-    TextField,
-    ToggleButton,
-    ToggleButtonGroup,
-} from "@mui/material";
-
-import DeleteIcon from "@mui/icons-material/Delete";
-
+import React, { memo } from "react";
+import { Box, IconButton, InputAdornment, TextField } from "@mui/material";
+import HeightIcon from "@mui/icons-material/Height";
 
 const SHELF_FIELD_WIDTH = "16ch";
-const ANGLE_FIELD_WIDTH = "12ch";
-const FIELD_COLUMN_WIDTH = "16ch";
+const ANGLE_FIELD_WIDTH = "12ch"; // Вернули 12ch для идеального баланса с крестиком
 
 const SHELF_LABEL = "Schenkel";
 const ANGLE_LABEL = "Winkel";
 
+// МОНОЛИТНАЯ СТРУКТУРА: Ровно 3 жесткие колонки для ОБОИХ рядов.
+const GRID_STYLE = {
+    display: "grid",
+    gridTemplateColumns: `${SHELF_FIELD_WIDTH} 34px 34px`,
+    alignItems: "center",
+    columnGap: 1,
+    width: "max-content",
+    maxWidth: "100%",
+};
 
-// =====================================================
-// Разрешённые клавиши
-// =====================================================
+// Внутренний мини-грид для второй строки: инпут угла + минималистичный крестик удаления
+const BEND_INPUT_INNER_GRID = {
+    display: "grid",
+    gridTemplateColumns: `${ANGLE_FIELD_WIDTH} 34px`,
+    alignItems: "center",
+    columnGap: 1,
+    width: "100%",
+};
 
 const handleNumberKeyDown = (e) => {
-
-    const allowedKeys = [
-        "Backspace",
-        "Delete",
-        "ArrowLeft",
-        "ArrowRight",
-        "ArrowUp",
-        "ArrowDown",
-        "Tab",
-        "Home",
-        "End",
-    ];
-
-
-    if (
-        allowedKeys.includes(e.key) ||
-        e.ctrlKey ||
-        e.metaKey
-    ) {
-        return;
-    }
-
-
+    const allowedKeys = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Tab", "Home", "End"];
+    if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) return;
     if (!/^[0-9.,]$/.test(e.key)) {
-
         e.preventDefault();
-
         return;
     }
-
-
-    if (
-        (e.key === "." || e.key === ",") &&
-        /[.,]/.test(
-            e.currentTarget.value
-        )
-    ) {
-
+    if ((e.key === "." || e.key === ",") && /[.,]/.test(e.currentTarget.value)) {
         e.preventDefault();
     }
 };
 
-
-// =====================================================
-// Очистка числа
-// =====================================================
-
 const sanitizeNumber = (value) => {
-
-    let result =
-        value
-            .replace(",", ".")
-            .replace(/[^0-9.]/g, "");
-
-
-    const parts =
-        result.split(".");
-
-
+    let result = value.replace(",", ".").replace(/[^0-9.]/g, "");
+    const parts = result.split(".");
     if (parts.length > 2) {
-
-        result =
-            parts[0] +
-            "." +
-            parts.slice(1).join("");
+        result = parts[0] + "." + parts.slice(1).join("");
     }
-
-
     return result;
 };
 
+const ProfileRow = memo(({
+                             shelf,
+                             bend,
+                             index,
+                             verticalShelf,
+                             firstBendIndex,
+                             onShelfChange,
+                             onShelfSideChange,
+                             onVerticalShelfChange,
+                             onBendChange,
+                             onBendDirectionChange,
+                             onSelectFirstBend,
+                             onRemoveBend,
+                             canRemove,
+                         }) => {
+    const isVertical = verticalShelf === index + 1;
+    const isFirstBend = firstBendIndex === index;
 
-function ProfileRow({
-                        shelf,
-                        bend,
-                        index,
-                        verticalShelf,
-
-                        onShelfChange,
-                        onShelfSideChange,
-                        onVerticalShelfChange,
-
-                        onBendChange,
-                        onBendDirectionChange,
-
-                        onRemoveBend,
-                        canRemove,
-                    }) {
-
-    const rowGrid = {
-
-        display: "grid",
-
-        gridTemplateColumns:
-            `${FIELD_COLUMN_WIDTH} max-content max-content max-content`,
-
-        alignItems: "center",
-
-        columnGap: 1,
-
-        width: "max-content",
-
-        maxWidth: "100%",
+    const handleTextChange = (callback, val) => {
+        callback(index, sanitizeNumber(val));
     };
 
-
     return (
-
         <React.Fragment>
-
-            {/* ================================================= */}
-            {/* Полка */}
-            {/* ================================================= */}
-
-            <Box sx={rowGrid}>
-
+            {/* РЯД 1: Параметры полки (Schenkel) */}
+            <Box sx={GRID_STYLE}>
+                {/* Колонка 1 */}
                 <TextField
                     label={`${SHELF_LABEL} ${index + 1}`}
                     type="text"
                     inputMode="decimal"
-
-                    value={
-                        shelf.length
-                    }
-
+                    value={shelf.length}
                     size="small"
-
-                    sx={{
-                        width:
-                        SHELF_FIELD_WIDTH,
-                    }}
-
-                    onKeyDown={
-                        handleNumberKeyDown
-                    }
-
-                    onChange={e =>
-                        onShelfChange(
-                            index,
-                            sanitizeNumber(
-                                e.target.value
-                            )
-                        )
-                    }
-
+                    sx={{ width: SHELF_FIELD_WIDTH }}
+                    onKeyDown={handleNumberKeyDown}
+                    onChange={(e) => handleTextChange(onShelfChange, e.target.value)}
                     slotProps={{
-                        htmlInput: {
-                            min: 0,
-                            step: 0.01,
-                        },
-
-                        input: {
-                            endAdornment: (
-                                <InputAdornment position="end">
-                                    mm
-                                </InputAdornment>
-                            ),
-                        },
+                        htmlInput: { min: 0, step: 0.01 },
+                        input: { endAdornment: <InputAdornment position="end">mm</InputAdornment> },
                     }}
                 />
 
-
-                {/* ================================================= */}
-                {/* Сторона размера */}
-                {/* ================================================= */}
-
-                <ToggleButtonGroup
-                    exclusive
-                    size="small"
-
-                    value={
-                        shelf.side
-                    }
-
-                    onChange={
-                        (e, value) =>
-                            onShelfSideChange(
-                                index,
-                                value
-                            )
-                    }
-                >
-
-                    <ToggleButton value="left">
-                        ←
-                    </ToggleButton>
-
-                    <ToggleButton value="right">
-                        →
-                    </ToggleButton>
-
-                </ToggleButtonGroup>
-
-
-                {/* ================================================= */}
-                {/* Вертикальная полка */}
-                {/* ================================================= */}
-
+                {/* Колонка 2: Кнопка стороны размера полки (→ / ←) */}
                 <IconButton
                     size="small"
-
-                    color={
-                        verticalShelf ===
-                        index + 1
-                            ? "primary"
-                            : "default"
-                    }
-
-                    onClick={() =>
-                        onVerticalShelfChange(
-                            index
-                        )
-                    }
-
-                    title="Сделать полку вертикальной"
-
+                    color="primary"
+                    title={shelf.side === "right" ? "Размер справа (Клик для смены)" : "Размер слева (Клик для смены)"}
+                    onClick={() => onShelfSideChange(index, shelf.side === "right" ? "left" : "right")}
                     sx={{
                         borderRadius: "4px",
-
-                        border:
-                            verticalShelf ===
-                            index + 1
-                                ? "1px solid"
-                                : "1px solid transparent",
+                        border: "1px solid",
+                        borderColor: "divider",
+                        width: "34px",
+                        height: "34px",
+                        p: 0,
                     }}
                 >
-
-                    <span
-                        style={{
-                            fontSize: "20px",
-                            lineHeight: 1,
-                        }}
-                    >
-                        ↕
+                    <span style={{ fontSize: "16px", fontWeight: "bold" }}>
+                        {shelf.side === "right" ? "→" : "←"}
                     </span>
-
                 </IconButton>
 
-
-                <Box />
-
+                {/* Колонка 3: Кнопка фиксации вертикальности (↕) */}
+                <IconButton
+                    size="small"
+                    color={isVertical ? "primary" : "default"}
+                    onClick={() => onVerticalShelfChange(index)}
+                    title="Сделать полку вертикальной"
+                    sx={{
+                        borderRadius: "4px",
+                        border: `1px solid ${isVertical ? "currentColor" : "divider"}`,
+                        width: "34px",
+                        height: "34px",
+                        p: 0,
+                    }}
+                >
+                    <HeightIcon fontSize="small" />
+                </IconButton>
             </Box>
 
-
-            {/* ================================================= */}
-            {/* Гибка */}
-            {/* ================================================= */}
-
+            {/* РЯД 2: Параметры угла (Winkel) */}
             {bend && (
-
-                <Box sx={rowGrid}>
-
-                    <TextField
-                        label={`${ANGLE_LABEL} ${index + 1}`}
-                        type="text"
-                        inputMode="decimal"
-
-                        value={
-                            bend.angle
-                        }
-
-                        size="small"
-
-                        sx={{
-                            width:
-                            ANGLE_FIELD_WIDTH,
-
-                            justifySelf:
-                                "start",
-                        }}
-
-                        onKeyDown={
-                            handleNumberKeyDown
-                        }
-
-                        onChange={e =>
-                            onBendChange(
-                                index,
-                                sanitizeNumber(
-                                    e.target.value
-                                )
-                            )
-                        }
-
-                        slotProps={{
-                            htmlInput: {
-                                min: 0,
-                                max: 180,
-                                step: 0.01,
-                            },
-
-                            input: {
-                                endAdornment: (
-                                    <InputAdornment position="end">
-                                        °
-                                    </InputAdornment>
-                                ),
-                            },
-                        }}
-                    />
-
-
-                    {/* ================================================= */}
-                    {/* Направление гибки */}
-                    {/* ================================================= */}
-
-                    <ToggleButtonGroup
-                        exclusive
-                        size="small"
-
-                        value={
-                            bend.direction
-                        }
-
-                        onChange={
-                            (e, value) =>
-                                onBendDirectionChange(
-                                    index,
-                                    value
-                                )
-                        }
-                    >
-
-                        <ToggleButton value="right">
-
-                            <span
-                                style={{
-                                    display:
-                                        "inline-block",
-
-                                    transform:
-                                        "rotate(180deg)",
-                                }}
-                            >
-                                ↷
-                            </span>
-
-                        </ToggleButton>
-
-
-                        <ToggleButton value="left">
-
-                            <span
-                                style={{
-                                    display:
-                                        "inline-block",
-
-                                    transform:
-                                        "rotate(180deg)",
-                                }}
-                            >
-                                ↶
-                            </span>
-
-                        </ToggleButton>
-
-                    </ToggleButtonGroup>
-
-
-                    {/* ================================================= */}
-                    {/* Удалить */}
-                    {/* ================================================= */}
-
-                    {canRemove ? (
-
-                        <IconButton
-                            color="error"
+                <Box sx={GRID_STYLE}>
+                    {/* Колонка 1: Инпут угла + Минималистичный крестик удаления */}
+                    <Box sx={BEND_INPUT_INNER_GRID}>
+                        <TextField
+                            label={`${ANGLE_LABEL} ${index + 1}`}
+                            type="text"
+                            inputMode="decimal"
+                            value={bend.angle}
                             size="small"
+                            sx={{ width: ANGLE_FIELD_WIDTH }}
+                            onKeyDown={handleNumberKeyDown}
+                            onChange={(e) => handleTextChange(onBendChange, e.target.value)}
+                            slotProps={{
+                                htmlInput: { min: 0, max: 180, step: 0.01 },
+                                input: { endAdornment: <InputAdornment position="end">°</InputAdornment> },
+                            }}
+                        />
 
-                            title={
-                                `Удалить ${ANGLE_LABEL} ${index + 1}`
-                            }
+                        {/* Минималистичная кнопка удаления в виде аккуратного крестика ✕ */}
+                        {canRemove ? (
+                            <IconButton
+                                size="small"
+                                title={`Удалить ${ANGLE_LABEL} ${index + 1}`}
+                                onClick={() => onRemoveBend(index)}
+                                sx={{
+                                    width: "34px",
+                                    height: "34px",
+                                    p: 0,
+                                    color: "text.disabled", // По умолчанию бледный, не отвлекает внимание
+                                    borderRadius: "4px",
+                                    transition: "all 0.2s",
+                                    "&:hover": {
+                                        color: "error.main", // Ярко-красный только при наведении
+                                        backgroundColor: "error.lighter",
+                                    }
+                                }}
+                            >
+                                <span style={{ fontSize: "15px", fontFamily: "sans-serif", lineHeight: 1 }}>✕</span>
+                            </IconButton>
+                        ) : (
+                            <Box sx={{ width: "34px", height: "34px" }} />
+                        )}
+                    </Box>
 
-                            onClick={() =>
-                                onRemoveBend(
-                                    index
-                                )
-                            }
-                        >
-                            <DeleteIcon />
-                        </IconButton>
+                    {/* Колонка 2: Кнопка направления гиба (СТРОГО ПОД кнопкой →/←) */}
+                    <IconButton
+                        size="small"
+                        color="primary"
+                        title={bend.direction === "right" ? "По часовой стрелке" : "Против часовой стрелки"}
+                        onClick={() => onBendDirectionChange(index, bend.direction === "right" ? "left" : "right")}
+                        sx={{
+                            borderRadius: "4px",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            width: "34px",
+                            height: "34px",
+                            p: 0,
+                        }}
+                    >
+                        <span style={{ fontSize: "16px", fontWeight: "bold" }}>
+                            {bend.direction === "right" ? "⤾" : "⤿"}
+                        </span>
+                    </IconButton>
 
-                    ) : (
-
-                        <Box />
-
-                    )}
-
+                    {/* Колонка 3: Кнопка первого гиба «①» (СТРОГО ПОД кнопкой ↕) */}
+                    <IconButton
+                        size="small"
+                        color={isFirstBend ? "success" : "default"}
+                        title={isFirstBend ? "Первый шаг гибки" : "Сделать этот гиб первым шагом"}
+                        onClick={() => onSelectFirstBend(index)}
+                        sx={{
+                            borderRadius: "4px",
+                            border: `1px solid ${isFirstBend ? "currentColor" : "divider"}`,
+                            backgroundColor: isFirstBend ? "success.lighter" : "transparent",
+                            width: "34px",
+                            height: "34px",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            p: 0,
+                        }}
+                    >
+                        ①
+                    </IconButton>
                 </Box>
             )}
-
         </React.Fragment>
     );
-}
-
+});
 
 export default ProfileRow;

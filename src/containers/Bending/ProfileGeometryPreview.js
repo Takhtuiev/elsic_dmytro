@@ -3,13 +3,9 @@ import { Box, Paper, Typography } from "@mui/material";
 import buildProfileGeometry from "./BuildProfileGeometry";
 import BendProfileRender from "./BendProfileRender";
 
-// =========================================================
-// ГЛОБАЛЬНЫЕ КОНСТАНТЫ ЧЕРТЕЖА
-// =========================================================
 const D = 180 / Math.PI;
 const AR = 12;           // Фиксированный радиус дуги угла в пикселях
 const LABEL_OFFSET = 12; // Чистый воздушный зазор от грани до текста
-const C = "#424242";     // Единый цвет чертежа
 const FONT_SIZE = 11;
 const TEXT_HALF_HEIGHT = FONT_SIZE / 2;
 
@@ -21,7 +17,7 @@ const ProfileGeometryPreview = ({ profile }) => {
 
         const pts = [...geometry.sideA, ...geometry.sideB];
 
-        // 1. Расчет габаритов и авто-масштабирования чертежа
+        // 1. Авто-масштабирование чертежа под SVG-контейнер
         const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
         const minX = Math.min(...xs), maxX = Math.max(...xs);
         const minY = Math.min(...ys), maxY = Math.max(...ys);
@@ -31,7 +27,6 @@ const ProfileGeometryPreview = ({ profile }) => {
         const scale = Math.min((VW - P * 2) / w, (VH - P * 2) / h);
         const ox = (VW - w * scale) / 2, oy = (VH - h * scale) / 2;
 
-        // Быстрый конвертер координат
         const cv = p => ({ x: ox + (p.x - minX) * scale, y: oy + (p.y - minY) * scale });
         const a = geometry.sideA.map(cv);
         const b = geometry.sideB.map(cv);
@@ -40,16 +35,14 @@ const ProfileGeometryPreview = ({ profile }) => {
         const sideBPath = b.map(p => `${p.x} ${p.y}`).join(" L ");
 
         const labels = [], angles = [];
+        const profileBends = profile.bends || [];
 
-        // Собираем чистый массив только элементов изгибов в правильном порядке
-        const bends = profile.elements.filter(e => e.type === "bend");
-
-        // 2. Расчет размерных надписей полок и дуг углов за ОДИН проход O(N)
+        // 2. Расчет размерных надписей длин полок и дуг углов за ОДИН проход O(N)
         geometry.shelvesData.forEach((sh, i) => {
             const cur = sh.isTop ? a : b;
             const p1 = cur[i], p2 = cur[i + 1];
 
-            // Идеальный центр линии размерной грани апексов
+            // Идеальный геометрический центр линии размерной грани
             const midX = (p1.x + p2.x) / 2;
             const midY = (p1.y + p2.y) / 2;
 
@@ -61,15 +54,14 @@ const ProfileGeometryPreview = ({ profile }) => {
                 if (angle > 90) angle -= 180;
                 if (angle < -90) angle += 180;
 
-                // Экранный перпендикуляр к линии грани (нормаль)
+                // Чистый экранный перпендикуляр к полке
                 const nx = -dy / len, ny = dx / len;
 
-                // Находим центр противоположной грани для определения направления наружу
+                // Находим центр противоположной грани для определения вектора наружу
                 const opp = sh.isTop ? b : a;
                 const xOpp = (opp[i].x + opp[i + 1].x) / 2;
                 const yOpp = (opp[i].y + opp[i + 1].y) / 2;
 
-                // Проекция вектора выноса на чистую нормаль
                 const sign = ((midX - xOpp) * nx + (midY - yOpp) * ny) >= 0 ? 1 : -1;
                 const totalShift = LABEL_OFFSET + TEXT_HALF_HEIGHT;
 
@@ -81,9 +73,9 @@ const ProfileGeometryPreview = ({ profile }) => {
                 });
             }
 
-            // 3. Отрисовка дуг и градусов углов (Связанная напрямую по индексу i)
-            const bend = bends[i]; // Больше никакого тяжелого .find()! Изгиб i идет сразу за полкой i
-            const jointIdx = i + 1; // Индекс точки апекса стыка на экране
+            // 3. Расчет дуг и градусов углов строго по синхронному индексу i
+            const bend = profileBends[i]; // Прямой мгновенный вызов без циклов поиска!
+            const jointIdx = i + 1;       // Индекс точки апекса стыка на экране
 
             if (bend && jointIdx < a.length - 1) {
                 const isInnerB = bend.direction === "right";
@@ -101,21 +93,17 @@ const ProfileGeometryPreview = ({ profile }) => {
                     const u1x = v1x / l1, u1y = v1y / l1;
                     const u2x = v2x / l2, u2y = v2y / l2;
 
-                    // Точки дуги на плечах вогнутого апекса
                     const arcP1 = { x: z.x + u1x * AR, y: z.y + u1y * AR };
                     const arcP2 = { x: z.x + u2x * AR, y: z.y + u2y * AR };
 
-                    // Биссектриса угла
                     let bx = u1x + u2x, by = u1y + u2y;
                     const bl = Math.hypot(bx, by);
                     if (bl > 1e-5) { bx /= bl; by /= bl; } else { bx = -u1y; by = u1x; }
 
-                    // Выталкиваем подпись градусов строго наружу от металла
                     if (bx * (z.x - zOpp.x) + by * (z.y - zOpp.y) < 0) {
                         bx = -bx; by = -by;
                     }
 
-                    // Направление обхода дуги SVG (sweep-flag)
                     const rawCross = u1x * u2y - u1y * u2x;
                     let sweep = rawCross > 0 ? 1 : 0;
                     if (rawCross * (isInnerB ? -1 : 1) < 0) sweep = sweep === 1 ? 0 : 1;

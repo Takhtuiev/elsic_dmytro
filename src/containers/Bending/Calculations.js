@@ -4,26 +4,24 @@
 //
 // Расчёт длины заготовки по нейтральной линии.
 //
-// Структура profile.elements:
+// Структура profile:
 //
-// shelf → bend → shelf → bend → shelf
+// {
+//     thickness: 2,
+//     shelves: [
+//         { length: 50, side: "top" },
+//         { length: 100, side: "left" }
+//     ],
+//     bends: [
+//         { angle: 90, direction: "right" }
+//     ]
+// }
 //
-// ВАЖНО:
-// Полки и гибки находятся в одном массиве,
-// поэтому их количество может быть любым.
 // =====================================================
 
 
 // =====================================================
 // Длина нейтральной дуги
-//
-// L = R × α
-//
-// R = R_tool + K-factor × thickness
-// α — угол гибки в радианах.
-//
-// Например:
-// угол 90° → рассчитывается дуга 90°.
 // =====================================================
 
 const getBendLength = (angle, thickness, kFactor, rTool) => {
@@ -38,15 +36,7 @@ const getBendLength = (angle, thickness, kFactor, rTool) => {
 // Отступ от вершины теоретического угла
 // до начала нейтральной дуги.
 //
-// offset = R × tan(α / 2)
-//
-// Для 180° offset = 0,
-// поскольку это виртуальная гибка
-// на конце детали.
-//
-// isInsideDimension:
-// true  → используется R_tool
-// false → используется R_tool + thickness
+// Для 180° offset = 0.
 // =====================================================
 
 const getBendOffset = (
@@ -69,37 +59,12 @@ const getBendOffset = (
 
 
 // =====================================================
-// Получить только полки из общего массива.
-// =====================================================
-
-const getShelves = profile =>
-    profile.elements.filter(element => element.type === "shelf");
-
-
-// =====================================================
-// Получить только гибки из общего массива.
-// =====================================================
-
-const getBends = profile =>
-    profile.elements.filter(element => element.type === "bend");
-
-
-// =====================================================
 // Расчёт длины прямой части полки.
-//
-// Введённый размер полки является размером
-// от теоретической точки до теоретической точки.
-//
-// Поэтому из него необходимо вычесть:
-//   левый offset + правый offset.
-//
-// Для первой и последней полки используется
-// виртуальная гибка 180°.
 // =====================================================
 
 export const getStraightLength = (shelfIndex, profile) => {
-    const shelves = getShelves(profile);
-    const bends = getBends(profile);
+    const shelves = profile.shelves || [];
+    const bends = profile.bends || [];
     const shelf = shelves[shelfIndex];
 
     if (!shelf) return 0;
@@ -108,16 +73,10 @@ export const getStraightLength = (shelfIndex, profile) => {
     const kFactor = Number(profile.kFactor);
     const rTool = Number(profile.rTool);
 
-    // -------------------------------------------------
-    // Гибка слева от полки
-    // -------------------------------------------------
-
     const leftBend = shelfIndex === 0
         ? 180
         : 180 - Number(bends[shelfIndex - 1]?.angle || 0);
 
-    // Если размер полки задан по внутренней стороне,
-    // используем R_tool.
     const leftIsInsideDimension = shelfIndex === 0
         ? false
         : bends[shelfIndex - 1]?.direction !== shelf.side;
@@ -129,10 +88,6 @@ export const getStraightLength = (shelfIndex, profile) => {
         rTool,
         leftIsInsideDimension
     );
-
-    // -------------------------------------------------
-    // Гибка справа от полки
-    // -------------------------------------------------
 
     const rightBend = shelfIndex === shelves.length - 1
         ? 180
@@ -150,38 +105,20 @@ export const getStraightLength = (shelfIndex, profile) => {
         rightIsInsideDimension
     );
 
-    // -------------------------------------------------
-    // Реальная прямая часть нейтральной линии
-    // -------------------------------------------------
-
     return Number(shelf.length) - leftOffset - rightOffset;
 };
 
 
 // =====================================================
 // Построение всех элементов нейтральной линии.
-//
-// Результат:
-//
-// [
-//     { type: "straight", ... },
-//     { type: "bend", ... },
-//     { type: "straight", ... },
-//     { type: "bend", ... },
-//     { type: "straight", ... }
-// ]
 // =====================================================
 
 export const calculateProfileElements = profile => {
-    const shelves = getShelves(profile);
-    const bends = getBends(profile);
+    const shelves = profile.shelves || [];
+    const bends = profile.bends || [];
     const elements = [];
 
     shelves.forEach((shelf, shelfIndex) => {
-        // -------------------------------------------------
-        // Прямая часть
-        // -------------------------------------------------
-
         const straightLength = getStraightLength(
             shelfIndex,
             profile
@@ -195,13 +132,8 @@ export const calculateProfileElements = profile => {
             length: straightLength,
         });
 
-        // -------------------------------------------------
-        // Гибка после этой полки
-        // -------------------------------------------------
-
         if (bends[shelfIndex]) {
             const bend = bends[shelfIndex];
-
             const angle = Number(bend.angle);
 
             const bendLength = getBendLength(
@@ -227,9 +159,6 @@ export const calculateProfileElements = profile => {
 
 // =====================================================
 // Общая длина заготовки.
-//
-// Складываются все прямые участки
-// и все нейтральные дуги гибок.
 // =====================================================
 
 export const calculateBlankLength = profile => {

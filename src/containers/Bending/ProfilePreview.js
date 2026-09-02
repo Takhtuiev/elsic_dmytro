@@ -116,10 +116,10 @@ const lineIntersection = (
 // =========================================================
 
 const buildLengthDimensions = ({
-                                   color,
-                                   segments,
-                                   halfThickness,
-                               }) =>
+    color,
+    segments,
+    halfThickness,
+}) =>
     segments.map(segment => {
         const middle = {
             x:
@@ -188,11 +188,11 @@ const buildLengthDimensions = ({
     });
 
 const buildAngleDimensions = ({
-                                  color,
-                                  segments,
-                                  bends,
-                                  halfThickness,
-                              }) => {
+    color,
+    segments,
+    bends,
+    halfThickness,
+}) => {
     if (
         !segments ||
         segments.length < 2 ||
@@ -583,17 +583,17 @@ const buildAngleDimensions = ({
 // =========================================================
 
 const buildProfilePart = ({
-                              color,
-                              fillColor,
-                              profile,
-                              segments = [],
-                              bends = [],
-                              startIndex,
-                              endIndex,
-                              reverse = false,
-                              apexAtStart = false,
-                              apexAtEnd = false,
-                          }) => {
+    color,
+    fillColor,
+    profile,
+    segments = [],
+    bends = [],
+    startIndex,
+    endIndex,
+    reverse = false,
+    apexAtStart = false,
+    apexAtEnd = false,
+}) => {
     if (!profile) {
         return null;
     }
@@ -654,13 +654,6 @@ const buildProfilePart = ({
         return null;
     }
 
-    // =====================================================
-    // ВАЖНО:
-    // lower нельзя переворачивать через lower.reverse(),
-    // потому что тот же массив ниже используется
-    // для построения линий и торцов.
-    // =====================================================
-
     const polygon = [
         ...upper,
         ...[...lower].reverse(),
@@ -682,7 +675,6 @@ const buildProfilePart = ({
             }
         };
 
-    // Здесь lower остаётся в исходном порядке.
     addContourLines(upper);
     addContourLines(lower);
 
@@ -760,14 +752,14 @@ const reverseSegments = segments =>
 // =========================================================
 
 const buildReferenceShelf = ({
-                                 bendIndex,
-                                 direction,
-                                 shelves,
-                                 finalSegments,
-                                 upperContour,
-                                 lowerContour,
-                                 thickness,
-                             }) => {
+    bendIndex,
+    direction,
+    shelves,
+    finalSegments,
+    upperContour,
+    lowerContour,
+    thickness,
+}) => {
     const shelfIndexes = [];
 
     if (direction === "right") {
@@ -827,8 +819,8 @@ const buildReferenceShelf = ({
     if (direction === "right") {
         const segment =
             finalSegments[
-            bendIndex + 1
-                ];
+                bendIndex + 1
+            ];
 
         if (segment) {
             directionVector =
@@ -979,11 +971,11 @@ const buildReferenceShelf = ({
 // =========================================================
 
 const shouldMirrorProfile = ({
-                                 selectedBendIndex,
-                                 referenceDirection,
-                                 rotatedSegments,
-                                 rotatedBends,
-                             }) => {
+    selectedBendIndex,
+    referenceDirection,
+    rotatedSegments,
+    rotatedBends,
+}) => {
     if (
         selectedBendIndex < 0 ||
         !referenceDirection
@@ -994,7 +986,7 @@ const shouldMirrorProfile = ({
     const bendVertex =
         rotatedBends[
             selectedBendIndex
-            ]?.vertex;
+        ]?.vertex;
 
     if (!bendVertex) {
         return false;
@@ -1009,7 +1001,7 @@ const shouldMirrorProfile = ({
         const segment =
             rotatedSegments[
                 selectedBendIndex
-                ];
+            ];
 
         if (segment) {
             directionVector =
@@ -1029,8 +1021,8 @@ const shouldMirrorProfile = ({
     ) {
         const segment =
             rotatedSegments[
-            selectedBendIndex + 1
-                ];
+                selectedBendIndex + 1
+            ];
 
         if (segment) {
             directionVector =
@@ -1058,16 +1050,16 @@ const shouldMirrorProfile = ({
 // =========================================================
 
 const buildColoredParts = ({
-                               selectedBendIndex,
-                               referenceDirection,
-                               profile,
-                               theme,
-                               finalSegments,
-                               finalBends,
-                               upperContour,
-                               lowerContour,
-                               shelves,
-                           }) => {
+    selectedBendIndex,
+    referenceDirection,
+    profile,
+    theme,
+    finalSegments,
+    finalBends,
+    upperContour,
+    lowerContour,
+    shelves,
+}) => {
     // =====================================================
     // НЕТ ВЫБРАННОГО УГЛА
     // =====================================================
@@ -1081,18 +1073,18 @@ const buildColoredParts = ({
                 color: BLACK_COLOR,
 
                 fillColor:
-                theme.palette.action
-                    .hover,
+                    theme.palette.action
+                        .hover,
 
                 profile: {
                     upperContour,
                     lowerContour,
                     thickness:
-                    profile.thickness,
+                        profile.thickness,
                 },
 
                 segments:
-                finalSegments,
+                    finalSegments,
 
                 bends: finalBends,
             });
@@ -1154,14 +1146,14 @@ const buildColoredParts = ({
                     upperContour,
                     lowerContour,
                     thickness:
-                    profile.thickness,
+                        profile.thickness,
                 },
 
                 startIndex: 0,
                 endIndex: apexIndex,
 
                 segments:
-                firstSegments,
+                    firstSegments,
 
                 bends: firstBends,
 
@@ -1176,14 +1168,14 @@ const buildColoredParts = ({
                     upperContour,
                     lowerContour,
                     thickness:
-                    profile.thickness,
+                        profile.thickness,
                 },
 
                 startIndex: apexIndex,
                 endIndex: lastIndex,
 
                 segments:
-                secondSegments,
+                    secondSegments,
 
                 bends:
                     secondBends.map(
@@ -1202,10 +1194,10 @@ const buildColoredParts = ({
         const bluePart =
             buildReferenceShelf({
                 bendIndex:
-                selectedBendIndex,
+                    selectedBendIndex,
 
                 direction:
-                referenceDirection,
+                    referenceDirection,
 
                 shelves,
                 finalSegments,
@@ -1213,7 +1205,7 @@ const buildColoredParts = ({
                 lowerContour,
 
                 thickness:
-                profile.thickness,
+                    profile.thickness,
             });
 
         return [
@@ -1235,7 +1227,7 @@ const buildColoredParts = ({
                 upperContour,
                 lowerContour,
                 thickness:
-                profile.thickness,
+                    profile.thickness,
             },
 
             startIndex: 0,
@@ -1276,14 +1268,14 @@ const buildColoredParts = ({
                 upperContour,
                 lowerContour,
                 thickness:
-                profile.thickness,
+                    profile.thickness,
             },
 
             startIndex: apexIndex,
             endIndex: lastIndex,
 
             segments:
-            secondSegments,
+                secondSegments,
 
             bends:
                 secondBends.map(
@@ -1302,10 +1294,10 @@ const buildColoredParts = ({
     const bluePart =
         buildReferenceShelf({
             bendIndex:
-            selectedBendIndex,
+                selectedBendIndex,
 
             direction:
-            referenceDirection,
+                referenceDirection,
 
             shelves,
             finalSegments,
@@ -1313,7 +1305,7 @@ const buildColoredParts = ({
             lowerContour,
 
             thickness:
-            profile.thickness,
+                profile.thickness,
         });
 
     return [
@@ -1328,13 +1320,13 @@ const buildColoredParts = ({
 // =========================================================
 
 const renderProfilePart = ({
-                               part,
-                               index,
-                               polygonToPath,
-                               strokeLinesToPath,
-                               toSvg,
-                               scale,
-                           }) => {
+    part,
+    index,
+    polygonToPath,
+    strokeLinesToPath,
+    toSvg,
+    scale,
+}) => {
     if (!part) {
         return null;
     }
@@ -1343,7 +1335,7 @@ const renderProfilePart = ({
         part.color === BLUE_COLOR
             ? 0.35
             : part.color ===
-            GRAY_COLOR
+                GRAY_COLOR
                 ? 0.22
                 : 0.18;
 
@@ -1407,12 +1399,12 @@ const renderProfilePart = ({
                                 segment.color
                             }
                             transform={`
-                                rotate(
-                                    ${segment.textAngle}
-                                    ${labelPoint.x}
-                                    ${labelPoint.y}
-                                )
-                            `}
+rotate(
+    ${segment.textAngle}
+${labelPoint.x}
+${labelPoint.y}
+)
+`}
                         >
                             <tspan>
                                 {
@@ -1442,7 +1434,7 @@ const renderProfilePart = ({
                     if (
                         !bend ||
                         bend.innerAngle <=
-                        0
+                            0
                     ) {
                         return null;
                     }
@@ -1472,18 +1464,18 @@ const renderProfilePart = ({
                         >
                             <path
                                 d={`
-                                    M
-                                    ${startPoint.x}
-                                    ${startPoint.y}
-                                    A
-                                    ${radius}
-                                    ${radius}
-                                    0
-                                    0
-                                    ${bend.sweepFlag}
-                                    ${endPoint.x}
-                                    ${endPoint.y}
-                                `}
+M
+${startPoint.x}
+${startPoint.y}
+A
+${radius}
+${radius}
+0
+0
+${bend.sweepFlag}
+${endPoint.x}
+${endPoint.y}
+`}
                                 fill="none"
                                 stroke={
                                     bend.color
@@ -1536,7 +1528,8 @@ const getPartBounds = part => {
         ...(part.polygon || []),
 
         ...(part.lengthDimensions ||
-            []).map(
+            []
+        ).map(
             item =>
                 item.labelPoint
         ),
@@ -1557,10 +1550,10 @@ const getPartBounds = part => {
 // =========================================================
 
 function ProfilePreview({
-                            profile,
-                            verticalShelf,
-                            referenceBend,
-                        }) {
+    profile,
+    verticalShelf,
+    referenceBend,
+}) {
     const theme = useTheme();
 
     const blankLength =
@@ -1570,22 +1563,14 @@ function ProfilePreview({
         theme.palette.text.primary;
 
     // =====================================================
-    // ELEMENTS
+    // NEW DATA STRUCTURE
     // =====================================================
 
     const shelves =
-        profile.elements.filter(
-            element =>
-                element.type ===
-                "shelf"
-        );
+        profile.shelves || [];
 
     const bends =
-        profile.elements.filter(
-            element =>
-                element.type ===
-                "bend"
-        );
+        profile.bends || [];
 
     // =====================================================
     // AXIS GEOMETRY
@@ -1643,10 +1628,14 @@ function ProfilePreview({
                 start,
                 end,
                 length:
-                originalLength,
+                    originalLength,
                 side: shelf.side,
                 angle: currentAngle,
             });
+
+            // =================================================
+            // ГИБКА МЕЖДУ ЭТОЙ И СЛЕДУЮЩЕЙ ПОЛКОЙ
+            // =================================================
 
             const bend =
                 bends[index];
@@ -1670,10 +1659,9 @@ function ProfilePreview({
 
                 innerAngle,
                 direction:
-                bend.direction,
+                    bend.direction,
                 incomingAngle:
-                currentAngle,
-                side: bend.side,
+                    currentAngle,
             });
 
             const turningAngle =
@@ -1723,7 +1711,7 @@ function ProfilePreview({
         selectedBendIndex >= 0
             ? bends[
                 selectedBendIndex
-                ]
+            ]
             : null;
 
     const referenceDirection =
@@ -1747,8 +1735,8 @@ function ProfilePreview({
         ) {
             const segment =
                 segments[
-                bendIndex + 1
-                    ];
+                    bendIndex + 1
+                ];
 
             if (segment) {
                 referenceShelfAngle =
@@ -2034,11 +2022,11 @@ function ProfilePreview({
                     upperLines[i].start,
                     upperLines[i].end,
                     upperLines[
-                    i + 1
-                        ].start,
+                        i + 1
+                    ].start,
                     upperLines[
-                    i + 1
-                        ].end
+                        i + 1
+                    ].end
                 )
             );
 
@@ -2047,25 +2035,25 @@ function ProfilePreview({
                     lowerLines[i].start,
                     lowerLines[i].end,
                     lowerLines[
-                    i + 1
-                        ].start,
+                        i + 1
+                    ].start,
                     lowerLines[
-                    i + 1
-                        ].end
+                        i + 1
+                    ].end
                 )
             );
         }
 
         upperContour.push(
             upperLines[
-            upperLines.length - 1
-                ].end
+                upperLines.length - 1
+            ].end
         );
 
         lowerContour.push(
             lowerLines[
-            lowerLines.length - 1
-                ].end
+                lowerLines.length - 1
+            ].end
         );
     }
 
@@ -2151,13 +2139,13 @@ function ProfilePreview({
     const scaleX =
         drawingWidth > 0
             ? availableWidth /
-            drawingWidth
+                drawingWidth
             : 1;
 
     const scaleY =
         drawingHeight > 0
             ? availableHeight /
-            drawingHeight
+                drawingHeight
             : 1;
 
     const scale =
@@ -2233,11 +2221,11 @@ function ProfilePreview({
                                 );
 
                             return `${
-                                index ===
-                                0
-                                    ? "M"
-                                    : "L"
-                            } ${p.x} ${p.y}`;
+    index ===
+    0
+        ? "M"
+        : "L"
+} ${p.x} ${p.y}`;
                         }
                     )
                     .join(" ") +
@@ -2267,9 +2255,9 @@ function ProfilePreview({
                         );
 
                     return `
-                        M ${start.x} ${start.y}
-                        L ${end.x} ${end.y}
-                    `;
+M ${start.x} ${start.y}
+L ${end.x} ${end.y}
+`;
                 })
                 .join(" ");
         };
@@ -2304,11 +2292,11 @@ function ProfilePreview({
             >
                 <svg
                     viewBox={`
-                        0
-                        0
-                        ${VIEWBOX_WIDTH}
-                        ${VIEWBOX_HEIGHT}
-                    `}
+0
+0
+${VIEWBOX_WIDTH}
+${VIEWBOX_HEIGHT}
+`}
                     width="100%"
                     height="100%"
                     preserveAspectRatio="xMidYMid meet"
