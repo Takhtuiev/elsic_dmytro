@@ -1,12 +1,10 @@
 import React, { useState, useCallback } from "react";
 import { Box, Button, InputAdornment, Paper, Stack, TextField, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
-import ProfilePreview from "./ProfilePreview";
 import ProfileRow from "./ProfileRow";
 import { calculateBlankLength } from "./Calculations";
 import ProfileGeometryPreview from "./ProfileGeometryPreview";
 
-// Возвращаем referenceBend в стейт, чтобы не ломать логику внешних превью
 const INITIAL_STATE = {
  thickness: 4.0,
  kFactor: 0.32,
@@ -19,8 +17,9 @@ const INITIAL_STATE = {
   { angle: 180, direction: "right" },
  ],
  verticalShelf: 1,
- firstBendIndex: -1, // Индекс первого технологического гиба
- referenceBend: { index: -1, direction: "right" } // Связанная переменная для совместимости
+ firstBendIndex: -1,
+ bendViewMode: "toEnd", // "toEnd" (до угла) или "fromStart" (после угла)
+ referenceBend: { index: -1, direction: "right" }
 };
 
 function Biegeberechnung() {
@@ -35,18 +34,12 @@ function Biegeberechnung() {
    const nextArray = [...prev[arrayKey]];
    nextArray[index] = { ...nextArray[index], [field]: value };
 
-   // Если пользователь меняет НАПРАВЛЕНИЕ изгиба, и этот изгиб сейчас выбран первым,
-   // синхронно обновляем направление и в переменной referenceBend
    let nextReferenceBend = { ...prev.referenceBend };
    if (arrayKey === "bends" && field === "direction" && prev.firstBendIndex === index) {
     nextReferenceBend.direction = value;
    }
 
-   return {
-    ...prev,
-    [arrayKey]: nextArray,
-    referenceBend: nextReferenceBend
-   };
+   return { ...prev, [arrayKey]: nextArray, referenceBend: nextReferenceBend };
   });
  }, []);
 
@@ -56,24 +49,33 @@ function Biegeberechnung() {
  const handleBendDirectionChange = (i, v) => v !== null && updateNestedItem("bends", i, "direction", v);
  const handleVerticalShelfChange = i => updateParam("verticalShelf", i + 1);
 
- // Управление первым технологическим гибом с жесткой привязкой к referenceBend
+ // ТРЕХПОЗИЦИОННЫЙ КЛИК: Переключение режимов обрыва по кругу на одной кнопке
  const handleSelectFirstBend = useCallback((index) => {
   setState(prev => {
-   const isAlreadySelected = prev.firstBendIndex === index;
-   const nextIndex = isAlreadySelected ? -1 : index;
+   let nextFirstBendIndex = prev.firstBendIndex;
+   let nextViewMode = prev.bendViewMode;
 
-   // Находим направление изгиба из массива, чтобы прописать его в referenceBend
-   const currentBend = prev.bends[index];
+   if (prev.firstBendIndex !== index) {
+    // Кликнули на НОВЫЙ угол -> включаем режим "До угла"
+    nextFirstBendIndex = index;
+    nextViewMode = "toEnd";
+   } else if (prev.bendViewMode === "toEnd") {
+    // Кликнули ПОВТОРНО на тот же угол -> переключаем в режим "После угла"
+    nextViewMode = "fromStart";
+   } else {
+    // Кликнули в ТРЕТИЙ раз -> сбрасываем обрыв, показываем весь профиль
+    nextFirstBendIndex = -1;
+    nextViewMode = "toEnd";
+   }
+
+   const currentBend = prev.bends[nextFirstBendIndex];
    const nextDirection = currentBend ? currentBend.direction : "right";
 
    return {
     ...prev,
-    firstBendIndex: nextIndex,
-    // Намертво связываем старую переменную с новыми кнопками ①
-    referenceBend: {
-     index: nextIndex,
-     direction: nextDirection
-    }
+    firstBendIndex: nextFirstBendIndex,
+    bendViewMode: nextViewMode,
+    referenceBend: { index: nextFirstBendIndex, direction: nextDirection }
    };
   });
  }, []);
@@ -96,9 +98,7 @@ function Biegeberechnung() {
 
    const nextVertical = prev.verticalShelf === s ? Math.max(1, prev.verticalShelf - 1) : prev.verticalShelf > s ? prev.verticalShelf - 1 : prev.verticalShelf;
 
-   // Синхронный сдвиг или сброс индексов для обеих переменных при удалении рядов
    const nextFirstBend = prev.firstBendIndex === i ? -1 : prev.firstBendIndex > i ? prev.firstBendIndex - 1 : prev.firstBendIndex;
-
    const currentBendAfterRemove = nextBends[nextFirstBend];
    const nextRefDirection = currentBendAfterRemove ? currentBendAfterRemove.direction : "right";
 
@@ -108,10 +108,7 @@ function Biegeberechnung() {
     shelves: nextShelves,
     verticalShelf: nextVertical,
     firstBendIndex: nextFirstBend,
-    referenceBend: {
-     index: nextFirstBend,
-     direction: nextRefDirection
-    }
+    referenceBend: { index: nextFirstBend, direction: nextRefDirection }
    };
   });
  };
@@ -133,6 +130,7 @@ function Biegeberechnung() {
                  index={i}
                  verticalShelf={state.verticalShelf}
                  firstBendIndex={state.firstBendIndex}
+                 bendViewMode={state.bendViewMode} // Прокидываем режим отображения в строку
                  onShelfChange={handleShelfChange}
                  onShelfSideChange={handleShelfSideChange}
                  onVerticalShelfChange={handleVerticalShelfChange}
@@ -174,9 +172,7 @@ function Biegeberechnung() {
       </Box>
 
       <Box sx={{ flex: "1 1 400px", minWidth: 0, maxWidth: 700, display: "flex", flexDirection: "column", gap: 2 }}>
-       <ProfileGeometryPreview profile={state} />
-       {/* Проп восстановлен в исходном виде! ProfilePreview получит старую родную структуру */}
-       <ProfilePreview profile={state} verticalShelf={state.verticalShelf} referenceBend={state.referenceBend} />
+       <ProfileGeometryPreview profile={state}  blankLength={blankLength} />
       </Box>
      </Box>
  );
