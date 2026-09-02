@@ -1,397 +1,288 @@
 import React, { useState } from "react";
-
 import {
-    Box,
-    Button,
-    InputAdornment,
-    Paper,
-    Stack,
-    TextField,
-    Typography,
+    Box, Button, InputAdornment, Paper, Stack, TextField,
+    Typography, ToggleButton, ToggleButtonGroup,
+    FormControl, InputLabel, Select, MenuItem,
 } from "@mui/material";
-
 import AddIcon from "@mui/icons-material/Add";
 
-import ProfilePreview
-    from "./ProfilePreview";
-
-import ProfileRow
-    from "./ProfileRow";
-
-import {
-    calculateBlankLength,
-} from "./Calculations";
-
-
-// =====================================================
-// Component
-// =====================================================
+import ProfilePreview from "./ProfilePreview";
+import ProfileRow from "./ProfileRow";
+import { calculateBlankLength } from "./Calculations";
+import ProfileGeometryPreview from "./ProfileGeometryPreview";
 
 function Biegeberechnung() {
-
-    const [profile, setProfile,] = useState({
-
-        // =================================================
-        // Параметры материала и инструмента
-        // =================================================
+    // Профиль: полка → гибка → полка
+    const [profile, setProfile] = useState({
         thickness: "4",
         kFactor: "0.32",
         rTool: "1.2",
-
-        // =================================================
-        // Полки
-        // =================================================
-        shelves: [
-            {
-                length: "20",
-                side: "right",
-            },
-            {
-                length: "20",
-                side: "right",
-            },
-        ],
-
-        // =================================================
-        // Гибки
-        // =================================================
-        bends: [
-            {
-                angle: "180",
-                direction: "right",
-            },
+        elements: [
+            { type: "shelf", length: "20", side: "right" },
+            { type: "bend", angle: "180", direction: "right" },
+            { type: "shelf", length: "20", side: "right" },
         ],
     });
 
+    // Вертикальная полка на схеме
+    const [verticalShelf, setVerticalShelf] = useState(1);
 
-    // =================================================
-    // Вертикальная полка
-    // =================================================
+    // Исходная гибка и направление от неё
+    const [referenceBend, setReferenceBend] = useState({
+        index: -1,
+        direction: "right",
+    });
 
-    const [verticalShelf, setVerticalShelf,] = useState(1);
+    // Получаем полки и гибки из общего массива
+    const shelves = profile.elements.filter(e => e.type === "shelf");
+    const bends = profile.elements.filter(e => e.type === "bend");
 
-
-    // =================================================
-    // Изменение параметра профиля
-    // =================================================
-
+    // Изменение параметров
     const handleProfileParameterChange = (parameter, value) => {
-
-        setProfile((prev) => ({...prev, [parameter]: value,}));
+        setProfile(prev => ({ ...prev, [parameter]: value }));
     };
 
-
-    // =================================================
     // Изменение длины полки
-    // =================================================
+    const handleShelfChange = (shelfIndex, value) => {
+        setProfile(prev => {
+            let current = -1;
 
-    const handleShelfChange = (index, value) => {
-
-        setProfile(
-            (prev) => ({
+            return {
                 ...prev,
-                shelves: prev.shelves.map((shelf, i) =>
-                            i === index ? {...shelf, length: value,} : shelf
-                    ),
-            })
-        );
+                elements: prev.elements.map(e => {
+                    if (e.type !== "shelf") return e;
+                    current++;
+                    return current === shelfIndex ? { ...e, length: value } : e;
+                }),
+            };
+        });
     };
 
+    // Изменение стороны размера полки
+    const handleShelfSideChange = (shelfIndex, side) => {
+        if (side === null) return;
 
-    // =================================================
-    // Изменение направления размера полки
-    // =================================================
+        setProfile(prev => {
+            let current = -1;
 
-    const handleShelfSideChange = (index, side) => {
-
-        if (side === null) {return;}
-
-        setProfile(
-            (prev) => ({
+            return {
                 ...prev,
-                shelves:
-                    prev.shelves.map((shelf, i) =>
-                            i === index ? {...shelf, side} : shelf
-                    ),
-            })
-        );
+                elements: prev.elements.map(e => {
+                    if (e.type !== "shelf") return e;
+                    current++;
+                    return current === shelfIndex ? { ...e, side } : e;
+                }),
+            };
+        });
     };
 
-
-    // =================================================
     // Выбор вертикальной полки
-    // =================================================
-
-    const handleVerticalShelfChange = (index) => {
-
+    const handleVerticalShelfChange = index => {
         setVerticalShelf(index + 1);
     };
 
+    // Изменение угла гибки
+    const handleBendChange = (bendIndex, value) => {
+        setProfile(prev => {
+            let current = -1;
 
-    // =================================================
-    // Изменение угла
-    // =================================================
-
-    const handleBendChange = (index, value) => {
-
-        setProfile(
-            (prev) => ({
+            return {
                 ...prev,
-                bends: prev.bends.map((bend, i) =>
-                            i === index ? {...bend, angle: value,} : bend
-                    ),
-            })
-        );
+                elements: prev.elements.map(e => {
+                    if (e.type !== "bend") return e;
+                    current++;
+                    return current === bendIndex ? { ...e, angle: value } : e;
+                }),
+            };
+        });
     };
 
-
-    // =================================================
     // Изменение направления гибки
-    // =================================================
+    const handleBendDirectionChange = (bendIndex, direction) => {
+        if (direction === null) return;
 
-    const handleBendDirectionChange = (index, direction) => {
+        setProfile(prev => {
+            let current = -1;
 
-        if (direction === null) {return;}
-
-        setProfile(
-            (prev) => ({
+            return {
                 ...prev,
-                bends:
-                    prev.bends.map((bend, i) =>
-                            i === index ? {...bend, direction} : bend),
-            })
-        );
+                elements: prev.elements.map(e => {
+                    if (e.type !== "bend") return e;
+                    current++;
+                    return current === bendIndex ? { ...e, direction } : e;
+                }),
+            };
+        });
     };
 
+    // Выбор исходной гибки
+    const handleReferenceBendChange = event => {
+        setReferenceBend(prev => ({
+            ...prev,
+            index: Number(event.target.value),
+        }));
+    };
 
-    // =================================================
-    // Добавить гибку
-    // =================================================
+    // Выбор направления от исходной гибки
+    const handleReferenceDirectionChange = (_, direction) => {
+        if (direction === null) return;
 
+        setReferenceBend(prev => ({
+            ...prev,
+            direction,
+        }));
+    };
+
+    // Добавление гибки и следующей полки
     const addBend = () => {
-
-        setProfile(
-            (prev) => ({
-                ...prev,
-                shelves: [...prev.shelves, {length: "20", side: "right",},],
-                bends: [...prev.bends, {angle: "180", direction: "right",},],
-            })
-        );
+        setProfile(prev => ({
+            ...prev,
+            elements: [
+                ...prev.elements,
+                { type: "bend", angle: "180", direction: "right" },
+                { type: "shelf", length: "20", side: "right" },
+            ],
+        }));
     };
 
+    // Удаление гибки и следующей полки
+    const removeBend = bendIndex => {
+        if (bends.length <= 1) return;
 
-    // =================================================
-    // Удалить гибку
-    // =================================================
+        setProfile(prev => {
+            let current = -1;
+            const elements = [];
 
-    const removeBend = (index) => {
+            for (let i = 0; i < prev.elements.length; i++) {
+                const element = prev.elements[i];
 
-        if (profile.bends.length <= 1) {return;}
+                if (element.type !== "bend") {
+                    elements.push(element);
+                    continue;
+                }
 
-        setProfile(
-            (prev) => ({
+                current++;
+
+                if (current === bendIndex) {
+                    if (prev.elements[i + 1]?.type === "shelf") i++;
+                    continue;
+                }
+
+                elements.push(element);
+            }
+
+            return { ...prev, elements };
+        });
+
+        // Корректируем исходную гибку
+        if (referenceBend.index === bendIndex) {
+            setReferenceBend(prev => ({ ...prev, index: -1 }));
+        } else if (referenceBend.index > bendIndex) {
+            setReferenceBend(prev => ({
                 ...prev,
-                shelves: prev.shelves.filter((_, i) => i !== index + 1),
-                bends: prev.bends.filter((_, i) => i !== index),
-            })
-        );
+                index: prev.index - 1,
+            }));
+        }
 
-
-        // =============================================
         // Корректируем вертикальную полку
-        // =============================================
-
-        const removedShelf = index + 2;
+        const removedShelf = bendIndex + 2;
 
         if (verticalShelf === removedShelf) {
             setVerticalShelf(Math.max(1, verticalShelf - 1));
-
         } else if (verticalShelf > removedShelf) {
             setVerticalShelf(verticalShelf - 1);
         }
     };
 
-
-    // =================================================
-    // Размер заготовки
-    // =================================================
-
+    // Длина заготовки
     const blankLength = calculateBlankLength(profile);
 
-    // =================================================
-    // Render
-    // =================================================
+    // Выбранная гибка
+    const selectedReferenceBend =
+        referenceBend.index >= 0
+            ? bends[referenceBend.index]
+            : null;
 
     return (
-
-        <Box
-            sx={{
+        <Box sx={{
+            display: "flex",
+            gap: 3,
+            alignItems: "flex-start",
+            width: "100%",
+            flexWrap: "wrap",
+        }}>
+            <Box sx={{
                 display: "flex",
-                gap: 3,
-                alignItems: "flex-start",
-                width: "100%",
-                flexWrap: "wrap",
-            }}
-        >
+                flexDirection: "column",
+                gap: 2,
+                width: "fit-content",
+                maxWidth: "100%",
+                flexShrink: 0,
+            }}>
 
-            {/* ================================================= */}
-            {/* Левая часть */}
-            {/* ================================================= */}
-
-            <Box
-                sx={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 2,
+                {/* Профиль детали */}
+                <Paper elevation={2} sx={{
+                    p: 3,
                     width: "fit-content",
                     maxWidth: "100%",
-                    flexShrink: 0,
-                }}
-            >
-
-                {/* ================================================= */}
-                {/* Профиль детали */}
-                {/* ================================================= */}
-
-                <Paper
-                    elevation={2}
-                    sx={{
-                        p: 3,
-                        width: "fit-content",
-                        maxWidth: "100%",
-                        boxSizing: "border-box",
-                    }}
-                >
-
-                    <Typography
-                        variant="h6"
-                        sx={{
-                            mb: 3,
-                        }}
-                    >
-                        Профиль детали
+                    boxSizing: "border-box",
+                }}>
+                    <Typography variant="h6" sx={{ mb: 3 }}>
+                        Part Profile
                     </Typography>
 
-
                     <Stack spacing={2}>
-
-                        {/* ================================================= */}
-                        {/* Полки + гибки */}
-                        {/* ================================================= */}
-
-                        {profile.bends.map(
-                            (
-                                bend,
-                                index
-                            ) => (
-
-                                <ProfileRow
-                                    key={index}
-                                    shelf={profile.shelves[index]}
-                                    bend={bend}
-                                    index={index}
-                                    verticalShelf={verticalShelf}
-                                    onShelfChange={handleShelfChange}
-                                    onShelfSideChange={handleShelfSideChange}
-                                    onVerticalShelfChange={handleVerticalShelfChange}
-                                    onBendChange={handleBendChange}
-                                    onBendDirectionChange={handleBendDirectionChange}
-                                    onRemoveBend={removeBend}
-                                    canRemove={profile.bends.length > 1}
-                                />
-
-                            )
-                        )}
-
-
-                        {/* ================================================= */}
-                        {/* Последняя полка */}
-                        {/* ================================================= */}
-
-                        <ProfileRow
-                            shelf={profile.shelves[profile.shelves.length - 1]}
-                            bend={null}
-                            index={profile.shelves.length - 1}
-                            verticalShelf={verticalShelf}
-                            onShelfChange={handleShelfChange}
-                            onShelfSideChange={handleShelfSideChange}
-                            onVerticalShelfChange={handleVerticalShelfChange}
-                            onBendChange={handleBendChange}
-                            onBendDirectionChange={handleBendDirectionChange}
-                            onRemoveBend={removeBend}
-                            canRemove={false}
-                        />
-
+                        {shelves.map((shelf, shelfIndex) => (
+                            <ProfileRow
+                                key={`row-${shelfIndex}`}
+                                shelf={shelf}
+                                bend={bends[shelfIndex] || null}
+                                index={shelfIndex}
+                                verticalShelf={verticalShelf}
+                                onShelfChange={handleShelfChange}
+                                onShelfSideChange={handleShelfSideChange}
+                                onVerticalShelfChange={handleVerticalShelfChange}
+                                onBendChange={handleBendChange}
+                                onBendDirectionChange={handleBendDirectionChange}
+                                onRemoveBend={removeBend}
+                                canRemove={
+                                    Boolean(bends[shelfIndex]) &&
+                                    bends.length > 1
+                                }
+                            />
+                        ))}
                     </Stack>
 
-
-                    {/* ================================================= */}
-                    {/* Добавить гибку */}
-                    {/* ================================================= */}
-
-                    <Box
-                        sx={{
-                            mt: 3,
-                        }}
-                    >
-
+                    <Box sx={{ mt: 3 }}>
                         <Button
                             variant="outlined"
                             startIcon={<AddIcon />}
                             onClick={addBend}
-                            sx={{
-                                width: "100%",
-                            }}
+                            sx={{ width: "100%" }}
                         >
-                            Добавить гибку
+                            Add Bend
                         </Button>
-
                     </Box>
-
                 </Paper>
 
-
-                {/* ================================================= */}
-                {/* Параметры */}
-                {/* ================================================= */}
-
-                <Paper
-                    elevation={2}
-                    sx={{
-                        p: 3,
-                        width: "100%",
-                        maxWidth: "100%",
-                        boxSizing: "border-box",
-                    }}
-                >
-
-                    <Typography
-                        variant="h6"
-                        sx={{
-                            mb: 3,
-                        }}
-                    >
-                        Параметры
+                {/* Параметры расчёта */}
+                <Paper elevation={2} sx={{
+                    p: 3,
+                    width: "100%",
+                    boxSizing: "border-box",
+                }}>
+                    <Typography variant="h6" sx={{ mb: 3 }}>
+                        Parameters
                     </Typography>
 
-
                     <Stack spacing={2}>
-
-                        {/* ================================================= */}
-                        {/* Толщина */}
-                        {/* ================================================= */}
-
                         <TextField
-                            label="Dicke"
+                            label="Thickness"
                             type="number"
-                            value={
-                                profile.thickness
-                            }
+                            value={profile.thickness}
                             size="small"
-                            sx={{
-                                width: "16ch",
-                            }}
-                            onChange={(e) =>
+                            sx={{ width: "16ch" }}
+                            onChange={e =>
                                 handleProfileParameterChange(
                                     "thickness",
                                     e.target.value
@@ -402,7 +293,6 @@ function Biegeberechnung() {
                                     min: 0,
                                     step: 0.01,
                                 },
-
                                 input: {
                                     endAdornment: (
                                         <InputAdornment position="end">
@@ -413,22 +303,13 @@ function Biegeberechnung() {
                             }}
                         />
 
-
-                        {/* ================================================= */}
-                        {/* K-Faktor */}
-                        {/* ================================================= */}
-
                         <TextField
-                            label="K-Faktor"
+                            label="K-Factor"
                             type="number"
-                            value={
-                                profile.kFactor
-                            }
+                            value={profile.kFactor}
                             size="small"
-                            sx={{
-                                width: "16ch",
-                            }}
-                            onChange={(e) =>
+                            sx={{ width: "16ch" }}
+                            onChange={e =>
                                 handleProfileParameterChange(
                                     "kFactor",
                                     e.target.value
@@ -443,22 +324,13 @@ function Biegeberechnung() {
                             }}
                         />
 
-
-                        {/* ================================================= */}
-                        {/* R_tool */}
-                        {/* ================================================= */}
-
                         <TextField
                             label="R_tool"
                             type="number"
-                            value={
-                                profile.rTool
-                            }
+                            value={profile.rTool}
                             size="small"
-                            sx={{
-                                width: "16ch",
-                            }}
-                            onChange={(e) =>
+                            sx={{ width: "16ch" }}
+                            onChange={e =>
                                 handleProfileParameterChange(
                                     "rTool",
                                     e.target.value
@@ -469,7 +341,6 @@ function Biegeberechnung() {
                                     min: 0,
                                     step: 0.01,
                                 },
-
                                 input: {
                                     endAdornment: (
                                         <InputAdornment position="end">
@@ -479,80 +350,94 @@ function Biegeberechnung() {
                                 },
                             }}
                         />
-
                     </Stack>
 
-
-                    {/* ================================================= */}
-                    {/* Размер заготовки */}
-                    {/* ================================================= */}
-
-                    <Box
-                        sx={{
-                            mt: 3,
-
-                            pt: 2,
-
-                            borderTop: "1px solid",
-
-                            borderColor: "divider",
-                        }}
-                    >
-
+                    {/* Длина заготовки */}
+                    <Box sx={{
+                        mt: 3,
+                        pt: 2,
+                        borderTop: "1px solid",
+                        borderColor: "divider",
+                    }}>
                         <Typography
                             variant="body2"
                             color="text.secondary"
-                            sx={{
-                                mb: 0.5,
-                            }}
+                            sx={{ mb: 0.5 }}
                         >
-                            Размер заготовки
+                            Blank Length
                         </Typography>
 
-
-                        <Typography
-                            variant="h5"
-                        >
+                        <Typography variant="h5">
                             {blankLength !== null
                                 ? `${blankLength.toFixed(2)} mm`
-                                : "—"
-                            }
+                                : "—"}
                         </Typography>
-
                     </Box>
-
                 </Paper>
 
+                {/* Исходная гибка для стоп-позиции */}
+                <Paper elevation={2} sx={{
+                    p: 2,
+                    width: "100%",
+                    boxSizing: "border-box",
+                }}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                        <FormControl size="small" sx={{ width: 150 }}>
+                            <InputLabel>Bend</InputLabel>
+
+                            <Select
+                                value={referenceBend.index}
+                                label="Bend"
+                                onChange={handleReferenceBendChange}
+                            >
+                                <MenuItem value={-1}>
+                                    Not selected
+                                </MenuItem>
+
+                                {bends.map((bend, index) => (
+                                    <MenuItem key={index} value={index}>
+                                        {index + 1} — {bend.angle}°
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+
+                        <ToggleButtonGroup
+                            value={referenceBend.direction}
+                            exclusive
+                            size="small"
+                            onChange={handleReferenceDirectionChange}
+                        >
+                            <ToggleButton value="left">
+                                ←
+                            </ToggleButton>
+
+                            <ToggleButton value="right">
+                                →
+                            </ToggleButton>
+                        </ToggleButtonGroup>
+                    </Stack>
+                </Paper>
             </Box>
 
-
-            {/* ================================================= */}
-            {/* Правая часть — схема */}
-            {/* ================================================= */}
-
-            <Box
-                sx={{
-                    flex: "1 1 400px",
-                    minWidth: 0,
-                    maxWidth: 700,
-                }}
-            >
-
+            {/* Схема профиля */}
+            <Box sx={{
+                flex: "1 1 400px",
+                minWidth: 0,
+                maxWidth: 700,
+            }}>
+                <ProfileGeometryPreview
+                    profile={profile}
+                />
                 <ProfilePreview
-                    profile={
-                        profile
-                    }
-
-                    verticalShelf={
-                        verticalShelf
-                    }
+                    profile={profile}
+                    verticalShelf={verticalShelf}
+                    referenceBend={referenceBend}
                 />
 
             </Box>
-
         </Box>
     );
 }
-
 
 export default Biegeberechnung;
