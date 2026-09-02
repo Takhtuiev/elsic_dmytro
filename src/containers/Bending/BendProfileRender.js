@@ -1,22 +1,17 @@
 import React from "react";
 
-// =========================================================
-// НАСТРОЙКИ ТОЛЩИНЫ КОНТУРНЫХ ЛИНИЙ ЧЕРТЕЖА (КОНСТАНТА)
-// =========================================================
-const LINE_WIDTH = 1; // Универсальная толщина линий профиля в пикселях
+const LINE_WIDTH = 1;
 
 const BendProfileRender = ({
-                               data,
-                               strokeColor = "#424242",
-                               fillColor = "#f0f0f0",
-                               isGhost = false
-                           }) => {
+    data,
+    strokeColor = "#424242",
+    fillColor = "#f0f0f0",
+    isGhost = false
+}) => {
     if (!data) return null;
 
     return (
         <g style={{ opacity: isGhost ? 0.6 : 1 }}>
-
-            {/* ТЕЛО МЕТАЛЛА: Заливка пространства между стенками профиля */}
             {data.fillPoints && (
                 <polygon
                     points={data.fillPoints}
@@ -24,7 +19,6 @@ const BendProfileRender = ({
                 />
             )}
 
-            {/* Контурные грани металла */}
             <path
                 d={`M ${data.sideAPath}`}
                 fill="none"
@@ -43,7 +37,6 @@ const BendProfileRender = ({
                 strokeLinecap="round"
             />
 
-            {/* Технологические торцевые заглушки на краях исходной заготовки */}
             {data.a.length > 0 && (
                 <>
                     {data.strokeStartCap && (
@@ -70,66 +63,30 @@ const BendProfileRender = ({
                 </>
             )}
 
-            {/* Пунктирные дуги и значения углов */}
-            {data.angles.map((ang, i) => {
-                const isHighlight = ang.isFirst && !isGhost;
-                const currentStroke = isHighlight
-                    ? "#2e7d32"
-                    : strokeColor;
+            {data.angles.map((ang, i) => (
+                <g key={`ang-${i}`}>
+                    <path
+                        d={ang.path}
+                        fill="none"
+                        stroke={strokeColor}
+                        strokeWidth="1"
+                        strokeDasharray="2,2"
+                    />
 
-                const textStrokeWidth =
-                    isHighlight ? "2.5" : "1";
+                    <text
+                        x={ang.x}
+                        y={ang.y}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fontSize="10"
+                        fill={strokeColor}
+                        fontWeight="500"
+                    >
+                        {ang.text}
+                    </text>
+                </g>
+            ))}
 
-                const dashArray =
-                    isHighlight ? "none" : "2,2";
-
-                return (
-                    <g key={`ang-${i}`}>
-                        <path
-                            d={ang.path}
-                            fill="none"
-                            stroke={currentStroke}
-                            strokeWidth={textStrokeWidth}
-                            strokeDasharray={dashArray}
-                        />
-
-                        <text
-                            x={ang.x}
-                            y={ang.y}
-                            textAnchor="middle"
-                            dominantBaseline="middle"
-                            fontSize={isHighlight ? "11" : "10"}
-                            fill={currentStroke}
-                            fontWeight={isHighlight ? "bold" : "500"}
-                        >
-                            {ang.text}
-                        </text>
-
-                        {isHighlight && (
-                            <g
-                                transform={`translate(${ang.x + ang.bx * 14}, ${ang.y + ang.by * 14})`}
-                            >
-                                <circle
-                                    r="6"
-                                    fill="#2e7d32"
-                                />
-
-                                <text
-                                    textAnchor="middle"
-                                    dominantBaseline="central"
-                                    fontSize="8"
-                                    fill="#fff"
-                                    fontWeight="bold"
-                                >
-                                    1
-                                </text>
-                            </g>
-                        )}
-                    </g>
-                );
-            })}
-
-            {/* Размерные надписи полок */}
             {data.labels.map((lbl, i) => (
                 <text
                     key={`lbl-${i}`}
@@ -142,8 +99,7 @@ const BendProfileRender = ({
                     fill={strokeColor}
                     transform={`rotate(${lbl.angle},${lbl.x},${lbl.y})`}
                 >
-                    {lbl.text}
-                    {" "}
+                    {lbl.text}{" "}
                     <tspan
                         fontSize="9"
                         fontWeight="normal"
@@ -152,7 +108,6 @@ const BendProfileRender = ({
                     </tspan>
                 </text>
             ))}
-
         </g>
     );
 };

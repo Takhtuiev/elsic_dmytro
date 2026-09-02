@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { Box, Paper, Stack, Typography, useTheme } from "@mui/material";
+import { alpha } from "@mui/material/styles"; // Импортируем хелпер прозрачности для MUI
 import buildProfileGeometry from "./BuildProfileGeometry";
 import BendProfileRender from "./BendProfileRender";
 import { prepareSvgLayers } from "./profileGeometryBasing";
@@ -12,9 +13,13 @@ const ProfileGeometryPreview = ({ profile, blankLength }) => {
     const theme = useTheme();
 
     const ACTIVE_LINE_COLOR = theme.palette.text.primary;
-    const ACTIVE_FILL_COLOR = theme.palette.action.selected;
+    const ACTIVE_FILL_COLOR = alpha(theme.palette.text.primary, 0.08);
+
     const GHOST_LINE_COLOR = theme.palette.text.disabled;
-    const GHOST_FILL_COLOR = theme.palette.action.hover;
+    const GHOST_FILL_COLOR = alpha(theme.palette.text.disabled, 0.08);
+
+    const BLUE_LINE_COLOR = theme.palette.primary.main;
+    const BLUE_FILL_COLOR = alpha(theme.palette.primary.main, 0.08);
 
     const svgData = useMemo(() => {
         const geometry = buildProfileGeometry(profile);
@@ -64,10 +69,18 @@ const ProfileGeometryPreview = ({ profile, blankLength }) => {
                             isGhost
                         />
                     )}
+
+                    {svgData.blueData && (
+                        <BendProfileRender
+                            data={svgData.blueData}
+                            strokeColor={BLUE_LINE_COLOR}
+                            fillColor={BLUE_FILL_COLOR}
+                        />
+                    )}
                 </svg>
             </Box>
 
-            {/* ИСПРАВЛЕНО: Толщина и Длина в одну мелкую строчку через разделитель */}
+            {/* Толщина и Длина в одну мелкую строчку через разделитель */}
             <Stack
                 direction="row"
                 spacing={1}
