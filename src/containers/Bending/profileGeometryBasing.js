@@ -196,7 +196,9 @@ export const prepareSvgLayers=(
                         outerEnd,
                         innerEnd,
                         shelfIsTop:shelf.isTop,
-                        bendVertexIdx
+                        bendVertexIdx,
+                        outerSide:A,
+                        innerSide:B
                     };
                 }
             }
@@ -333,13 +335,53 @@ export const prepareSvgLayers=(
         const scrA=rotatedSideA.map(cv);
         const scrB=rotatedSideB.map(cv);
 
-        const lbl=calculateShelfLabel(
-            a[0],
-            a[1],
-            b[0],
-            b[1],
-            blueLength
-        );
+        /*
+         * A = наружная сторона выбранного угла.
+         * B = внутренняя сторона выбранного угла.
+         *
+         * Размер синей полки всегда ставим со стороны A.
+         */
+        const dx=a[1].x-a[0].x;
+        const dy=a[1].y-a[0].y;
+        const len=Math.hypot(dx,dy);
+
+        let lbl=null;
+
+        if(len>EPSILON){
+            let angle=Math.atan2(dy,dx)*RAD_TO_DEG;
+
+            if(angle>90)angle-=180;
+            if(angle<-90)angle+=180;
+
+            const nx=-dy/len;
+            const ny=dx/len;
+
+            const mx=(a[0].x+a[1].x)/2;
+            const my=(a[0].y+a[1].y)/2;
+
+            /*
+             * Направление от внутренней стороны B
+             * к наружной стороне A.
+             */
+            const imx=(b[0].x+b[1].x)/2;
+            const imy=(b[0].y+b[1].y)/2;
+
+            const tx=mx-imx;
+            const ty=my-imy;
+
+            const sign=
+                tx*nx+ty*ny>=0?1:-1;
+
+            const shift=LABEL_OFFSET+TEXT_HALF_HEIGHT;
+
+            lbl={
+                text:`${blueLength}`,
+                unit:"mm",
+                x:mx+nx*sign*shift,
+                y:my+ny*sign*shift,
+                angle
+            };
+        }
 
         const bend=(profile.bends||[])[firstBendIdx];
         const inner=bend?.direction==="right";
