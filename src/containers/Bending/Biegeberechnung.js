@@ -1,6 +1,6 @@
 import React,{useCallback,useEffect,useMemo,useState} from "react";
 import {
-    Box,Button,Paper,Stack,TextField,Typography
+    Box, Button, InputAdornment, Paper, Stack, TextField, Typography
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import ProfileRow from "./ProfileRow";
@@ -79,6 +79,19 @@ export default function Biegeberechnung(){
             };
         });
     },[]);
+
+    const handleVerticalShelfChange = useCallback((index) => {
+        // Меняем вертикальную полку ТОЛЬКО если не выбран угол для расчета (firstBendIndex === -1)
+        setState(prev => {
+            if (prev.firstBendIndex !== -1) return prev;
+
+            return {
+                ...prev,
+                verticalShelf: index + 1 // Сохраняем номер полки (начиная с 1)
+            };
+        });
+    }, []);
+
 
     const addBend=useCallback(()=>{
         setState(prev=>({
@@ -219,68 +232,128 @@ export default function Biegeberechnung(){
         rTool
     ]);
 
-    return(
+    return (
         <Box
             sx={{
-                display:"flex",
-                gap:2,
-                p:{xs:1,sm:2},
-                flexDirection:{xs:"column",md:"row"}
+                display: "flex",
+                gap: 2,
+                p: { xs: 1, sm: 2 },
+                flexDirection: { xs: "column", md: "row" },
+                alignItems: "flex-start",
+                width: "100%"
             }}
         >
-            <Paper
+            {/* DRAWING */}
+            <Box
                 sx={{
-                    p:{xs:2,sm:3},
-                    width:{xs:"100%",md:"22rem"},
-                    flexShrink:0
+                    flex: 1,
+                    minWidth: 0,
+                    width: "100%",
+                    order: { xs: 1, md: 2 }
                 }}
             >
-                <Typography variant="h6" sx={{mb:2}}>
+                <ProfileGeometryPreview
+                    profile={state}
+                    blankLength={blankLength}
+                    firstBendIndex={state.firstBendIndex} // Восстановлена прямая связь со state
+                    bendViewMode={state.bendViewMode}     // Восстановлена прямая связь со state
+                />
+            </Box>
+
+            {/* EDITOR */}
+            <Paper
+                elevation={2}
+                sx={{
+                    p: { xs: 2, sm: 3 },
+                    width: { xs: "100%", md: "22rem" },
+                    maxWidth: "100%",
+                    boxSizing: "border-box",
+                    flexShrink: 0,
+                    order: { xs: 2, md: 1 }
+                }}
+            >
+                <Typography variant="subtitle2" fontWeight="600" color="text.secondary" sx={{ mb: 1.5, textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.5px" }}>
                     Shelves & Bends
                 </Typography>
 
                 <Stack spacing={1.5}>
-                    {state.shelves.map((shelf,index)=>(
+                    {state.shelves.map((shelf, index) => (
                         <ProfileRow
                             key={index}
                             shelf={shelf}
                             shelfIndex={index}
                             bend={state.bends[index]}
-                            bendIndex={index}
-                            updateShelf={(name,value)=>
-                                updateNestedItem("shelves",index,name,value)
+                            index={index}
+                            verticalShelf={state.verticalShelf}
+                            onVerticalShelfChange={handleVerticalShelfChange}
+
+                            // Изменение длины полки
+                            onShelfChange={(idx, value) =>
+                                updateNestedItem("shelves", index, "length", value)
                             }
-                            updateBend={(name,value)=>
-                                updateNestedItem("bends",index,name,value)
+                            // Изменение угла гиба
+                            onBendChange={(idx, value) =>
+                                updateNestedItem("bends", index, "angle", value)
                             }
-                            removeBend={removeBend}
+                            // Смена стороны полки (лево/право)
+                            onShelfSideChange={(idx, value) =>
+                                updateNestedItem("shelves", index, "side", value)
+                            }
+                            // Смена направления гиба (лево/право)
+                            onBendDirectionChange={(idx, value) =>
+                                updateNestedItem("bends", index, "direction", value)
+                            }
+
+                            // ИСПРАВЛЕНО: Меняем имя пропа на onRemoveBend и безопасно передаем index
+                            onRemoveBend={(idx) => removeBend(index)}
+
                             onSelectFirstBend={handleSelectFirstBend}
-                            firstBendIndex={firstBendIndex}
-                            bendViewMode={bendViewMode}
+                            firstBendIndex={state.firstBendIndex}
+                            bendViewMode={state.bendViewMode}
+                            canRemove={!!state.bends[index] && state.bends.length > 1}
                         />
                     ))}
                 </Stack>
 
-                <Box sx={{mt:2,mb:2}}>
+                {/* СТРОГАЯ ЧЕРНАЯ КНОПКА OUTLINED КАК ВЫ И ПРОСИЛИ */}
+                <Box sx={{ mt: 2, mb: 2 }}>
                     <Button
                         fullWidth
                         variant="outlined"
-                        startIcon={<AddIcon/>}
+                        startIcon={<AddIcon />}
                         onClick={addBend}
+                        sx={{
+                            color: "text.primary",
+                            borderColor: "text.primary",
+                            textTransform: "none",
+                            fontWeight: "600",
+                            "&:hover": {
+                                borderColor: "text.secondary",
+                                backgroundColor: "action.hover",
+                            }
+                        }}
                     >
                         Add Bend
                     </Button>
                 </Box>
 
-                <Typography variant="h6" sx={{mb:2}}>
+                <Typography variant="subtitle2" fontWeight="600" color="text.secondary" sx={{ mb: 1.5, pt: 2, borderTop: "1px solid", borderColor: "divider", textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.5px" }}>
                     Parameters
                 </Typography>
 
+                {/* ПАРАМЕТРЫ С АДАПТИВНОЙ ГРИД-СЕТКОЙ И СКРЫТЫМИ СТРЕЛОЧКАМИ */}
                 <Box
                     sx={{
-                        display:"flex",
-                        gap:1,
-                        flexWrap:"wrap"
+                        display: "grid",
+                        gridTemplateColumns: { xs: "repeat(2, 1fr)", md: "repeat(3, 1fr)" },
+                        gap: 1.5,
+                        width: "100%",
+                        mb: 3,
+                        "& > *": {
+                            minWidth: 0,
+                            "& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button": { "-webkit-appearance": "none", margin: 0 },
+                            "& input[type=number]": { "-moz-appearance": "textfield" }
+                        }
                     }}
                 >
                     <TextField
@@ -288,10 +361,11 @@ export default function Biegeberechnung(){
                         type="number"
                         size="small"
                         value={state.thickness}
-                        onChange={e=>updateParam(
-                            "thickness",
-                            Number(e.target.value)
-                        )}
+                        onChange={e => updateParam("thickness", Number(e.target.value) || 0)}
+                        slotProps={{
+                            htmlInput: { min: 0, step: 1 },
+                            input: { endAdornment: <InputAdornment position="end" sx={{ scale: .8, ml: .25 }}>mm</InputAdornment> }
+                        }}
                     />
 
                     <TextField
@@ -299,10 +373,8 @@ export default function Biegeberechnung(){
                         type="number"
                         size="small"
                         value={state.kFactor}
-                        onChange={e=>updateParam(
-                            "kFactor",
-                            Number(e.target.value)
-                        )}
+                        onChange={e => updateParam("kFactor", Number(e.target.value) || 0)}
+                        slotProps={{ htmlInput: { min: 0, max: 1, step: 0.01 } }}
                     />
 
                     <TextField
@@ -310,51 +382,55 @@ export default function Biegeberechnung(){
                         type="number"
                         size="small"
                         value={state.rTool}
-                        onChange={e=>updateParam(
-                            "rTool",
-                            Number(e.target.value)
-                        )}
+                        onChange={e => updateParam("rTool", Number(e.target.value) || 0)}
+                        slotProps={{
+                            htmlInput: { min: 0, step: 1 },
+                            input: { endAdornment: <InputAdornment position="end" sx={{ scale: .8, ml: .25 }}>mm</InputAdornment> }
+                        }}
                     />
                 </Box>
 
-                <Typography sx={{mt:2}}>
-                    Blank length: {blankLength.toFixed(2)} mm
-                </Typography>
-
-                {state.referenceBend.length!==null&&(
-                    <Typography>
-                        Reference: {state.referenceBend.length.toFixed(2)} mm
-                    </Typography>
-                )}
-
-                {machineParams&&(
-                    <Box sx={{mt:2}}>
-                        <Typography>
-                            Bend angle: {machineParams.bendAngle}°
-                        </Typography>
-                        <Typography>
-                            Stop position: {machineParams.stopPosition} mm
-                        </Typography>
-                        <Typography>
-                            Gap folding: {machineParams.gapFolding} mm
-                        </Typography>
+                {/* ИНФОРМАЦИОННАЯ ПАНЕЛЬ РАСЧЕТОВ СНИЗУ */}
+                <Stack
+                    spacing={1}
+                    sx={{
+                        p: 2,
+                        borderRadius: "8px",
+                        backgroundColor: "grey.50",
+                        border: "1px solid",
+                        borderColor: "grey.200"
+                    }}
+                >
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <Typography variant="body2" color="text.secondary">Blank length:</Typography>
+                        <Typography variant="body2" fontWeight="600" sx={{ ml: "auto" }}>{blankLength.toFixed(2)} mm</Typography>
                     </Box>
-                )}
-            </Paper>
 
-            <Box
-                sx={{
-                    flex:1,
-                    minWidth:0
-                }}
-            >
-                <ProfileGeometryPreview
-                    profile={state}
-                    blankLength={blankLength}
-                    firstBendIndex={firstBendIndex}
-                    bendViewMode={bendViewMode}
-                />
-            </Box>
+                    {state.referenceBend.length !== null && (
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <Typography variant="body2" color="text.secondary">Reference:</Typography>
+                            <Typography variant="body2" fontWeight="600" color="primary.main" sx={{ ml: "auto" }}>{state.referenceBend.length.toFixed(2)} mm</Typography>
+                        </Box>
+                    )}
+
+                    {machineParams && (
+                        <Stack spacing={0.8} sx={{ mt: 1, pt: 1, borderTop: "1px dashed", borderColor: "grey.300" }}>
+                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <Typography variant="caption" color="text.secondary">Bend angle:</Typography>
+                                <Typography variant="caption" fontWeight="600" sx={{ ml: "auto" }}>{machineParams.bendAngle}°</Typography>
+                            </Box>
+                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <Typography variant="caption" color="text.secondary">Stop position:</Typography>
+                                <Typography variant="caption" fontWeight="600" sx={{ ml: "auto" }}>{machineParams.stopPosition} mm</Typography>
+                            </Box>
+                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <Typography variant="caption" color="text.secondary">Gap folding:</Typography>
+                                <Typography variant="caption" fontWeight="600" sx={{ ml: "auto" }}>{machineParams.gapFolding} mm</Typography>
+                            </Box>
+                        </Stack>
+                    )}
+                </Stack>
+            </Paper>
         </Box>
     );
 }

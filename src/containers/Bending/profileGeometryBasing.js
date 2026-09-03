@@ -205,11 +205,33 @@ export const prepareSvgLayers = (geometry, profile, VW, VH, PADDING, referenceBe
     const totalShelves = geometry.shelvesData.length;
     const blueLength = Number(referenceBend?.length) || 0;
 
+    const verticalShelfIdx = Number(profile?.verticalShelf ?? 1) - 1
+
     let rotationAngle = 0;
+    // Режим А: Если выбран конкретный гиб (firstBendIndex >= 0)
     if (firstBendIdx >= 0) {
         const i = viewMode === "toEnd" ? firstBendIdx + 1 : firstBendIdx;
         const s = geometry.shelvesData[i];
-        if (s) rotationAngle = viewMode === "toEnd" ? s.angleRad : s.angleRad + Math.PI;
+
+        if (s) {
+            rotationAngle = viewMode === "toEnd"
+                ? s.angleRad
+                : s.angleRad + Math.PI;
+        }
+    }
+    // Режим Б: ИСПРАВЛЕНО ДЛЯ ВСЕХ ПОЛОК (3-й, 4-й и т.д.)
+    else {
+        // Проверяем, что у нас есть массив точек контура A и нужные индексы существуют
+        if (geometry.sideA && geometry.sideA[verticalShelfIdx] && geometry.sideA[verticalShelfIdx + 1]) {
+            const p1 = geometry.sideA[verticalShelfIdx];     // Начало полки
+            const p2 = geometry.sideA[verticalShelfIdx + 1]; // Конец полки
+
+            // Находим честный глобальный угол наклона этой полки по ее координатам
+            const currentGlobalAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+
+            // Разворачиваем всю систему координат так, чтобы эта полка смотрела строго вверх (-90 градусов)
+            rotationAngle = -Math.PI / 2 - currentGlobalAngle;
+        }
     }
 
     let rotatedSideA = geometry.sideA.map(p => rotatePoint(p, rotationAngle));

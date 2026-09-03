@@ -95,20 +95,32 @@ const ProfileRow = memo(({
                     <IconButton
                         size="small"
                         onClick={() => onShelfSideChange(index, shelf.side === "right" ? "left" : "right")}
-                        sx={iconBtnStyle(shelf.side === "left")}
+                        sx={iconBtnStyle(true, "text.primary")}
                     >
                         {shelf.side === "right" ? <ArrowForwardIcon fontSize="small" /> : <ArrowBackIcon fontSize="small" />}
                     </IconButton>
                 </Tooltip>
 
-                <Tooltip title="Als vertikal markieren">
-                    <IconButton
-                        size="small"
-                        onClick={() => onVerticalShelfChange(index)}
-                        sx={iconBtnStyle(isVertical)}
-                    >
-                        <HeightIcon fontSize="small" />
-                    </IconButton>
+                {/* ИСПРАВЛЕНО: Кнопка вертикали блокируется, если выбран любой угол (firstBendIndex !== -1) */}
+                <Tooltip title={firstBendIndex !== -1 ? "Deaktiviert, wenn Winkel ausgewählt ist" : "Als vertikal markieren"}>
+    <span style={{ display: "inline-flex" }}>
+        <IconButton
+            size="small"
+            color={isVertical ? "primary" : "default"}
+            onClick={() => onVerticalShelfChange(index)}
+            disabled={firstBendIndex !== -1}
+            sx={{
+                ...iconBtnStyle(isVertical),
+                "&.Mui-disabled": {
+                    borderColor: "divider",
+                    backgroundColor: "action.hover",
+                    color: "text.disabled"
+                }
+            }}
+        >
+            <HeightIcon fontSize="small" />
+        </IconButton>
+    </span>
                 </Tooltip>
             </Box>
 
@@ -145,8 +157,8 @@ const ProfileRow = memo(({
                             p: 1,
                             borderRadius: "6px",
                             border: "1px solid",
-                            borderColor: isCurrentBendSelected ? "primary.light" : "divider",
-                            backgroundColor: isCurrentBendSelected ? "action.hover" : "grey.50"
+                            borderColor: isCurrentBendSelected ? "primary.main" : "divider",
+                            backgroundColor: "action.hover"
                         }}
                     >
                         <TextField
@@ -184,13 +196,13 @@ const ProfileRow = memo(({
                             <IconButton
                                 size="small"
                                 onClick={() => onBendDirectionChange(index, bend.direction === "right" ? "left" : "right")}
-                                sx={iconBtnStyle(bend.direction === "left")}
+                                sx={iconBtnStyle(true, "text.primary")}
                             >
                                 {bend.direction === "right" ? (
-                                    <UndoIcon fontSize="small" style={{ transform: "rotate(90deg)" }} />
-                                ) : (
                                     <RedoIcon fontSize="small" style={{ transform: "rotate(-90deg)" }} />
-                                )}
+                           ) : (
+                                    <UndoIcon fontSize="small" style={{ transform: "rotate(90deg)" }} />
+                            )}
                             </IconButton>
                         </Tooltip>
 
