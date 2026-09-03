@@ -221,7 +221,7 @@ export default function Biegeberechnung(){
         return calculateBendingMachineParams({
             alpha:selectedBend.angle,
             lInput:state.referenceBend.length||0,
-            isInnerMode:selectedBend.direction==="left"?1:0,
+            isInnerMode:false,
             t:thickness,
             rTool
         });
@@ -305,8 +305,7 @@ export default function Biegeberechnung(){
                                 updateNestedItem("bends", index, "direction", value)
                             }
 
-                            // ИСПРАВЛЕНО: Меняем имя пропа на onRemoveBend и безопасно передаем index
-                            onRemoveBend={(idx) => removeBend(index)}
+                            onRemoveBend={() => removeBend(index)}
 
                             onSelectFirstBend={handleSelectFirstBend}
                             firstBendIndex={state.firstBendIndex}
