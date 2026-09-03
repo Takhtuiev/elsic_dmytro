@@ -351,8 +351,13 @@ export default function Biegeberechnung(){
                         mb: 3,
                         "& > *": {
                             minWidth: 0,
-                            "& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button": { "-webkit-appearance": "none", margin: 0 },
-                            "& input[type=number]": { "-moz-appearance": "textfield" }
+                            "& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button": {
+                                WebkitAppearance: "none",
+                                margin: 0
+                            },
+                            "& input[type=number]": {
+                                MozAppearance: "textfield"
+                            }
                         }
                     }}
                 >
@@ -396,9 +401,7 @@ export default function Biegeberechnung(){
                     sx={{
                         p: 2,
                         borderRadius: "8px",
-                        backgroundColor: "grey.50",
                         border: "1px solid",
-                        borderColor: "grey.200"
                     }}
                 >
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>

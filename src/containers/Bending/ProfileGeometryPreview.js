@@ -17,10 +17,10 @@ const ProfileGeometryPreview = ({
     const theme = useTheme();
 
     const ACTIVE_LINE_COLOR = theme.palette.text.primary;
-    const ACTIVE_FILL_COLOR = alpha(theme.palette.text.primary, 0.08);
+    const ACTIVE_FILL_COLOR = alpha(theme.palette.text.primary, 0.1);
 
     const GHOST_LINE_COLOR = theme.palette.text.disabled;
-    const GHOST_FILL_COLOR = alpha(theme.palette.text.disabled, 0.08);
+    const GHOST_FILL_COLOR = alpha(theme.palette.text.disabled, 0.02);
 
     const BLUE_LINE_COLOR = theme.palette.primary.main;
     const BLUE_FILL_COLOR = alpha(theme.palette.primary.main, 0.08);

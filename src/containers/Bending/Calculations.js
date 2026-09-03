@@ -190,11 +190,6 @@ export const calculateBendingMachineParams = ({
                                                   t,
                                                   rTool
                                               }) => {
-    console.log("dddd ", alpha,
-        lInput,
-        isInnerMode,
-        t,
-        rTool)
     const bendAngle = 180 - alpha;
     const rad = Math.PI * bendAngle / 180;
 
