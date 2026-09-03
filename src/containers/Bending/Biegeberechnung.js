@@ -244,158 +244,151 @@ function Biegeberechnung() {
   state.rTool
  ]);
 
- return (
-     <Box
-         sx={{
-          display: "flex",
-          gap: { xs: 2, md: 3 },
-          alignItems: "flex-start",
-          width: "100%",
-          flexWrap: "wrap",
-          p: { xs: 0.5, sm: 1 }
-         }}
-     >
-      {/* БЛОК ЧЕРТЕЖА: На мобильных сверху (order 1), на ПК — справа (order 2) */}
-      <Box
-          sx={{
-           flex: "1 1 400px",
-           minWidth: 0,
-           maxWidth: 700,
-           width: "100%",
-           display: "flex",
-           flexDirection: "column",
-           gap: 2,
-           order: { xs: 1, md: 2 }
-          }}
-      >
-       <ProfileGeometryPreview
-           profile={state}
-           blankLength={blankLength}
-           machineParams={machineParams}
-       />
-      </Box>
+    return (
+        <Box sx={{
+            display: "flex", gap: { xs: 2, md: 3 }, alignItems: "flex-start",
+            width: "100%", flexWrap: "wrap", p: { xs: .5, sm: 1 }
+        }}>
+            {/* DRAWING */}
+            <Box sx={{
+                flex: "1 1 400px", minWidth: 0, maxWidth: 700, width: "100%",
+                display: "flex", flexDirection: "column", gap: 2,
+                order: { xs: 1, md: 2 }
+            }}>
+                <ProfileGeometryPreview
+                    profile={state}
+                    blankLength={blankLength}
+                    machineParams={machineParams}
+                />
+            </Box>
 
-      {/* ЕДИНЫЙ ОБЪЕДИНЕННЫЙ БЛОК НАСТРОЕК: На мобильных снизу (order 2), на ПК — слева (order 1) */}
-      <Paper
-          elevation={2}
-          sx={{
-           p: { xs: 2, sm: 3 },
-           // ИСПРАВЛЕНИЕ: На мобильных 100%, а на ПК жестко фиксируем ширину (например, 420px)
-           // Это не даст ProfileRow или инпутам раздувать карточку и выдавливать чертеж
-           width: { xs: "100%", md: "420px" },
-           maxWidth: "100%",
-           boxSizing: "border-box",
-           order: { xs: 2, md: 1 },
-           flexShrink: 0
-          }}
-      >
+            {/* EDITOR */}
+            <Paper sx={{
+                p: { xs: 2, sm: 3 }, width: { xs: "100%", md: "22rem" }, maxWidth: "100%",
+                boxSizing: "border-box", order: { xs: 2, md: 1 }, flexShrink: 0
+            }}>
+                {/* SHELVES & BENDS */}
+                <Typography
+                    variant="subtitle2"
+                    fontWeight="600"
+                    color="text.secondary"
+                    sx={{ mb: 1.5, textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.5px" }}
+                >
+                    Shelves & Bends
+                </Typography>
 
-       {/* ЗАГОЛОВОК И УЛЬТРА-КОМПАКТНЫЕ ПАРАМЕТРЫ (ТЕПЕРЬ СВЕРХУ) */}
-       <Typography variant="h6" fontWeight="500" sx={{ mb: 1.5 }}>
-        Profile Editor
-       </Typography>
+                <Stack spacing={1.5}>
+                    {state.shelves.map((shelf, i) => (
+                        <ProfileRow
+                            key={`row-${i}`}
+                            shelf={shelf}
+                            bend={state.bends[i] || null}
+                            index={i}
+                            verticalShelf={state.verticalShelf}
+                            firstBendIndex={state.firstBendIndex}
+                            bendViewMode={state.bendViewMode}
+                            onShelfChange={handleShelfChange}
+                            onShelfSideChange={handleShelfSideChange}
+                            onVerticalShelfChange={handleVerticalShelfChange}
+                            onBendChange={handleBendChange}
+                            onBendDirectionChange={handleBendDirectionChange}
+                            onSelectFirstBend={handleSelectFirstBend}
+                            onRemoveBend={removeBend}
+                            canRemove={!!state.bends[i] && state.bends.length > 1}
+                        />
+                    ))}
+                </Stack>
 
-       {/* Параметры выстроены в один плотный ряд */}
-       <Box
-           sx={{
-            display: "flex",
-            // На мобильных переносим инпуты, на ПК (md) — выстраиваем строго в один ряд
-            flexWrap: { xs: "wrap", md: "nowrap" },
-            gap: 1.5,
-            mb: 3,
-            pb: 2,
-            borderBottom: "1px solid",
-            borderColor: "divider",
-            width: "100%",
-            // Правило для дочерних элементов: на мобильных они делят экран пополам (минус gap), на ПК делятся на 3
-            "& > *": {
-             flex: { xs: "1 1 calc(50% - 6px)", md: "1 1 0px" },
-             minWidth: 0 // Важно, чтобы MUI инпуты могли сжиматься меньше своего дефолтного размера
-            }
-           }}
-       >
-        <TextField
-            label="Thickness"
-            type="number"
-            value={state.thickness}
-            size="small"
-            onChange={e => updateParam("thickness", Number(e.target.value) || 0)}
-            slotProps={{
-             htmlInput: { min: 0, step: 0.1 },
-             input: { endAdornment: <InputAdornment position="end" sx={{ scale: "0.80", ml: 0.25 }}>mm</InputAdornment> }
-            }}
-        />
+                <Box sx={{ mt: 2, mb: 2 }}>
+                    <Button
+                        variant="outlined"
+                        startIcon={<AddIcon />}
+                        onClick={addBend}
+                        sx={{
+                            width: "100%", py: .75, textTransform: "none", fontSize: ".9rem"
+                        }}
+                    >
+                        Add Bend
+                    </Button>
+                </Box>
 
-        <TextField
-            label="K-Factor"
-            type="number"
-            value={state.kFactor}
-            size="small"
-            onChange={e => updateParam("kFactor", Number(e.target.value) || 0)}
-            slotProps={{ htmlInput: { min: 0, max: 1, step: 0.01 } }}
-        />
+                {/* PARAMETERS */}
+                <Typography
+                    variant="subtitle2"
+                    fontWeight="600"
+                    color="text.secondary"
+                    sx={{
+                        mb: 1.5,
+                        pt: 2,
+                        borderTop: "1px solid",
+                        borderColor: "divider",
+                        textTransform: "uppercase",
+                        fontSize: "0.75rem",
+                        letterSpacing: "0.5px"
+                    }}
+                >
+                    Parameters
+                </Typography>
 
-        <TextField
-            label="R_tool"
-            type="number"
-            value={state.rTool}
-            size="small"
-            onChange={e => updateParam("rTool", Number(e.target.value) || 0)}
-            slotProps={{
-             htmlInput: { min: 0, step: .1 },
-             input: { endAdornment: <InputAdornment position="end" sx={{ scale: "0.80", ml: 0.25 }}>mm</InputAdornment> }
-            }}
-        />
-       </Box>
+                <Box sx={{
+                    display: "flex",
+                    flexWrap: { xs: "wrap", md: "nowrap" },
+                    gap: 1.5,
+                    width: "100%",
+                    "& > *": {
+                        flex: { xs: "1 1 calc(50% - 6px)", md: "1 1 0px" },
+                        minWidth: 0,
+                        // Встроенное скрытие стрелочек спиннера для Chromium/Firefox
+                        "& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button": { "-webkit-appearance": "none", margin: 0 },
+                        "& input[type=number]": { "-moz-appearance": "textfield" }
+                    }
+                }}>
+                    <TextField
+                        label="Thickness"
+                        type="number"
+                        value={state.thickness}
+                        size="small"
+                        onChange={e => updateParam("thickness", Number(e.target.value) || 0)}
+                        slotProps={{
+                            htmlInput: { min: 0, step: 1 }, // Шаг встроенных стрелочек/клавиатуры = 1
+                            input: {
+                                endAdornment:
+                                    <InputAdornment position="end" sx={{ scale: .8, ml: .25 }}>
+                                        mm
+                                    </InputAdornment>
+                            }
+                        }}
+                    />
 
-       {/* СПИСОК ПОЛОК (PART PROFILE) */}
-       <Typography variant="subtitle2" fontWeight="500" color="text.secondary" sx={{ mb: 1.5 }}>
-        Shelves & Bends
-       </Typography>
+                    <TextField
+                        label="K-Factor"
+                        type="number"
+                        value={state.kFactor}
+                        size="small"
+                        onChange={e => updateParam("kFactor", Number(e.target.value) || 0)}
+                        slotProps={{ htmlInput: { min: 0, max: 1, step: 0.01 } }}
+                    />
 
-       <Stack spacing={1.5}>
-        {state.shelves.map((shelf, i) => (
-            <ProfileRow
-                key={`row-${i}`}
-                shelf={shelf}
-                bend={state.bends[i] || null}
-                index={i}
-                verticalShelf={state.verticalShelf}
-                firstBendIndex={state.firstBendIndex}
-                bendViewMode={state.bendViewMode}
-                onShelfChange={handleShelfChange}
-                onShelfSideChange={handleShelfSideChange}
-                onVerticalShelfChange={handleVerticalShelfChange}
-                onBendChange={handleBendChange}
-                onBendDirectionChange={handleBendDirectionChange}
-                onSelectFirstBend={handleSelectFirstBend}
-                onRemoveBend={removeBend}
-                canRemove={
-                    !!state.bends[i] &&
-                    state.bends.length > 1
-                }
-            />
-        ))}
-       </Stack>
-
-       <Box sx={{ mt: 2.5 }}>
-        <Button
-            variant="outlined"
-            startIcon={<AddIcon />}
-            onClick={addBend}
-            sx={{
-             width: "100%",
-             py: 0.75,
-             textTransform: "none",
-             fontSize: "0.9rem"
-            }}
-        >
-         Add Bend
-        </Button>
-       </Box>
-      </Paper>
-     </Box>
- );
+                    <TextField
+                        label="R_tool"
+                        type="number"
+                        value={state.rTool}
+                        size="small"
+                        onChange={e => updateParam("rTool", Number(e.target.value) || 0)}
+                        slotProps={{
+                            htmlInput: { min: 0, step: 1 }, // Шаг встроенных стрелочек/клавиатуры = 1
+                            input: {
+                                endAdornment:
+                                    <InputAdornment position="end" sx={{ scale: .8, ml: .25 }}>
+                                        mm
+                                    </InputAdornment>
+                            }
+                        }}
+                    />
+                </Box>
+            </Paper>
+        </Box>
+    );
 }
 
 export default Biegeberechnung;
