@@ -47,14 +47,15 @@ const ProfileGeometryPreview = ({
                 fontWeight="500"
                 sx={{ mb: 1, color: "text.secondary" }}
             >
-                Профиль гибки (Чертеж геометрии)
+                Bend Profile (Geometric Drawing)
             </Typography>
 
             <Box
                 sx={{
                     width: "100%",
-                    height: `${VH}px`,
-                    maxHeight: "80vh",
+                    // Вместо фиксированных 450px задаем пропорции чертежа (600 / 450 = 1.333)
+                    aspectRatio: `${VW} / ${VH}`,
+                    maxHeight: "75vh",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",

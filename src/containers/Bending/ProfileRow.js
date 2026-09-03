@@ -1,29 +1,13 @@
 import React, { memo } from "react";
-import { Box, IconButton, InputAdornment, TextField } from "@mui/material";
+import { Box, IconButton, InputAdornment, TextField, Tooltip } from "@mui/material";
 import HeightIcon from "@mui/icons-material/Height";
-
-const SHELF_FIELD_WIDTH = "16ch";
-const ANGLE_FIELD_WIDTH = "12ch";
-
-const SHELF_LABEL = "Schenkel";
-const ANGLE_LABEL = "Winkel";
-
-const GRID_STYLE = {
-    display: "grid",
-    gridTemplateColumns: `${SHELF_FIELD_WIDTH} 34px 34px`,
-    alignItems: "center",
-    columnGap: 1,
-    width: "max-content",
-    maxWidth: "100%",
-};
-
-const BEND_INPUT_INNER_GRID = {
-    display: "grid",
-    gridTemplateColumns: `${ANGLE_FIELD_WIDTH} 34px`,
-    alignItems: "center",
-    columnGap: 1,
-    width: "100%",
-};
+import DeleteIcon from "@mui/icons-material/Clear";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import UndoIcon from "@mui/icons-material/Undo";
+import RedoIcon from "@mui/icons-material/Redo";
+import AdjustIcon from "@mui/icons-material/Adjust";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 
 const handleNumberKeyDown = (e) => {
     const allowedKeys = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Tab", "Home", "End"];
@@ -45,7 +29,7 @@ const ProfileRow = memo(({
                              index,
                              verticalShelf,
                              firstBendIndex,
-                             bendViewMode, // Получаем режим обрыва
+                             bendViewMode,
                              onShelfChange,
                              onShelfSideChange,
                              onVerticalShelfChange,
@@ -58,112 +42,178 @@ const ProfileRow = memo(({
     const isVertical = verticalShelf === index + 1;
     const isCurrentBendSelected = firstBendIndex === index;
 
-    // Меняем иконку: ① для прямого обрыва, ❶ для обратного обрыва
-    const buttonIcon = isCurrentBendSelected
-        ? (bendViewMode === "toEnd" ? "①" : "❶")
-        : "①";
+    // Базовый стиль для кнопок управления
+    const iconBtnStyle = (isActive, activeColor = "primary.main") => ({
+        borderRadius: "6px",
+        border: "1px solid",
+        borderColor: isActive ? activeColor : "divider",
+        backgroundColor: isActive ? `${activeColor}10` : "background.paper",
+        color: isActive ? activeColor : "text.secondary",
+        width: 36,
+        height: 36,
+        p: 0,
+        flexShrink: 0,
+        "&:hover": {
+            borderColor: activeColor,
+            backgroundColor: `${activeColor}20`,
+        }
+    });
 
     return (
-        <React.Fragment>
-            <Box sx={GRID_STYLE}>
+        <Box sx={{ display: "flex", flexDirection: "column", width: "100%" }}>
+
+            {/* 1. БЛОК ПОЛКИ (SCHENKEL) */}
+            <Box
+                sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    width: "100%",
+                    p: 1,
+                    borderRadius: "6px",
+                    border: "1px solid",
+                    borderColor: "divider",
+                    backgroundColor: "background.paper"
+                }}
+            >
                 <TextField
-                    label={`${SHELF_LABEL} ${index + 1}`}
+                    label={`Schenkel ${index + 1}`}
                     type="text"
                     inputMode="decimal"
                     value={shelf.length}
                     size="small"
-                    sx={{ width: SHELF_FIELD_WIDTH }}
+                    fullWidth
                     onKeyDown={handleNumberKeyDown}
                     onChange={(e) => onShelfChange(index, sanitizeNumber(e.target.value))}
                     slotProps={{
                         htmlInput: { min: 0, step: 0.01 },
-                        input: { endAdornment: <InputAdornment position="end">mm</InputAdornment> },
+                        input: { endAdornment: <InputAdornment position="end" sx={{ fontSize: "0.8rem" }}>mm</InputAdornment> },
                     }}
                 />
-                <IconButton
-                    size="small"
-                    color="primary"
-                    onClick={() => onShelfSideChange(index, shelf.side === "right" ? "left" : "right")}
-                    sx={{ borderRadius: "4px", border: "1px solid", borderColor: "divider", width: "34px", height: "34px", p: 0 }}
-                >
-                    <span style={{ fontSize: "16px", fontWeight: "bold" }}>{shelf.side === "right" ? "→" : "←"}</span>
-                </IconButton>
-                <IconButton
-                    size="small"
-                    color={isVertical ? "primary" : "default"}
-                    onClick={() => onVerticalShelfChange(index)}
-                    sx={{ borderRadius: "4px", border: `1px solid ${isVertical ? "currentColor" : "divider"}`, width: "34px", height: "34px", p: 0 }}
-                >
-                    <HeightIcon fontSize="small" />
-                </IconButton>
+
+                <Tooltip title="Seite wechseln">
+                    <IconButton
+                        size="small"
+                        onClick={() => onShelfSideChange(index, shelf.side === "right" ? "left" : "right")}
+                        sx={iconBtnStyle(shelf.side === "left")}
+                    >
+                        {shelf.side === "right" ? <ArrowForwardIcon fontSize="small" /> : <ArrowBackIcon fontSize="small" />}
+                    </IconButton>
+                </Tooltip>
+
+                <Tooltip title="Als vertikal markieren">
+                    <IconButton
+                        size="small"
+                        onClick={() => onVerticalShelfChange(index)}
+                        sx={iconBtnStyle(isVertical)}
+                    >
+                        <HeightIcon fontSize="small" />
+                    </IconButton>
+                </Tooltip>
             </Box>
 
+            {/* 2. БЛОК ГИБА (WINKEL) — рендерится как связующее звено, если это не последняя полка */}
             {bend && (
-                <Box sx={GRID_STYLE}>
-                    <Box sx={BEND_INPUT_INNER_GRID}>
+                <Box
+                    sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        width: "100%",
+                        position: "relative",
+                        // Рисуем сквозную вертикальную линию слева, показывающую последовательность цепочки
+                        py: 1.5,
+                        pl: 4,
+                        boxSizing: "border-box",
+                        "&::before": {
+                            content: '""',
+                            position: "absolute",
+                            left: "24px",
+                            top: 0,
+                            bottom: 0,
+                            width: "2px",
+                            borderLeft: "2px dashed",
+                            borderColor: isCurrentBendSelected ? "primary.main" : "divider"
+                        }
+                    }}
+                >
+                    <Box
+                        sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1,
+                            width: "100%",
+                            p: 1,
+                            borderRadius: "6px",
+                            border: "1px solid",
+                            borderColor: isCurrentBendSelected ? "primary.light" : "divider",
+                            backgroundColor: isCurrentBendSelected ? "action.hover" : "grey.50"
+                        }}
+                    >
                         <TextField
-                            label={`${ANGLE_LABEL} ${index + 1}`}
+                            label={`Winkel ${index + 1}`}
                             type="text"
                             inputMode="decimal"
                             value={bend.angle}
                             size="small"
-                            sx={{ width: ANGLE_FIELD_WIDTH }}
+                            fullWidth
                             onKeyDown={handleNumberKeyDown}
                             onChange={(e) => onBendChange(index, sanitizeNumber(e.target.value))}
                             slotProps={{
                                 htmlInput: { min: 0, max: 180, step: 0.01 },
-                                input: { endAdornment: <InputAdornment position="end">°</InputAdornment> },
+                                input: {
+                                    endAdornment: <InputAdornment position="end" sx={{ fontSize: "0.8rem" }}>°</InputAdornment>,
+                                    startAdornment: canRemove && (
+                                        <InputAdornment position="start">
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => onRemoveBend(index)}
+                                                sx={{
+                                                    width: 22, height: 22, p: 0, color: "text.disabled",
+                                                    "&:hover": { color: "error.main" }
+                                                }}
+                                            >
+                                                <DeleteIcon sx={{ fontSize: 14 }} />
+                                            </IconButton>
+                                        </InputAdornment>
+                                    )
+                                },
                             }}
                         />
-                        {canRemove ? (
+
+                        <Tooltip title="Biegerichtung wechseln">
                             <IconButton
                                 size="small"
-                                onClick={() => onRemoveBend(index)}
-                                sx={{
-                                    width: "34px", height: "34px", p: 0, color: "text.disabled", borderRadius: "4px",
-                                    "&:hover": { color: "error.main", backgroundColor: "error.lighter" }
-                                }}
+                                onClick={() => onBendDirectionChange(index, bend.direction === "right" ? "left" : "right")}
+                                sx={iconBtnStyle(bend.direction === "left")}
                             >
-                                <span style={{ fontSize: "15px", fontFamily: "sans-serif", lineHeight: 1 }}>✕</span>
+                                {bend.direction === "right" ? (
+                                    <UndoIcon fontSize="small" style={{ transform: "rotate(90deg)" }} />
+                                ) : (
+                                    <RedoIcon fontSize="small" style={{ transform: "rotate(-90deg)" }} />
+                                )}
                             </IconButton>
-                        ) : (
-                            <Box sx={{ width: "34px", height: "34px" }} />
-                        )}
+                        </Tooltip>
+
+                        <Tooltip title="Schnittansicht: Klick zum Wechseln">
+                            <IconButton
+                                size="small"
+                                onClick={() => onSelectFirstBend(index)}
+                                sx={iconBtnStyle(
+                                    isCurrentBendSelected,
+                                    isCurrentBendSelected ? (bendViewMode === "toEnd" ? "success.main" : "warning.main") : "primary.main"
+                                )}
+                            >
+                                {isCurrentBendSelected ? (
+                                    <AdjustIcon fontSize="small" />
+                                ) : (
+                                    <RadioButtonUncheckedIcon fontSize="small" />
+                                )}
+                            </IconButton>
+                        </Tooltip>
                     </Box>
-
-                    <IconButton
-                        size="small"
-                        color="primary"
-                        onClick={() => onBendDirectionChange(index, bend.direction === "right" ? "left" : "right")}
-                        sx={{ borderRadius: "4px", border: "1px solid", borderColor: "divider", width: "34px", height: "34px", p: 0 }}
-                    >
-                        <span style={{ fontSize: "16px", fontWeight: "bold" }}>{bend.direction === "right" ? "⤾" : "⤿"}</span>
-                    </IconButton>
-
-                    {/* ТРЕХПОЗИЦИОННЫЙ ПЕРЕКЛЮЧАТЕЛЬ ОБРЫВА ЧЕРТЕЖА */}
-                    <IconButton
-                        size="small"
-                        color={isCurrentBendSelected ? (bendViewMode === "toEnd" ? "success" : "warning") : "default"}
-                        title="Клик: До угла ➔ После угла ➔ Сброс"
-                        onClick={() => onSelectFirstBend(index)}
-                        sx={{
-                            borderRadius: "4px",
-                            border: `1px solid ${isCurrentBendSelected ? "currentColor" : "divider"}`,
-                            backgroundColor: isCurrentBendSelected
-                                ? (bendViewMode === "toEnd" ? "success.lighter" : "warning.lighter")
-                                : "transparent",
-                            width: "34px",
-                            height: "34px",
-                            fontSize: "12px",
-                            fontWeight: "bold",
-                            p: 0,
-                        }}
-                    >
-                        {buttonIcon}
-                    </IconButton>
                 </Box>
             )}
-        </React.Fragment>
+        </Box>
     );
 });
 

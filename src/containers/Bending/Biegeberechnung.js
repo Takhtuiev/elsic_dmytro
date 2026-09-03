@@ -248,186 +248,24 @@ function Biegeberechnung() {
      <Box
          sx={{
           display: "flex",
-          gap: 3,
+          gap: { xs: 2, md: 3 },
           alignItems: "flex-start",
           width: "100%",
           flexWrap: "wrap",
-          p: 1
+          p: { xs: 0.5, sm: 1 }
          }}
      >
-      <Box
-          sx={{
-           display: "flex",
-           flexDirection: "column",
-           gap: 2,
-           width: "fit-content",
-           maxWidth: "100%",
-           flexShrink: 0
-          }}
-      >
-       <Paper
-           elevation={2}
-           sx={{
-            p: 3,
-            width: "fit-content",
-            maxWidth: "100%",
-            boxSizing: "border-box"
-           }}
-       >
-        <Typography
-            variant="h6"
-            fontWeight="500"
-            sx={{ mb: 3 }}
-        >
-         Part Profile
-        </Typography>
-
-        <Stack spacing={2}>
-         {state.shelves.map((shelf, i) => (
-             <ProfileRow
-                 key={`row-${i}`}
-                 shelf={shelf}
-                 bend={state.bends[i] || null}
-                 index={i}
-                 verticalShelf={state.verticalShelf}
-                 firstBendIndex={state.firstBendIndex}
-                 bendViewMode={state.bendViewMode}
-                 onShelfChange={handleShelfChange}
-                 onShelfSideChange={handleShelfSideChange}
-                 onVerticalShelfChange={handleVerticalShelfChange}
-                 onBendChange={handleBendChange}
-                 onBendDirectionChange={handleBendDirectionChange}
-                 onSelectFirstBend={handleSelectFirstBend}
-                 onRemoveBend={removeBend}
-                 canRemove={
-                     !!state.bends[i] &&
-                     state.bends.length > 1
-                 }
-             />
-         ))}
-        </Stack>
-
-        <Box sx={{ mt: 3 }}>
-         <Button
-             variant="outlined"
-             startIcon={<AddIcon />}
-             onClick={addBend}
-             sx={{
-              width: "100%",
-              py: 1,
-              textTransform: "none"
-             }}
-         >
-          Add Bend
-         </Button>
-        </Box>
-       </Paper>
-
-       <Paper
-           elevation={2}
-           sx={{
-            p: 3,
-            width: "100%",
-            boxSizing: "border-box"
-           }}
-       >
-        <Typography
-            variant="h6"
-            fontWeight="500"
-            sx={{ mb: 3 }}
-        >
-         Parameters
-        </Typography>
-
-        <Stack spacing={2}>
-         <TextField
-             label="Thickness"
-             type="number"
-             value={state.thickness}
-             size="small"
-             sx={{ width: "16ch" }}
-             onChange={e =>
-                 updateParam(
-                     "thickness",
-                     Number(e.target.value) || 0
-                 )
-             }
-             slotProps={{
-              htmlInput: {
-               min: 0,
-               step: .01
-              },
-              input: {
-               endAdornment: (
-                   <InputAdornment position="end">
-                    mm
-                   </InputAdornment>
-               )
-              }
-             }}
-         />
-
-         <TextField
-             label="K-Factor"
-             type="number"
-             value={state.kFactor}
-             size="small"
-             sx={{ width: "16ch" }}
-             onChange={e =>
-                 updateParam(
-                     "kFactor",
-                     Number(e.target.value) || 0
-                 )
-             }
-             slotProps={{
-              htmlInput: {
-               min: 0,
-               max: 1,
-               step: .01
-              }
-             }}
-         />
-
-         <TextField
-             label="R_tool"
-             type="number"
-             value={state.rTool}
-             size="small"
-             sx={{ width: "16ch" }}
-             onChange={e =>
-                 updateParam(
-                     "rTool",
-                     Number(e.target.value) || 0
-                 )
-             }
-             slotProps={{
-              htmlInput: {
-               min: 0,
-               step: .01
-              },
-              input: {
-               endAdornment: (
-                   <InputAdornment position="end">
-                    mm
-                   </InputAdornment>
-               )
-              }
-             }}
-         />
-        </Stack>
-
-
-       </Paper>
-      </Box>
-
+      {/* БЛОК ЧЕРТЕЖА: На мобильных сверху (order 1), на ПК — справа (order 2) */}
       <Box
           sx={{
            flex: "1 1 400px",
            minWidth: 0,
            maxWidth: 700,
+           width: "100%",
            display: "flex",
            flexDirection: "column",
-           gap: 2
+           gap: 2,
+           order: { xs: 1, md: 2 }
           }}
       >
        <ProfileGeometryPreview
@@ -436,6 +274,126 @@ function Biegeberechnung() {
            machineParams={machineParams}
        />
       </Box>
+
+      {/* ЕДИНЫЙ ОБЪЕДИНЕННЫЙ БЛОК НАСТРОЕК: На мобильных снизу (order 2), на ПК — слева (order 1) */}
+      <Paper
+          elevation={2}
+          sx={{
+           p: { xs: 2, sm: 3 },
+           // ИСПРАВЛЕНИЕ: На мобильных 100%, а на ПК жестко фиксируем ширину (например, 420px)
+           // Это не даст ProfileRow или инпутам раздувать карточку и выдавливать чертеж
+           width: { xs: "100%", md: "420px" },
+           maxWidth: "100%",
+           boxSizing: "border-box",
+           order: { xs: 2, md: 1 },
+           flexShrink: 0
+          }}
+      >
+
+       {/* ЗАГОЛОВОК И УЛЬТРА-КОМПАКТНЫЕ ПАРАМЕТРЫ (ТЕПЕРЬ СВЕРХУ) */}
+       <Typography variant="h6" fontWeight="500" sx={{ mb: 1.5 }}>
+        Profile Editor
+       </Typography>
+
+       {/* Параметры выстроены в один плотный ряд */}
+       <Box
+           sx={{
+            display: "flex",
+            // На мобильных переносим инпуты, на ПК (md) — выстраиваем строго в один ряд
+            flexWrap: { xs: "wrap", md: "nowrap" },
+            gap: 1.5,
+            mb: 3,
+            pb: 2,
+            borderBottom: "1px solid",
+            borderColor: "divider",
+            width: "100%",
+            // Правило для дочерних элементов: на мобильных они делят экран пополам (минус gap), на ПК делятся на 3
+            "& > *": {
+             flex: { xs: "1 1 calc(50% - 6px)", md: "1 1 0px" },
+             minWidth: 0 // Важно, чтобы MUI инпуты могли сжиматься меньше своего дефолтного размера
+            }
+           }}
+       >
+        <TextField
+            label="Thickness"
+            type="number"
+            value={state.thickness}
+            size="small"
+            onChange={e => updateParam("thickness", Number(e.target.value) || 0)}
+            slotProps={{
+             htmlInput: { min: 0, step: 0.1 },
+             input: { endAdornment: <InputAdornment position="end" sx={{ scale: "0.80", ml: 0.25 }}>mm</InputAdornment> }
+            }}
+        />
+
+        <TextField
+            label="K-Factor"
+            type="number"
+            value={state.kFactor}
+            size="small"
+            onChange={e => updateParam("kFactor", Number(e.target.value) || 0)}
+            slotProps={{ htmlInput: { min: 0, max: 1, step: 0.01 } }}
+        />
+
+        <TextField
+            label="R_tool"
+            type="number"
+            value={state.rTool}
+            size="small"
+            onChange={e => updateParam("rTool", Number(e.target.value) || 0)}
+            slotProps={{
+             htmlInput: { min: 0, step: .1 },
+             input: { endAdornment: <InputAdornment position="end" sx={{ scale: "0.80", ml: 0.25 }}>mm</InputAdornment> }
+            }}
+        />
+       </Box>
+
+       {/* СПИСОК ПОЛОК (PART PROFILE) */}
+       <Typography variant="subtitle2" fontWeight="500" color="text.secondary" sx={{ mb: 1.5 }}>
+        Shelves & Bends
+       </Typography>
+
+       <Stack spacing={1.5}>
+        {state.shelves.map((shelf, i) => (
+            <ProfileRow
+                key={`row-${i}`}
+                shelf={shelf}
+                bend={state.bends[i] || null}
+                index={i}
+                verticalShelf={state.verticalShelf}
+                firstBendIndex={state.firstBendIndex}
+                bendViewMode={state.bendViewMode}
+                onShelfChange={handleShelfChange}
+                onShelfSideChange={handleShelfSideChange}
+                onVerticalShelfChange={handleVerticalShelfChange}
+                onBendChange={handleBendChange}
+                onBendDirectionChange={handleBendDirectionChange}
+                onSelectFirstBend={handleSelectFirstBend}
+                onRemoveBend={removeBend}
+                canRemove={
+                    !!state.bends[i] &&
+                    state.bends.length > 1
+                }
+            />
+        ))}
+       </Stack>
+
+       <Box sx={{ mt: 2.5 }}>
+        <Button
+            variant="outlined"
+            startIcon={<AddIcon />}
+            onClick={addBend}
+            sx={{
+             width: "100%",
+             py: 0.75,
+             textTransform: "none",
+             fontSize: "0.9rem"
+            }}
+        >
+         Add Bend
+        </Button>
+       </Box>
+      </Paper>
      </Box>
  );
 }
