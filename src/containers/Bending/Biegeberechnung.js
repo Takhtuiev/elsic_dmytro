@@ -255,8 +255,9 @@ export default function Biegeberechnung(){
                 <ProfileGeometryPreview
                     profile={state}
                     blankLength={blankLength}
-                    firstBendIndex={state.firstBendIndex} // Восстановлена прямая связь со state
-                    bendViewMode={state.bendViewMode}     // Восстановлена прямая связь со state
+                    firstBendIndex={state.firstBendIndex}
+                    bendViewMode={state.bendViewMode}
+                    machineParams={machineParams}
                 />
             </Box>
 

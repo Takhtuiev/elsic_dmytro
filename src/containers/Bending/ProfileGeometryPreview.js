@@ -154,7 +154,7 @@ const ProfileGeometryPreview = ({
                     }}
                 >
                     <Typography variant="caption" color="text.secondary">
-                        Bend Angle:
+                        Angle:
                     </Typography>
 
                     <Typography
@@ -174,7 +174,7 @@ const ProfileGeometryPreview = ({
                     </Typography>
 
                     <Typography variant="caption" color="text.secondary">
-                        Gap Folding:
+                        Gap:
                     </Typography>
 
                     <Typography
@@ -194,7 +194,7 @@ const ProfileGeometryPreview = ({
                     </Typography>
 
                     <Typography variant="caption" color="text.secondary">
-                        Stop Position:
+                        Stop:
                     </Typography>
 
                     <Typography
