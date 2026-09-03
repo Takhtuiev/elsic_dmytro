@@ -1,50 +1,14 @@
-//
 // =====================================================
 // Calculations.js
-//
-// Расчёт длины заготовки по нейтральной линии.
-//
-// Структура profile:
-//
-// {
-//     thickness: 2,
-//     shelves: [
-//         { length: 50, side: "top" },
-//         { length: 100, side: "left" }
-//     ],
-//     bends: [
-//         { angle: 90, direction: "right" }
-//     ]
-// }
-//
-// =====================================================
-
-
-// =====================================================
-// Длина нейтральной дуги
 // =====================================================
 
 const getBendLength = (angle, thickness, kFactor, rTool) => {
     const radiusNeutral = rTool + kFactor * thickness;
-    const angleRad = Number(angle) * Math.PI / 180;
-
-    return radiusNeutral * angleRad;
+    return radiusNeutral * Number(angle) * Math.PI / 180;
 };
 
-
-// =====================================================
-// Отступ от вершины теоретического угла
-// до начала нейтральной дуги.
-//
-// Для 180° offset = 0.
-// =====================================================
-
 const getBendOffset = (
-    angle,
-    thickness,
-    kFactor,
-    rTool,
-    isInsideDimension = false
+    angle, thickness, kFactor, rTool, isInsideDimension = false
 ) => {
     if (Number(angle) === 180) return 0;
 
@@ -52,14 +16,12 @@ const getBendOffset = (
         ? rTool
         : rTool + thickness;
 
-    const angleRad = Number(angle) * Math.PI / 180;
-
-    return radius * Math.tan(angleRad / 2);
+    return radius * Math.tan(Number(angle) * Math.PI / 360);
 };
 
 
 // =====================================================
-// Расчёт длины прямой части полки.
+// Прямая часть полки
 // =====================================================
 
 export const getStraightLength = (shelfIndex, profile) => {
@@ -110,7 +72,7 @@ export const getStraightLength = (shelfIndex, profile) => {
 
 
 // =====================================================
-// Построение всех элементов нейтральной линии.
+// Элементы профиля
 // =====================================================
 
 export const calculateProfileElements = profile => {
@@ -119,36 +81,29 @@ export const calculateProfileElements = profile => {
     const elements = [];
 
     shelves.forEach((shelf, shelfIndex) => {
-        const straightLength = getStraightLength(
-            shelfIndex,
-            profile
-        );
-
         elements.push({
             type: "straight",
             shelf: shelfIndex + 1,
             inputLength: Number(shelf.length),
             side: shelf.side,
-            length: straightLength,
+            length: getStraightLength(shelfIndex, profile)
         });
 
         if (bends[shelfIndex]) {
             const bend = bends[shelfIndex];
             const angle = Number(bend.angle);
 
-            const bendLength = getBendLength(
-                180 - angle,
-                Number(profile.thickness),
-                Number(profile.kFactor),
-                Number(profile.rTool)
-            );
-
             elements.push({
                 type: "bend",
                 bend: shelfIndex + 1,
                 angle,
                 direction: bend.direction,
-                length: bendLength,
+                length: getBendLength(
+                    180 - angle,
+                    Number(profile.thickness),
+                    Number(profile.kFactor),
+                    Number(profile.rTool)
+                )
             });
         }
     });
@@ -158,66 +113,76 @@ export const calculateProfileElements = profile => {
 
 
 // =====================================================
-// Общая длина заготовки.
+// Общая длина заготовки
 // =====================================================
 
-export const calculateBlankLength = profile => {
-    const elements = calculateProfileElements(profile);
-
-    return elements.reduce(
+export const calculateBlankLength = profile =>
+    calculateProfileElements(profile).reduce(
         (total, element) => total + element.length,
         0
     );
-};
 
 
-export const calculateDistanceToOuterApexViaNeutral = (
-    profile,
-) => {
+// =====================================================
+// Расстояние до наружной вершины
+// =====================================================
 
-    const bendIndex = profile.firstBendIndex
-    const direction =  profile.bendViewMode
-
-    console.log("profile ", profile);
-    console.log("bendIndex1 ", bendIndex,direction)
+export const calculateDistanceToOuterApexViaNeutral = ({
+                                                           shelves,
+                                                           bends,
+                                                           thickness,
+                                                           kFactor,
+                                                           rTool,
+                                                           firstBendIndex,
+                                                           bendViewMode
+                                                       }) => {
+    const profile = {
+        shelves,
+        bends,
+        thickness,
+        kFactor,
+        rTool
+    };
 
     const elements = calculateProfileElements(profile);
 
     const targetElementIndex = elements.findIndex(
-        el => el.type === "bend" && el.bend === bendIndex + 1
+        el => el.type === "bend" && el.bend === firstBendIndex + 1
     );
 
     if (targetElementIndex === -1) return 0;
 
     const bend = elements[targetElementIndex];
-    const angleRad = (180 - Number(bend.angle)) * Math.PI / 180;
 
-    const radius = Number(profile.rTool || 0) + Number(profile.thickness || 0);
+    const angleRad =
+        (180 - Number(bend.angle)) * Math.PI / 180;
 
-    const offset = radius * Math.tan(angleRad / 2);
+    const radius =
+        Number(rTool || 0) + Number(thickness || 0);
+
+    const offset =
+        radius * Math.tan(angleRad / 2);
 
     let length = 0;
 
-    if (direction === "toEnd") {
+    if (bendViewMode === "toEnd") {
         for (let i = elements.length - 1; i > targetElementIndex; i--) {
             length += elements[i].length;
         }
-
-    } else if (direction === "fromStart") {
+    } else if (bendViewMode === "fromStart") {
         for (let i = 0; i < targetElementIndex; i++) {
             length += elements[i].length;
         }
     }
 
-
     return length + offset;
 };
 
-/**
- * Расчет параметров гибочного станка (ПВХ / Листовой материал)
- * @param {Object} params - Входные данные для расчета
- * @returns {Object} Объект с искомыми параметрами gapFolding и stopPosition
- */
+
+// =====================================================
+// Параметры гибочного станка
+// =====================================================
+
 export const calculateBendingMachineParams = ({
                                                   alpha,
                                                   lInput,
@@ -236,6 +201,7 @@ export const calculateBendingMachineParams = ({
     const angle2 = Math.PI / 2 - rad + angle1;
 
     const deltaShelfInOut = t * Math.tan(rad / 2);
+
     const lShelf = isInnerMode === 1
         ? lInput + deltaShelfInOut
         : lInput;
@@ -254,4 +220,3 @@ export const calculateBendingMachineParams = ({
         gapFolding: Number(gapFolding.toFixed(2))
     };
 };
-
