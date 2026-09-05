@@ -13,23 +13,24 @@ const ProfileGeometryPreview = ({
     const theme = useTheme();
     const containerRef = useRef(null);
 
-    // Храним физическую ширину контейнера в пикселях (по умолчанию 800)
-    const [containerWidth, setContainerWidth] = useState(800);
+    const [containerSize, setContainerSize] = useState({
+        width: 800,
+        height: 500
+    });
 
-    // Следим за реальным размером контейнера на любом устройстве (ПК или смартфон)
     useEffect(() => {
         if (!containerRef.current) return;
 
-        const observer = new ResizeObserver((entries) => {
-            for (let entry of entries) {
-                const width = entry.contentRect.width;
-                if (width > 0) {
-                    setContainerWidth(width);
-                }
+        const observer = new ResizeObserver(([entry]) => {
+            const { width, height } = entry.contentRect;
+
+            if (width > 0 && height > 0) {
+                setContainerSize({ width, height });
             }
         });
 
         observer.observe(containerRef.current);
+
         return () => observer.disconnect();
     }, []);
 
@@ -45,14 +46,15 @@ const ProfileGeometryPreview = ({
     const BLUE_FILL_COLOR = alpha(theme.palette.primary.main, 0.08);
     const BLUE_ANNOTATION_COLOR = alpha(theme.palette.primary.main, 1);
 
-    // Теперь слои пересчитываются не только при изменении профиля,
-    // но и при изменении физической ширины экрана (containerWidth)
     const svgData = useMemo(() => {
         const geometry = buildProfileGeometry(profile);
 
-        // Передаем containerWidth третьим аргументом в вашу функцию
-        return prepareSvgLayers(geometry, profile, containerWidth);
-    }, [profile, containerWidth]);
+        return prepareSvgLayers(
+            geometry,
+            profile,
+            containerSize
+        );
+    }, [profile, containerSize]);
 
     if (!svgData) return null;
 
@@ -67,7 +69,7 @@ const ProfileGeometryPreview = ({
             </Typography>
 
             <Box
-                ref={containerRef} // <--- Вешаем реф для отслеживания ширины пикселей
+                ref={containerRef}
                 sx={{
                     width: "100%",
                     height: "65vh",
@@ -113,7 +115,6 @@ const ProfileGeometryPreview = ({
                 </svg>
             </Box>
 
-            {/* ... Оставшийся неизмененный код Stack с параметрами детали ... */}
             <Stack
                 direction="row"
                 spacing={1}
@@ -128,13 +129,40 @@ const ProfileGeometryPreview = ({
                 <Typography variant="caption" color="text.secondary">
                     Thickness:
                 </Typography>
-                <Typography variant="caption" fontWeight="600" color="text.primary">
-                    {profile.thickness !== undefined ? `${profile.thickness.toFixed(2)} mm` : "—"}
+
+                <Typography
+                    variant="caption"
+                    fontWeight="600"
+                    color="text.primary"
+                >
+                    {profile.thickness !== undefined
+                        ? `${profile.thickness.toFixed(2)} mm`
+                        : "—"}
                 </Typography>
-                <Typography variant="caption" color="text.disabled" sx={{ mx: 0.5 }}>•</Typography>
-                <Typography variant="caption" color="text.secondary">Blank Length:</Typography>
-                <Typography variant="caption" fontWeight="600" color="text.primary">
-                    {blankLength !== null ? `${blankLength.toFixed(2)} mm` : "—"}
+
+                <Typography
+                    variant="caption"
+                    color="text.disabled"
+                    sx={{ mx: 0.5 }}
+                >
+                    •
+                </Typography>
+
+                <Typography
+                    variant="caption"
+                    color="text.secondary"
+                >
+                    Blank Length:
+                </Typography>
+
+                <Typography
+                    variant="caption"
+                    fontWeight="600"
+                    color="text.primary"
+                >
+                    {blankLength !== null
+                        ? `${blankLength.toFixed(2)} mm`
+                        : "—"}
                 </Typography>
             </Stack>
 
@@ -150,18 +178,64 @@ const ProfileGeometryPreview = ({
                         borderColor: "divider"
                     }}
                 >
-                    <Typography variant="caption" color="text.secondary">Angle:</Typography>
-                    <Typography variant="caption" fontWeight="600" color="text.primary">
+                    <Typography
+                        variant="caption"
+                        color="text.secondary"
+                    >
+                        Angle:
+                    </Typography>
+
+                    <Typography
+                        variant="caption"
+                        fontWeight="600"
+                        color="text.primary"
+                    >
                         {machineParams.bendAngle.toFixed(2)}°
                     </Typography>
-                    <Typography variant="caption" color="text.disabled" sx={{ mx: 0.5 }}>•</Typography>
-                    <Typography variant="caption" color="text.secondary">Gap:</Typography>
-                    <Typography variant="caption" fontWeight="600" color="text.primary">
+
+                    <Typography
+                        variant="caption"
+                        color="text.disabled"
+                        sx={{ mx: 0.5 }}
+                    >
+                        •
+                    </Typography>
+
+                    <Typography
+                        variant="caption"
+                        color="text.secondary"
+                    >
+                        Gap:
+                    </Typography>
+
+                    <Typography
+                        variant="caption"
+                        fontWeight="600"
+                        color="text.primary"
+                    >
                         {machineParams.gapFolding.toFixed(2)} mm
                     </Typography>
-                    <Typography variant="caption" color="text.disabled" sx={{ mx: 0.5 }}>•</Typography>
-                    <Typography variant="caption" color="text.secondary">Stop:</Typography>
-                    <Typography variant="caption" fontWeight="600" color="text.primary">
+
+                    <Typography
+                        variant="caption"
+                        color="text.disabled"
+                        sx={{ mx: 0.5 }}
+                    >
+                        •
+                    </Typography>
+
+                    <Typography
+                        variant="caption"
+                        color="text.secondary"
+                    >
+                        Stop:
+                    </Typography>
+
+                    <Typography
+                        variant="caption"
+                        fontWeight="600"
+                        color="text.primary"
+                    >
                         {machineParams.stopPosition.toFixed(2)} mm
                     </Typography>
                 </Stack>

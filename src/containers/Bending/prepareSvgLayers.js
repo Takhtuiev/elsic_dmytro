@@ -3,40 +3,55 @@ const ARC_RADIUS = 12,
     ANGLE_LABEL_OFFSET = 6,
     FONT_SIZE = 12;
 
-// Функция принимает ширину (или максимальный габарит) viewBox чертежа
-const getLabelScale = (viewBoxWidth, containerWidth) => {
-    if (!containerWidth || containerWidth <= 0 || !viewBoxWidth || viewBoxWidth <= 0) return 1;
+const getLabelScale = (geometrySize, containerSize) => {
+    if (
+        !geometrySize?.width || geometrySize.width <= 0 ||
+        !geometrySize?.height || geometrySize.height <= 0 ||
+        !containerSize?.width || containerSize.width <= 0 ||
+        !containerSize?.height || containerSize.height <= 0
+    ) return 1;
 
-    // Считаем соотношение "размер в мм / пиксели экрана"
-    const pixelRatio = viewBoxWidth / containerWidth;
+    // Считаем коэффициент плотности (мм/px) для обеих осей
+    const scaleX = geometrySize.width / containerSize.width;
+    const scaleY = geometrySize.height / containerSize.height;
 
-    // 1.15 — базовый множитель. Если на смартфонах покажется чуточку крупно или мелко,
-    // просто скорректируйте это число (например, на 1.0 или 1.3).
-    const optimalScale = pixelRatio * 1.15;
+    // ИСПОЛЬЗУЕМ Math.max!
+    // Нам нужен максимальный шаг масштабирования, чтобы компенсировать
+    // ось, которая сильнее всего сжимает чертеж на экране.
+    const maxScale = Math.max(scaleX, scaleY);
 
-    // Защитные рамки, чтобы масштаб никогда не уходил в крайности
-    return Math.min(2.5, Math.max(0.15, optimalScale));
+    // 1.15 — базовый множитель плотности.
+    const optimalScale = maxScale * 1.15;
+
+    return Math.min(
+        2.5,
+        // Нижний порог 0.6 спасет смартфоны от экстремального измельчения текста
+        Math.max(0.6, optimalScale)
+    );
 };
 
 const RAD_TO_DEG = 180 / Math.PI;
 const EPSILON = 1e-5;
 const PADDING = 20;
 
-// Поворот точки вокруг начала координат
 const rotatePoint = (p, rad) => {
     const cos = Math.cos(rad), sin = Math.sin(rad);
-    return { x: p.x * cos - p.y * sin, y: p.x * sin + p.y * cos };
+    return {
+        x: p.x * cos - p.y * sin,
+        y: p.x * sin + p.y * cos
+    };
 };
 
-// Формирует данные слоя для SVG
 const createPathData = (a, b) => ({
-    a, b,
+    a,
+    b,
     sideAPath: a.map(p => `${p.x} ${p.y}`).join(" L "),
     sideBPath: b.map(p => `${p.x} ${p.y}`).join(" L "),
-    fillPoints: [...a, ...b.slice().reverse()].map(p => `${p.x},${p.y}`).join(" ")
+    fillPoints: [...a, ...b.slice().reverse()]
+        .map(p => `${p.x},${p.y}`)
+        .join(" ")
 });
 
-// Рассчитывает положение подписи длины полки
 const calculateShelfLabel = (
     startPoint,
     endPoint,
@@ -87,7 +102,6 @@ const calculateShelfLabel = (
     };
 };
 
-// Рассчитывает дугу и положение подписи угла
 const calculateBendAngle = (
     vertex,
     prevPoint,
@@ -181,7 +195,6 @@ const calculateBendAngle = (
     };
 };
 
-// Рассчитывает геометрию синей полки
 const calculateBlueRawData = (
     geometry,
     profile,
@@ -256,7 +269,6 @@ const calculateBlueRawData = (
     };
 };
 
-// Добавляет точку в границы viewBox
 const addPointToBounds = (bounds, p) => {
     if (!p) return;
 
@@ -266,7 +278,6 @@ const addPointToBounds = (bounds, p) => {
     bounds.maxY = Math.max(bounds.maxY, p.y);
 };
 
-// Учитывает габариты повернутого текста
 const addTextToBounds = (bounds, text) => {
     if (!text) return;
 
@@ -309,7 +320,6 @@ const addTextToBounds = (bounds, text) => {
         Math.max(bounds.maxY, text.y + ry);
 };
 
-// Учитывает габариты подписи угла
 const addAngleToBounds = (bounds, angle) => {
     if (!angle) return;
 
@@ -336,7 +346,6 @@ const addAngleToBounds = (bounds, angle) => {
         Math.max(bounds.maxY, angle.y + halfH);
 };
 
-// Добавляет весь слой в границы viewBox
 const addLayerToBounds = (bounds, layer) => {
     if (!layer) return;
 
@@ -358,15 +367,15 @@ const addLayerToBounds = (bounds, layer) => {
 };
 
 export const buildLayer = ({
-    start,
-    end,
-    ctxSideA,
-    ctxSideB,
-    ctxShelves,
-    ctxBends,
-    showCutAngle = false,
-    labelScale = 1
-}) => {
+                               start,
+                               end,
+                               ctxSideA,
+                               ctxSideB,
+                               ctxShelves,
+                               ctxBends,
+                               showCutAngle = false,
+                               labelScale = 1
+                           }) => {
     const a = ctxSideA.slice(start, end + 1);
     const b = ctxSideB.slice(start, end + 1);
 
@@ -472,12 +481,12 @@ export const buildLayer = ({
     };
 };
 
-// Подготавливает все слои и рассчитывает viewBox
 export const prepareSvgLayers = (
     geometry,
     profile,
-    containerWidth
+    containerSize
 ) => {
+
     if (!geometry.sideA?.length) return null;
 
     const shelves = geometry.shelvesData;
@@ -496,7 +505,6 @@ export const prepareSvgLayers = (
     const verticalShelfIdx =
         Number(profile.verticalShelf ?? 1) - 1;
 
-    // 1. Поворот и отражение профиля
     let rotationAngle = 0;
 
     if (firstBendIdx >= 0) {
@@ -549,7 +557,7 @@ export const prepareSvgLayers = (
                 viewMode === "toEnd"
                     ? firstBendIdx
                     : firstBendIdx + 2
-            ];
+                ];
 
         if (
             vertex &&
@@ -570,23 +578,31 @@ export const prepareSvgLayers = (
         }
     }
 
-    // 2. Рассчитываем масштаб подписей на основе мм детали и пикселей экрана
     const allPoints = [
         ...rotatedSideA,
         ...rotatedSideB
     ];
 
-    const minDetailX = Math.min(...allPoints.map(p => p.x));
-    const maxDetailX = Math.max(...allPoints.map(p => p.x));
+    const minDetailX =
+        Math.min(...allPoints.map(p => p.x));
 
-    // Нам нужна именно чистая ширина геометрии в мм
-    const viewBoxWidth = maxDetailX - minDetailX;
+    const maxDetailX =
+        Math.max(...allPoints.map(p => p.x));
 
-    // containerWidth прилетает аргументом в prepareSvgLayers из React
-    const labelScale = getLabelScale(viewBoxWidth, containerWidth);
+    const minDetailY =
+        Math.min(...allPoints.map(p => p.y));
 
+    const maxDetailY =
+        Math.max(...allPoints.map(p => p.y));
 
-    // 3. Диапазоны Active и Ghost
+    const detailSize = {
+        width: maxDetailX - minDetailX,
+        height: maxDetailY - minDetailY
+    };
+
+    const labelScale =
+        getLabelScale(detailSize, containerSize);
+
     let activeStart = 0;
     let activeEnd = totalShelves;
     let ghostStart = -1;
@@ -627,7 +643,6 @@ export const prepareSvgLayers = (
             })
             : null;
 
-    // 4. Сборка синей полки
     let blueData = null;
 
     const blueRaw = calculateBlueRawData(
@@ -725,7 +740,6 @@ export const prepareSvgLayers = (
         }
     }
 
-    // 5. Расчет габаритов viewBox
     const bounds = {
         minX: Infinity,
         minY: Infinity,
@@ -734,35 +748,22 @@ export const prepareSvgLayers = (
     };
 
     if (activeData) {
-        addLayerToBounds(
-            bounds,
-            activeData
-        );
+        addLayerToBounds(bounds, activeData);
     }
 
     if (ghostData) {
-        addLayerToBounds(
-            bounds,
-            ghostData
-        );
+        addLayerToBounds(bounds, ghostData);
     }
 
     if (blueData) {
-        addLayerToBounds(
-            bounds,
-            blueData
-        );
+        addLayerToBounds(bounds, blueData);
     }
 
     const viewBox = [
         bounds.minX - PADDING,
         bounds.minY - PADDING,
-        bounds.maxX -
-            bounds.minX +
-            PADDING * 2,
-        bounds.maxY -
-            bounds.minY +
-            PADDING * 2
+        bounds.maxX - bounds.minX + PADDING * 2,
+        bounds.maxY - bounds.minY + PADDING * 2
     ].join(" ");
 
     return {
