@@ -72,8 +72,4 @@
   transition: 0.5s;
 }
 
-/* Скрываем клон чертежа на обычном экране компьютера */
-.print-only-target {
-  display: none;
-}
 

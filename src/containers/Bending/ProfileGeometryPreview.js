@@ -258,53 +258,88 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
 
     if(!svgData&&!validationError)return null;
 
+
     const handlePrint = () => {
-        // 1. Находим чистую область чертежа
-        const printArea = document.querySelector('.fullscreen-print-area');
-        if (!printArea) return;
+        // 1. Находим элемент, который хотим напечатать
+        const printElement = document.querySelector('.fullscreen-print-area');
+        if (!printElement) return;
 
-        // 2. Сохраняем текущий вид сайта
-        const originalBody = document.body.innerHTML;
+        // 2. Создаем скрытый iframe (виртуальное окно печати)
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = 'none';
+        document.body.appendChild(iframe);
 
-        // 3. Создаем контейнер со специальными инлайн-стилями для принтера
-        document.body.innerHTML = `
-        <div style="
-            width: 100vw; 
-            height: 100vh; 
-            padding: 20px; 
-            box-sizing: border-box; 
-            background: #fff;
-            display: flex;
-            flex-direction: column;
-        ">
-            ${printArea.innerHTML}
-        </div>
-    `;
+        const doc = iframe.contentWindow.document;
 
-        // 4. Запускаем печать
-        window.print();
+        // 3. Записываем в iframe только чертеж, параметры и стили для альбома
+        doc.open();
+        doc.write(`
+        <html>
+            <head>
+                <title>Print Profile</title>
+                <style>
+                    @page { 
+                        size: landscape; 
+                        margin: 10mm; 
+                    }
+                    body { 
+                        margin: 0; 
+                        padding: 0; 
+                        font-family: Roboto, Helvetica, Arial, sans-serif;
+                        background: #ffffff;
+                        color: #000000;
+                        -webkit-print-color-adjust: exact;
+                        print-color-adjust: exact;
+                    }
+                    /* Стилизация контейнеров, чтобы они красиво растянулись на А4 */
+                    .print-box {
+                        width: 100%;
+                        height: 100vh;
+                        display: flex;
+                        flex-direction: column;
+                        box-sizing: border-box;
+                    }
+                    .drawing-container {
+                        flex: 1;
+                        display: flex;
+                        align-items: center;
+                        justifyContent: center;
+                        min-height: 0;
+                        margin-bottom: 15px;
+                    }
+                    svg {
+                        width: 100%;
+                        height: 100%;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="print-box">
+                    ${printElement.innerHTML}
+                </div>
+            </body>
+        </html>
+    `);
+        doc.close();
 
-        // 5. После закрытия окна печати — моментально возвращаем интерфейс сайта назад
-        document.body.innerHTML = originalBody;
-
-        // 6. Перезагружаем страницу, чтобы React восстановил свои обработчики кликов
-        window.location.reload();
+        // 4. Ждем, пока SVG и стили загрузятся внутри iframe, и вызываем печать
+        iframe.contentWindow.focus();
+        setTimeout(() => {
+            iframe.contentWindow.print();
+            // Удаляем iframe после закрытия окна печати
+            document.body.removeChild(iframe);
+        }, 500);
     };
 
     return (
         <>
-            {/* Системное CSS правило для альбомной ориентации */}
-            <style>{`
-            @media print {
-                @page { size: landscape; margin: 0; }
-                body { background: #ffffff; }
-            }
-        `}</style>
-
             {/* ОСНОВНАЯ КАРТОЧКА НА СТРАНИЦЕ */}
-            <Paper elevation={1} sx={{ mt: 2, p: 2, position: "relative" }}> {/* 🌟 Добавили position relative */}
-
-                {/* Заголовок */}
+            <Paper elevation={1} sx={{ mt: 2, p: 2, position: "relative" }}>
                 <Typography
                     variant="subtitle1"
                     fontWeight="500"
@@ -314,7 +349,6 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
                     Bend Profile (Geometric Drawing)
                 </Typography>
 
-                {/* 🌟 ИКОНКА ФУЛЛСКРИН ТЕПЕРЬ СТРОГО СПРАВА ВВЕРХУ */}
                 <IconButton
                     size="small"
                     onClick={() => setFullScreen(true)}
@@ -322,14 +356,13 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
                     sx={{
                         color: "text.secondary",
                         position: "absolute",
-                        top: 12, /* Отступ сверху от края карточки */
-                        right: 12 /* Отступ справа от края карточки */
+                        top: 12,
+                        right: 12
                     }}
                 >
                     <FullscreenIcon fontSize="small" />
                 </IconButton>
 
-                {/* Контейнер чертежа */}
                 <Box
                     ref={containerRef}
                     sx={{
@@ -349,7 +382,7 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
                 {renderParameters()}
             </Paper>
 
-            {/* ДИАЛОГ ФУЛЛСКРИНА (Остается без изменений) */}
+            {/* ПОЛНОЭКРАННЫЙ ДИАЛОГ */}
             <Dialog
                 fullScreen
                 open={fullScreen}
@@ -391,7 +424,8 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
                             Bend Profile (Geometric Drawing)
                         </Typography>
 
-                        <Box sx={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                        {/* Обернули в класс drawing-container для корректных стилей в iframe */}
+                        <Box className="drawing-container" sx={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
                             {renderDrawing()}
                         </Box>
 
@@ -401,6 +435,8 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
             </Dialog>
         </>
     );
+
+
 
 };
 
