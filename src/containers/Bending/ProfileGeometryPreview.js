@@ -286,7 +286,6 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
                 <title>Print Profile</title>
                 <style>
                     @page { 
-                        size: landscape; 
                         margin: 10mm; 
                     }
                     body { 
