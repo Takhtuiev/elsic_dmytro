@@ -259,44 +259,47 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
     if(!svgData&&!validationError)return null;
 
 
-    const handlePrint=()=>{
-    const printElement=document.querySelector(".fullscreen-print-area");
-    if(!printElement)return;
+    const handlePrint = () => {
+        const printElement = document.querySelector(".fullscreen-print-area");
+        if (!printElement) return;
 
-    const svg=printElement.querySelector("svg");
-    if(!svg)return;
+        const svg = printElement.querySelector("svg");
+        if (!svg) return;
 
-    const svgClone=svg.cloneNode(true);
+        const svgClone = svg.cloneNode(true);
 
-    svgClone.removeAttribute("width");
-    svgClone.removeAttribute("height");
-    svgClone.setAttribute("preserveAspectRatio","xMidYMid meet");
+        svgClone.removeAttribute("width");
+        svgClone.removeAttribute("height");
+        svgClone.setAttribute("preserveAspectRatio", "xMidYMid meet");
 
-    const parameters=[
-        ...printElement.querySelectorAll(":scope > .MuiStack-root")
-    ]
-        .map(stack=>stack.innerText.trim())
-        .filter(Boolean);
+        const parameters = [
+            ...printElement.querySelectorAll(":scope > .MuiStack-root")
+        ]
+            .map(stack => stack.innerText.trim())
+            .filter(Boolean);
 
-    const iframe=document.createElement("iframe");
+        const iframe = document.createElement("iframe");
 
-    Object.assign(iframe.style,{
-        position:"fixed",
-        right:"0",
-        bottom:"0",
-        width:"1px",
-        height:"1px",
-        border:"0",
-        opacity:"0",
-        pointerEvents:"none"
-    });
+        // ИСПРАВЛЕНИЕ: Даем iframe полную ширину, чтобы мобильный браузер
+        // правильно рассчитывал медиа-запросы и адаптив, но скрываем его через visibility
+        Object.assign(iframe.style, {
+            position: "fixed",
+            top: "0",
+            left: "0",
+            width: "100%",
+            height: "100%",
+            border: "0",
+            opacity: "0",
+            visibility: "hidden",
+            pointerEvents: "none"
+        });
 
-    document.body.appendChild(iframe);
+        document.body.appendChild(iframe);
 
-    const doc=iframe.contentDocument;
+        const doc = iframe.contentDocument;
 
-    doc.open();
-    doc.write(`
+        doc.open();
+        doc.write(`
     <!DOCTYPE html>
     <html lang="en">
         <head>
@@ -304,82 +307,91 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
         <title>Bend Profile</title>
 
     <style>
-        @page{
-        margin:10mm;
-    }
+        @page {
+            margin: 10mm;
+        }
 
-        *{
-        box-sizing:border-box;
-    }
+        * {
+            box-sizing: border-box;
+        }
 
         html,
-        body{
-        margin:0;
-        padding:0;
-        width:100%;
-        background:#fff;
-    }
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            background: #fff;
+        }
 
-        body{
-        font-family:Roboto,Helvetica,Arial,sans-serif;
-        color:#000;
-        -webkit-print-color-adjust:exact;
-        print-color-adjust:exact;
-    }
+        body {
+            font-family: Roboto, Helvetica, Arial, sans-serif;
+            color: #000;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
 
-        .print-page{
-        width:100%;
-        margin:0;
-        padding:0;
-    }
+        /* ИСПРАВЛЕНИЕ: Запрещаем разрывать контент на мобильных устройствах */
+        .print-page {
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
 
-        .print-title{
-        margin:0 0 4mm;
-        font-size:12pt;
-        line-height:1.2;
-        color:#555;
-    }
+        .print-title {
+            margin: 0 0 4mm;
+            font-size: 12pt;
+            line-height: 1.2;
+            color: #555;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
 
-        .print-drawing{
-        width:100%;
-        margin:0 0 4mm;
-        padding:0;
-        text-align:center;
-        display:block;
-        height:auto;
-    }
+        .print-drawing {
+            width: 100%;
+            margin: 0 0 4mm;
+            padding: 0;
+            text-align: center;
+            display: block;
+            height: auto;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
 
-        .print-drawing svg{
-        display:block;
-        width:100%;
-        height:auto;
-        max-width:100%;
-        max-height:160mm;
-        margin:0 auto;
-    }
+        .print-drawing svg {
+            display: block;
+            width: 100%;
+            height: auto;
+            max-width: 100%;
+            max-height: 110mm; /* Уменьшено для гарантированного вмещения на один экран в ландшафте */
+            margin: 0 auto;
+        }
 
-        .print-parameters{
-        width:100%;
-        font-size:9pt;
-        line-height:1.2;
-    }
+        .print-parameters {
+            width: 100%;
+            font-size: 9pt;
+            line-height: 1.2;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
 
-        .print-row{
-        margin:1mm 0;
-        white-space:nowrap;
-    }
+        .print-row {
+            margin: 1mm 0;
+            white-space: nowrap;
+        }
 
-        @media print and (orientation:portrait){
-        .print-drawing svg{
-        max-height:240mm;
-    }
-    }
+        @media print and (orientation: portrait) {
+            .print-drawing svg {
+                max-height: 180mm;
+            }
+        }
 
-        @media print and (orientation:landscape){
-        .print-drawing svg{
-        max-height:160mm;
-    }
-    }
+        @media print and (orientation: landscape) {
+            .print-drawing svg {
+                max-height: 100mm; /* Ограничиваем строже для горизонтального режима */
+            }
+        }
     </style>
 </head>
 
@@ -394,9 +406,9 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
         </div>
 
         <div class="print-parameters">
-            ${parameters.map(text=>`
+            ${parameters.map(text => `
                         <div class="print-row">
-                            ${text.replace(/\n/g," ")}
+                            ${text.replace(/\n/g, " ")}
                         </div>
                     `).join("")}
         </div>
@@ -405,18 +417,18 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
 </html>
     `);
 
-    doc.close();
+        doc.close();
 
-    setTimeout(()=>{
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
+        // Ждем полной загрузки содержимого перед вызовом окна печати
+        setTimeout(() => {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
 
-        setTimeout(()=>{
-            iframe.remove();
-        },1000);
-    },500);
-};
-
+            setTimeout(() => {
+                iframe.remove();
+            }, 1000);
+        }, 600);
+    };
 
 
     return (
