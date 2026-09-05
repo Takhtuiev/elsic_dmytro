@@ -330,7 +330,7 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
         .print-page{
         width:100%;
         margin:0;
-        padding:0;
+        padding:0; 
     }
 
         .print-title{
