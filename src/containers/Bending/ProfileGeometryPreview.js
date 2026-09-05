@@ -1,6 +1,12 @@
 import React,{useMemo,useState,useEffect,useRef} from "react";
-import {Box,Paper,Stack,Typography,useTheme} from "@mui/material";
+import {
+    Box,Button,Dialog,IconButton,Paper,Stack,Toolbar,
+    Typography,useTheme
+} from "@mui/material";
 import {alpha} from "@mui/material/styles";
+import FullscreenIcon from "@mui/icons-material/Fullscreen";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import PrintIcon from "@mui/icons-material/Print";
 import buildProfileGeometry from "./BuildProfileGeometry";
 import BendProfileRender from "./BendProfileRender";
 import {prepareSvgLayers} from "./prepareSvgLayers";
@@ -12,16 +18,24 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
     const theme=useTheme();
     const containerRef=useRef(null);
     const [containerSize,setContainerSize]=useState({width:800,height:500});
+    const [fullScreen,setFullScreen]=useState(false);
 
     useEffect(()=>{
         if(!containerRef.current)return;
+
         const observer=new ResizeObserver(([entry])=>{
             const {width,height}=entry.contentRect;
             if(width>0&&height>0)setContainerSize({width,height});
         });
+
         observer.observe(containerRef.current);
         return()=>observer.disconnect();
     },[]);
+
+    useEffect(()=>{
+        document.body.classList.toggle("print-profile",fullScreen);
+        return()=>document.body.classList.remove("print-profile");
+    },[fullScreen]);
 
     const invalidAngleIndex=profile.bends?.findIndex(bend=>{
         const angle=Number(bend.angle);
@@ -51,118 +65,343 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
     const GHOST_ANNOTATION_COLOR=alpha(theme.palette.text.disabled,.4);
     const BLUE_LINE_COLOR=theme.palette.primary.main;
     const BLUE_FILL_COLOR=alpha(theme.palette.primary.main,.08);
-    const BLUE_ANNOTATION_COLOR=alpha(theme.palette.primary.main,1);
+    const BLUE_ANNOTATION_COLOR=theme.palette.primary.main;
 
     const svgData=useMemo(()=>{
         if(validationError)return null;
+
         const geometry=buildProfileGeometry(profile);
         return prepareSvgLayers(geometry,profile,containerSize);
     },[profile,containerSize,validationError]);
 
-    if(!svgData&&!validationError)return null;
+    const renderDrawing=()=>{
+        if(validationError){
+            return(
+                <Box
+                    sx={{
+                        width:"100%",
+                        height:"100%",
+                        display:"flex",
+                        alignItems:"center",
+                        justifyContent:"center",
+                        textAlign:"center"
+                    }}
+                >
+                    <Typography
+                        variant="body2"
+                        fontWeight={500}
+                        color="warning.main"
+                    >
+                        {validationError}
+                    </Typography>
+                </Box>
+            );
+        }
 
-    return(
-        <Paper elevation={1} sx={{mt:2,p:2}}>
-            <Typography variant="subtitle1" fontWeight="500" sx={{mb:1,color:"text.secondary"}}>
-                Bend Profile (Geometric Drawing)
-            </Typography>
+        if(!svgData)return null;
 
-            <Box
-                ref={containerRef}
+        return(
+            <svg
+                viewBox={svgData.viewBox}
+                width="100%"
+                height="100%"
+                preserveAspectRatio="xMidYMid meet"
+            >
+                <BendProfileRender
+                    data={svgData.activeData}
+                    strokeColor={ACTIVE_LINE_COLOR}
+                    fillColor={ACTIVE_FILL_COLOR}
+                    annotationColor={ACTIVE_ANNOTATION_COLOR}
+                />
+
+                {svgData.ghostData&&(
+                    <BendProfileRender
+                        data={svgData.ghostData}
+                        strokeColor={GHOST_LINE_COLOR}
+                        fillColor={GHOST_FILL_COLOR}
+                        annotationColor={GHOST_ANNOTATION_COLOR}
+                        isGhost
+                    />
+                )}
+
+                {svgData.blueData&&(
+                    <BendProfileRender
+                        data={svgData.blueData}
+                        strokeColor={BLUE_LINE_COLOR}
+                        fillColor={BLUE_FILL_COLOR}
+                        annotationColor={BLUE_ANNOTATION_COLOR}
+                    />
+                )}
+            </svg>
+        );
+    };
+
+    const renderParameters=()=>(
+        <>
+            <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
                 sx={{
-                    width:"100%",
-                    height:"65vh",
-                    minHeight:500,
-                    maxHeight:700,
-                    display:"flex",
-                    alignItems:"center",
-                    justifyContent:"center",
-                    overflow:"hidden"
+                    mt:1,
+                    pt:1,
+                    borderTop:"1px dashed",
+                    borderColor:"divider"
                 }}
             >
-                {validationError?(
-                    <Box
-                        sx={{
-                            width:"100%",
-                            height:"100%",
-                            display:"flex",
-                            alignItems:"center",
-                            justifyContent:"center",
-                            textAlign:"center"
-                        }}
-                    >
-                        <Typography variant="body2" fontWeight={500} color="warning.main">
-                            {validationError}
-                        </Typography>
-                    </Box>
-                ):(
-                    <svg
-                        viewBox={svgData.viewBox}
-                        width="100%"
-                        height="100%"
-                        preserveAspectRatio="xMidYMid meet"
-                    >
-                        <BendProfileRender
-                            data={svgData.activeData}
-                            strokeColor={ACTIVE_LINE_COLOR}
-                            fillColor={ACTIVE_FILL_COLOR}
-                            annotationColor={ACTIVE_ANNOTATION_COLOR}
-                        />
-
-                        {svgData.ghostData&&(
-                            <BendProfileRender
-                                data={svgData.ghostData}
-                                strokeColor={GHOST_LINE_COLOR}
-                                fillColor={GHOST_FILL_COLOR}
-                                annotationColor={GHOST_ANNOTATION_COLOR}
-                                isGhost
-                            />
-                        )}
-
-                        {svgData.blueData&&(
-                            <BendProfileRender
-                                data={svgData.blueData}
-                                strokeColor={BLUE_LINE_COLOR}
-                                fillColor={BLUE_FILL_COLOR}
-                                annotationColor={BLUE_ANNOTATION_COLOR}
-                            />
-                        )}
-                    </svg>
-                )}
-            </Box>
-
-            <Stack direction="row" spacing={1} alignItems="center" sx={{mt:1,pt:1,borderTop:"1px dashed",borderColor:"divider"}}>
-                <Typography variant="caption" color="text.secondary">Thickness:</Typography>
-                <Typography variant="caption" fontWeight="600" color="text.primary">
-                    {profile.thickness!==undefined?`${profile.thickness.toFixed(2)} mm`:"—"}
+                <Typography variant="caption" color="text.secondary">
+                    Thickness:
                 </Typography>
-                <Typography variant="caption" color="text.disabled" sx={{mx:.5}}>•</Typography>
-                <Typography variant="caption" color="text.secondary">Blank Length:</Typography>
-                <Typography variant="caption" fontWeight="600" color="text.primary">
-                    {blankLength!==null?`${blankLength.toFixed(2)} mm`:"—"}
+
+                <Typography
+                    variant="caption"
+                    fontWeight="600"
+                    color="text.primary"
+                >
+                    {profile.thickness!==undefined
+                        ?`${profile.thickness.toFixed(2)} mm`
+                        :"—"
+                    }
+                </Typography>
+
+                <Typography
+                    variant="caption"
+                    color="text.disabled"
+                    sx={{mx:.5}}
+                >
+                    •
+                </Typography>
+
+                <Typography variant="caption" color="text.secondary">
+                    Blank Length:
+                </Typography>
+
+                <Typography
+                    variant="caption"
+                    fontWeight="600"
+                    color="text.primary"
+                >
+                    {blankLength!==null
+                        ?`${blankLength.toFixed(2)} mm`
+                        :"—"
+                    }
                 </Typography>
             </Stack>
 
             {machineParams&&(
-                <Stack direction="row" spacing={1} alignItems="center" sx={{mt:1,pt:1,borderTop:"1px dashed",borderColor:"divider"}}>
-                    <Typography variant="caption" color="text.secondary">Stop:</Typography>
-                    <Typography variant="caption" fontWeight="600" color="text.primary">
+                <Stack
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    sx={{
+                        mt:1,
+                        pt:1,
+                        borderTop:"1px dashed",
+                        borderColor:"divider"
+                    }}
+                >
+                    <Typography variant="caption" color="text.secondary">
+                        Stop:
+                    </Typography>
+
+                    <Typography
+                        variant="caption"
+                        fontWeight="600"
+                        color="text.primary"
+                    >
                         {machineParams.stopPosition.toFixed(2)} mm
                     </Typography>
-                    <Typography variant="caption" color="text.disabled" sx={{mx:.5}}>•</Typography>
-                    <Typography variant="caption" color="text.secondary">Angle:</Typography>
-                    <Typography variant="caption" fontWeight="600" color="text.primary">
+
+                    <Typography
+                        variant="caption"
+                        color="text.disabled"
+                        sx={{mx:.5}}
+                    >
+                        •
+                    </Typography>
+
+                    <Typography variant="caption" color="text.secondary">
+                        Angle:
+                    </Typography>
+
+                    <Typography
+                        variant="caption"
+                        fontWeight="600"
+                        color="text.primary"
+                    >
                         {machineParams.bendAngle.toFixed(2)}°
                     </Typography>
-                    <Typography variant="caption" color="text.disabled" sx={{mx:.5}}>•</Typography>
-                    <Typography variant="caption" color="text.secondary">Gap:</Typography>
-                    <Typography variant="caption" fontWeight="600" color="text.primary">
+
+                    <Typography
+                        variant="caption"
+                        color="text.disabled"
+                        sx={{mx:.5}}
+                    >
+                        •
+                    </Typography>
+
+                    <Typography variant="caption" color="text.secondary">
+                        Gap:
+                    </Typography>
+
+                    <Typography
+                        variant="caption"
+                        fontWeight="600"
+                        color="text.primary"
+                    >
                         {machineParams.gapFolding.toFixed(2)} mm
                     </Typography>
                 </Stack>
             )}
-        </Paper>
+        </>
     );
+
+    if(!svgData&&!validationError)return null;
+
+    const handlePrint = () => {
+        // 1. Находим чистую область чертежа
+        const printArea = document.querySelector('.fullscreen-print-area');
+        if (!printArea) return;
+
+        // 2. Сохраняем текущий вид сайта
+        const originalBody = document.body.innerHTML;
+
+        // 3. Создаем контейнер со специальными инлайн-стилями для принтера
+        document.body.innerHTML = `
+        <div style="
+            width: 100vw; 
+            height: 100vh; 
+            padding: 20px; 
+            box-sizing: border-box; 
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+        ">
+            ${printArea.innerHTML}
+        </div>
+    `;
+
+        // 4. Запускаем печать
+        window.print();
+
+        // 5. После закрытия окна печати — моментально возвращаем интерфейс сайта назад
+        document.body.innerHTML = originalBody;
+
+        // 6. Перезагружаем страницу, чтобы React восстановил свои обработчики кликов
+        window.location.reload();
+    };
+
+    return (
+        <>
+            {/* Системное CSS правило для альбомной ориентации */}
+            <style>{`
+            @media print {
+                @page { size: landscape; margin: 0; }
+                body { background: #ffffff; }
+            }
+        `}</style>
+
+            {/* ОСНОВНАЯ КАРТОЧКА НА СТРАНИЦЕ */}
+            <Paper elevation={1} sx={{ mt: 2, p: 2, position: "relative" }}> {/* 🌟 Добавили position relative */}
+
+                {/* Заголовок */}
+                <Typography
+                    variant="subtitle1"
+                    fontWeight="500"
+                    color="text.secondary"
+                    sx={{ mb: 1, pr: 5 }}
+                >
+                    Bend Profile (Geometric Drawing)
+                </Typography>
+
+                {/* 🌟 ИКОНКА ФУЛЛСКРИН ТЕПЕРЬ СТРОГО СПРАВА ВВЕРХУ */}
+                <IconButton
+                    size="small"
+                    onClick={() => setFullScreen(true)}
+                    title="Full screen"
+                    sx={{
+                        color: "text.secondary",
+                        position: "absolute",
+                        top: 12, /* Отступ сверху от края карточки */
+                        right: 12 /* Отступ справа от края карточки */
+                    }}
+                >
+                    <FullscreenIcon fontSize="small" />
+                </IconButton>
+
+                {/* Контейнер чертежа */}
+                <Box
+                    ref={containerRef}
+                    sx={{
+                        width: "100%",
+                        height: "65vh",
+                        minHeight: 500,
+                        maxHeight: 700,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        overflow: "hidden"
+                    }}
+                >
+                    {renderDrawing()}
+                </Box>
+
+                {renderParameters()}
+            </Paper>
+
+            {/* ДИАЛОГ ФУЛЛСКРИНА (Остается без изменений) */}
+            <Dialog
+                fullScreen
+                open={fullScreen}
+                onClose={() => setFullScreen(false)}
+            >
+                <Toolbar sx={{ minHeight: "56px!important", borderBottom: "1px solid", borderColor: "divider" }}>
+                    <Button startIcon={<ArrowBackIcon />} onClick={() => setFullScreen(false)}>
+                        Back
+                    </Button>
+
+                    <Typography sx={{ ml: 2, fontWeight: 500, color: "text.secondary" }}>
+                        Bend Profile
+                    </Typography>
+
+                    <Box sx={{ flex: 1 }} />
+
+                    <Button
+                        variant="contained"
+                        startIcon={<PrintIcon />}
+                        onClick={handlePrint}
+                    >
+                        Print
+                    </Button>
+                </Toolbar>
+
+                <Box sx={{ flex: 1, minHeight: 0, p: { xs: 1, sm: 2 }, display: "flex", flexDirection: "column" }}>
+                    <Paper
+                        className="fullscreen-print-area"
+                        elevation={1}
+                        sx={{
+                            flex: 1,
+                            minHeight: 0,
+                            p: 2,
+                            display: "flex",
+                            flexDirection: "column"
+                        }}
+                    >
+                        <Typography variant="subtitle1" fontWeight="500" color="text.secondary" sx={{ mb: 1 }}>
+                            Bend Profile (Geometric Drawing)
+                        </Typography>
+
+                        <Box sx={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                            {renderDrawing()}
+                        </Box>
+
+                        {renderParameters()}
+                    </Paper>
+                </Box>
+            </Dialog>
+        </>
+    );
+
 };
 
 export default ProfileGeometryPreview;
