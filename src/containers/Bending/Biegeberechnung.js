@@ -404,7 +404,7 @@ export default function Biegeberechnung(){
                     {state.referenceBend.length !== null && (
                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <Typography variant="body2" color="text.secondary">Reference:</Typography>
-                            <Typography variant="body2" fontWeight="600" color="primary.main" sx={{ ml: "auto" }}>{state.referenceBend.length.toFixed(2)} mm</Typography>
+                            <Typography variant="body2" fontWeight="600" sx={{ ml: "auto" }}>{state.referenceBend.length.toFixed(2)} mm</Typography>
                         </Box>
                     )}
 

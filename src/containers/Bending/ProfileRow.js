@@ -46,7 +46,7 @@ const ProfileRow=memo(({
         height:36,
         p:0,
         flexShrink:0,
-     });
+    });
 
     return(
         <Box sx={{display:"flex",flexDirection:"column",width:"100%"}}>
@@ -56,7 +56,7 @@ const ProfileRow=memo(({
                 borderColor:"divider",backgroundColor:"background.paper"
             }}>
                 <TextField
-                    label={`Schenkel ${index+1}`}
+                    label={`Leg ${index+1}`}
                     type="text"
                     inputMode="decimal"
                     value={shelf.length}
@@ -76,7 +76,7 @@ const ProfileRow=memo(({
                     }}
                 />
 
-                <Tooltip title="Seite wechseln">
+                <Tooltip title="Switch side">
                     <IconButton
                         size="small"
                         onClick={()=>onShelfSideChange(index,shelf.side==="right"?"left":"right")}
@@ -89,7 +89,7 @@ const ProfileRow=memo(({
                     </IconButton>
                 </Tooltip>
 
-                <Tooltip title={firstBendIndex!==-1?"Deaktiviert, wenn Winkel ausgewählt ist":"Als vertikal markieren"}>
+                <Tooltip title={firstBendIndex!==-1?"Disabled when an angle is selected":"Mark as vertical"}>
                     <span style={{display:"inline-flex"}}>
                         <IconButton
                             size="small"
@@ -159,7 +159,7 @@ const ProfileRow=memo(({
                         backgroundColor:"action.hover"
                     }}>
                         <TextField
-                            label={`Winkel ${index+1}`}
+                            label={`Angle ${index+1}`}
                             type="text"
                             inputMode="decimal"
                             value={bend.angle}
@@ -180,7 +180,7 @@ const ProfileRow=memo(({
                         />
 
                         {canRemove&&(
-                            <Tooltip title="Winkel löschen">
+                            <Tooltip title="Delete angle">
                                 <IconButton
                                     size="small"
                                     onClick={()=>onRemoveBend(index)}
@@ -194,10 +194,10 @@ const ProfileRow=memo(({
                                 >
                                     <DeleteIcon fontSize="small"/>
                                 </IconButton>
-                             </Tooltip>
+                            </Tooltip>
                         )}
 
-                        <Tooltip title="Biegerichtung wechseln">
+                        <Tooltip title="Switch bend direction">
                             <IconButton
                                 size="small"
                                 onClick={()=>onBendDirectionChange(
@@ -213,7 +213,7 @@ const ProfileRow=memo(({
                             </IconButton>
                         </Tooltip>
 
-                        <Tooltip title="Schnittansicht: Klick zum Wechseln">
+                        <Tooltip title="Section view: click to switch">
                             <IconButton
                                 size="small"
                                 onClick={()=>onSelectFirstBend(index)}

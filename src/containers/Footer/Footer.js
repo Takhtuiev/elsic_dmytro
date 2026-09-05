@@ -20,50 +20,20 @@ function Footer() {
                 sx={{
                     maxWidth: 1200,
                     mx: "auto",
-                    px: {
-                        xs: 2,
-                        sm: 3,
-                        md: 4,
-                    },
+                    px: { xs: 2, sm: 3, md: 4 },
                 }}
             >
-
-                {/* =================================================
-                    MAIN FOOTER
-                ================================================= */}
-
                 <Box
                     sx={{
-                        py: {
-                            xs: 4,
-                            md: 5,
-                        },
-
+                        py: { xs: 4, md: 5 },
                         display: "flex",
-
-                        flexDirection: {
-                            xs: "column",
-                            md: "row",
-                        },
-
+                        flexDirection: { xs: "column", md: "row" },
                         justifyContent: "space-between",
-
-                        alignItems: {
-                            xs: "flex-start",
-                            md: "center",
-                        },
-
+                        alignItems: { xs: "flex-start", md: "center" },
                         gap: 4,
                     }}
                 >
-
-                    {/* LOGO / DESCRIPTION */}
-
-                    <Box
-                        sx={{
-                            maxWidth: 430,
-                        }}
-                    >
+                    <Box sx={{ maxWidth: 430 }}>
                         <Typography
                             sx={{
                                 fontSize: "1.35rem",
@@ -72,14 +42,13 @@ function Footer() {
                                 mb: 1,
                             }}
                         >
-                            ELSIC Tools
+                            ELSIC_Dmytro
                         </Typography>
 
                         <Typography
                             variant="body2"
                             sx={{
-                                color:
-                                    "rgba(255,255,255,.6)",
+                                color: "rgba(255,255,255,.6)",
                                 lineHeight: 1.7,
                             }}
                         >
@@ -89,20 +58,13 @@ function Footer() {
                         </Typography>
                     </Box>
 
-
-                    {/* NAVIGATION */}
-
                     <Box
                         sx={{
                             display: "flex",
                             flexWrap: "wrap",
-                            gap: {
-                                xs: 2,
-                                sm: 3,
-                            },
+                            gap: { xs: 2, sm: 3 },
                         }}
                     >
-
                         <FooterLink href="/">
                             Startseite
                         </FooterLink>
@@ -114,79 +76,49 @@ function Footer() {
                         <FooterLink href="/biegeberechnung">
                             Biegeberechnung
                         </FooterLink>
-
                     </Box>
-
                 </Box>
-
-
-                {/* =================================================
-                    DIVIDER
-                ================================================= */}
 
                 <Divider
                     sx={{
-                        borderColor:
-                            "rgba(255,255,255,.12)",
+                        borderColor: "rgba(255,255,255,.12)",
                     }}
                 />
-
-
-                {/* =================================================
-                    BOTTOM
-                ================================================= */}
 
                 <Box
                     sx={{
                         py: 2.5,
-
                         display: "flex",
-
-                        flexDirection: {
-                            xs: "column",
-                            sm: "row",
-                        },
-
-                        justifyContent:
-                            "space-between",
-
-                        alignItems: {
-                            xs: "flex-start",
-                            sm: "center",
-                        },
-
+                        flexDirection: { xs: "column", sm: "row" },
+                        justifyContent: "space-between",
+                        alignItems: { xs: "flex-start", sm: "center" },
                         gap: 1.5,
                     }}
                 >
-
                     <Typography
                         variant="caption"
                         sx={{
-                            color:
-                                "rgba(255,255,255,.4)",
+                            color: "rgba(255,255,255,.4)",
                         }}
                     >
-                        © {new Date().getFullYear()} ELSIC Tools
+                        © {new Date().getFullYear()} ELSIC_Dmytro
                     </Typography>
-
 
                     <Typography
                         variant="caption"
                         sx={{
-                            color:
-                                "rgba(255,255,255,.4)",
+                            color: "rgba(255,255,255,.4)",
                         }}
                     >
                         Privates Hilfsprojekt ·
-                        nicht offizielles ELSIC-Portal
+                        nicht offizielles ELSIC-Portal ·
+                        Ergebnisse ohne Gewähr
                     </Typography>
-
 
                     <Typography
                         variant="caption"
                         sx={{
-                            color:
-                                "rgba(255,255,255,.4)",
+                            color: "rgba(255,255,255,.4)",
                         }}
                     >
                         Entwicklung:{" "}
@@ -194,9 +126,7 @@ function Footer() {
                             href="#"
                             underline="hover"
                             sx={{
-                                color:
-                                    "rgba(255,255,255,.65)",
-
+                                color: "rgba(255,255,255,.65)",
                                 "&:hover": {
                                     color: "#fff",
                                 },
@@ -205,36 +135,21 @@ function Footer() {
                             Dmytro Takhtuiev
                         </Link>
                     </Typography>
-
                 </Box>
-
             </Box>
         </Box>
     );
 }
 
-
-/* =========================================================
-   FOOTER LINK
-========================================================= */
-
-function FooterLink({
-    href,
-    children,
-}) {
+function FooterLink({ href, children }) {
     return (
         <Link
             href={href}
             underline="none"
             sx={{
-                color:
-                    "rgba(255,255,255,.65)",
-
+                color: "rgba(255,255,255,.65)",
                 fontSize: 14,
-
-                transition:
-                    "color .2s ease",
-
+                transition: "color .2s ease",
                 "&:hover": {
                     color: "#fff",
                 },
