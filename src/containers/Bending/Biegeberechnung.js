@@ -279,7 +279,7 @@ export default function Biegeberechnung(){
                     Shelves & Bends
                 </Typography>
 
-                <Stack spacing={1.5}>
+                <Stack spacing={0}>
                     {state.shelves.map((shelf, index) => (
                         <ProfileRow
                             key={index}

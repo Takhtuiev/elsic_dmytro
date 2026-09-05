@@ -1,5 +1,5 @@
-import React, { memo } from "react";
-import { Box, IconButton, InputAdornment, TextField, Tooltip } from "@mui/material";
+import React,{memo} from "react";
+import {Box,IconButton,InputAdornment,TextField,Tooltip,useTheme} from "@mui/material";
 import HeightIcon from "@mui/icons-material/Height";
 import DeleteIcon from "@mui/icons-material/Clear";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -9,217 +9,234 @@ import RedoIcon from "@mui/icons-material/Redo";
 import AdjustIcon from "@mui/icons-material/Adjust";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 
-const handleNumberKeyDown = (e) => {
-    const allowedKeys = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Tab", "Home", "End"];
-    if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) return;
-    if (!/^[0-9.,]$/.test(e.key)) { e.preventDefault(); return; }
-    if ((e.key === "." || e.key === ",") && /[.,]/.test(e.currentTarget.value)) e.preventDefault();
+const handleNumberKeyDown=e=>{
+    const allowedKeys=["Backspace","Delete","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Tab","Home","End"];
+    if(allowedKeys.includes(e.key)||e.ctrlKey||e.metaKey)return;
+    if(!/^[0-9.,]$/.test(e.key)){
+        e.preventDefault();
+        return;
+    }
+    if((e.key==="."||e.key===",")&&/[.,]/.test(e.currentTarget.value))e.preventDefault();
 };
 
-const sanitizeNumber = (value) => {
-    let result = value.replace(",", ".").replace(/[^0-9.]/g, "");
-    const parts = result.split(".");
-    if (parts.length > 2) result = parts[0] + "." + parts.slice(1).join("");
+const sanitizeNumber=value=>{
+    let result=value.replace(",",".").replace(/[^0-9.]/g,"");
+    const parts=result.split(".");
+    if(parts.length>2)result=parts[0]+"."+parts.slice(1).join("");
     return result;
 };
 
-const ProfileRow = memo(({
-                             shelf,
-                             bend,
-                             index,
-                             verticalShelf,
-                             firstBendIndex,
-                             bendViewMode,
-                             onShelfChange,
-                             onShelfSideChange,
-                             onVerticalShelfChange,
-                             onBendChange,
-                             onBendDirectionChange,
-                             onSelectFirstBend,
-                             onRemoveBend,
-                             canRemove,
-                         }) => {
-    const isVertical = verticalShelf === index + 1;
-    const isCurrentBendSelected = firstBendIndex === index;
+const ProfileRow=memo(({
+    shelf,bend,index,verticalShelf,firstBendIndex,bendViewMode,
+    onShelfChange,onShelfSideChange,onVerticalShelfChange,
+    onBendChange,onBendDirectionChange,onSelectFirstBend,
+    onRemoveBend,canRemove
+})=>{
+    const theme=useTheme();
+    const isVertical=verticalShelf===index+1;
+    const isCurrentBendSelected=firstBendIndex===index;
 
-    // Базовый стиль для кнопок управления
-    const iconBtnStyle = (isActive, activeColor = "primary.main") => ({
-        borderRadius: "6px",
-        border: "1px solid",
-        borderColor: isActive ? activeColor : "divider",
-        backgroundColor: isActive ? `${activeColor}10` : "background.paper",
-        color: isActive ? activeColor : "text.secondary",
-        width: 36,
-        height: 36,
-        p: 0,
-        flexShrink: 0,
-        "&:hover": {
-            borderColor: activeColor,
-            backgroundColor: `${activeColor}20`,
+    const iconBtnStyle=(isActive,activeColor="primary.main")=>({
+        borderRadius:"6px",
+        border:"1px solid",
+        borderColor:isActive?activeColor:"divider",
+        backgroundColor:isActive?`${activeColor}10`:"background.paper",
+        color:isActive?activeColor:"text.secondary",
+        width:36,
+        height:36,
+        p:0,
+        flexShrink:0,
+        "&:hover":{
+            borderColor:activeColor,
+            backgroundColor:`${activeColor}20`
         }
     });
 
-    return (
-        <Box sx={{ display: "flex", flexDirection: "column", width: "100%" }}>
-
-            {/* 1. БЛОК ПОЛКИ (SCHENKEL) */}
-            <Box
-                sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 1,
-                    width: "100%",
-                    p: 1,
-                    borderRadius: "6px",
-                    border: "1px solid",
-                    borderColor: "divider",
-                    backgroundColor: "background.paper"
-                }}
-            >
+    return(
+        <Box sx={{display:"flex",flexDirection:"column",width:"100%"}}>
+            <Box sx={{
+                display:"flex",alignItems:"center",gap:1,width:"100%",p:1,
+                borderRadius:"6px",border:"1px solid",
+                borderColor:"divider",backgroundColor:"background.paper"
+            }}>
                 <TextField
-                    label={`Schenkel ${index + 1}`}
+                    label={`Schenkel ${index+1}`}
                     type="text"
                     inputMode="decimal"
                     value={shelf.length}
                     size="small"
                     fullWidth
                     onKeyDown={handleNumberKeyDown}
-                    onChange={(e) => onShelfChange(index, sanitizeNumber(e.target.value))}
+                    onChange={e=>onShelfChange(index,sanitizeNumber(e.target.value))}
                     slotProps={{
-                        htmlInput: { min: 0, step: 0.01 },
-                        input: { endAdornment: <InputAdornment position="end" sx={{ fontSize: "0.8rem" }}>mm</InputAdornment> },
+                        htmlInput:{min:0,step:0.01},
+                        input:{
+                            endAdornment:(
+                                <InputAdornment position="end" sx={{fontSize:"0.8rem"}}>
+                                    mm
+                                </InputAdornment>
+                            )
+                        }
                     }}
                 />
 
                 <Tooltip title="Seite wechseln">
                     <IconButton
                         size="small"
-                        onClick={() => onShelfSideChange(index, shelf.side === "right" ? "left" : "right")}
+                        onClick={()=>onShelfSideChange(index,shelf.side==="right"?"left":"right")}
                         sx={iconBtnStyle(true)}
                     >
-                        {shelf.side === "right" ? <ArrowForwardIcon fontSize="small" /> : <ArrowBackIcon fontSize="small" />}
+                        {shelf.side==="right"
+                            ?<ArrowForwardIcon fontSize="small"/>
+                            :<ArrowBackIcon fontSize="small"/>
+                        }
                     </IconButton>
                 </Tooltip>
 
-                {/* ИСПРАВЛЕНО: Кнопка вертикали блокируется, если выбран любой угол (firstBendIndex !== -1) */}
-                <Tooltip title={firstBendIndex !== -1 ? "Deaktiviert, wenn Winkel ausgewählt ist" : "Als vertikal markieren"}>
-    <span style={{ display: "inline-flex" }}>
-        <IconButton
-            size="small"
-            color={isVertical ? "primary" : "default"}
-            onClick={() => onVerticalShelfChange(index)}
-            disabled={firstBendIndex !== -1}
-            sx={{
-                ...iconBtnStyle(isVertical),
-                "&.Mui-disabled": {
-                    borderColor: "divider",
-                    backgroundColor: "action.hover",
-                    color: "text.disabled"
-                }
-            }}
-        >
-            <HeightIcon fontSize="small" />
-        </IconButton>
-    </span>
+                <Tooltip title={firstBendIndex!==-1?"Deaktiviert, wenn Winkel ausgewählt ist":"Als vertikal markieren"}>
+                    <span style={{display:"inline-flex"}}>
+                        <IconButton
+                            size="small"
+                            color={isVertical?"primary":"default"}
+                            onClick={()=>onVerticalShelfChange(index)}
+                            disabled={firstBendIndex!==-1}
+                            sx={{
+                                ...iconBtnStyle(isVertical),
+                                "&.Mui-disabled":{
+                                    borderColor:"divider",
+                                    backgroundColor:"action.hover",
+                                    color:"text.disabled"
+                                }
+                            }}
+                        >
+                            <HeightIcon fontSize="small"/>
+                        </IconButton>
+                    </span>
                 </Tooltip>
             </Box>
 
-            {/* 2. БЛОК ГИБА (WINKEL) — рендерится как связующее звено, если это не последняя полка */}
-            {bend && (
-                <Box
-                    sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        width: "100%",
-                        position: "relative",
-                        // Рисуем сквозную вертикальную линию слева, показывающую последовательность цепочки
-                        py: 1.5,
-                        pl: 4,
-                        boxSizing: "border-box",
-                        "&::before": {
-                            content: '""',
-                            position: "absolute",
-                            left: "24px",
-                            top: 0,
-                            bottom: 0,
-                            width: "2px",
-                            borderLeft: "2px dashed",
-                            borderColor: isCurrentBendSelected ? "primary.main" : "divider"
-                        }
-                    }}
-                >
-                    <Box
-                        sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1,
-                            width: "100%",
-                            p: 1,
-                            borderRadius: "6px",
-                            border: "1px solid",
-                            borderColor: isCurrentBendSelected ? "primary.main" : "divider",
-                            backgroundColor: "action.hover"
+            {bend&&(
+                <Box sx={{
+                    display:"flex",
+                    alignItems:"center",
+                    width:"100%",
+                    position:"relative",
+                    py:1.5,
+                    pl:4,
+                    boxSizing:"border-box"
+                }}>
+                    <svg
+                        style={{
+                            position:"absolute",
+                            left:"12px",
+                            top:0,
+                            bottom:0,
+                            height:"100%",
+                            width:"17px"
                         }}
+                        viewBox="0 0 17 100"
+                        preserveAspectRatio="none"
                     >
+                        <path
+                            d="M2,0 L15,50 L2,100"
+                            fill="none"
+                            strokeWidth="2"
+                            strokeDasharray="4,4"
+                            style={{
+                                stroke:isCurrentBendSelected
+                                    ? theme.palette.primary.main
+                                    : theme.palette.text.secondary,
+                                transition:"stroke 0.2s ease"
+                            }}
+                        />
+                    </svg>
+
+                    <Box sx={{
+                        display:"flex",
+                        alignItems:"center",
+                        gap:1,
+                        width:"100%",
+                        p:1,
+                        borderRadius:"6px",
+                        border:"1px solid",
+                        borderColor:isCurrentBendSelected?"primary.main":"divider",
+                        backgroundColor:"action.hover"
+                    }}>
                         <TextField
-                            label={`Winkel ${index + 1}`}
+                            label={`Winkel ${index+1}`}
                             type="text"
                             inputMode="decimal"
                             value={bend.angle}
                             size="small"
                             fullWidth
                             onKeyDown={handleNumberKeyDown}
-                            onChange={(e) => onBendChange(index, sanitizeNumber(e.target.value))}
+                            onChange={e=>onBendChange(index,sanitizeNumber(e.target.value))}
                             slotProps={{
-                                htmlInput: { min: 0, max: 180, step: 0.01 },
-                                input: {
-                                    endAdornment: <InputAdornment position="end" sx={{ fontSize: "0.8rem" }}>°</InputAdornment>,
-                                    startAdornment: canRemove && (
-                                        <InputAdornment position="start">
-                                            <IconButton
-                                                size="small"
-                                                onClick={() => onRemoveBend(index)}
-                                                sx={{
-                                                    width: 22, height: 22, p: 0, color: "text.disabled",
-                                                    "&:hover": { color: "error.main" }
-                                                }}
-                                            >
-                                                <DeleteIcon sx={{ fontSize: 14 }} />
-                                            </IconButton>
+                                htmlInput:{min:0,max:180,step:0.01},
+                                input:{
+                                    endAdornment:(
+                                        <InputAdornment position="end" sx={{fontSize:"0.8rem"}}>
+                                            °
                                         </InputAdornment>
                                     )
-                                },
+                                }
                             }}
                         />
+
+                        {canRemove&&(
+                            <Tooltip title="Winkel löschen">
+                                <IconButton
+                                    size="small"
+                                    onClick={()=>onRemoveBend(index)}
+                                    sx={{
+                                        width:36,height:36,p:0,flexShrink:0,
+                                        borderRadius:"6px",border:"1px solid",
+                                        borderColor:"divider",
+                                        color:"text.secondary",
+                                        backgroundColor:"background.paper",
+                                        "&:hover":{
+                                            borderColor:"error.main",
+                                            backgroundColor:"error.main",
+                                            color:"error.contrastText"
+                                        }
+                                    }}
+                                >
+                                    <DeleteIcon fontSize="small"/>
+                                </IconButton>
+                            </Tooltip>
+                        )}
 
                         <Tooltip title="Biegerichtung wechseln">
                             <IconButton
                                 size="small"
-                                onClick={() => onBendDirectionChange(index, bend.direction === "right" ? "left" : "right")}
+                                onClick={()=>onBendDirectionChange(
+                                    index,
+                                    bend.direction==="right"?"left":"right"
+                                )}
                                 sx={iconBtnStyle(true)}
                             >
-                                {bend.direction === "right" ? (
-                                    <RedoIcon fontSize="small" style={{ transform: "rotate(-90deg)" }} />
-                           ) : (
-                                    <UndoIcon fontSize="small" style={{ transform: "rotate(90deg)" }} />
-                            )}
+                                {bend.direction==="right"
+                                    ?<RedoIcon fontSize="small" style={{transform:"rotate(-90deg)"}}/>
+                                    :<UndoIcon fontSize="small" style={{transform:"rotate(90deg)"}}/>
+                                }
                             </IconButton>
                         </Tooltip>
 
                         <Tooltip title="Schnittansicht: Klick zum Wechseln">
                             <IconButton
                                 size="small"
-                                onClick={() => onSelectFirstBend(index)}
+                                onClick={()=>onSelectFirstBend(index)}
                                 sx={iconBtnStyle(
                                     isCurrentBendSelected,
-                                    isCurrentBendSelected ? (bendViewMode === "toEnd" ? "success.main" : "warning.main") : "primary.main"
+                                    isCurrentBendSelected
+                                        ?bendViewMode==="toEnd"?"success.main":"warning.main"
+                                        :"primary.main"
                                 )}
                             >
-                                {isCurrentBendSelected ? (
-                                    <AdjustIcon fontSize="small" />
-                                ) : (
-                                    <RadioButtonUncheckedIcon fontSize="small" />
-                                )}
+                                {isCurrentBendSelected
+                                    ?<AdjustIcon fontSize="small"/>
+                                    :<RadioButtonUncheckedIcon fontSize="small"/>
+                                }
                             </IconButton>
                         </Tooltip>
                     </Box>
