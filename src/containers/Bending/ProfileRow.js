@@ -1,5 +1,8 @@
-import React,{memo} from "react";
-import {Box,IconButton,InputAdornment,TextField,Tooltip,useTheme} from "@mui/material";
+import React,{memo,useState} from "react";
+import {
+    Box,IconButton,InputAdornment,TextField,Tooltip,useTheme,
+    Menu,MenuItem
+} from "@mui/material";
 import HeightIcon from "@mui/icons-material/Height";
 import DeleteIcon from "@mui/icons-material/Clear";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -8,6 +11,7 @@ import UndoIcon from "@mui/icons-material/Undo";
 import RedoIcon from "@mui/icons-material/Redo";
 import AdjustIcon from "@mui/icons-material/Adjust";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 
 const handleNumberKeyDown=e=>{
     const allowedKeys=["Backspace","Delete","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Tab","Home","End"];
@@ -27,12 +31,14 @@ const sanitizeNumber=value=>{
 };
 
 const ProfileRow=memo(({
-    shelf,bend,index,verticalShelf,firstBendIndex,bendViewMode,
-    onShelfChange,onShelfSideChange,onVerticalShelfChange,
-    onBendChange,onBendDirectionChange,onSelectFirstBend,
-    onRemoveBend,canRemove
-})=>{
+                           shelf,bend,index,verticalShelf,firstBendIndex,bendViewMode,
+                           onShelfChange,onShelfSideChange,onVerticalShelfChange,
+                           onBendChange,onBendDirectionChange,onSelectFirstBend,
+                           onRemoveBend,canRemove
+                       })=>{
     const theme=useTheme();
+    const [angleMenuAnchor,setAngleMenuAnchor]=useState(null);
+
     const isVertical=verticalShelf===index+1;
     const isCurrentBendSelected=firstBendIndex===index;
 
@@ -140,8 +146,8 @@ const ProfileRow=memo(({
                             strokeDasharray="4,4"
                             style={{
                                 stroke:isCurrentBendSelected
-                                    ? theme.palette.primary.main
-                                    : theme.palette.text.secondary,
+                                    ?theme.palette.primary.main
+                                    :theme.palette.text.secondary,
                                 transition:"stroke 0.2s ease"
                             }}
                         />
@@ -171,13 +177,56 @@ const ProfileRow=memo(({
                                 htmlInput:{min:0,max:180,step:0.01},
                                 input:{
                                     endAdornment:(
-                                        <InputAdornment position="end" sx={{fontSize:"0.8rem"}}>
-                                            °
+                                        <InputAdornment position="end">
+                                            <Box sx={{
+                                                display:"flex",
+                                                alignItems:"center"
+                                            }}>
+                                                <Box sx={{
+                                                    fontSize:"0.8rem",
+                                                    mr:0.2
+                                                }}>
+                                                    °
+                                                </Box>
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={e=>setAngleMenuAnchor(e.currentTarget)}
+                                                    sx={{
+                                                        p:0.25,
+                                                        color:"text.secondary"
+                                                    }}
+                                                >
+                                                    <KeyboardArrowDownIcon fontSize="small"/>
+                                                </IconButton>
+                                            </Box>
                                         </InputAdornment>
                                     )
                                 }
                             }}
                         />
+
+                        <Menu
+                            anchorEl={angleMenuAnchor}
+                            open={Boolean(angleMenuAnchor)}
+                            onClose={()=>setAngleMenuAnchor(null)}
+                        >
+                            <MenuItem
+                                onClick={()=>{
+                                    onBendChange(index,"90");
+                                    setAngleMenuAnchor(null);
+                                }}
+                            >
+                                90°
+                            </MenuItem>
+                            <MenuItem
+                                onClick={()=>{
+                                    onBendChange(index,"135");
+                                    setAngleMenuAnchor(null);
+                                }}
+                            >
+                                135°
+                            </MenuItem>
+                        </Menu>
 
                         {canRemove&&(
                             <Tooltip title="Delete angle">
@@ -207,8 +256,14 @@ const ProfileRow=memo(({
                                 sx={iconBtnStyle(true)}
                             >
                                 {bend.direction==="right"
-                                    ?<RedoIcon fontSize="small" style={{transform:"rotate(-90deg)"}}/>
-                                    :<UndoIcon fontSize="small" style={{transform:"rotate(90deg)"}}/>
+                                    ?<RedoIcon
+                                        fontSize="small"
+                                        style={{transform:"rotate(-90deg)"}}
+                                    />
+                                    :<UndoIcon
+                                        fontSize="small"
+                                        style={{transform:"rotate(90deg)"}}
+                                    />
                                 }
                             </IconButton>
                         </Tooltip>
@@ -220,7 +275,9 @@ const ProfileRow=memo(({
                                 sx={iconBtnStyle(
                                     isCurrentBendSelected,
                                     isCurrentBendSelected
-                                        ?bendViewMode==="toEnd"?"success.main":"warning.main"
+                                        ?bendViewMode==="toEnd"
+                                            ?"success.main"
+                                            :"warning.main"
                                         :"primary.main"
                                 )}
                             >
