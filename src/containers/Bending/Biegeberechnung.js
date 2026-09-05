@@ -324,16 +324,6 @@ export default function Biegeberechnung(){
                         variant="outlined"
                         startIcon={<AddIcon />}
                         onClick={addBend}
-                        sx={{
-                            color: "text.primary",
-                            borderColor: "text.primary",
-                            textTransform: "none",
-                            fontWeight: "600",
-                            "&:hover": {
-                                borderColor: "text.secondary",
-                                backgroundColor: "action.hover",
-                            }
-                        }}
                     >
                         Add Bend
                     </Button>
@@ -421,12 +411,12 @@ export default function Biegeberechnung(){
                     {machineParams && (
                         <Stack spacing={0.8} sx={{ mt: 1, pt: 1, borderTop: "1px dashed", borderColor: "grey.300" }}>
                             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <Typography variant="caption" color="text.secondary">Bend angle:</Typography>
-                                <Typography variant="caption" fontWeight="600" sx={{ ml: "auto" }}>{machineParams.bendAngle}°</Typography>
-                            </Box>
-                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                 <Typography variant="caption" color="text.secondary">Stop position:</Typography>
                                 <Typography variant="caption" fontWeight="600" sx={{ ml: "auto" }}>{machineParams.stopPosition} mm</Typography>
+                            </Box>
+                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <Typography variant="caption" color="text.secondary">Bend angle:</Typography>
+                                <Typography variant="caption" fontWeight="600" sx={{ ml: "auto" }}>{machineParams.bendAngle}°</Typography>
                             </Box>
                             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                 <Typography variant="caption" color="text.secondary">Gap folding:</Typography>

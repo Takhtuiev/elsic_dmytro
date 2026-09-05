@@ -40,17 +40,13 @@ const ProfileRow=memo(({
         borderRadius:"6px",
         border:"1px solid",
         borderColor:isActive?activeColor:"divider",
-        backgroundColor:isActive?`${activeColor}10`:"background.paper",
+        backgroundColor:"background.paper",
         color:isActive?activeColor:"text.secondary",
         width:36,
         height:36,
         p:0,
         flexShrink:0,
-        "&:hover":{
-            borderColor:activeColor,
-            backgroundColor:`${activeColor}20`
-        }
-    });
+     });
 
     return(
         <Box sx={{display:"flex",flexDirection:"column",width:"100%"}}>
@@ -189,21 +185,16 @@ const ProfileRow=memo(({
                                     size="small"
                                     onClick={()=>onRemoveBend(index)}
                                     sx={{
-                                        width:36,height:36,p:0,flexShrink:0,
-                                        borderRadius:"6px",border:"1px solid",
-                                        borderColor:"divider",
-                                        color:"text.secondary",
-                                        backgroundColor:"background.paper",
+                                        ...iconBtnStyle(false),
                                         "&:hover":{
                                             borderColor:"error.main",
-                                            backgroundColor:"error.main",
-                                            color:"error.contrastText"
+                                            color:"error.main"
                                         }
                                     }}
                                 >
                                     <DeleteIcon fontSize="small"/>
                                 </IconButton>
-                            </Tooltip>
+                             </Tooltip>
                         )}
 
                         <Tooltip title="Biegerichtung wechseln">

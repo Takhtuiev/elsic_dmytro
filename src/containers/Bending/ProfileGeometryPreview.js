@@ -182,6 +182,21 @@ const ProfileGeometryPreview = ({
                         variant="caption"
                         color="text.secondary"
                     >
+                        Stop:
+                    </Typography>
+
+                    <Typography
+                        variant="caption"
+                        fontWeight="600"
+                        color="text.primary"
+                    >
+                        {machineParams.stopPosition.toFixed(2)} mm
+                    </Typography>
+
+                    <Typography
+                        variant="caption"
+                        color="text.secondary"
+                    >
                         Angle:
                     </Typography>
 
@@ -224,20 +239,6 @@ const ProfileGeometryPreview = ({
                         •
                     </Typography>
 
-                    <Typography
-                        variant="caption"
-                        color="text.secondary"
-                    >
-                        Stop:
-                    </Typography>
-
-                    <Typography
-                        variant="caption"
-                        fontWeight="600"
-                        color="text.primary"
-                    >
-                        {machineParams.stopPosition.toFixed(2)} mm
-                    </Typography>
                 </Stack>
             )}
         </Paper>
