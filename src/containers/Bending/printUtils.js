@@ -18,7 +18,7 @@ export const printBendProfile = (selector = ".fullscreen-print-area") => {
         .map(stack => stack.innerText.trim())
         .filter(Boolean);
 
-    // 3. Создаем временный контейнер для печати прямо в body основного документа
+    // 3. Создаем временный контейнер для печати
     const printContainer = document.createElement("div");
     printContainer.id = "pure-print-container";
     printContainer.innerHTML = `
@@ -33,73 +33,54 @@ export const printBendProfile = (selector = ".fullscreen-print-area") => {
         </div>
     `;
 
-    // 4. Создаем динамические стили, которые СКРОЮТ весь сайт во время печати, кроме нашего контейнера
+    // 4. Стили для печатной страницы
     const style = document.createElement("style");
     style.id = "pure-print-styles";
     style.innerHTML = `
-        /* Эти стили сработают ТОЛЬКО в режиме печати/сохранения в PDF */
         @media print {
-            /* Жестко скрываем абсолютно ВСЕ элементы на странице... */
-            body > * {
-                display: none !important;
-            }
-            /* ...кроме нашего специального контейнера для печати */
-            body > #pure-print-container, 
-            body > #pure-print-container * {
-                display: block !important;
-            }
-
             @page { 
                 margin: 10mm; 
                 size: auto; 
             }
-            
             html, body { 
                 margin: 0; 
                 padding: 0; 
                 width: 100%; 
-                background: #fff; 
+                background: #fff !important; 
             }
-
             body {
                 font-family: Roboto, Helvetica, Arial, sans-serif;
                 color: #000;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
             }
-
             .print-page {
                 width: 100%;
                 page-break-inside: avoid;
                 break-inside: avoid;
             }
-
             .print-title {
                 margin: 0 0 4mm;
                 font-size: 12pt;
                 color: #555;
             }
-
             .print-drawing {
                 width: 100%;
                 margin: 0 0 4mm;
                 text-align: center;
             }
-
             .print-drawing svg {
                 display: block;
                 width: 100%;
                 height: auto;
                 max-width: 100%;
-                max-height: 95mm; /* Ограничение высоты, чтобы гарантированно влезло на 1 страницу в ландшафте */
+                max-height: 95mm; 
                 margin: 0 auto;
             }
-
             .print-parameters {
                 width: 100%;
                 font-size: 9pt;
             }
-
             .print-row {
                 margin: 1mm 0;
                 white-space: nowrap;
@@ -107,16 +88,32 @@ export const printBendProfile = (selector = ".fullscreen-print-area") => {
         }
     `;
 
-    // 5. Внедряем элементы в документ
     document.head.appendChild(style);
     document.body.appendChild(printContainer);
 
-    // 6. Вызываем системное окно печати основного окна (теперь оно сработает корректно везде)
-    window.print();
+    // 5. ЖЕСТКОЕ СКРЫТИЕ ЧЕРЕЗ JS: Находим все элементы в body (включая #root вашего приложения)
+    // и скрываем их напрямую через inline-стили, кроме нашего контейнера для печати
+    const elementsToHide = Array.from(document.body.children).filter(
+        child => child !== printContainer && child.tagName !== "SCRIPT" && child.tagName !== "STYLE"
+    );
 
-    // 7. Удаляем временные элементы из DOM после закрытия окна печати
+    const originalDisplays = elementsToHide.map(el => {
+        const prevDisplay = el.style.display;
+        el.style.setProperty("display", "none", "important"); // Прячем интерфейс сайта полностью
+        return prevDisplay;
+    });
+
+    // 6. Небольшая задержка, чтобы мобильный браузер успел перерисовать DOM перед вызовом печати
     setTimeout(() => {
-        style.remove();
-        printContainer.remove();
-    }, 1000);
+        window.print();
+
+        // 7. Восстанавливаем всё обратно после того, как пользователь закроет окно печати
+        setTimeout(() => {
+            elementsToHide.forEach((el, index) => {
+                el.style.display = originalDisplays[index];
+            });
+            style.remove();
+            printContainer.remove();
+        }, 1000);
+    }, 150);
 };
