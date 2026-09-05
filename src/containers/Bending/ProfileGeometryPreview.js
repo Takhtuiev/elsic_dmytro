@@ -307,20 +307,22 @@ body{
 
 .drawing-container{
     width:100%;
-    margin:0 0 10mm 0;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    overflow:hidden;
+    margin:0 0 8mm 0;
+    display:block;
+    overflow:visible;
 }
 
 .drawing-container svg{
     display:block;
     width:100%;
     height:auto;
-    max-height:150mm;
+    max-width:100%;
 }
 
+.parameters{
+    width:100%;
+    margin:0;
+}
 </style>
 </head>
 <body>
@@ -359,10 +361,7 @@ ${printElement.innerHTML}
                     variant="subtitle1"
                     fontWeight="500"
                     color="text.secondary"
-                    sx={{
-                        mb:1,
-                        pr:5
-                    }}
+                    sx={{mb:1,pr:5}}
                 >
                     Bend Profile (Geometric Drawing)
                 </Typography>
