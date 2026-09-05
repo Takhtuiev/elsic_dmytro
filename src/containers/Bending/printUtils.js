@@ -1,3 +1,11 @@
+import { jsPDF } from "jspdf";
+
+/**
+ * Функция для идеальной печати чертежа профиля гибки и его параметров.
+ * Генерирует изолированный PDF в памяти, что решает проблемы адаптивности и баги мобильных браузеров.
+ *
+ * @param {string} selector - Класс контейнера, в котором лежит SVG и параметры
+ */
 export const printBendProfile = (selector = ".fullscreen-print-area") => {
     const printElement = document.querySelector(selector);
     if (!printElement) return;
@@ -5,115 +13,128 @@ export const printBendProfile = (selector = ".fullscreen-print-area") => {
     const svg = printElement.querySelector("svg");
     if (!svg) return;
 
-    // 1. Клонируем SVG и очищаем фиксированные размеры
-    const svgClone = svg.cloneNode(true);
-    svgClone.removeAttribute("width");
-    svgClone.removeAttribute("height");
-    svgClone.setAttribute("preserveAspectRatio", "xMidYMid meet");
-
-    // 2. Собираем параметры
+    // Считываем параметры (.MuiStack-root)
     const parameters = [
         ...printElement.querySelectorAll(":scope > .MuiStack-root")
     ]
         .map(stack => stack.innerText.trim())
         .filter(Boolean);
 
-    // 3. Создаем временный контейнер для печати
-    const printContainer = document.createElement("div");
-    printContainer.id = "pure-print-container";
-    printContainer.innerHTML = `
-        <div class="print-page">
-            <div class="print-title">Bend Profile (Geometric Drawing)</div>
-            <div class="print-drawing">${svgClone.outerHTML}</div>
-            <div class="print-parameters">
-                ${parameters.map(text => `
-                    <div class="print-row">${text.replace(/\n/g, " ")}</div>
-                `).join("")}
-            </div>
-        </div>
-    `;
-
-    // 4. Стили для печатной страницы
-    const style = document.createElement("style");
-    style.id = "pure-print-styles";
-    style.innerHTML = `
-        @media print {
-            @page { 
-                margin: 10mm; 
-                size: auto; 
-            }
-            html, body { 
-                margin: 0; 
-                padding: 0; 
-                width: 100%; 
-                background: #fff !important; 
-            }
-            body {
-                font-family: Roboto, Helvetica, Arial, sans-serif;
-                color: #000;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-            }
-            .print-page {
-                width: 100%;
-                page-break-inside: avoid;
-                break-inside: avoid;
-            }
-            .print-title {
-                margin: 0 0 4mm;
-                font-size: 12pt;
-                color: #555;
-            }
-            .print-drawing {
-                width: 100%;
-                margin: 0 0 4mm;
-                text-align: center;
-            }
-            .print-drawing svg {
-                display: block;
-                width: 100%;
-                height: auto;
-                max-width: 100%;
-                max-height: 95mm; 
-                margin: 0 auto;
-            }
-            .print-parameters {
-                width: 100%;
-                font-size: 9pt;
-            }
-            .print-row {
-                margin: 1mm 0;
-                white-space: nowrap;
-            }
-        }
-    `;
-
-    document.head.appendChild(style);
-    document.body.appendChild(printContainer);
-
-    // 5. ЖЕСТКОЕ СКРЫТИЕ ЧЕРЕЗ JS: Находим все элементы в body (включая #root вашего приложения)
-    // и скрываем их напрямую через inline-стили, кроме нашего контейнера для печати
-    const elementsToHide = Array.from(document.body.children).filter(
-        child => child !== printContainer && child.tagName !== "SCRIPT" && child.tagName !== "STYLE"
-    );
-
-    const originalDisplays = elementsToHide.map(el => {
-        const prevDisplay = el.style.display;
-        el.style.setProperty("display", "none", "important"); // Прячем интерфейс сайта полностью
-        return prevDisplay;
+    // 1. Создаем PDF в книжной ориентации ('p' - portrait) формата A4
+    const doc = new jsPDF({
+        orientation: "p",
+        unit: "mm",
+        format: "a4"
     });
 
-    // 6. Небольшая задержка, чтобы мобильный браузер успел перерисовать DOM перед вызовом печати
-    setTimeout(() => {
-        window.print();
+    const pageWidth = doc.internal.pageSize.getWidth();   // ~210 мм
+    const pageHeight = doc.internal.pageSize.getHeight(); // ~297 мм
 
-        // 7. Восстанавливаем всё обратно после того, как пользователь закроет окно печати
-        setTimeout(() => {
-            elementsToHide.forEach((el, index) => {
-                el.style.display = originalDisplays[index];
+    // Добавляем заголовок документа
+    doc.setFont("Helvetica", "normal");
+    doc.setFontSize(14);
+    doc.setTextColor(85, 85, 85);
+    doc.text("Bend Profile (Geometric Drawing)", 15, 15);
+
+    // Конвертируем SVG в строку и Blob-ссылку для рендеринга на Canvas
+    const svgString = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+    const URL = window.URL || window.webkitURL || window;
+    const blobURL = URL.createObjectURL(svgBlob);
+
+    const image = new Image();
+    image.src = blobURL;
+
+    image.onload = () => {
+        const canvas = document.createElement("canvas");
+
+        // Получаем исходные пропорции из viewBox или текущих размеров SVG
+        const svgWidth = svg.viewBox.baseVal.width || svg.clientWidth || 800;
+        const svgHeight = svg.viewBox.baseVal.height || svg.clientHeight || 600;
+        const aspectRatio = svgWidth / svgHeight;
+
+        // Задаем повышенное разрешение Canvas для максимальной четкости линий
+        canvas.width = svgWidth * 2;
+        canvas.height = svgHeight * 2;
+
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+        const imgData = canvas.toDataURL("image/png");
+
+        // Расчет размеров чертежа с ЖЕСТКИМ СОХРАНЕНИЕМ ПРОПОРЦИЙ под А4
+        const maxWidth = pageWidth - 30;  // Доступная ширина (180 мм)
+        const maxHeight = 160;            // Предельная высота под чертеж (160 мм)
+
+        let printWidth = maxWidth;
+        let printHeight = printWidth / aspectRatio;
+
+        // Если по высоте чертеж превышает лимит, масштабируем относительно высоты
+        if (printHeight > maxHeight) {
+            printHeight = maxHeight;
+            printWidth = printHeight * aspectRatio;
+        }
+
+        // Центрируем чертеж по горизонтали на листе
+        const startX = 15 + (maxWidth - printWidth) / 2;
+        const startY = 25; // Отступ сверху от заголовка
+
+        // Вставляем чертеж в PDF
+        doc.addImage(imgData, "PNG", startX, startY, printWidth, printHeight);
+
+        // 2. Добавляем параметры (динамический расчет Y, чтобы текст шел строго под чертежом)
+        doc.setFontSize(10);
+        doc.setTextColor(0, 0, 0);
+
+        let currentY = startY + printHeight + 12; // Отступ 12 мм вниз от чертежа
+
+        parameters.forEach(text => {
+            // Проверяем, чтобы текст не вылезал за нижнюю границу листа
+            if (currentY < pageHeight - 15) {
+                doc.text(text.replace(/\n/g, " "), 15, currentY);
+                currentY += 6; // Шаг строки
+            }
+        });
+
+        // 3. Переводим готовый PDF в Blob URL для отправки в iframe
+        const pdfBlob = doc.output("blob");
+        const pdfUrl = URL.createObjectURL(pdfBlob);
+
+        // 4. Создаем скрытый полноразмерный iframe
+        const printIframe = document.createElement("iframe");
+        Object.assign(printIframe.style, {
+            position: "fixed",
+            top: "0",
+            left: "0",
+            width: "100%",
+            height: "100%",
+            border: "0",
+            opacity: "0",
+            visibility: "hidden",
+            pointerEvents: "none"
+        });
+
+        printIframe.src = pdfUrl;
+        document.body.appendChild(printIframe);
+
+        printIframe.onload = () => {
+            // ИСПРАВЛЕНИЕ: Удаляем фрейм ТОЛЬКО после реального закрытия или отмены печати пользователем.
+            // Теперь при смене параметров (размер бумаги, копия, ориентация) окно не будет захлопываться.
+            printIframe.contentWindow.addEventListener("afterprint", () => {
+                printIframe.remove();
+                URL.revokeObjectURL(pdfUrl);
             });
-            style.remove();
-            printContainer.remove();
-        }, 1000);
-    }, 150);
+
+            // Запускаем диалог печати
+            setTimeout(() => {
+                printIframe.contentWindow.focus();
+                printIframe.contentWindow.print();
+            }, 300);
+        };
+
+        // Освобождаем память от Blob картинки SVG
+        URL.revokeObjectURL(blobURL);
+    };
 };
