@@ -1,8 +1,10 @@
 import React,{useCallback,useEffect,useMemo,useState} from "react";
 import {
-    Box, Button, InputAdornment, Paper, Stack, TextField, Typography
+    Box,Button,IconButton,InputAdornment,Menu,MenuItem,
+    Paper,Stack,TextField,Typography
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import ProfileRow from "./ProfileRow";
 import {
     calculateBlankLength,
@@ -34,8 +36,16 @@ const INITIAL_STATE={
     }
 };
 
+const UNIT_SX={
+    fontSize:"0.7rem",
+    ml:0,
+    mr:0,
+    p:0
+};
+
 export default function Biegeberechnung(){
     const [state,setState]=useState(INITIAL_STATE);
+    const [thicknessMenuAnchor,setThicknessMenuAnchor]=useState(null);
 
     const updateParam=useCallback((name,value)=>{
         setState(prev=>({...prev,[name]:value}));
@@ -82,30 +92,18 @@ export default function Biegeberechnung(){
         });
     },[]);
 
-    const handleVerticalShelfChange = useCallback((index) => {
-        // Меняем вертикальную полку ТОЛЬКО если не выбран угол для расчета (firstBendIndex === -1)
-        setState(prev => {
-            if (prev.firstBendIndex !== -1) return prev;
-
-            return {
-                ...prev,
-                verticalShelf: index + 1 // Сохраняем номер полки (начиная с 1)
-            };
+    const handleVerticalShelfChange=useCallback(index=>{
+        setState(prev=>{
+            if(prev.firstBendIndex!==-1)return prev;
+            return{...prev,verticalShelf:index+1};
         });
-    }, []);
-
+    },[]);
 
     const addBend=useCallback(()=>{
         setState(prev=>({
             ...prev,
-            bends:[
-                ...prev.bends,
-                {angle:180,direction:"right"}
-            ],
-            shelves:[
-                ...prev.shelves,
-                {length:50,side:"right"}
-            ]
+            bends:[...prev.bends,{angle:180,direction:"right"}],
+            shelves:[...prev.shelves,{length:50,side:"right"}]
         }));
     },[]);
 
@@ -197,16 +195,8 @@ export default function Biegeberechnung(){
             }));
         }
     },[
-        firstBendIndex,
-        bendViewMode,
-        bends,
-        shelves,
-        thickness,
-        kFactor,
-        rTool,
-        refLength,
-        refDirection,
-        refIndex
+        firstBendIndex,bendViewMode,bends,shelves,
+        thickness,kFactor,rTool,refLength,refDirection,refIndex
     ]);
 
     const blankLength=useMemo(
@@ -234,24 +224,23 @@ export default function Biegeberechnung(){
         rTool
     ]);
 
-    return (
+    return(
         <Box
             sx={{
-                display: "flex",
-                gap: 2,
-                p: { xs: 1, sm: 2 },
-                flexDirection: { xs: "column", md: "row" },
-                alignItems: "flex-start",
-                width: "100%"
+                display:"flex",
+                gap:2,
+                p:{xs:1,sm:2},
+                flexDirection:{xs:"column",md:"row"},
+                alignItems:"flex-start",
+                width:"100%"
             }}
         >
-            {/* DRAWING */}
             <Box
                 sx={{
-                    flex: 1,
-                    minWidth: 0,
-                    width: "100%",
-                    order: { xs: 1, md: 2 }
+                    flex:1,
+                    minWidth:0,
+                    width:"100%",
+                    order:{xs:1,md:2}
                 }}
             >
                 <ProfileGeometryPreview
@@ -263,24 +252,33 @@ export default function Biegeberechnung(){
                 />
             </Box>
 
-            {/* EDITOR */}
             <Paper
                 elevation={2}
                 sx={{
-                    p: { xs: 2, sm: 3 },
-                    width: { xs: "100%", md: "22rem" },
-                    maxWidth: "100%",
-                    boxSizing: "border-box",
-                    flexShrink: 0,
-                    order: { xs: 2, md: 1 }
+                    p:{xs:2,sm:3},
+                    width:{xs:"100%",md:"22rem"},
+                    maxWidth:"100%",
+                    boxSizing:"border-box",
+                    flexShrink:0,
+                    order:{xs:2,md:1}
                 }}
             >
-                <Typography variant="subtitle2" fontWeight="600" color="text.secondary" sx={{ mb: 1.5, textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.5px" }}>
+                <Typography
+                    variant="subtitle2"
+                    fontWeight="600"
+                    color="text.secondary"
+                    sx={{
+                        mb:1.5,
+                        textTransform:"uppercase",
+                        fontSize:"0.75rem",
+                        letterSpacing:"0.5px"
+                    }}
+                >
                     Shelves & Bends
                 </Typography>
 
                 <Stack spacing={0}>
-                    {state.shelves.map((shelf, index) => (
+                    {state.shelves.map((shelf,index)=>(
                         <ProfileRow
                             key={index}
                             shelf={shelf}
@@ -289,66 +287,76 @@ export default function Biegeberechnung(){
                             index={index}
                             verticalShelf={state.verticalShelf}
                             onVerticalShelfChange={handleVerticalShelfChange}
-
-                            // Изменение длины полки
-                            onShelfChange={(idx, value) =>
-                                updateNestedItem("shelves", index, "length", value)
+                            onShelfChange={(idx,value)=>
+                                updateNestedItem("shelves",index,"length",value)
                             }
-                            // Изменение угла гиба
-                            onBendChange={(idx, value) =>
-                                updateNestedItem("bends", index, "angle", value)
+                            onBendChange={(idx,value)=>
+                                updateNestedItem("bends",index,"angle",value)
                             }
-                            // Смена стороны полки (лево/право)
-                            onShelfSideChange={(idx, value) =>
-                                updateNestedItem("shelves", index, "side", value)
+                            onShelfSideChange={(idx,value)=>
+                                updateNestedItem("shelves",index,"side",value)
                             }
-                            // Смена направления гиба (лево/право)
-                            onBendDirectionChange={(idx, value) =>
-                                updateNestedItem("bends", index, "direction", value)
+                            onBendDirectionChange={(idx,value)=>
+                                updateNestedItem("bends",index,"direction",value)
                             }
-
-                            onRemoveBend={() => removeBend(index)}
-
+                            onRemoveBend={()=>removeBend(index)}
                             onSelectFirstBend={handleSelectFirstBend}
                             firstBendIndex={state.firstBendIndex}
                             bendViewMode={state.bendViewMode}
-                            canRemove={!!state.bends[index] && state.bends.length > 1}
+                            canRemove={
+                                !!state.bends[index]&&
+                                state.bends.length>1
+                            }
                         />
                     ))}
                 </Stack>
 
-                {/* СТРОГАЯ ЧЕРНАЯ КНОПКА OUTLINED КАК ВЫ И ПРОСИЛИ */}
-                <Box sx={{ mt: 2, mb: 2 }}>
+                <Box sx={{mt:2,mb:2}}>
                     <Button
                         fullWidth
                         variant="outlined"
-                        startIcon={<AddIcon />}
+                        startIcon={<AddIcon/>}
                         onClick={addBend}
                     >
                         Add Bend
                     </Button>
                 </Box>
 
-                <Typography variant="subtitle2" fontWeight="600" color="text.secondary" sx={{ mb: 1.5, pt: 2, borderTop: "1px solid", borderColor: "divider", textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.5px" }}>
+                <Typography
+                    variant="subtitle2"
+                    fontWeight="600"
+                    color="text.secondary"
+                    sx={{
+                        mb:1.5,
+                        pt:2,
+                        borderTop:"1px solid",
+                        borderColor:"divider",
+                        textTransform:"uppercase",
+                        fontSize:"0.75rem",
+                        letterSpacing:"0.5px"
+                    }}
+                >
                     Parameters
                 </Typography>
 
-                {/* ПАРАМЕТРЫ С АДАПТИВНОЙ ГРИД-СЕТКОЙ И СКРЫТЫМИ СТРЕЛОЧКАМИ */}
                 <Box
                     sx={{
-                        display: "grid",
-                        gridTemplateColumns: { xs: "repeat(2, 1fr)", md: "repeat(3, 1fr)" },
-                        gap: 1.5,
-                        width: "100%",
-                        mb: 3,
-                        "& > *": {
-                            minWidth: 0,
-                            "& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button": {
-                                WebkitAppearance: "none",
-                                margin: 0
+                        display:"grid",
+                        gridTemplateColumns:{
+                            xs:"minmax(0,1fr) minmax(0,.65fr) minmax(0,1fr)",
+                            md:"1fr .65fr 1fr"
+                        },
+                        gap:1.5,
+                        width:"100%",
+                        mb:3,
+                        "& > *":{
+                            minWidth:0,
+                            "& input::-webkit-outer-spin-button,& input::-webkit-inner-spin-button":{
+                                WebkitAppearance:"none",
+                                margin:0
                             },
-                            "& input[type=number]": {
-                                MozAppearance: "textfield"
+                            "& input[type=number]":{
+                                MozAppearance:"textfield"
                             }
                         }
                     }}
@@ -358,10 +366,40 @@ export default function Biegeberechnung(){
                         type="number"
                         size="small"
                         value={state.thickness}
-                        onChange={e => updateParam("thickness", Number(e.target.value) || 0)}
+                        onChange={e=>
+                            updateParam(
+                                "thickness",
+                                Number(e.target.value)||0
+                            )
+                        }
                         slotProps={{
-                            htmlInput: { min: 0, step: 1 },
-                            input: { endAdornment: <InputAdornment position="end" sx={{ scale: .8, ml: .25 }}>mm</InputAdornment> }
+                            htmlInput:{min:0,step:1},
+                            input:{
+                                endAdornment:(
+                                    <InputAdornment
+                                        position="end"
+                                        sx={UNIT_SX}
+                                    >
+                                        <Box sx={UNIT_SX}>mm</Box>
+                                        <IconButton
+                                            size="small"
+                                            onClick={e=>
+                                                setThicknessMenuAnchor(
+                                                    e.currentTarget
+                                                )
+                                            }
+                                            sx={{
+                                                p:.25,
+                                                color:"text.secondary"
+                                            }}
+                                        >
+                                            <KeyboardArrowDownIcon
+                                                fontSize="small"
+                                            />
+                                        </IconButton>
+                                    </InputAdornment>
+                                )
+                            }
                         }}
                     />
 
@@ -370,8 +408,19 @@ export default function Biegeberechnung(){
                         type="number"
                         size="small"
                         value={state.kFactor}
-                        onChange={e => updateParam("kFactor", Number(e.target.value) || 0)}
-                        slotProps={{ htmlInput: { min: 0, max: 1, step: 0.01 } }}
+                        onChange={e=>
+                            updateParam(
+                                "kFactor",
+                                Number(e.target.value)||0
+                            )
+                        }
+                        slotProps={{
+                            htmlInput:{
+                                min:0,
+                                max:1,
+                                step:.01
+                            }
+                        }}
                     />
 
                     <TextField
@@ -379,48 +428,172 @@ export default function Biegeberechnung(){
                         type="number"
                         size="small"
                         value={state.rTool}
-                        onChange={e => updateParam("rTool", Number(e.target.value) || 0)}
+                        onChange={e=>
+                            updateParam(
+                                "rTool",
+                                Number(e.target.value)||0
+                            )
+                        }
                         slotProps={{
-                            htmlInput: { min: 0, step: 1 },
-                            input: { endAdornment: <InputAdornment position="end" sx={{ scale: .8, ml: .25 }}>mm</InputAdornment> }
+                            htmlInput:{
+                                min:0,
+                                step:1
+                            },
+                            input:{
+                                endAdornment:(
+                                    <InputAdornment
+                                        position="end"
+                                        sx={UNIT_SX}
+                                    >
+                                        <Box sx={UNIT_SX}>mm</Box>
+                                    </InputAdornment>
+                                )
+                            }
                         }}
                     />
                 </Box>
 
-                {/* ИНФОРМАЦИОННАЯ ПАНЕЛЬ РАСЧЕТОВ СНИЗУ */}
+                <Menu
+                    anchorEl={thicknessMenuAnchor}
+                    open={Boolean(thicknessMenuAnchor)}
+                    onClose={()=>setThicknessMenuAnchor(null)}
+                >
+                    {[4,5,6,8,10].map(value=>(
+                        <MenuItem
+                            key={value}
+                            selected={state.thickness===value}
+                            onClick={()=>{
+                                updateParam("thickness",value);
+                                setThicknessMenuAnchor(null);
+                            }}
+                        >
+                            {value}
+                        </MenuItem>
+                    ))}
+                </Menu>
+
                 <Stack
                     spacing={1}
                     sx={{
-                        p: 2,
-                        borderRadius: "8px",
-                        border: "1px solid",
+                        p:2,
+                        borderRadius:"8px",
+                        border:"1px solid"
                     }}
                 >
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <Typography variant="body2" color="text.secondary">Blank length:</Typography>
-                        <Typography variant="body2" fontWeight="600" sx={{ ml: "auto" }}>{blankLength.toFixed(2)} mm</Typography>
+                    <Box
+                        sx={{
+                            display:"flex",
+                            justifyContent:"space-between",
+                            alignItems:"center"
+                        }}
+                    >
+                        <Typography variant="body2" color="text.secondary">
+                            Blank length:
+                        </Typography>
+                        <Typography
+                            variant="body2"
+                            fontWeight="600"
+                            sx={{ml:"auto"}}
+                        >
+                            {blankLength.toFixed(2)} mm
+                        </Typography>
                     </Box>
 
-                    {state.referenceBend.length !== null && (
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <Typography variant="body2" color="text.secondary">Reference:</Typography>
-                            <Typography variant="body2" fontWeight="600" sx={{ ml: "auto" }}>{state.referenceBend.length.toFixed(2)} mm</Typography>
+                    {state.referenceBend.length!==null&&(
+                        <Box
+                            sx={{
+                                display:"flex",
+                                justifyContent:"space-between",
+                                alignItems:"center"
+                            }}
+                        >
+                            <Typography variant="body2" color="text.secondary">
+                                Reference:
+                            </Typography>
+                            <Typography
+                                variant="body2"
+                                fontWeight="600"
+                                sx={{ml:"auto"}}
+                            >
+                                {state.referenceBend.length.toFixed(2)} mm
+                            </Typography>
                         </Box>
                     )}
 
-                    {machineParams && (
-                        <Stack spacing={0.8} sx={{ mt: 1, pt: 1, borderTop: "1px dashed", borderColor: "grey.300" }}>
-                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <Typography variant="caption" color="text.secondary">Stop position:</Typography>
-                                <Typography variant="caption" fontWeight="600" sx={{ ml: "auto" }}>{machineParams.stopPosition} mm</Typography>
+                    {machineParams&&(
+                        <Stack
+                            spacing={.8}
+                            sx={{
+                                mt:1,
+                                pt:1,
+                                borderTop:"1px dashed",
+                                borderColor:"grey.300"
+                            }}
+                        >
+                            <Box
+                                sx={{
+                                    display:"flex",
+                                    justifyContent:"space-between",
+                                    alignItems:"center"
+                                }}
+                            >
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                >
+                                    Stop position:
+                                </Typography>
+                                <Typography
+                                    variant="caption"
+                                    fontWeight="600"
+                                    sx={{ml:"auto"}}
+                                >
+                                    {machineParams.stopPosition} mm
+                                </Typography>
                             </Box>
-                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <Typography variant="caption" color="text.secondary">Bend angle:</Typography>
-                                <Typography variant="caption" fontWeight="600" sx={{ ml: "auto" }}>{machineParams.bendAngle}°</Typography>
+
+                            <Box
+                                sx={{
+                                    display:"flex",
+                                    justifyContent:"space-between",
+                                    alignItems:"center"
+                                }}
+                            >
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                >
+                                    Bend angle:
+                                </Typography>
+                                <Typography
+                                    variant="caption"
+                                    fontWeight="600"
+                                    sx={{ml:"auto"}}
+                                >
+                                    {machineParams.bendAngle}°
+                                </Typography>
                             </Box>
-                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <Typography variant="caption" color="text.secondary">Gap folding:</Typography>
-                                <Typography variant="caption" fontWeight="600" sx={{ ml: "auto" }}>{machineParams.gapFolding} mm</Typography>
+
+                            <Box
+                                sx={{
+                                    display:"flex",
+                                    justifyContent:"space-between",
+                                    alignItems:"center"
+                                }}
+                            >
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                >
+                                    Gap folding:
+                                </Typography>
+                                <Typography
+                                    variant="caption"
+                                    fontWeight="600"
+                                    sx={{ml:"auto"}}
+                                >
+                                    {machineParams.gapFolding} mm
+                                </Typography>
                             </Box>
                         </Stack>
                     )}

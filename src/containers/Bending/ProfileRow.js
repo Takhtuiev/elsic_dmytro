@@ -74,8 +74,10 @@ const ProfileRow=memo(({
                         htmlInput:{min:0,step:0.01},
                         input:{
                             endAdornment:(
-                                <InputAdornment position="end" sx={{fontSize:"0.8rem"}}>
-                                    mm
+                                <InputAdornment position="end">
+                                    <Box sx={{fontSize:"0.7rem",ml:0,mr:0}}>
+                                        mm
+                                    </Box>
                                 </InputAdornment>
                             )
                         }
