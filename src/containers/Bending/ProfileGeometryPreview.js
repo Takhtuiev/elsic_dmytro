@@ -268,8 +268,8 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
 
     const svgClone=svg.cloneNode(true);
 
+    svgClone.removeAttribute("width");
     svgClone.removeAttribute("height");
-    svgClone.setAttribute("width","auto");
     svgClone.setAttribute("preserveAspectRatio","xMidYMid meet");
 
     const parameters=[
@@ -298,9 +298,9 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
     doc.open();
     doc.write(`
     <!DOCTYPE html>
-    <html>
-    <head>
-    <meta charset="UTF-8">
+    <html lang="en">
+        <head>
+        <meta charset="UTF-8">
         <title>Bend Profile</title>
 
     <style>
@@ -330,7 +330,7 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
         .print-page{
         width:100%;
         margin:0;
-        padding:0; 
+        padding:0;
     }
 
         .print-title{
@@ -342,19 +342,19 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
 
         .print-drawing{
         width:100%;
-        display:flex;
-        justify-content:center;
-        align-items:center;
         margin:0 0 4mm;
         padding:0;
+        text-align:center;
+        display:block;
+        height:auto;
     }
 
         .print-drawing svg{
         display:block;
-        width:auto;
+        width:100%;
         height:auto;
         max-width:100%;
-        max-height:calc(100vh - 55mm);
+        max-height:160mm;
         margin:0 auto;
     }
 
@@ -367,6 +367,18 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
         .print-row{
         margin:1mm 0;
         white-space:nowrap;
+    }
+
+        @media print and (orientation:portrait){
+        .print-drawing svg{
+        max-height:240mm;
+    }
+    }
+
+        @media print and (orientation:landscape){
+        .print-drawing svg{
+        max-height:160mm;
+    }
     }
     </style>
 </head>
@@ -402,7 +414,7 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
         setTimeout(()=>{
             iframe.remove();
         },1000);
-    },300);
+    },500);
 };
 
 
