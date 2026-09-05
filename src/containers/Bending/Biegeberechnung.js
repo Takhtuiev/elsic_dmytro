@@ -16,11 +16,13 @@ const INITIAL_STATE={
     kFactor:.32,
     rTool:1.2,
     shelves:[
-        {length:20,side:"right"},
-        {length:20,side:"right"}
+        {length:50,side:"right"},
+        {length:100,side:"right"},
+        {length:150,side:"left"}
     ],
     bends:[
-        {angle:180,direction:"right"}
+        {angle:90,direction:"right"},
+        {angle:135,direction:"left"}
     ],
     verticalShelf:1,
     firstBendIndex:-1,
@@ -102,7 +104,7 @@ export default function Biegeberechnung(){
             ],
             shelves:[
                 ...prev.shelves,
-                {length:20,side:"right"}
+                {length:50,side:"right"}
             ]
         }));
     },[]);

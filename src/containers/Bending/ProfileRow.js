@@ -95,7 +95,7 @@ const ProfileRow = memo(({
                     <IconButton
                         size="small"
                         onClick={() => onShelfSideChange(index, shelf.side === "right" ? "left" : "right")}
-                        sx={iconBtnStyle(true, "text.primary")}
+                        sx={iconBtnStyle(true)}
                     >
                         {shelf.side === "right" ? <ArrowForwardIcon fontSize="small" /> : <ArrowBackIcon fontSize="small" />}
                     </IconButton>
@@ -196,7 +196,7 @@ const ProfileRow = memo(({
                             <IconButton
                                 size="small"
                                 onClick={() => onBendDirectionChange(index, bend.direction === "right" ? "left" : "right")}
-                                sx={iconBtnStyle(true, "text.primary")}
+                                sx={iconBtnStyle(true)}
                             >
                                 {bend.direction === "right" ? (
                                     <RedoIcon fontSize="small" style={{ transform: "rotate(-90deg)" }} />

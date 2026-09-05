@@ -3,39 +3,31 @@ import { Box, Paper, Stack, Typography, useTheme } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import buildProfileGeometry from "./BuildProfileGeometry";
 import BendProfileRender from "./BendProfileRender";
-import { prepareSvgLayers } from "./profileGeometryBasing";
-
-const VW = 600;
-const VH = 450;
-const PADDING = 40;
+import { prepareSvgLayers } from "./prepareSvgLayers";
 
 const ProfileGeometryPreview = ({
-                                    profile,
-                                    blankLength,
-                                    machineParams
-                                }) => {
+    profile,
+    blankLength,
+    machineParams
+}) => {
     const theme = useTheme();
 
     const ACTIVE_LINE_COLOR = theme.palette.text.primary;
     const ACTIVE_FILL_COLOR = alpha(theme.palette.text.primary, 0.1);
+    const ACTIVE_ANNOTATION_COLOR = alpha(theme.palette.text.primary, 0.75);
 
     const GHOST_LINE_COLOR = theme.palette.text.disabled;
     const GHOST_FILL_COLOR = alpha(theme.palette.text.disabled, 0.02);
+    const GHOST_ANNOTATION_COLOR = alpha(theme.palette.text.disabled, 0.4);
 
     const BLUE_LINE_COLOR = theme.palette.primary.main;
     const BLUE_FILL_COLOR = alpha(theme.palette.primary.main, 0.08);
+    const BLUE_ANNOTATION_COLOR = alpha(theme.palette.primary.main, 1);
 
     const svgData = useMemo(() => {
         const geometry = buildProfileGeometry(profile);
 
-        return prepareSvgLayers(
-            geometry,
-            profile,
-            VW,
-            VH,
-            PADDING,
-            profile.referenceBend
-        );
+        return prepareSvgLayers(geometry, profile);
     }, [profile]);
 
     if (!svgData) return null;
@@ -53,9 +45,9 @@ const ProfileGeometryPreview = ({
             <Box
                 sx={{
                     width: "100%",
-                    // Вместо фиксированных 450px задаем пропорции чертежа (600 / 450 = 1.333)
-                    aspectRatio: `${VW} / ${VH}`,
-                    maxHeight: "75vh",
+                    height: "65vh",
+                    minHeight: 500,
+                    maxHeight: 700,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -63,7 +55,7 @@ const ProfileGeometryPreview = ({
                 }}
             >
                 <svg
-                    viewBox={`0 0 ${VW} ${VH}`}
+                    viewBox={svgData.viewBox}
                     width="100%"
                     height="100%"
                     preserveAspectRatio="xMidYMid meet"
@@ -72,6 +64,7 @@ const ProfileGeometryPreview = ({
                         data={svgData.activeData}
                         strokeColor={ACTIVE_LINE_COLOR}
                         fillColor={ACTIVE_FILL_COLOR}
+                        annotationColor={ACTIVE_ANNOTATION_COLOR}
                     />
 
                     {svgData.ghostData && (
@@ -79,6 +72,7 @@ const ProfileGeometryPreview = ({
                             data={svgData.ghostData}
                             strokeColor={GHOST_LINE_COLOR}
                             fillColor={GHOST_FILL_COLOR}
+                            annotationColor={GHOST_ANNOTATION_COLOR}
                             isGhost
                         />
                     )}
@@ -88,6 +82,7 @@ const ProfileGeometryPreview = ({
                             data={svgData.blueData}
                             strokeColor={BLUE_LINE_COLOR}
                             fillColor={BLUE_FILL_COLOR}
+                            annotationColor={BLUE_ANNOTATION_COLOR}
                         />
                     )}
                 </svg>
