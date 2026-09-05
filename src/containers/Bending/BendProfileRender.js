@@ -108,7 +108,9 @@ const BendProfileRender = ({
                 >
                     {lbl.text}{" "}
                     <tspan
-                        fontSize={(lbl.fontSize || 11) - 2}
+                        // Процентное соотношение (80% от размера родительского текста).
+                        // Оно будет идеально адаптироваться и на смартфоне, и на ПК.
+                        fontSize="80%"
                         fontWeight={TEXT_FONT_WEIGHT}
                     >
                         mm

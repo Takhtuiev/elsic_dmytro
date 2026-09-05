@@ -4,13 +4,18 @@ const ARC_RADIUS = 12,
     FONT_SIZE = 12;
 
 // Функция принимает ширину (или максимальный габарит) viewBox чертежа
-const getLabelScale = (viewBoxWidth) => {
-    // Если чертеж крошечный (например, 150px), уменьшаем текст.
-    // Если огромный (3000px), текст не должен превращаться в гиганта.
-    const baseScale = viewBoxWidth / 500; // 800px — эталонный размер экрана
+const getLabelScale = (viewBoxWidth, containerWidth) => {
+    if (!containerWidth || containerWidth <= 0 || !viewBoxWidth || viewBoxWidth <= 0) return 1;
 
-    // Ограничиваем рамками, где 0.5 — мелкий, но читаемый, а 1.5 — крупный
-    return Math.min(1.5, Math.max(0.5, baseScale));
+    // Считаем соотношение "размер в мм / пиксели экрана"
+    const pixelRatio = viewBoxWidth / containerWidth;
+
+    // 1.15 — базовый множитель. Если на смартфонах покажется чуточку крупно или мелко,
+    // просто скорректируйте это число (например, на 1.0 или 1.3).
+    const optimalScale = pixelRatio * 1.15;
+
+    // Защитные рамки, чтобы масштаб никогда не уходил в крайности
+    return Math.min(2.5, Math.max(0.15, optimalScale));
 };
 
 const RAD_TO_DEG = 180 / Math.PI;
@@ -470,7 +475,8 @@ export const buildLayer = ({
 // Подготавливает все слои и рассчитывает viewBox
 export const prepareSvgLayers = (
     geometry,
-    profile
+    profile,
+    containerWidth
 ) => {
     if (!geometry.sideA?.length) return null;
 
@@ -564,31 +570,21 @@ export const prepareSvgLayers = (
         }
     }
 
-    // 2. Рассчитываем масштаб подписей
+    // 2. Рассчитываем масштаб подписей на основе мм детали и пикселей экрана
     const allPoints = [
         ...rotatedSideA,
         ...rotatedSideB
     ];
 
-    const minDetailX =
-        Math.min(...allPoints.map(p => p.x));
+    const minDetailX = Math.min(...allPoints.map(p => p.x));
+    const maxDetailX = Math.max(...allPoints.map(p => p.x));
 
-    const maxDetailX =
-        Math.max(...allPoints.map(p => p.x));
+    // Нам нужна именно чистая ширина геометрии в мм
+    const viewBoxWidth = maxDetailX - minDetailX;
 
-    const minDetailY =
-        Math.min(...allPoints.map(p => p.y));
+    // containerWidth прилетает аргументом в prepareSvgLayers из React
+    const labelScale = getLabelScale(viewBoxWidth, containerWidth);
 
-    const maxDetailY =
-        Math.max(...allPoints.map(p => p.y));
-
-    const detailSize = Math.max(
-        maxDetailX - minDetailX,
-        maxDetailY - minDetailY
-    );
-
-    const labelScale =
-        getLabelScale(detailSize);
 
     // 3. Диапазоны Active и Ghost
     let activeStart = 0;
