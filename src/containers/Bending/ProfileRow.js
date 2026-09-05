@@ -14,45 +14,41 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 
 const handleNumberKeyDown=e=>{
-    const allowedKeys=["Backspace","Delete","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Tab","Home","End"];
-    if(allowedKeys.includes(e.key)||e.ctrlKey||e.metaKey)return;
-    if(!/^[0-9.,]$/.test(e.key)){
-        e.preventDefault();
-        return;
-    }
-    if((e.key==="."||e.key===",")&&/[.,]/.test(e.currentTarget.value))e.preventDefault();
+    const allowed=["Backspace","Delete","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Tab","Home","End"];
+    if(allowed.includes(e.key)||e.ctrlKey||e.metaKey)return;
+    if(!/^[0-9.,]$/.test(e.key))return e.preventDefault();
+    if(/[.,]/.test(e.key)&&/[.,]/.test(e.currentTarget.value))e.preventDefault();
 };
 
 const sanitizeNumber=value=>{
     let result=value.replace(",",".").replace(/[^0-9.]/g,"");
     const parts=result.split(".");
-    if(parts.length>2)result=parts[0]+"."+parts.slice(1).join("");
-    return result;
+    return parts.length>2?parts[0]+"."+parts.slice(1).join(""):result;
 };
 
 const ProfileRow=memo(({
-                           shelf,bend,index,verticalShelf,firstBendIndex,bendViewMode,
-                           onShelfChange,onShelfSideChange,onVerticalShelfChange,
-                           onBendChange,onBendDirectionChange,onSelectFirstBend,
-                           onRemoveBend,canRemove
-                       })=>{
+    shelf,bend,index,verticalShelf,firstBendIndex,bendViewMode,
+    onShelfChange,onShelfSideChange,onVerticalShelfChange,
+    onBendChange,onBendDirectionChange,onSelectFirstBend,
+    onRemoveBend,canRemove
+})=>{
     const theme=useTheme();
     const [angleMenuAnchor,setAngleMenuAnchor]=useState(null);
 
     const isVertical=verticalShelf===index+1;
-    const isCurrentBendSelected=firstBendIndex===index;
+    const isSelected=firstBendIndex===index;
 
-    const iconBtnStyle=(isActive,activeColor="primary.main")=>({
-        borderRadius:"6px",
-        border:"1px solid",
-        borderColor:isActive?activeColor:"divider",
+    const iconBtnStyle=(active=false,color="primary.main")=>({
+        borderRadius:"6px",border:"1px solid",
+        borderColor:active?color:"divider",
         backgroundColor:"background.paper",
-        color:isActive?activeColor:"text.secondary",
-        width:36,
-        height:36,
-        p:0,
-        flexShrink:0,
+        color:active?color:"text.secondary",
+        width:36,height:36,p:0,flexShrink:0
     });
+
+    const bendColor=isSelected
+        ?bendViewMode==="toEnd"?"success.main":"warning.main"
+        :"primary.main";
 
     return(
         <Box sx={{display:"flex",flexDirection:"column",width:"100%"}}>
@@ -73,13 +69,9 @@ const ProfileRow=memo(({
                     slotProps={{
                         htmlInput:{min:0,step:0.01},
                         input:{
-                            endAdornment:(
-                                <InputAdornment position="end">
-                                    <Box sx={{fontSize:"0.7rem",ml:0,mr:0}}>
-                                        mm
-                                    </Box>
-                                </InputAdornment>
-                            )
+                            endAdornment:<InputAdornment position="end">
+                                <Box sx={{fontSize:"0.7rem"}}>mm</Box>
+                            </InputAdornment>
                         }
                     }}
                 />
@@ -87,7 +79,9 @@ const ProfileRow=memo(({
                 <Tooltip title="Switch side">
                     <IconButton
                         size="small"
-                        onClick={()=>onShelfSideChange(index,shelf.side==="right"?"left":"right")}
+                        onClick={()=>onShelfSideChange(
+                            index,shelf.side==="right"?"left":"right"
+                        )}
                         sx={iconBtnStyle(true)}
                     >
                         {shelf.side==="right"
@@ -97,7 +91,11 @@ const ProfileRow=memo(({
                     </IconButton>
                 </Tooltip>
 
-                <Tooltip title={firstBendIndex!==-1?"Disabled when an angle is selected":"Mark as vertical"}>
+                <Tooltip title={
+                    firstBendIndex!==-1
+                        ?"Disabled when an angle is selected"
+                        :"Mark as vertical"
+                }>
                     <span style={{display:"inline-flex"}}>
                         <IconButton
                             size="small"
@@ -121,22 +119,13 @@ const ProfileRow=memo(({
 
             {bend&&(
                 <Box sx={{
-                    display:"flex",
-                    alignItems:"center",
-                    width:"100%",
-                    position:"relative",
-                    py:1.5,
-                    pl:4,
-                    boxSizing:"border-box"
+                    display:"flex",alignItems:"center",width:"100%",
+                    position:"relative",py:1.5,pl:4,boxSizing:"border-box"
                 }}>
                     <svg
                         style={{
-                            position:"absolute",
-                            left:"12px",
-                            top:0,
-                            bottom:0,
-                            height:"100%",
-                            width:"17px"
+                            position:"absolute",left:"12px",top:0,bottom:0,
+                            height:"100%",width:"17px"
                         }}
                         viewBox="0 0 17 100"
                         preserveAspectRatio="none"
@@ -147,7 +136,7 @@ const ProfileRow=memo(({
                             strokeWidth="2"
                             strokeDasharray="4,4"
                             style={{
-                                stroke:isCurrentBendSelected
+                                stroke:isSelected
                                     ?theme.palette.primary.main
                                     :theme.palette.text.secondary,
                                 transition:"stroke 0.2s ease"
@@ -156,14 +145,9 @@ const ProfileRow=memo(({
                     </svg>
 
                     <Box sx={{
-                        display:"flex",
-                        alignItems:"center",
-                        gap:1,
-                        width:"100%",
-                        p:1,
-                        borderRadius:"6px",
-                        border:"1px solid",
-                        borderColor:isCurrentBendSelected?"primary.main":"divider",
+                        display:"flex",alignItems:"center",gap:1,width:"100%",
+                        p:1,borderRadius:"6px",border:"1px solid",
+                        borderColor:isSelected?"primary.main":"divider",
                         backgroundColor:"action.hover"
                     }}>
                         <TextField
@@ -178,31 +162,18 @@ const ProfileRow=memo(({
                             slotProps={{
                                 htmlInput:{min:0,max:180,step:0.01},
                                 input:{
-                                    endAdornment:(
-                                        <InputAdornment position="end">
-                                            <Box sx={{
-                                                display:"flex",
-                                                alignItems:"center"
-                                            }}>
-                                                <Box sx={{
-                                                    fontSize:"0.8rem",
-                                                    mr:0.2
-                                                }}>
-                                                    °
-                                                </Box>
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={e=>setAngleMenuAnchor(e.currentTarget)}
-                                                    sx={{
-                                                        p:0.25,
-                                                        color:"text.secondary"
-                                                    }}
-                                                >
-                                                    <KeyboardArrowDownIcon fontSize="small"/>
-                                                </IconButton>
-                                            </Box>
-                                        </InputAdornment>
-                                    )
+                                    endAdornment:<InputAdornment position="end">
+                                        <Box sx={{display:"flex",alignItems:"center"}}>
+                                            <Box sx={{fontSize:"0.8rem",mr:0.2}}>°</Box>
+                                            <IconButton
+                                                size="small"
+                                                onClick={e=>setAngleMenuAnchor(e.currentTarget)}
+                                                sx={{p:0.25,color:"text.secondary"}}
+                                            >
+                                                <KeyboardArrowDownIcon fontSize="small"/>
+                                            </IconButton>
+                                        </Box>
+                                    </InputAdornment>
                                 }
                             }}
                         />
@@ -212,22 +183,17 @@ const ProfileRow=memo(({
                             open={Boolean(angleMenuAnchor)}
                             onClose={()=>setAngleMenuAnchor(null)}
                         >
-                            <MenuItem
-                                onClick={()=>{
-                                    onBendChange(index,"90");
-                                    setAngleMenuAnchor(null);
-                                }}
-                            >
-                                90°
-                            </MenuItem>
-                            <MenuItem
-                                onClick={()=>{
-                                    onBendChange(index,"135");
-                                    setAngleMenuAnchor(null);
-                                }}
-                            >
-                                135°
-                            </MenuItem>
+                            {[90,135].map(angle=>(
+                                <MenuItem
+                                    key={angle}
+                                    onClick={()=>{
+                                        onBendChange(index,String(angle));
+                                        setAngleMenuAnchor(null);
+                                    }}
+                                >
+                                    {angle}°
+                                </MenuItem>
+                            ))}
                         </Menu>
 
                         {canRemove&&(
@@ -236,7 +202,7 @@ const ProfileRow=memo(({
                                     size="small"
                                     onClick={()=>onRemoveBend(index)}
                                     sx={{
-                                        ...iconBtnStyle(false),
+                                        ...iconBtnStyle(),
                                         "&:hover":{
                                             borderColor:"error.main",
                                             color:"error.main"
@@ -252,8 +218,7 @@ const ProfileRow=memo(({
                             <IconButton
                                 size="small"
                                 onClick={()=>onBendDirectionChange(
-                                    index,
-                                    bend.direction==="right"?"left":"right"
+                                    index,bend.direction==="right"?"left":"right"
                                 )}
                                 sx={iconBtnStyle(true)}
                             >
@@ -274,16 +239,9 @@ const ProfileRow=memo(({
                             <IconButton
                                 size="small"
                                 onClick={()=>onSelectFirstBend(index)}
-                                sx={iconBtnStyle(
-                                    isCurrentBendSelected,
-                                    isCurrentBendSelected
-                                        ?bendViewMode==="toEnd"
-                                            ?"success.main"
-                                            :"warning.main"
-                                        :"primary.main"
-                                )}
+                                sx={iconBtnStyle(isSelected,bendColor)}
                             >
-                                {isCurrentBendSelected
+                                {isSelected
                                     ?<AdjustIcon fontSize="small"/>
                                     :<RadioButtonUncheckedIcon fontSize="small"/>
                                 }
