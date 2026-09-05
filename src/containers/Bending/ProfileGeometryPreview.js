@@ -258,139 +258,196 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
 
     if(!svgData&&!validationError)return null;
 
+
     const handlePrint=()=>{
         const printElement=document.querySelector(".fullscreen-print-area");
         if(!printElement)return;
 
+        const svg=printElement.querySelector("svg");
+        if(!svg)return;
+
+        const svgClone=svg.cloneNode(true);
+
+        svgClone.removeAttribute("height");
+        svgClone.setAttribute("width","100%");
+        svgClone.setAttribute("preserveAspectRatio","xMidYMid meet");
+
+        const parameters=[
+            ...printElement.querySelectorAll(":scope > .MuiStack-root")
+        ]
+            .map(stack=>stack.innerText.trim())
+            .filter(Boolean);
+
         const iframe=document.createElement("iframe");
-        iframe.style.position="fixed";
-        iframe.style.right="0";
-        iframe.style.bottom="0";
-        iframe.style.width="0";
-        iframe.style.height="0";
-        iframe.style.border="none";
+
+        Object.assign(iframe.style,{
+            position:"fixed",
+            right:"0",
+            bottom:"0",
+            width:"1px",
+            height:"1px",
+            border:"0",
+            opacity:"0",
+            pointerEvents:"none"
+        });
+
         document.body.appendChild(iframe);
 
-        const doc=iframe.contentWindow.document;
+        const doc=iframe.contentDocument;
 
         doc.open();
         doc.write(`
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<title>Print Profile</title>
-<style>
-@page{
-    margin:10mm;
-}
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Bend Profile</title>
 
-html,body{
-    margin:0;
-    padding:0;
-    width:100%;
-    background:#fff;
-}
+            <style>
+                @page{
+                    margin:10mm;
+                }
 
-body{
-    font-family:Roboto,Helvetica,Arial,sans-serif;
-    color:#000;
-    -webkit-print-color-adjust:exact;
-    print-color-adjust:exact;
-}
+                *{
+                    box-sizing:border-box;
+                }
 
-.print-box{
-    width:100%;
-    margin:0;
-    padding:0;
-}
+                html,
+                body{
+                    margin:0;
+                    padding:0;
+                    width:100%;
+                    background:#fff;
+                }
 
-.drawing-container{
-    width:100%;
-    margin:0 0 8mm 0;
-    display:block;
-    overflow:visible;
-}
+                body{
+                    font-family:Roboto,Helvetica,Arial,sans-serif;
+                    color:#000;
+                    -webkit-print-color-adjust:exact;
+                    print-color-adjust:exact;
+                }
 
-.drawing-container svg{
-    display:block;
-    width:100%;
-    height:auto;
-    max-width:100%;
-}
+                .print-page{
+                    width:100%;
+                    margin:0;
+                    padding:0;
+                }
 
-.parameters{
-    width:100%;
-    margin:0;
-}
-</style>
-</head>
-<body>
-<div class="print-box">
-${printElement.innerHTML}
-</div>
-</body>
-</html>
-        `);
+                .print-title{
+                    margin:0 0 4mm;
+                    font-size:12pt;
+                    line-height:1.2;
+                    color:#555;
+                }
+
+                .print-drawing{
+                    width:100%;
+                    margin:0 0 4mm;
+                    padding:0;
+                    text-align:center;
+                }
+
+                .print-drawing svg{
+                    display:block;
+                    width:100%;
+                    height:auto;
+                    max-width:100%;
+                    max-height:calc(100vh - 55mm);
+                    margin:0 auto;
+                }
+
+                .print-parameters{
+                    width:100%;
+                    font-size:9pt;
+                    line-height:1.2;
+                }
+
+                .print-row{
+                    margin:1mm 0;
+                    white-space:nowrap;
+                }
+
+                @media print and (orientation:landscape){
+                    .print-drawing svg{
+                        max-height:calc(100vh - 45mm);
+                    }
+                }
+            </style>
+        </head>
+
+        <body>
+            <div class="print-page">
+
+                <div class="print-title">
+                    Bend Profile (Geometric Drawing)
+                </div>
+
+                <div class="print-drawing">
+                    ${svgClone.outerHTML}
+                </div>
+
+                <div class="print-parameters">
+                    ${parameters.map(text=>`
+                        <div class="print-row">
+                            ${text.replace(/\n/g," ")}
+                        </div>
+                    `).join("")}
+                </div>
+
+            </div>
+        </body>
+        </html>
+    `);
+
         doc.close();
 
-        iframe.contentWindow.focus();
-
         setTimeout(()=>{
+            iframe.contentWindow.focus();
             iframe.contentWindow.print();
 
             setTimeout(()=>{
-                if(iframe.parentNode){
-                    iframe.parentNode.removeChild(iframe);
-                }
+                iframe.remove();
             },1000);
         },300);
     };
-
-    return(
+    return (
         <>
-            <Paper
-                elevation={1}
-                sx={{
-                    mt:2,
-                    p:2,
-                    position:"relative"
-                }}
-            >
+            {/* ОСНОВНАЯ КАРТОЧКА НА СТРАНИЦЕ */}
+            <Paper elevation={1} sx={{ mt: 2, p: 2, position: "relative" }}>
                 <Typography
                     variant="subtitle1"
                     fontWeight="500"
                     color="text.secondary"
-                    sx={{mb:1,pr:5}}
+                    sx={{ mb: 1, pr: 5 }}
                 >
                     Bend Profile (Geometric Drawing)
                 </Typography>
 
                 <IconButton
                     size="small"
-                    onClick={()=>setFullScreen(true)}
+                    onClick={() => setFullScreen(true)}
                     title="Full screen"
                     sx={{
-                        color:"text.secondary",
-                        position:"absolute",
-                        top:12,
-                        right:12
+                        color: "text.secondary",
+                        position: "absolute",
+                        top: 12,
+                        right: 12
                     }}
                 >
-                    <FullscreenIcon fontSize="small"/>
+                    <FullscreenIcon fontSize="small" />
                 </IconButton>
 
                 <Box
                     ref={containerRef}
                     sx={{
-                        width:"100%",
-                        height:"65vh",
-                        minHeight:500,
-                        maxHeight:700,
-                        display:"flex",
-                        alignItems:"center",
-                        justifyContent:"center",
-                        overflow:"hidden"
+                        width: "100%",
+                        height: "65vh",
+                        minHeight: 500,
+                        maxHeight: 700,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        overflow: "hidden"
                     }}
                 >
                     {renderDrawing()}
@@ -399,86 +456,50 @@ ${printElement.innerHTML}
                 {renderParameters()}
             </Paper>
 
+            {/* ПОЛНОЭКРАННЫЙ ДИАЛОГ */}
             <Dialog
                 fullScreen
                 open={fullScreen}
-                onClose={()=>setFullScreen(false)}
+                onClose={() => setFullScreen(false)}
             >
-                <Toolbar
-                    sx={{
-                        minHeight:"56px!important",
-                        borderBottom:"1px solid",
-                        borderColor:"divider"
-                    }}
-                >
-                    <Button
-                        startIcon={<ArrowBackIcon/>}
-                        onClick={()=>setFullScreen(false)}
-                    >
+                <Toolbar sx={{ minHeight: "56px!important", borderBottom: "1px solid", borderColor: "divider" }}>
+                    <Button startIcon={<ArrowBackIcon />} onClick={() => setFullScreen(false)}>
                         Back
                     </Button>
 
-                    <Typography
-                        sx={{
-                            ml:2,
-                            fontWeight:500,
-                            color:"text.secondary"
-                        }}
-                    >
+                    <Typography sx={{ ml: 2, fontWeight: 500, color: "text.secondary" }}>
                         Bend Profile
                     </Typography>
 
-                    <Box sx={{flex:1}}/>
+                    <Box sx={{ flex: 1 }} />
 
                     <Button
                         variant="contained"
-                        startIcon={<PrintIcon/>}
+                        startIcon={<PrintIcon />}
                         onClick={handlePrint}
                     >
                         Print
                     </Button>
                 </Toolbar>
 
-                <Box
-                    sx={{
-                        flex:1,
-                        minHeight:0,
-                        p:{xs:1,sm:2},
-                        display:"flex",
-                        flexDirection:"column"
-                    }}
-                >
+                <Box sx={{ flex: 1, minHeight: 0, p: { xs: 1, sm: 2 }, display: "flex", flexDirection: "column" }}>
                     <Paper
                         className="fullscreen-print-area"
                         elevation={1}
                         sx={{
-                            flex:1,
-                            minHeight:0,
-                            p:2,
-                            display:"flex",
-                            flexDirection:"column"
+                            flex: 1,
+                            minHeight: 0,
+                            p: 2,
+                            display: "flex",
+                            flexDirection: "column"
                         }}
                     >
-                        <Typography
-                            variant="subtitle1"
-                            fontWeight="500"
-                            color="text.secondary"
-                            sx={{mb:1}}
-                        >
+                        <Typography variant="subtitle1" fontWeight="500" color="text.secondary" sx={{ mb: 1 }}>
                             Bend Profile (Geometric Drawing)
                         </Typography>
 
-                        <Box
-                            className="drawing-container"
-                            sx={{
-                                flex:1,
-                                minHeight:0,
-                                display:"flex",
-                                alignItems:"center",
-                                justifyContent:"center",
-                                overflow:"hidden"
-                            }}
-                        >
+                        {/* Обернули в класс drawing-container для корректных стилей в iframe */}
+                        <Box className="drawing-container" sx={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
                             {renderDrawing()}
                         </Box>
 
@@ -488,6 +509,9 @@ ${printElement.innerHTML}
             </Dialog>
         </>
     );
+
+
+
 };
 
 export default ProfileGeometryPreview;
