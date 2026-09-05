@@ -44,8 +44,11 @@ const BendingPreviewFullScreen=()=>{
     if(!profile){
         return(
             <Box sx={{
-                width:"100vw",height:"100vh",
-                display:"flex",alignItems:"center",justifyContent:"center",
+                width:"100vw",
+                height:"100vh",
+                display:"flex",
+                alignItems:"center",
+                justifyContent:"center",
                 bgcolor:"background.default"
             }}>
                 <Typography>Preview data is unavailable</Typography>
@@ -55,14 +58,32 @@ const BendingPreviewFullScreen=()=>{
 
     return(
         <Box sx={{
-            width:"100vw",height:"100vh",
-            display:"flex",flexDirection:"column",
-            overflow:"hidden",bgcolor:"background.default"
+            width:"100vw",
+            height:"100vh",
+            display:"flex",
+            flexDirection:"column",
+            overflow:"hidden",
+            bgcolor:"background.default",
+            "@media print":{
+                width:"100%",
+                height:"auto",
+                minHeight:0,
+                overflow:"visible",
+                display:"block",
+                bgcolor:"#fff"
+            }
         }}>
             <Box sx={{
-                flexShrink:0,height:56,
-                display:"flex",alignItems:"center",
-                px:2,borderBottom:"1px solid",borderColor:"divider"
+                flexShrink:0,
+                height:56,
+                display:"flex",
+                alignItems:"center",
+                px:2,
+                borderBottom:"1px solid",
+                borderColor:"divider",
+                "@media print":{
+                    display:"none"
+                }
             }}>
                 <IconButton
                     size="small"
@@ -107,8 +128,18 @@ const BendingPreviewFullScreen=()=>{
             </Box>
 
             <Box sx={{
-                flex:1,minHeight:0,width:"100%",
-                px:2,py:1
+                flex:1,
+                minHeight:0,
+                width:"100%",
+                px:2,
+                py:1,
+                "@media print":{
+                    width:"100%",
+                    height:"auto",
+                    minHeight:0,
+                    p:0,
+                    overflow:"visible"
+                }
             }}>
                 <BendingPreview
                     profile={profile}

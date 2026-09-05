@@ -12,32 +12,66 @@ const Parameter=({label,value,unit="",border=true})=>(
     <Stack direction="row" spacing={1} alignItems="center"
         sx={border?{pt:1,borderTop:"1px dashed",borderColor:"divider"}:{}}>
         <Typography variant="caption" color="text.secondary">{label}:</Typography>
-        <Typography variant="caption" fontWeight="600" color="text.primary">{value}{unit}</Typography>
+        <Typography variant="caption" fontWeight="600" color="text.primary">
+            {value}{unit}
+        </Typography>
     </Stack>
 );
 
 const Parameters=({profile,blankLength,machineParams})=>{
-    const value=(v,digits=2)=>v!==null&&v!==undefined?`${Number(v).toFixed(digits)}`:"—";
+    const value=(v,digits=2)=>
+        v!==null&&v!==undefined?`${Number(v).toFixed(digits)}`:"—";
 
-    return (
+    return(
         <Stack spacing={1}>
-            <Stack direction="row" spacing={1} alignItems="center"
-                sx={{pt:1,borderTop:"1px dashed",borderColor:"divider"}}>
-                <Typography variant="caption" color="text.secondary">Thickness:</Typography>
-                <Typography variant="caption" fontWeight="600">{value(profile.thickness)} mm</Typography>
+            <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                sx={{pt:1,borderTop:"1px dashed",borderColor:"divider"}}
+            >
+                <Typography variant="caption" color="text.secondary">
+                    Thickness:
+                </Typography>
+                <Typography variant="caption" fontWeight="600">
+                    {value(profile.thickness)} mm
+                </Typography>
                 <Typography variant="caption" color="text.disabled">•</Typography>
-                <Typography variant="caption" color="text.secondary">Blank Length:</Typography>
-                <Typography variant="caption" fontWeight="600">{value(blankLength)} mm</Typography>
+                <Typography variant="caption" color="text.secondary">
+                    Blank Length:
+                </Typography>
+                <Typography variant="caption" fontWeight="600">
+                    {value(blankLength)} mm
+                </Typography>
             </Stack>
 
             {machineParams&&(
-                <Stack direction="row" spacing={1} alignItems="center"
-                    sx={{pt:1,borderTop:"1px dashed",borderColor:"divider"}}>
-                    <Parameter label="Stop" value={value(machineParams.stopPosition)} unit=" mm" border={false}/>
+                <Stack
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    sx={{pt:1,borderTop:"1px dashed",borderColor:"divider"}}
+                >
+                    <Parameter
+                        label="Stop"
+                        value={value(machineParams.stopPosition)}
+                        unit=" mm"
+                        border={false}
+                    />
                     <Typography variant="caption" color="text.disabled">•</Typography>
-                    <Parameter label="Angle" value={value(machineParams.bendAngle)} unit="°" border={false}/>
+                    <Parameter
+                        label="Angle"
+                        value={value(machineParams.bendAngle)}
+                        unit="°"
+                        border={false}
+                    />
                     <Typography variant="caption" color="text.disabled">•</Typography>
-                    <Parameter label="Gap" value={value(machineParams.gapFolding)} unit=" mm" border={false}/>
+                    <Parameter
+                        label="Gap"
+                        value={value(machineParams.gapFolding)}
+                        unit=" mm"
+                        border={false}
+                    />
                 </Stack>
             )}
         </Stack>
@@ -50,10 +84,10 @@ const BendingPreview=({profile,blankLength,machineParams})=>{
     const [containerSize,setContainerSize]=useState({width:800,height:500});
 
     useEffect(()=>{
-        if(!containerRef.current) return;
+        if(!containerRef.current)return;
 
         const observer=new ResizeObserver(([{contentRect:{width,height}}])=>{
-            if(width>0&&height>0) setContainerSize({width,height});
+            if(width>0&&height>0)setContainerSize({width,height});
         });
 
         observer.observe(containerRef.current);
@@ -62,13 +96,17 @@ const BendingPreview=({profile,blankLength,machineParams})=>{
 
     const invalidAngleIndex=profile?.bends?.findIndex(({angle})=>{
         angle=Number(angle);
-        return !Number.isFinite(angle)||angle<MIN_BEND_ANGLE||angle>MAX_BEND_ANGLE;
+        return !Number.isFinite(angle)||
+            angle<MIN_BEND_ANGLE||
+            angle>MAX_BEND_ANGLE;
     })??-1;
 
     const invalidShelfIndex=profile?.shelves?.findIndex(({length})=>{
         length=Number(length);
         const thickness=Number(profile.thickness);
-        return !Number.isFinite(length)||!Number.isFinite(thickness)||length<thickness;
+        return !Number.isFinite(length)||
+            !Number.isFinite(thickness)||
+            length<thickness;
     })??-1;
 
     const validationError=invalidAngleIndex>=0
@@ -96,7 +134,8 @@ const BendingPreview=({profile,blankLength,machineParams})=>{
     };
 
     const svgData=useMemo(()=>{
-        if(!profile||validationError) return null;
+        if(!profile||validationError)return null;
+
         return prepareSvgLayers(
             buildProfileGeometry(profile),
             profile,
@@ -104,7 +143,7 @@ const BendingPreview=({profile,blankLength,machineParams})=>{
         );
     },[profile,containerSize,validationError]);
 
-    if(!profile) return null;
+    if(!profile)return null;
 
     const renderLayer=(data,type,isGhost=false)=>data&&(
         <BendProfileRender
@@ -116,23 +155,67 @@ const BendingPreview=({profile,blankLength,machineParams})=>{
         />
     );
 
-    return (
-        <Box sx={{width:"100%",height:"100%",display:"flex",flexDirection:"column",minHeight:0}}>
-            <Box ref={containerRef} sx={{
-                flex:1,minHeight:0,width:"100%",display:"flex",
-                alignItems:"center",justifyContent:"center",overflow:"hidden"
-            }}>
+    return(
+        <Box sx={{
+            width:"100%",
+            height:"100%",
+            display:"flex",
+            flexDirection:"column",
+            minHeight:0,
+            "@media print":{
+                height:"auto",
+                minHeight:0,
+                display:"block"
+            }
+        }}>
+            <Box
+                ref={containerRef}
+                sx={{
+                    flex:1,
+                    minHeight:0,
+                    width:"100%",
+                    display:"flex",
+                    alignItems:"center",
+                    justifyContent:"center",
+                    overflow:"hidden",
+                    "@media print":{
+                        display:"block",
+                        height:"auto",
+                        minHeight:0,
+                        overflow:"visible"
+                    }
+                }}
+            >
                 {validationError?(
                     <Box sx={{
-                        width:"100%",height:"100%",display:"flex",
-                        alignItems:"center",justifyContent:"center",textAlign:"center"
+                        width:"100%",
+                        height:"100%",
+                        display:"flex",
+                        alignItems:"center",
+                        justifyContent:"center",
+                        textAlign:"center",
+                        "@media print":{
+                            height:"auto"
+                        }
                     }}>
-                        <Typography variant="body2" fontWeight={500} color="warning.main">
+                        <Typography
+                            variant="body2"
+                            fontWeight={500}
+                            color="warning.main"
+                        >
                             {validationError}
                         </Typography>
                     </Box>
                 ):svgData&&(
-                    <svg viewBox={svgData.viewBox} width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+                    <svg
+                        viewBox={svgData.viewBox}
+                        width="100%"
+                        height="100%"
+                        preserveAspectRatio="xMidYMid meet"
+                        style={{
+                            display:"block"
+                        }}
+                    >
                         {renderLayer(svgData.activeData,"active")}
                         {renderLayer(svgData.ghostData,"ghost",true)}
                         {renderLayer(svgData.blueData,"blue")}
@@ -140,8 +223,17 @@ const BendingPreview=({profile,blankLength,machineParams})=>{
                 )}
             </Box>
 
-            <Box sx={{flexShrink:0}}>
-                <Parameters profile={profile} blankLength={blankLength} machineParams={machineParams}/>
+            <Box sx={{
+                flexShrink:0,
+                "@media print":{
+                    mt:2
+                }
+            }}>
+                <Parameters
+                    profile={profile}
+                    blankLength={blankLength}
+                    machineParams={machineParams}
+                />
             </Box>
         </Box>
     );
