@@ -279,8 +279,10 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
         // 3. Записываем в iframe только чертеж, параметры и стили для альбома
         doc.open();
         doc.write(`
-        <html>
+        <!DOCTYPE html>
+        <html lang="ru"> <!-- 🌟 Исправлено: Добавлен обязательный атрибут lang -->
             <head>
+                <meta charset="UTF-8">
                 <title>Print Profile</title>
                 <style>
                     @page { 
@@ -296,7 +298,6 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
                         -webkit-print-color-adjust: exact;
                         print-color-adjust: exact;
                     }
-                    /* Стилизация контейнеров, чтобы они красиво растянулись на А4 */
                     .print-box {
                         width: 100%;
                         height: 100vh;
@@ -308,7 +309,7 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
                         flex: 1;
                         display: flex;
                         align-items: center;
-                        justifyContent: center;
+                        justify-content: center; /* 🌟 Исправлено: заменено с justifyContent на justify-content */
                         min-height: 0;
                         margin-bottom: 15px;
                     }
@@ -327,14 +328,15 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
     `);
         doc.close();
 
-        // 4. Ждем, пока SVG и стили загрузятся внутри iframe, и вызываем печать
+        // 4. Ждем загрузки содержимого внутри iframe и вызываем печать
         iframe.contentWindow.focus();
         setTimeout(() => {
             iframe.contentWindow.print();
-            // Удаляем iframe после закрытия окна печати
+            // Удаляем временный iframe после закрытия окна печати
             document.body.removeChild(iframe);
         }, 500);
     };
+
 
     return (
         <>
