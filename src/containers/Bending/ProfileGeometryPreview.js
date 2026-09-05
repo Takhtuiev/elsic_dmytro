@@ -260,156 +260,153 @@ const ProfileGeometryPreview=({profile,blankLength,machineParams})=>{
 
 
     const handlePrint=()=>{
-        const printElement=document.querySelector(".fullscreen-print-area");
-        if(!printElement)return;
+    const printElement=document.querySelector(".fullscreen-print-area");
+    if(!printElement)return;
 
-        const svg=printElement.querySelector("svg");
-        if(!svg)return;
+    const svg=printElement.querySelector("svg");
+    if(!svg)return;
 
-        const svgClone=svg.cloneNode(true);
+    const svgClone=svg.cloneNode(true);
 
-        svgClone.removeAttribute("height");
-        svgClone.setAttribute("width","100%");
-        svgClone.setAttribute("preserveAspectRatio","xMidYMid meet");
+    svgClone.removeAttribute("height");
+    svgClone.setAttribute("width","auto");
+    svgClone.setAttribute("preserveAspectRatio","xMidYMid meet");
 
-        const parameters=[
-            ...printElement.querySelectorAll(":scope > .MuiStack-root")
-        ]
-            .map(stack=>stack.innerText.trim())
-            .filter(Boolean);
+    const parameters=[
+        ...printElement.querySelectorAll(":scope > .MuiStack-root")
+    ]
+        .map(stack=>stack.innerText.trim())
+        .filter(Boolean);
 
-        const iframe=document.createElement("iframe");
+    const iframe=document.createElement("iframe");
 
-        Object.assign(iframe.style,{
-            position:"fixed",
-            right:"0",
-            bottom:"0",
-            width:"1px",
-            height:"1px",
-            border:"0",
-            opacity:"0",
-            pointerEvents:"none"
-        });
+    Object.assign(iframe.style,{
+        position:"fixed",
+        right:"0",
+        bottom:"0",
+        width:"1px",
+        height:"1px",
+        border:"0",
+        opacity:"0",
+        pointerEvents:"none"
+    });
 
-        document.body.appendChild(iframe);
+    document.body.appendChild(iframe);
 
-        const doc=iframe.contentDocument;
+    const doc=iframe.contentDocument;
 
-        doc.open();
-        doc.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Bend Profile</title>
+    doc.open();
+    doc.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="UTF-8">
+        <title>Bend Profile</title>
 
-            <style>
-                @page{
-                    margin:10mm;
-                }
+    <style>
+        @page{
+        margin:10mm;
+    }
 
-                *{
-                    box-sizing:border-box;
-                }
+        *{
+        box-sizing:border-box;
+    }
 
-                html,
-                body{
-                    margin:0;
-                    padding:0;
-                    width:100%;
-                    background:#fff;
-                }
+        html,
+        body{
+        margin:0;
+        padding:0;
+        width:100%;
+        background:#fff;
+    }
 
-                body{
-                    font-family:Roboto,Helvetica,Arial,sans-serif;
-                    color:#000;
-                    -webkit-print-color-adjust:exact;
-                    print-color-adjust:exact;
-                }
+        body{
+        font-family:Roboto,Helvetica,Arial,sans-serif;
+        color:#000;
+        -webkit-print-color-adjust:exact;
+        print-color-adjust:exact;
+    }
 
-                .print-page{
-                    width:100%;
-                    margin:0;
-                    padding:0;
-                }
+        .print-page{
+        width:100%;
+        margin:0;
+        padding:0;
+    }
 
-                .print-title{
-                    margin:0 0 4mm;
-                    font-size:12pt;
-                    line-height:1.2;
-                    color:#555;
-                }
+        .print-title{
+        margin:0 0 4mm;
+        font-size:12pt;
+        line-height:1.2;
+        color:#555;
+    }
 
-                .print-drawing{
-                    width:100%;
-                    margin:0 0 4mm;
-                    padding:0;
-                    text-align:center;
-                }
+        .print-drawing{
+        width:100%;
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        margin:0 0 4mm;
+        padding:0;
+    }
 
-                .print-drawing svg{
-                    display:block;
-                    width:100%;
-                    height:auto;
-                    max-width:100%;
-                    max-height:calc(100vh - 55mm);
-                    margin:0 auto;
-                }
+        .print-drawing svg{
+        display:block;
+        width:auto;
+        height:auto;
+        max-width:100%;
+        max-height:calc(100vh - 55mm);
+        margin:0 auto;
+    }
 
-                .print-parameters{
-                    width:100%;
-                    font-size:9pt;
-                    line-height:1.2;
-                }
+        .print-parameters{
+        width:100%;
+        font-size:9pt;
+        line-height:1.2;
+    }
 
-                .print-row{
-                    margin:1mm 0;
-                    white-space:nowrap;
-                }
+        .print-row{
+        margin:1mm 0;
+        white-space:nowrap;
+    }
+    </style>
+</head>
 
-                @media print and (orientation:landscape){
-                    .print-drawing svg{
-                        max-height:calc(100vh - 45mm);
-                    }
-                }
-            </style>
-        </head>
+    <body>
+    <div class="print-page">
+        <div class="print-title">
+            Bend Profile (Geometric Drawing)
+        </div>
 
-        <body>
-            <div class="print-page">
+        <div class="print-drawing">
+            ${svgClone.outerHTML}
+        </div>
 
-                <div class="print-title">
-                    Bend Profile (Geometric Drawing)
-                </div>
-
-                <div class="print-drawing">
-                    ${svgClone.outerHTML}
-                </div>
-
-                <div class="print-parameters">
-                    ${parameters.map(text=>`
+        <div class="print-parameters">
+            ${parameters.map(text=>`
                         <div class="print-row">
                             ${text.replace(/\n/g," ")}
                         </div>
                     `).join("")}
-                </div>
-
-            </div>
-        </body>
-        </html>
+        </div>
+    </div>
+    </body>
+</html>
     `);
 
-        doc.close();
+    doc.close();
+
+    setTimeout(()=>{
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
 
         setTimeout(()=>{
-            iframe.contentWindow.focus();
-            iframe.contentWindow.print();
+            iframe.remove();
+        },1000);
+    },300);
+};
 
-            setTimeout(()=>{
-                iframe.remove();
-            },1000);
-        },300);
-    };
+
+
     return (
         <>
             {/* ОСНОВНАЯ КАРТОЧКА НА СТРАНИЦЕ */}
