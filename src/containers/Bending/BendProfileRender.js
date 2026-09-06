@@ -1,7 +1,10 @@
 import React from "react";
 
-const LINE_WIDTH = 1;
-const TEXT_FONT_WEIGHT = "400";
+import {
+    LINE_WIDTH,
+    ANNOTATION_LINE_WIDTH,
+    ANNOTATION_FONT_WEIGHT
+} from "./svgConstants";
 
 const BendProfileRender = ({
     data,
@@ -13,7 +16,7 @@ const BendProfileRender = ({
     if (!data) return null;
 
     return (
-        <g style={{ opacity: isGhost ? 0.6 : 1 }}>
+        <g style={{ opacity: isGhost ? 0.5 : 1 }}>
             {data.fillPoints && (
                 <polygon
                     points={data.fillPoints}
@@ -75,8 +78,8 @@ const BendProfileRender = ({
                         d={ang.path}
                         fill="none"
                         stroke={annotationColor}
-                        strokeWidth={LINE_WIDTH}
-                        strokeDasharray="2,2"
+                        strokeWidth={ANNOTATION_LINE_WIDTH}
+                        strokeLinecap="round"
                         vectorEffect="non-scaling-stroke"
                     />
 
@@ -87,7 +90,7 @@ const BendProfileRender = ({
                         dominantBaseline="central"
                         fontSize={ang.fontSize || 11}
                         fill={annotationColor}
-                        fontWeight={TEXT_FONT_WEIGHT}
+                        fontWeight={ANNOTATION_FONT_WEIGHT}
                     >
                         {ang.text}
                     </text>
@@ -102,7 +105,7 @@ const BendProfileRender = ({
                     textAnchor="middle"
                     dominantBaseline="central"
                     fontSize={lbl.fontSize || 11}
-                    fontWeight={TEXT_FONT_WEIGHT}
+                    fontWeight={ANNOTATION_FONT_WEIGHT}
                     fill={annotationColor}
                     transform={`rotate(${lbl.angle},${lbl.x},${lbl.y})`}
                 >
@@ -111,7 +114,7 @@ const BendProfileRender = ({
                         // Процентное соотношение (80% от размера родительского текста).
                         // Оно будет идеально адаптироваться и на смартфоне, и на ПК.
                         fontSize="80%"
-                        fontWeight={TEXT_FONT_WEIGHT}
+                        fontWeight={ANNOTATION_FONT_WEIGHT}
                     >
                         mm
                     </tspan>

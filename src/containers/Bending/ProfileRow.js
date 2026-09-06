@@ -3,47 +3,121 @@ import {
     Box,IconButton,InputAdornment,TextField,Tooltip,useTheme,
     Menu,MenuItem
 } from "@mui/material";
-import HeightIcon from "@mui/icons-material/Height";
 import DeleteIcon from "@mui/icons-material/Clear";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import UndoIcon from "@mui/icons-material/Undo";
 import RedoIcon from "@mui/icons-material/Redo";
-import AdjustIcon from "@mui/icons-material/Adjust";
-import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 
+const BendSelectIcon=()=>(
+    <svg
+        width="28"
+        height="28"
+        viewBox="0 0 28 28"
+        fill="none"
+        style={{
+            display: "block",
+            flexShrink: 0
+        }}
+    >
+        <path
+            d="M 2.25 7.0 L 10 20.42 L 25.5 20.42"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        />
+
+        <path
+            d="M 17 20.42 A 7 7 0 0 0 6.5 14.36"
+            stroke="currentColor"
+            strokeWidth="0.7"
+            strokeLinecap="round"
+        />
+    </svg>
+
+);
+
+const VerticalIcon = () => (
+    <svg
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        style={{
+            display: "block",
+            flexShrink: 0
+        }}
+    >
+        <path
+            d="M11 1V23"
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeLinecap="round"
+        />
+        <path
+            d="M13 1V23"
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeLinecap="round"
+        />
+    </svg>
+);
+
 const handleNumberKeyDown=e=>{
-    const allowed=["Backspace","Delete","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Tab","Home","End"];
-    if(allowed.includes(e.key)||e.ctrlKey||e.metaKey)return;
-    if(!/^[0-9.,]$/.test(e.key))return e.preventDefault();
-    if(/[.,]/.test(e.key)&&/[.,]/.test(e.currentTarget.value))e.preventDefault();
+    const allowed=[
+        "Backspace","Delete","ArrowLeft","ArrowRight",
+        "ArrowUp","ArrowDown","Tab","Home","End"
+    ];
+
+    if(allowed.includes(e.key)||e.ctrlKey||e.metaKey) return;
+    if(!/^[0-9.,]$/.test(e.key)) e.preventDefault();
+    if(/[.,]/.test(e.key)&&/[.,]/.test(e.currentTarget.value))
+        e.preventDefault();
 };
 
 const sanitizeNumber=value=>{
-    let result=value.replace(",",".").replace(/[^0-9.]/g,"");
+    const result=value.replace(",",".").replace(/[^0-9.]/g,"");
     const parts=result.split(".");
-    return parts.length>2?parts[0]+"."+parts.slice(1).join(""):result;
+    return parts.length>2
+        ?parts[0]+"."+parts.slice(1).join("")
+        :result;
 };
 
+
 const ProfileRow=memo(({
-    shelf,bend,index,verticalShelf,firstBendIndex,bendViewMode,
-    onShelfChange,onShelfSideChange,onVerticalShelfChange,
-    onBendChange,onBendDirectionChange,onSelectFirstBend,
-    onRemoveBend,canRemove
-})=>{
+                           shelf,
+                           bend,
+                           index,
+                           verticalShelf,
+                           selectedBendIndex,
+                           bendViewMode,
+                           onShelfChange,
+                           onShelfSideChange,
+                           onVerticalShelfChange,
+                           onBendChange,
+                           onBendDirectionChange,
+                           onSelectBend,
+                           onRemoveBend,
+                           canRemove
+                       })=>{
     const theme=useTheme();
     const [angleMenuAnchor,setAngleMenuAnchor]=useState(null);
 
     const isVertical=verticalShelf===index+1;
-    const isSelected=firstBendIndex===index;
+    const isSelected=selectedBendIndex===index;
 
     const iconBtnStyle=(active=false,color="primary.main")=>({
-        borderRadius:"6px",border:"1px solid",
+        borderRadius:"6px",
+        border:"1px solid",
         borderColor:active?color:"divider",
         backgroundColor:"background.paper",
         color:active?color:"text.secondary",
-        width:36,height:36,p:0,flexShrink:0
+        width:36,
+        height:36,
+        p:0,
+        flexShrink:0
     });
 
     const bendColor=isSelected
@@ -51,11 +125,21 @@ const ProfileRow=memo(({
         :"primary.main";
 
     return(
-        <Box sx={{display:"flex",flexDirection:"column",width:"100%"}}>
+        <Box sx={{
+            display:"flex",
+            flexDirection:"column",
+            width:"100%"
+        }}>
             <Box sx={{
-                display:"flex",alignItems:"center",gap:1,width:"100%",p:1,
-                borderRadius:"6px",border:"1px solid",
-                borderColor:"divider",backgroundColor:"background.paper"
+                display:"flex",
+                alignItems:"center",
+                gap:1,
+                width:"100%",
+                p:1,
+                borderRadius:"6px",
+                border:"1px solid",
+                borderColor:"divider",
+                backgroundColor:"background.paper"
             }}>
                 <TextField
                     label={`Leg ${index+1}`}
@@ -65,13 +149,21 @@ const ProfileRow=memo(({
                     size="small"
                     fullWidth
                     onKeyDown={handleNumberKeyDown}
-                    onChange={e=>onShelfChange(index,sanitizeNumber(e.target.value))}
+                    onChange={e=>
+                        onShelfChange(
+                            index,
+                            sanitizeNumber(e.target.value)
+                        )
+                    }
                     slotProps={{
                         htmlInput:{min:0,step:0.01},
                         input:{
-                            endAdornment:<InputAdornment position="end">
-                                <Box sx={{fontSize:"0.7rem"}}>mm</Box>
-                            </InputAdornment>
+                            endAdornment:
+                                <InputAdornment position="end">
+                                    <Box sx={{fontSize:"0.7rem"}}>
+                                        mm
+                                    </Box>
+                                </InputAdornment>
                         }
                     }}
                 />
@@ -80,7 +172,8 @@ const ProfileRow=memo(({
                     <IconButton
                         size="small"
                         onClick={()=>onShelfSideChange(
-                            index,shelf.side==="right"?"left":"right"
+                            index,
+                            shelf.side==="right"?"left":"right"
                         )}
                         sx={iconBtnStyle(true)}
                     >
@@ -92,26 +185,27 @@ const ProfileRow=memo(({
                 </Tooltip>
 
                 <Tooltip title={
-                    firstBendIndex!==-1
+                    selectedBendIndex!==-1
                         ?"Disabled when an angle is selected"
                         :"Mark as vertical"
                 }>
                     <span style={{display:"inline-flex"}}>
+
                         <IconButton
                             size="small"
-                            color={isVertical?"primary":"default"}
-                            onClick={()=>onVerticalShelfChange(index)}
-                            disabled={firstBendIndex!==-1}
+                            color={isVertical ? "primary" : "default"}
+                            onClick={() => onVerticalShelfChange(index)}
+                            disabled={selectedBendIndex !== -1}
                             sx={{
                                 ...iconBtnStyle(isVertical),
-                                "&.Mui-disabled":{
-                                    borderColor:"divider",
-                                    backgroundColor:"action.hover",
-                                    color:"text.disabled"
+                                "&.Mui-disabled": {
+                                    borderColor: "divider",
+                                    backgroundColor: "action.hover",
+                                    color: "text.disabled"
                                 }
-                            }}
+                        }}
                         >
-                            <HeightIcon fontSize="small"/>
+                            <VerticalIcon/>
                         </IconButton>
                     </span>
                 </Tooltip>
@@ -119,13 +213,22 @@ const ProfileRow=memo(({
 
             {bend&&(
                 <Box sx={{
-                    display:"flex",alignItems:"center",width:"100%",
-                    position:"relative",py:1.5,pl:4,boxSizing:"border-box"
+                    display:"flex",
+                    alignItems:"center",
+                    width:"100%",
+                    position:"relative",
+                    py:1.5,
+                    pl:4,
+                    boxSizing:"border-box"
                 }}>
                     <svg
                         style={{
-                            position:"absolute",left:"12px",top:0,bottom:0,
-                            height:"100%",width:"17px"
+                            position:"absolute",
+                            left:"12px",
+                            top:0,
+                            bottom:0,
+                            height:"100%",
+                            width:"17px"
                         }}
                         viewBox="0 0 17 100"
                         preserveAspectRatio="none"
@@ -133,21 +236,25 @@ const ProfileRow=memo(({
                         <path
                             d="M2,0 L15,50 L2,100"
                             fill="none"
-                            strokeWidth="2"
-                            strokeDasharray="4,4"
+                            strokeWidth="1.5"
                             style={{
-                                stroke:isSelected
-                                    ?theme.palette.primary.main
-                                    :theme.palette.text.secondary,
-                                transition:"stroke 0.2s ease"
+                                stroke:theme.palette.divider
                             }}
                         />
+
                     </svg>
 
                     <Box sx={{
-                        display:"flex",alignItems:"center",gap:1,width:"100%",
-                        p:1,borderRadius:"6px",border:"1px solid",
-                        borderColor:isSelected?"primary.main":"divider",
+                        display:"flex",
+                        alignItems:"center",
+                        gap:1,
+                        width:"100%",
+                        p:1,
+                        borderRadius:"6px",
+                        border:"1px solid",
+                        borderColor:isSelected
+                            ?"primary.main"
+                            :"divider",
                         backgroundColor:"action.hover"
                     }}>
                         <TextField
@@ -158,22 +265,50 @@ const ProfileRow=memo(({
                             size="small"
                             fullWidth
                             onKeyDown={handleNumberKeyDown}
-                            onChange={e=>onBendChange(index,sanitizeNumber(e.target.value))}
+                            onChange={e=>
+                                onBendChange(
+                                    index,
+                                    sanitizeNumber(e.target.value)
+                                )
+                            }
                             slotProps={{
-                                htmlInput:{min:0,max:180,step:0.01},
+                                htmlInput:{
+                                    min:0,
+                                    max:180,
+                                    step:0.01
+                                },
                                 input:{
-                                    endAdornment:<InputAdornment position="end">
-                                        <Box sx={{display:"flex",alignItems:"center"}}>
-                                            <Box sx={{fontSize:"0.8rem",mr:0.2}}>°</Box>
-                                            <IconButton
-                                                size="small"
-                                                onClick={e=>setAngleMenuAnchor(e.currentTarget)}
-                                                sx={{p:0.25,color:"text.secondary"}}
-                                            >
-                                                <KeyboardArrowDownIcon fontSize="small"/>
-                                            </IconButton>
-                                        </Box>
-                                    </InputAdornment>
+                                    endAdornment:
+                                        <InputAdornment position="end">
+                                            <Box sx={{
+                                                display:"flex",
+                                                alignItems:"center"
+                                            }}>
+                                                <Box sx={{
+                                                    fontSize:"0.8rem",
+                                                    mr:0.2
+                                                }}>
+                                                    °
+                                                </Box>
+
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={e=>
+                                                        setAngleMenuAnchor(
+                                                            e.currentTarget
+                                                        )
+                                                    }
+                                                    sx={{
+                                                        p:0.25,
+                                                        color:"text.secondary"
+                                                    }}
+                                                >
+                                                    <KeyboardArrowDownIcon
+                                                        fontSize="small"
+                                                    />
+                                                </IconButton>
+                                            </Box>
+                                        </InputAdornment>
                                 }
                             }}
                         />
@@ -218,35 +353,52 @@ const ProfileRow=memo(({
                             <IconButton
                                 size="small"
                                 onClick={()=>onBendDirectionChange(
-                                    index,bend.direction==="right"?"left":"right"
+                                    index,
+                                    bend.direction==="right"
+                                        ?"left"
+                                        :"right"
                                 )}
                                 sx={iconBtnStyle(true)}
                             >
                                 {bend.direction==="right"
                                     ?<RedoIcon
                                         fontSize="small"
-                                        style={{transform:"rotate(-90deg)"}}
+                                        style={{
+                                            transform:"rotate(-90deg)"
+                                        }}
                                     />
                                     :<UndoIcon
                                         fontSize="small"
-                                        style={{transform:"rotate(90deg)"}}
+                                        style={{
+                                            transform:"rotate(90deg)"
+                                        }}
                                     />
                                 }
                             </IconButton>
                         </Tooltip>
 
-                        <Tooltip title="Section view: click to switch">
+                        <Tooltip title={
+                            isSelected
+                                ?"Selected bend — click to switch side"
+                                :"Select bend for section view"
+                        }>
                             <IconButton
                                 size="small"
-                                onClick={()=>onSelectFirstBend(index)}
-                                sx={iconBtnStyle(isSelected,bendColor)}
+                                onClick={()=>onSelectBend(index)}
+                                sx={{
+                                    ...iconBtnStyle(
+                                        isSelected,
+                                        bendColor
+                                    ),
+                                    display:"inline-flex",
+                                    alignItems:"center",
+                                    justifyContent:"center"
+                                }}
                             >
-                                {isSelected
-                                    ?<AdjustIcon fontSize="small"/>
-                                    :<RadioButtonUncheckedIcon fontSize="small"/>
-                                }
+                                <BendSelectIcon/>
                             </IconButton>
                         </Tooltip>
+
                     </Box>
                 </Box>
             )}

@@ -2,7 +2,6 @@ import React,{useEffect,useMemo,useRef,useState} from "react";
 import {Box,Stack,Typography,useTheme} from "@mui/material";
 import {alpha} from "@mui/material/styles";
 
-import buildProfileGeometry from "./BuildProfileGeometry";
 import BendProfileRender from "./BendProfileRender";
 import {prepareSvgLayers} from "./prepareSvgLayers";
 
@@ -129,11 +128,12 @@ const BendingPreview=({profile,blankLength,machineParams})=>{
     useEffect(()=>{
         if(!containerRef.current)return;
 
-        const observer=new ResizeObserver(([{contentRect:{width,height}}])=>{
-            if(width>0&&height>0){
-                setContainerSize({width,height});
+        const observer=new ResizeObserver(
+            ([{contentRect:{width,height}}])=>{
+                if(width>0&&height>0)
+                    setContainerSize({width,height});
             }
-        });
+        );
 
         observer.observe(containerRef.current);
 
@@ -185,7 +185,6 @@ const BendingPreview=({profile,blankLength,machineParams})=>{
         if(!profile||validationError)return null;
 
         return prepareSvgLayers(
-            buildProfileGeometry(profile),
             profile,
             containerSize
         );
@@ -263,9 +262,7 @@ const BendingPreview=({profile,blankLength,machineParams})=>{
 
             <Box
                 className="bend-preview-parameters"
-                sx={{
-                    flexShrink:0
-                }}
+                sx={{flexShrink:0}}
             >
                 <Parameters
                     profile={profile}

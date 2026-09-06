@@ -1,22 +1,18 @@
-// =====================================================
-// Calculations.js
-// =====================================================
-
-const getBendLength = (angle, thickness, kFactor, rTool) => {
-    const radiusNeutral = rTool + kFactor * thickness;
-    return radiusNeutral * Number(angle) * Math.PI / 180;
+const getBendLength=(angle,thickness,kFactor,rTool)=>{
+    const radius=rTool+kFactor*thickness;
+    return radius*Number(angle)*Math.PI/180;
 };
 
-const getBendOffset = (
-    angle, thickness, kFactor, rTool, isInsideDimension = false
-) => {
-    if (Number(angle) === 180) return 0;
+const getBendOffset=(
+    angle,thickness,kFactor,rTool,isInsideDimension=false
+)=>{
+    if(Number(angle)===180) return 0;
 
-    const radius = isInsideDimension
-        ? rTool
-        : rTool + thickness;
+    const radius=isInsideDimension
+        ?rTool
+        :rTool+thickness;
 
-    return radius * Math.tan(Number(angle) * Math.PI / 360);
+    return radius*Math.tan(Number(angle)*Math.PI/360);
 };
 
 
@@ -24,26 +20,26 @@ const getBendOffset = (
 // Прямая часть полки
 // =====================================================
 
-export const getStraightLength = (shelfIndex, profile) => {
-    const shelves = profile.shelves || [];
-    const bends = profile.bends || [];
-    const shelf = shelves[shelfIndex];
+export const getStraightLength=(shelfIndex,profile)=>{
+    const shelves=profile.shelves||[];
+    const bends=profile.bends||[];
+    const shelf=shelves[shelfIndex];
 
-    if (!shelf) return 0;
+    if(!shelf) return 0;
 
-    const thickness = Number(profile.thickness);
-    const kFactor = Number(profile.kFactor);
-    const rTool = Number(profile.rTool);
+    const thickness=Number(profile.thickness);
+    const kFactor=Number(profile.kFactor);
+    const rTool=Number(profile.rTool);
 
-    const leftBend = shelfIndex === 0
-        ? 180
-        : 180 - Number(bends[shelfIndex - 1]?.angle || 0);
+    const leftBend=shelfIndex===0
+        ?180
+        :180-Number(bends[shelfIndex-1]?.angle||0);
 
-    const leftIsInsideDimension = shelfIndex === 0
-        ? false
-        : bends[shelfIndex - 1]?.direction !== shelf.side;
+    const leftIsInsideDimension=shelfIndex===0
+        ?false
+        :bends[shelfIndex-1]?.direction!==shelf.side;
 
-    const leftOffset = getBendOffset(
+    const leftOffset=getBendOffset(
         leftBend,
         thickness,
         kFactor,
@@ -51,15 +47,15 @@ export const getStraightLength = (shelfIndex, profile) => {
         leftIsInsideDimension
     );
 
-    const rightBend = shelfIndex === shelves.length - 1
-        ? 180
-        : 180 - Number(bends[shelfIndex]?.angle || 0);
+    const rightBend=shelfIndex===shelves.length-1
+        ?180
+        :180-Number(bends[shelfIndex]?.angle||0);
 
-    const rightIsInsideDimension = shelfIndex === shelves.length - 1
-        ? false
-        : bends[shelfIndex]?.direction !== shelf.side;
+    const rightIsInsideDimension=shelfIndex===shelves.length-1
+        ?false
+        :bends[shelfIndex]?.direction!==shelf.side;
 
-    const rightOffset = getBendOffset(
+    const rightOffset=getBendOffset(
         rightBend,
         thickness,
         kFactor,
@@ -67,7 +63,7 @@ export const getStraightLength = (shelfIndex, profile) => {
         rightIsInsideDimension
     );
 
-    return Number(shelf.length) - leftOffset - rightOffset;
+    return Number(shelf.length)-leftOffset-rightOffset;
 };
 
 
@@ -75,31 +71,31 @@ export const getStraightLength = (shelfIndex, profile) => {
 // Элементы профиля
 // =====================================================
 
-export const calculateProfileElements = profile => {
-    const shelves = profile.shelves || [];
-    const bends = profile.bends || [];
-    const elements = [];
+export const calculateProfileElements=profile=>{
+    const shelves=profile.shelves||[];
+    const bends=profile.bends||[];
+    const elements=[];
 
-    shelves.forEach((shelf, shelfIndex) => {
+    shelves.forEach((shelf,shelfIndex)=>{
         elements.push({
-            type: "straight",
-            shelf: shelfIndex + 1,
-            inputLength: Number(shelf.length),
-            side: shelf.side,
-            length: getStraightLength(shelfIndex, profile)
+            type:"straight",
+            shelf:shelfIndex+1,
+            inputLength:Number(shelf.length),
+            side:shelf.side,
+            length:getStraightLength(shelfIndex,profile)
         });
 
-        if (bends[shelfIndex]) {
-            const bend = bends[shelfIndex];
-            const angle = Number(bend.angle);
+        if(bends[shelfIndex]){
+            const bend=bends[shelfIndex];
+            const angle=Number(bend.angle);
 
             elements.push({
-                type: "bend",
-                bend: shelfIndex + 1,
+                type:"bend",
+                bend:shelfIndex+1,
                 angle,
-                direction: bend.direction,
-                length: getBendLength(
-                    180 - angle,
+                direction:bend.direction,
+                length:getBendLength(
+                    180-angle,
                     Number(profile.thickness),
                     Number(profile.kFactor),
                     Number(profile.rTool)
@@ -116,9 +112,9 @@ export const calculateProfileElements = profile => {
 // Общая длина заготовки
 // =====================================================
 
-export const calculateBlankLength = profile =>
+export const calculateBlankLength=profile=>
     calculateProfileElements(profile).reduce(
-        (total, element) => total + element.length,
+        (total,element)=>total+element.length,
         0
     );
 
@@ -127,96 +123,85 @@ export const calculateBlankLength = profile =>
 // Расстояние до наружной вершины
 // =====================================================
 
-export const calculateDistanceToOuterApexViaNeutral = ({
-                                                           shelves,
-                                                           bends,
-                                                           thickness,
-                                                           kFactor,
-                                                           rTool,
-                                                           firstBendIndex,
-                                                           bendViewMode
-                                                       }) => {
-    const profile = {
-        shelves,
-        bends,
+export const calculateOuterLengthToEnd=profile=>{
+    const {
+        selectedBendIndex,
+        bendViewMode,
         thickness,
-        kFactor,
         rTool
-    };
+    }=profile;
 
-    const elements = calculateProfileElements(profile);
+    if(selectedBendIndex<0)return 0;
 
-    const targetElementIndex = elements.findIndex(
-        el => el.type === "bend" && el.bend === firstBendIndex + 1
+    const elements=calculateProfileElements(profile);
+
+    const targetIndex=elements.findIndex(
+        el=>
+            el.type==="bend"&&
+            el.bend===selectedBendIndex+1
     );
 
-    if (targetElementIndex === -1) return 0;
+    if(targetIndex===-1)return 0;
 
-    const bend = elements[targetElementIndex];
+    const bend=elements[targetIndex];
 
-    const angleRad =
-        (180 - Number(bend.angle)) * Math.PI / 180;
+    const angleRad=
+        (180-Number(bend.angle))*Math.PI/180;
 
-    const radius =
-        Number(rTool || 0) + Number(thickness || 0);
+    const radius=
+        Number(rTool||0)+Number(thickness||0);
 
-    const offset =
-        radius * Math.tan(angleRad / 2);
+    const offset=
+        radius*Math.tan(angleRad/2);
 
-    let length = 0;
+    let length=0;
 
-    if (bendViewMode === "toEnd") {
-        for (let i = elements.length - 1; i > targetElementIndex; i--) {
-            length += elements[i].length;
-        }
-    } else if (bendViewMode === "fromStart") {
-        for (let i = 0; i < targetElementIndex; i++) {
-            length += elements[i].length;
-        }
+    if(bendViewMode==="toEnd"){
+        for(let i=elements.length-1;i>targetIndex;i--)
+            length+=elements[i].length;
+    }else{
+        for(let i=0;i<targetIndex;i++)
+            length+=elements[i].length;
     }
 
-    return length + offset;
+    return length+offset;
 };
-
 
 // =====================================================
 // Параметры гибочного станка
 // =====================================================
 
-export const calculateBendingMachineParams = ({
-                                                  alpha,
-                                                  lInput,
-                                                  isInnerMode,
-                                                  t,
-                                                  rTool
-                                              }) => {
-    const bendAngle = 180 - alpha;
-    const rad = Math.PI * bendAngle / 180;
+export const calculateBendingMachineParams=({
+                                                alpha,
+                                                lInput,
+                                                isInnerMode,
+                                                t,
+                                                rTool
+                                            })=>{
+    const bendAngle=180-alpha;
+    const rad=Math.PI*bendAngle/180;
 
-    const lPivotToCenter = Math.sqrt(
-        Math.pow(rTool + t, 2) + Math.pow(rTool, 2)
+    const lPivotToCenter=Math.sqrt(
+        Math.pow(rTool+t,2)+Math.pow(rTool,2)
     );
 
-    const angle1 = Math.asin(rTool / lPivotToCenter);
-    const angle2 = Math.PI / 2 - rad + angle1;
+    const angle1=Math.asin(rTool/lPivotToCenter);
+    const angle2=Math.PI/2-rad+angle1;
+    const deltaShelfInOut=t*Math.tan(rad/2);
 
-    const deltaShelfInOut = t * Math.tan(rad / 2);
+    const lShelf=isInnerMode===1
+        ?lInput+deltaShelfInOut
+        :lInput;
 
-    const lShelf = isInnerMode === 1
-        ? lInput + deltaShelfInOut
-        : lInput;
+    const gapFolding=
+        (rTool+t)-lPivotToCenter*Math.sin(angle2);
 
-    const gapFolding =
-        (rTool + t) -
-        lPivotToCenter * Math.sin(angle2);
-
-    const stopPosition =
-        lShelf -
-        gapFolding / Math.sin(rad);
+    const stopPosition=
+        lShelf-gapFolding/Math.sin(rad);
 
     return {
-        stopPosition: Number(stopPosition.toFixed(2)),
-        bendAngle: Number(bendAngle.toFixed(2)),
-        gapFolding: Number(gapFolding.toFixed(2))
+        stopPosition:Number(stopPosition.toFixed(2)),
+        bendAngle:Number(bendAngle.toFixed(2)),
+        gapFolding:Number(gapFolding.toFixed(2))
     };
 };
