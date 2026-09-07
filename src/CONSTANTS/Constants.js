@@ -1,6 +1,4 @@
 
-export const ID_EL_START = 'my-element-'
-
 
 export const TOP_MENU = [
     {name:'Biegeberechnung', href:'/biegeberechnung'},

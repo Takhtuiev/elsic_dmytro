@@ -10,8 +10,8 @@ import {
     PADDING
 } from "./svgConstants";
 
-
-const RAD_TO_DEG=180/Math.PI,EPSILON=1e-5;
+const RAD_TO_DEG=180/Math.PI;
+const EPSILON=1e-5;
 
 const getLabelScale=(geometrySize,containerSize)=>{
     if(
@@ -19,18 +19,24 @@ const getLabelScale=(geometrySize,containerSize)=>{
         !geometrySize?.height||
         !containerSize?.width||
         !containerSize?.height
-    )return 1;
+    ){
+        return 1;
+    }
 
     const scale=Math.max(
         geometrySize.width/containerSize.width,
         geometrySize.height/containerSize.height
     )*1.15;
 
-    return Math.min(2.5,Math.max(.6,scale));
+    return Math.min(
+        2.5,
+        Math.max(.6,scale)
+    );
 };
 
 const rotatePoint=(p,rad)=>{
-    const cos=Math.cos(rad),sin=Math.sin(rad);
+    const cos=Math.cos(rad);
+    const sin=Math.sin(rad);
 
     return {
         x:p.x*cos-p.y*sin,
@@ -41,18 +47,33 @@ const rotatePoint=(p,rad)=>{
 const createPathData=(a,b)=>({
     a,
     b,
-    sideAPath:a.map(p=>`${p.x} ${p.y}`).join(" L "),
-    sideBPath:b.map(p=>`${p.x} ${p.y}`).join(" L "),
+
+    sideAPath:a
+        .map(p=>`${p.x} ${p.y}`)
+        .join(" L "),
+
+    sideBPath:b
+        .map(p=>`${p.x} ${p.y}`)
+        .join(" L "),
+
     fillPoints:[
         ...a,
         ...b.slice().reverse()
-    ].map(p=>`${p.x},${p.y}`).join(" ")
+    ]
+        .map(p=>`${p.x},${p.y}`)
+        .join(" ")
 });
 
 const calculateShelfLabel=(
-    start,end,oppStart,oppEnd,lengthText,scale=1
+    start,
+    end,
+    oppStart,
+    oppEnd,
+    lengthText,
+    scale=1
 )=>{
-    const dx=end.x-start.x,dy=end.y-start.y;
+    const dx=end.x-start.x;
+    const dy=end.y-start.y;
     const len=Math.hypot(dx,dy);
 
     if(len<=EPSILON)return null;
@@ -64,18 +85,26 @@ const calculateShelfLabel=(
 
     const midX=(start.x+end.x)/2;
     const midY=(start.y+end.y)/2;
+
     const oppMidX=(oppStart.x+oppEnd.x)/2;
     const oppMidY=(oppStart.y+oppEnd.y)/2;
 
-    let bx=-dy/len,by=dx/len;
+    let bx=-dy/len;
+    let by=dx/len;
 
     if(
         bx*(midX-oppMidX)+
         by*(midY-oppMidY)<0
-    )[bx,by]=[-bx,-by];
+    ){
+        bx=-bx;
+        by=-by;
+    }
 
-    const fontSize = FONT_SIZE * scale;
-    const offset = LABEL_OFFSET * scale + fontSize / 2;
+    const fontSize=FONT_SIZE*scale;
+
+    const offset=
+        LABEL_OFFSET*scale+
+        fontSize/2;
 
     return {
         text:`${lengthText}`,
@@ -88,7 +117,12 @@ const calculateShelfLabel=(
 };
 
 const calculateBendAngle=(
-    vertex,prevPoint,nextPoint,oppVertex,bendText,scale=1
+    vertex,
+    prevPoint,
+    nextPoint,
+    oppVertex,
+    bendText,
+    scale=1
 )=>{
     const v1={
         x:prevPoint.x-vertex.x,
@@ -103,10 +137,23 @@ const calculateBendAngle=(
     const l1=Math.hypot(v1.x,v1.y);
     const l2=Math.hypot(v2.x,v2.y);
 
-    if(l1<=EPSILON||l2<=EPSILON)return null;
+    if(
+        l1<=EPSILON||
+        l2<=EPSILON
+    ){
+        return null;
+    }
 
-    const u1={x:v1.x/l1,y:v1.y/l1};
-    const u2={x:v2.x/l2,y:v2.y/l2};
+    const u1={
+        x:v1.x/l1,
+        y:v1.y/l1
+    };
+
+    const u2={
+        x:v2.x/l2,
+        y:v2.y/l2
+    };
+
     const arcRadius=ARC_RADIUS*scale;
 
     const p1={
@@ -124,8 +171,14 @@ const calculateBendAngle=(
     const tLen=Math.hypot(tx,ty);
 
     const [bx,by]=tLen>EPSILON
-        ?[tx/tLen,ty/tLen]
-        :[-u1.y,u1.x];
+        ?[
+            tx/tLen,
+            ty/tLen
+        ]
+        :[
+            -u1.y,
+            u1.x
+        ];
 
     const sweep=
         (p2.x-p1.x)*by-
@@ -134,7 +187,12 @@ const calculateBendAngle=(
             :0;
 
     const fontSize=FONT_SIZE*scale;
-    const textWidth=bendText.length*fontSize*.6;
+
+    const textWidth=
+        bendText.length*
+        fontSize*
+        .6;
+
     const textRadius=
         Math.abs(bx)*textWidth/2+
         Math.abs(by)*fontSize/2;
@@ -146,12 +204,15 @@ const calculateBendAngle=(
 
     return {
         text:bendText,
+
         x:vertex.x+bx*offset,
         y:vertex.y+by*offset,
+
         path:
             `M ${p1.x} ${p1.y} `+
             `A ${arcRadius} ${arcRadius} 0 0 ${sweep} `+
             `${p2.x} ${p2.y}`,
+
         bx,
         by,
         fontSize
@@ -166,38 +227,73 @@ const calculateBlueRawData=(
     sideA,
     sideB
 )=>{
-    if(selectedBendIndex<0||blueLength<=0)return null;
+    if(
+        selectedBendIndex<0||
+        blueLength<=0
+    ){
+        return null;
+    }
 
-    const vertexIndex=selectedBendIndex+1;
-    const bend=profile.bends?.[selectedBendIndex];
+    const vertexIndex=
+        selectedBendIndex+1;
+
+    const bend=
+        profile.bends?.[selectedBendIndex];
 
     if(!bend)return null;
 
-    const isToEnd=viewMode==="toEnd";
-    const isInnerRight=bend.direction==="right";
+    const isToEnd=
+        viewMode==="toEnd";
 
-    const outerSide=isInnerRight?sideA:sideB;
-    const innerSide=isInnerRight?sideB:sideA;
+    const isInnerRight=
+        bend.direction==="right";
 
-    const outerApex=outerSide[vertexIndex];
-    const targetIndex=isToEnd
-        ?vertexIndex+1
-        :vertexIndex-1;
+    const outerSide=
+        isInnerRight
+            ?sideA
+            :sideB;
 
-    const targetPoint=outerSide[targetIndex];
+    const innerSide=
+        isInnerRight
+            ?sideB
+            :sideA;
 
-    if(!outerApex||!targetPoint)return null;
+    const outerApex=
+        outerSide[vertexIndex];
 
-    const dx=targetPoint.x-outerApex.x;
-    const dy=targetPoint.y-outerApex.y;
+    const targetIndex=
+        isToEnd
+            ?vertexIndex+1
+            :vertexIndex-1;
+
+    const targetPoint=
+        outerSide[targetIndex];
+
+    if(
+        !outerApex||
+        !targetPoint
+    ){
+        return null;
+    }
+
+    const dx=
+        targetPoint.x-outerApex.x;
+
+    const dy=
+        targetPoint.y-outerApex.y;
+
     const len=Math.hypot(dx,dy);
 
     if(len<=EPSILON)return null;
 
-    const ux=dx/len,uy=dy/len;
-    const nx=-uy,ny=ux;
+    const ux=dx/len;
+    const uy=dy/len;
 
-    const innerApex=innerSide[vertexIndex];
+    const nx=-uy;
+    const ny=ux;
+
+    const innerApex=
+        innerSide[vertexIndex];
 
     if(!innerApex)return null;
 
@@ -207,7 +303,8 @@ const calculateBlueRawData=(
             ?1
             :-1;
 
-    const thickness=Number(profile.thickness)||0;
+    const thickness=
+        Number(profile.thickness)||0;
 
     const outerEnd={
         x:outerApex.x+ux*blueLength,
@@ -215,34 +312,75 @@ const calculateBlueRawData=(
     };
 
     const innerEnd={
-        x:outerEnd.x+nx*sideSign*thickness,
-        y:outerEnd.y+ny*sideSign*thickness
+        x:outerEnd.x+
+            nx*sideSign*thickness,
+
+        y:outerEnd.y+
+            ny*sideSign*thickness
     };
 
     return {
-        endPointA:isInnerRight?outerEnd:innerEnd,
-        endPointB:isInnerRight?innerEnd:outerEnd,
-        lengthSide:isInnerRight?"A":"B"
+        endPointA:
+            isInnerRight
+                ?outerEnd
+                :innerEnd,
+
+        endPointB:
+            isInnerRight
+                ?innerEnd
+                :outerEnd,
+
+        lengthSide:
+            isInnerRight
+                ?"A"
+                :"B"
     };
 };
 
 const addPointToBounds=(bounds,p)=>{
     if(!p)return;
 
-    bounds.minX=Math.min(bounds.minX,p.x);
-    bounds.maxX=Math.max(bounds.maxX,p.x);
-    bounds.minY=Math.min(bounds.minY,p.y);
-    bounds.maxY=Math.max(bounds.maxY,p.y);
+    bounds.minX=Math.min(
+        bounds.minX,
+        p.x
+    );
+
+    bounds.maxX=Math.max(
+        bounds.maxX,
+        p.x
+    );
+
+    bounds.minY=Math.min(
+        bounds.minY,
+        p.y
+    );
+
+    bounds.maxY=Math.max(
+        bounds.maxY,
+        p.y
+    );
 };
 
 const addTextToBounds=(bounds,text)=>{
     if(!text)return;
 
-    const fontSize=Number(text.fontSize)||FONT_SIZE;
-    const value=`${text.text??""}${text.unit??""}`;
-    const width=value.length*fontSize*.6;
+    const fontSize=
+        Number(text.fontSize)||
+        FONT_SIZE;
+
+    const value=
+        `${text.text??""}${text.unit??""}`;
+
+    const width=
+        value.length*
+        fontSize*
+        .6;
+
     const height=fontSize;
-    const angle=(Number(text.angle)||0)*Math.PI/180;
+
+    const angle=
+        (Number(text.angle)||0)*
+        Math.PI/180;
 
     const halfW=width/2;
     const halfH=height/2;
@@ -255,32 +393,80 @@ const addTextToBounds=(bounds,text)=>{
         Math.abs(Math.sin(angle))*halfW+
         Math.abs(Math.cos(angle))*halfH;
 
-    bounds.minX=Math.min(bounds.minX,text.x-rx);
-    bounds.maxX=Math.max(bounds.maxX,text.x+rx);
-    bounds.minY=Math.min(bounds.minY,text.y-ry);
-    bounds.maxY=Math.max(bounds.maxY,text.y+ry);
+    bounds.minX=Math.min(
+        bounds.minX,
+        text.x-rx
+    );
+
+    bounds.maxX=Math.max(
+        bounds.maxX,
+        text.x+rx
+    );
+
+    bounds.minY=Math.min(
+        bounds.minY,
+        text.y-ry
+    );
+
+    bounds.maxY=Math.max(
+        bounds.maxY,
+        text.y+ry
+    );
 };
 
 const addAngleToBounds=(bounds,angle)=>{
     if(!angle)return;
 
-    const fontSize=Number(angle.fontSize)||FONT_SIZE;
-    const halfW=`${angle.text??""}`.length*fontSize*.3;
+    const fontSize=
+        Number(angle.fontSize)||
+        FONT_SIZE;
+
+    const halfW=
+        `${angle.text??""}`.length*
+        fontSize*
+        .3;
+
     const halfH=fontSize/2;
 
-    bounds.minX=Math.min(bounds.minX,angle.x-halfW);
-    bounds.maxX=Math.max(bounds.maxX,angle.x+halfW);
-    bounds.minY=Math.min(bounds.minY,angle.y-halfH);
-    bounds.maxY=Math.max(bounds.maxY,angle.y+halfH);
+    bounds.minX=Math.min(
+        bounds.minX,
+        angle.x-halfW
+    );
+
+    bounds.maxX=Math.max(
+        bounds.maxX,
+        angle.x+halfW
+    );
+
+    bounds.minY=Math.min(
+        bounds.minY,
+        angle.y-halfH
+    );
+
+    bounds.maxY=Math.max(
+        bounds.maxY,
+        angle.y+halfH
+    );
 };
 
 const addLayerToBounds=(bounds,layer)=>{
     if(!layer)return;
 
-    layer.a?.forEach(p=>addPointToBounds(bounds,p));
-    layer.b?.forEach(p=>addPointToBounds(bounds,p));
-    layer.labels?.forEach(t=>addTextToBounds(bounds,t));
-    layer.angles?.forEach(a=>addAngleToBounds(bounds,a));
+    layer.a?.forEach(
+        p=>addPointToBounds(bounds,p)
+    );
+
+    layer.b?.forEach(
+        p=>addPointToBounds(bounds,p)
+    );
+
+    layer.labels?.forEach(
+        t=>addTextToBounds(bounds,t)
+    );
+
+    layer.angles?.forEach(
+        a=>addAngleToBounds(bounds,a)
+    );
 };
 
 export const buildLayer=({
@@ -293,57 +479,89 @@ export const buildLayer=({
                              showCutAngle=false,
                              labelScale=1
                          })=>{
-    const a=ctxSideA.slice(start,end+1);
-    const b=ctxSideB.slice(start,end+1);
+    const a=
+        ctxSideA.slice(start,end+1);
+
+    const b=
+        ctxSideB.slice(start,end+1);
+
     const labels=[];
     const angles=[];
 
-    ctxShelves.slice(start,end).forEach((shelf,j)=>{
-        const g=start+j;
-        const current=shelf.isTop?a:b;
-        const opposite=shelf.isTop?b:a;
+    ctxShelves
+        .slice(start,end)
+        .forEach((shelf,j)=>{
+            const g=start+j;
 
-        const label=calculateShelfLabel(
-            current[j],
-            current[j+1],
-            opposite[j],
-            opposite[j+1],
-            shelf.length,
-            labelScale
-        );
+            const current=
+                shelf.isTop
+                    ?a
+                    :b;
 
-        if(label)labels.push(label);
+            const opposite=
+                shelf.isTop
+                    ?b
+                    :a;
 
-        const bend=ctxBends[g];
-        if(!bend)return;
+            const label=
+                calculateShelfLabel(
+                    current[j],
+                    current[j+1],
+                    opposite[j],
+                    opposite[j+1],
+                    shelf.length,
+                    labelScale
+                );
 
-        const inner=bend.direction==="right";
-        const side=inner?b:a;
-        const oppositeSide=inner?a:b;
-        const i=j+1;
+            if(label)
+                labels.push(label);
 
-        if(
-            !side[i-1]||
-            !side[i]||
-            !side[i+1]||
-            !oppositeSide[i]
-        )return;
+            const bend=ctxBends[g];
 
-        const angle=calculateBendAngle(
-            side[i],
-            side[i-1],
-            side[i+1],
-            oppositeSide[i],
-            `${bend.angle}°`,
-            labelScale
-        );
+            if(!bend)return;
 
-        if(angle)angles.push(angle);
-    });
+            const inner=
+                bend.direction==="right";
+
+            const side=
+                inner?b:a;
+
+            const oppositeSide=
+                inner?a:b;
+
+            const i=j+1;
+
+            if(
+                !side[i-1]||
+                !side[i]||
+                !side[i+1]||
+                !oppositeSide[i]
+            ){
+                return;
+            }
+
+            const angle=
+                calculateBendAngle(
+                    side[i],
+                    side[i-1],
+                    side[i+1],
+                    oppositeSide[i],
+                    `${bend.angle}°`,
+                    labelScale
+                );
+
+            if(angle)
+                angles.push(angle);
+        });
 
     if(showCutAngle){
-        const cutIndex=start>0?start:end;
-        const bend=ctxBends[cutIndex-1];
+        const cutIndex=
+            start>0
+                ?start
+                :end;
+
+        const bend=
+            ctxBends[cutIndex-1];
 
         if(
             bend&&
@@ -352,144 +570,173 @@ export const buildLayer=({
             ctxSideA[cutIndex+1]&&
             ctxSideB[cutIndex]
         ){
-            const inner=bend.direction==="right";
-            const side=inner?ctxSideB:ctxSideA;
-            const opposite=inner?ctxSideA:ctxSideB;
+            const inner=
+                bend.direction==="right";
 
-            const angle=calculateBendAngle(
-                side[cutIndex],
-                side[cutIndex-1],
-                side[cutIndex+1],
-                opposite[cutIndex],
-                `${bend.angle}°`,
-                labelScale
-            );
+            const side=
+                inner
+                    ?ctxSideB
+                    :ctxSideA;
 
-            if(angle)angles.push(angle);
+            const opposite=
+                inner
+                    ?ctxSideA
+                    :ctxSideB;
+
+            const angle=
+                calculateBendAngle(
+                    side[cutIndex],
+                    side[cutIndex-1],
+                    side[cutIndex+1],
+                    opposite[cutIndex],
+                    `${bend.angle}°`,
+                    labelScale
+                );
+
+            if(angle)
+                angles.push(angle);
         }
     }
 
     return {
         ...createPathData(a,b),
+
         labels,
         angles,
+
         strokeStartCap:start===0,
         strokeEndCap:end===ctxShelves.length
     };
 };
 
-export const prepareSvgLayers=(profile,containerSize)=>{
-    const geometry=buildProfileGeometry(profile);
+export const prepareSvgLayers=(
+    profile,
+    containerSize
+)=>{
+    const geometry=
+        buildProfileGeometry(profile);
 
-    if(!geometry.sideA?.length)return null;
+    if(!geometry.sideA?.length)
+        return null;
 
-    const shelves=geometry.shelvesData;
-    const bends=profile.bends||[];
-    const totalShelves=shelves.length;
+    const shelves=
+        geometry.shelvesData;
+
+    const bends=
+        profile.bends||[];
+
+    const totalShelves=
+        shelves.length;
 
     const selectedBendIndex=
-        Number(profile.selectedBendIndex??-1);
+        Number(
+            profile.selectedBendIndex??-1
+        );
 
     const viewMode=
         profile.bendViewMode||"toEnd";
 
-    const verticalShelfIndex=
-        Number(profile.verticalShelf??1)-1;
+    const blueLength=
+        selectedBendIndex>=0
+            ?Number(
+                calculateOuterLengthToEnd(profile)
+                    .toFixed(2)
+            )
+            :0;
 
-    const blueLength=selectedBendIndex>=0
-        ?Number(
-            calculateOuterLengthToEnd(profile).toFixed(2)
-        )
-        :0;
+    const rotationAngle=
+        Number(profile.profileRotation||0)*
+        Math.PI/180;
 
-    let rotationAngle=0;
+    /*
+     * Сначала зеркалим исходную геометрию,
+     * затем применяем сохранённый поворот.
+     */
+    const mirrorPoint=p=>
+        profile.profileMirrored
+            ?{
+                x:-p.x,
+                y:p.y
+            }
+            :p;
 
-    if(selectedBendIndex>=0){
-        const shelfIndex=viewMode==="toEnd"
-            ?selectedBendIndex+1
-            :selectedBendIndex;
+    const mirroredSideA=
+        geometry.sideA.map(
+            mirrorPoint
+        );
 
-        const shelf=shelves[shelfIndex];
+    const mirroredSideB=
+        geometry.sideB.map(
+            mirrorPoint
+        );
 
-        if(shelf){
-            rotationAngle=viewMode==="toEnd"
-                ?shelf.angleRad
-                :shelf.angleRad+Math.PI;
-        }
-    }else{
-        const p1=geometry.sideA[verticalShelfIndex];
-        const p2=geometry.sideA[verticalShelfIndex+1];
+    const rotatedSideA=
+        mirroredSideA.map(
+            p=>rotatePoint(
+                p,
+                rotationAngle
+            )
+        );
 
-        if(p1&&p2){
-            rotationAngle=
-                -Math.PI/2-
-                Math.atan2(
-                    p2.y-p1.y,
-                    p2.x-p1.x
-                );
-        }
-    }
-
-    let rotatedSideA=geometry.sideA.map(
-        p=>rotatePoint(p,rotationAngle)
-    );
-
-    let rotatedSideB=geometry.sideB.map(
-        p=>rotatePoint(p,rotationAngle)
-    );
-
-    if(selectedBendIndex>=0){
-        const vertex=rotatedSideA[selectedBendIndex+1];
-
-        const next=rotatedSideA[
-            viewMode==="toEnd"
-                ?selectedBendIndex
-                :selectedBendIndex+2
-            ];
-
-        if(vertex&&next&&next.y-vertex.y>0){
-            rotatedSideA=rotatedSideA.map(
-                p=>({...p,y:-p.y})
-            );
-
-            rotatedSideB=rotatedSideB.map(
-                p=>({...p,y:-p.y})
-            );
-        }
-    }
+    const rotatedSideB=
+        mirroredSideB.map(
+            p=>rotatePoint(
+                p,
+                rotationAngle
+            )
+        );
 
     const allPoints=[
         ...rotatedSideA,
         ...rotatedSideB
     ];
 
-    const xs=allPoints.map(p=>p.x);
-    const ys=allPoints.map(p=>p.y);
+    const xs=
+        allPoints.map(p=>p.x);
+
+    const ys=
+        allPoints.map(p=>p.y);
 
     const detailSize={
-        width:Math.max(...xs)-Math.min(...xs),
-        height:Math.max(...ys)-Math.min(...ys)
+        width:
+            Math.max(...xs)-
+            Math.min(...xs),
+
+        height:
+            Math.max(...ys)-
+            Math.min(...ys)
     };
 
-    const labelScale=getLabelScale(
-        detailSize,
-        containerSize
-    );
+    const labelScale=
+        getLabelScale(
+            detailSize,
+            containerSize
+        );
 
     let activeStart=0;
     let activeEnd=totalShelves;
+
     let ghostStart=-1;
     let ghostEnd=-1;
 
     if(selectedBendIndex>=0){
         if(viewMode==="toEnd"){
-            activeEnd=selectedBendIndex+1;
-            ghostStart=selectedBendIndex+1;
-            ghostEnd=totalShelves;
+            activeEnd=
+                selectedBendIndex+1;
+
+            ghostStart=
+                selectedBendIndex+1;
+
+            ghostEnd=
+                totalShelves;
         }else{
             ghostStart=0;
-            ghostEnd=selectedBendIndex+1;
-            activeStart=selectedBendIndex+1;
+
+            ghostEnd=
+                selectedBendIndex+1;
+
+            activeStart=
+                selectedBendIndex+1;
         }
     }
 
@@ -501,43 +748,57 @@ export const prepareSvgLayers=(profile,containerSize)=>{
         labelScale
     };
 
-    const activeData=buildLayer({
-        ...layerOptions,
-        start:activeStart,
-        end:activeEnd
-    });
-
-    const ghostData=ghostStart>=0
-        ?buildLayer({
+    const activeData=
+        buildLayer({
             ...layerOptions,
-            start:ghostStart,
-            end:ghostEnd
-        })
-        :null;
+            start:activeStart,
+            end:activeEnd
+        });
 
-    const blueRaw=calculateBlueRawData(
-        profile,
-        selectedBendIndex,
-        viewMode,
-        blueLength,
-        rotatedSideA,
-        rotatedSideB
-    );
+    const ghostData=
+        ghostStart>=0
+            ?buildLayer({
+                ...layerOptions,
+                start:ghostStart,
+                end:ghostEnd
+            })
+            :null;
+
+    const blueRaw=
+        calculateBlueRawData(
+            profile,
+            selectedBendIndex,
+            viewMode,
+            blueLength,
+            rotatedSideA,
+            rotatedSideB
+        );
 
     let blueData=null;
 
     if(blueRaw){
-        const i=selectedBendIndex+1;
-        const bendA=rotatedSideA[i];
-        const bendB=rotatedSideB[i];
+        const i=
+            selectedBendIndex+1;
 
-        const adjacentA=rotatedSideA[
-            viewMode==="toEnd"?i-1:i+1
-            ];
+        const bendA=
+            rotatedSideA[i];
 
-        const adjacentB=rotatedSideB[
-            viewMode==="toEnd"?i-1:i+1
-            ];
+        const bendB=
+            rotatedSideB[i];
+
+        const adjacentA=
+            rotatedSideA[
+                viewMode==="toEnd"
+                    ?i-1
+                    :i+1
+                ];
+
+        const adjacentB=
+            rotatedSideB[
+                viewMode==="toEnd"
+                    ?i-1
+                    :i+1
+                ];
 
         if(
             bendA&&
@@ -545,44 +806,83 @@ export const prepareSvgLayers=(profile,containerSize)=>{
             adjacentA&&
             adjacentB
         ){
-            const isToEnd=viewMode==="toEnd";
+            const isToEnd=
+                viewMode==="toEnd";
 
-            const blueSideA=isToEnd
-                ?[adjacentA,bendA,blueRaw.endPointA]
-                :[blueRaw.endPointA,bendA,adjacentA];
-
-            const blueSideB=isToEnd
-                ?[adjacentB,bendB,blueRaw.endPointB]
-                :[blueRaw.endPointB,bendB,adjacentB];
-
-            const blueShelf={
-                ...shelves[selectedBendIndex+1],
-                length:blueLength,
-                isTop:blueRaw.lengthSide==="A"
-            };
-
-            blueData=buildLayer({
-                start:isToEnd?1:0,
-                end:isToEnd?2:1,
-                ctxSideA:blueSideA,
-                ctxSideB:blueSideB,
-                ctxShelves:isToEnd
+            const blueSideA=
+                isToEnd
                     ?[
-                        shelves[selectedBendIndex],
-                        blueShelf
+                        adjacentA,
+                        bendA,
+                        blueRaw.endPointA
                     ]
                     :[
-                        blueShelf,
-                        shelves[selectedBendIndex]
+                        blueRaw.endPointA,
+                        bendA,
+                        adjacentA
+                    ];
+
+            const blueSideB=
+                isToEnd
+                    ?[
+                        adjacentB,
+                        bendB,
+                        blueRaw.endPointB
+                    ]
+                    :[
+                        blueRaw.endPointB,
+                        bendB,
+                        adjacentB
+                    ];
+
+            const blueShelf={
+                ...shelves[
+                selectedBendIndex+1
                     ],
-                ctxBends:[bends[selectedBendIndex]],
-                showCutAngle:true,
-                labelScale
-            });
+
+                length:blueLength,
+
+                isTop:
+                    blueRaw.lengthSide==="A"
+            };
+
+            blueData=
+                buildLayer({
+                    start:isToEnd?1:0,
+                    end:isToEnd?2:1,
+
+                    ctxSideA:blueSideA,
+                    ctxSideB:blueSideB,
+
+                    ctxShelves:
+                        isToEnd
+                            ?[
+                                shelves[
+                                    selectedBendIndex
+                                    ],
+                                blueShelf
+                            ]
+                            :[
+                                blueShelf,
+                                shelves[
+                                    selectedBendIndex
+                                    ]
+                            ],
+
+                    ctxBends:[
+                        bends[selectedBendIndex]
+                    ],
+
+                    showCutAngle:true,
+                    labelScale
+                });
 
             if(blueData){
-                blueData.strokeStartCap=!isToEnd;
-                blueData.strokeEndCap=isToEnd;
+                blueData.strokeStartCap=
+                    !isToEnd;
+
+                blueData.strokeEndCap=
+                    isToEnd;
             }
         }
     }
@@ -594,19 +894,46 @@ export const prepareSvgLayers=(profile,containerSize)=>{
         maxY:-Infinity
     };
 
-    addLayerToBounds(bounds,activeData);
-    addLayerToBounds(bounds,ghostData);
-    addLayerToBounds(bounds,blueData);
+    addLayerToBounds(
+        bounds,
+        activeData
+    );
+
+    addLayerToBounds(
+        bounds,
+        ghostData
+    );
+
+    addLayerToBounds(
+        bounds,
+        blueData
+    );
+
+    if(
+        !Number.isFinite(bounds.minX)||
+        !Number.isFinite(bounds.minY)||
+        !Number.isFinite(bounds.maxX)||
+        !Number.isFinite(bounds.maxY)
+    ){
+        return null;
+    }
 
     return {
         activeData,
         ghostData,
         blueData,
+
         viewBox:[
             bounds.minX-PADDING,
             bounds.minY-PADDING,
-            bounds.maxX-bounds.minX+PADDING*2,
-            bounds.maxY-bounds.minY+PADDING*2
+
+            bounds.maxX-
+            bounds.minX+
+            PADDING*2,
+
+            bounds.maxY-
+            bounds.minY+
+            PADDING*2
         ].join(" ")
     };
 };

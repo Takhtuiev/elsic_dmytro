@@ -1,4 +1,4 @@
-import React,{useCallback,useEffect,useMemo,useState} from "react";
+import React,{useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {
     Box,Button,IconButton,InputAdornment,Menu,MenuItem,
     Paper,Stack,TextField,Typography
@@ -14,6 +14,7 @@ import {
     calculateOuterLengthToEnd,
     calculateBendingMachineParams
 } from "./Calculations";
+import buildProfileGeometry from "./BuildProfileGeometry";
 import {setProfile} from "../../Store/bendingSlice";
 
 
@@ -21,16 +22,20 @@ const INITIAL_STATE={
     thickness:4,
     kFactor:.32,
     rTool:1.2,
+
     shelves:[
         {length:50,side:"right"},
         {length:100,side:"right"},
         {length:150,side:"left"}
     ],
+
     bends:[
         {angle:90,direction:"right"},
         {angle:135,direction:"left"}
     ],
-    verticalShelf:1,
+
+    profileRotation:0,
+    profileMirrored:false,
     selectedBendIndex:-1,
     bendViewMode:"toEnd"
 };
@@ -66,14 +71,14 @@ const ResultRow=({label,value,caption=false})=>(
 );
 
 const ParamField=({
-                      label,
-                      value,
-                      onChange,
-                      min=0,
-                      step=1,
-                      max,
-                      endAdornment
-                  })=>(
+    label,
+    value,
+    onChange,
+    min=0,
+    step=1,
+    max,
+    endAdornment
+})=>(
     <TextField
         label={label}
         type="number"
@@ -99,11 +104,20 @@ const ParamField=({
 
 
 export default function Biegeberechnung(){
-    const savedProfile=useSelector(state=>state.bending.profile);
+    const savedProfile=useSelector(
+        state=>state.bending.profile
+    );
+
     const [state,setState]=useState(
         ()=>savedProfile??INITIAL_STATE
     );
-    const [thicknessMenuAnchor,setThicknessMenuAnchor]=useState(null);
+
+    const [thicknessMenuAnchor,setThicknessMenuAnchor]=
+        useState(null);
+
+    // Последний rotation, установленный вертикальной полкой
+    const savedProfileRotation=useRef(0);
+
     const dispatch=useDispatch();
 
     useEffect(()=>{
@@ -139,13 +153,11 @@ export default function Biegeberechnung(){
             const after=prev.shelves.slice(index+1);
 
             const lengthBefore=before.reduce(
-                (sum,s)=>sum+Number(s.length||0),
-                0
+                (sum,s)=>sum+Number(s.length||0),0
             );
 
             const lengthAfter=after.reduce(
-                (sum,s)=>sum+Number(s.length||0),
-                0
+                (sum,s)=>sum+Number(s.length||0),0
             );
 
             let selectedSide;
@@ -155,44 +167,204 @@ export default function Biegeberechnung(){
             else if(lengthBefore>lengthAfter)
                 selectedSide="toEnd";
             else
-                selectedSide=before.length<=after.length
-                    ?"fromStart"
-                    :"toEnd";
+                selectedSide=
+                    before.length<=after.length
+                        ?"fromStart"
+                        :"toEnd";
 
+            const geometry=buildProfileGeometry(prev);
+
+            const getShelfVector=(shelfIndex,fromEnd=false)=>{
+                const p1=geometry.sideA?.[shelfIndex];
+                const p2=geometry.sideA?.[shelfIndex+1];
+
+                if(!p1||!p2)
+                    return null;
+
+                return fromEnd
+                    ?{
+                        x:p1.x-p2.x,
+                        y:p1.y-p2.y
+                    }
+                    :{
+                        x:p2.x-p1.x,
+                        y:p2.y-p1.y
+                    };
+            };
+
+            const getRotation=(side,mirrored)=>{
+                const shelfIndex=
+                    side==="fromStart"
+                        ?index
+                        :index+1;
+
+                let v=getShelfVector(shelfIndex);
+
+                if(!v)
+                    return prev.profileRotation;
+
+                if(mirrored)
+                    v={x:-v.x,y:v.y};
+
+                let angle=
+                    Math.atan2(v.y,v.x)*180/Math.PI;
+
+                if(side==="fromStart")
+                    angle+=180;
+
+                return -angle;
+            };
+
+            const isOppositeShelfDown=(
+                side,
+                mirrored,
+                rotation
+            )=>{
+                const oppositeIndex=
+                    side==="fromStart"
+                        ?index+1
+                        :index;
+
+                const oppositeFromEnd=
+                    side==="toEnd";
+
+                let v=getShelfVector(
+                    oppositeIndex,
+                    oppositeFromEnd
+                );
+
+                if(!v)
+                    return false;
+
+                if(mirrored)
+                    v={x:-v.x,y:v.y};
+
+                const rad=rotation*Math.PI/180;
+
+                const rotatedY=
+                    v.x*Math.sin(rad)+
+                    v.y*Math.cos(rad);
+
+                return rotatedY>0;
+            };
+
+            const applyView=side=>{
+                let mirrored=prev.profileMirrored;
+
+                let rotation=getRotation(
+                    side,
+                    mirrored
+                );
+
+                if(isOppositeShelfDown(
+                    side,
+                    mirrored,
+                    rotation
+                )){
+                    mirrored=!mirrored;
+
+                    rotation=getRotation(
+                        side,
+                        mirrored
+                    );
+                }
+
+                return {
+                    mirrored,
+                    rotation
+                };
+            };
+
+            // 1. Новый угол — первая сторона
             if(prev.selectedBendIndex!==index){
+                const {
+                    mirrored,
+                    rotation
+                }=applyView(selectedSide);
+
                 return {
                     ...prev,
                     selectedBendIndex:index,
-                    bendViewMode:selectedSide
+                    bendViewMode:selectedSide,
+                    profileMirrored:mirrored,
+                    profileRotation:rotation
                 };
             }
+
+            // 2. Тот же угол — вторая сторона
+            const nextSide=
+                selectedSide==="fromStart"
+                    ?"toEnd"
+                    :"fromStart";
 
             if(prev.bendViewMode===selectedSide){
+                const {
+                    mirrored,
+                    rotation
+                }=applyView(nextSide);
+
                 return {
                     ...prev,
-                    bendViewMode:
-                        selectedSide==="fromStart"
-                            ?"toEnd"
-                            :"fromStart"
+                    selectedBendIndex:index,
+                    bendViewMode:nextSide,
+                    profileMirrored:mirrored,
+                    profileRotation:rotation
                 };
             }
 
+            // 3. Тот же угол — снять выбор
             return {
                 ...prev,
-                selectedBendIndex:-1
+                selectedBendIndex:-1,
+                bendViewMode:"toEnd",
+                profileRotation:savedProfileRotation.current,
+                profileMirrored:false
             };
         });
     },[]);
 
+
     const handleVerticalShelfChange=useCallback(index=>{
-        setState(prev=>
-            prev.selectedBendIndex!==-1
-                ?prev
-                :{
-                    ...prev,
-                    verticalShelf:index+1
-                }
-        );
+        setState(prev=>{
+            const geometry=buildProfileGeometry(prev);
+
+            const p1=geometry.sideA?.[index];
+            const p2=geometry.sideA?.[index+1];
+
+            if(!p1||!p2)
+                return prev;
+
+            const profileRotation=
+                (-Math.PI/2-
+                    Math.atan2(
+                        p2.y-p1.y,
+                        p2.x-p1.x
+                    ))*
+                180/Math.PI;
+
+            // Запоминаем rotation
+            savedProfileRotation.current=profileRotation;
+
+            return {
+                ...prev,
+                profileRotation
+            };
+        });
+    },[]);
+
+
+    const handleProfileRotationChange=useCallback(value=>{
+        setState(prev=>({
+            ...prev,
+            profileRotation:Number(value)
+        }));
+    },[]);
+
+    const handleProfileMirrorChange=useCallback(value=>{
+        setState(prev=>({
+            ...prev,
+            profileMirrored:Boolean(value)
+        }));
     },[]);
 
     const addBend=useCallback(()=>setState(prev=>({
@@ -228,10 +400,6 @@ export default function Biegeberechnung(){
                 ...prev,
                 bends,
                 shelves,
-                verticalShelf:Math.min(
-                    prev.verticalShelf,
-                    shelves.length
-                ),
                 selectedBendIndex
             };
         });
@@ -248,18 +416,20 @@ export default function Biegeberechnung(){
     }=state;
 
     const distanceToOuterApex=useMemo(()=>{
-        if(selectedBendIndex<0)return 0;
+        if(selectedBendIndex<0)
+            return 0;
 
         return Number(
             calculateOuterLengthToEnd(state).toFixed(2)
         );
     },[state,selectedBendIndex]);
 
-
-    const selectedBend=bends[selectedBendIndex]||null;
+    const selectedBend=
+        bends[selectedBendIndex]||null;
 
     const machineParams=useMemo(()=>{
-        if(!selectedBend) return null;
+        if(!selectedBend)
+            return null;
 
         return calculateBendingMachineParams({
             alpha:selectedBend.angle,
@@ -296,6 +466,12 @@ export default function Biegeberechnung(){
                     profile={state}
                     blankLength={blankLength}
                     machineParams={machineParams}
+                    onProfileRotationChange={
+                        handleProfileRotationChange
+                    }
+                    onProfileMirrorChange={
+                        handleProfileMirrorChange
+                    }
                 />
             </Box>
 
@@ -328,14 +504,13 @@ export default function Biegeberechnung(){
                             shelf={shelf}
                             index={index}
                             bend={bends[index]}
-                            verticalShelf={state.verticalShelf}
-                            selectedBendIndex={selectedBendIndex}
+                            selectedBendIndex={
+                                selectedBendIndex
+                            }
                             bendViewMode={bendViewMode}
-
                             onVerticalShelfChange={
                                 handleVerticalShelfChange
                             }
-
                             onShelfChange={(index,value)=>
                                 updateNestedItem(
                                     "shelves",
@@ -344,7 +519,6 @@ export default function Biegeberechnung(){
                                     value
                                 )
                             }
-
                             onBendChange={(index,value)=>
                                 updateNestedItem(
                                     "bends",
@@ -353,7 +527,6 @@ export default function Biegeberechnung(){
                                     value
                                 )
                             }
-
                             onShelfSideChange={(index,value)=>
                                 updateNestedItem(
                                     "shelves",
@@ -362,7 +535,6 @@ export default function Biegeberechnung(){
                                     value
                                 )
                             }
-
                             onBendDirectionChange={(index,value)=>
                                 updateNestedItem(
                                     "bends",
@@ -371,10 +543,8 @@ export default function Biegeberechnung(){
                                     value
                                 )
                             }
-
                             onRemoveBend={removeBend}
                             onSelectBend={handleSelectBend}
-
                             canRemove={
                                 !!bends[index]&&
                                 bends.length>1
@@ -435,12 +605,17 @@ export default function Biegeberechnung(){
                         label="Thickness"
                         value={thickness}
                         onChange={value=>
-                            updateParam("thickness",value)
+                            updateParam(
+                                "thickness",
+                                value
+                            )
                         }
                         step={1}
                         endAdornment={
                             <>
-                                <Box sx={UNIT_SX}>mm</Box>
+                                <Box sx={UNIT_SX}>
+                                    mm
+                                </Box>
 
                                 <IconButton
                                     size="small"
@@ -466,7 +641,10 @@ export default function Biegeberechnung(){
                         label="K-Factor"
                         value={kFactor}
                         onChange={value=>
-                            updateParam("kFactor",value)
+                            updateParam(
+                                "kFactor",
+                                value
+                            )
                         }
                         max={1}
                         step={.01}
@@ -476,11 +654,16 @@ export default function Biegeberechnung(){
                         label="R_tool"
                         value={rTool}
                         onChange={value=>
-                            updateParam("rTool",value)
+                            updateParam(
+                                "rTool",
+                                value
+                            )
                         }
                         step={1}
                         endAdornment={
-                            <Box sx={UNIT_SX}>mm</Box>
+                            <Box sx={UNIT_SX}>
+                                mm
+                            </Box>
                         }
                     />
                 </Box>
@@ -519,13 +702,17 @@ export default function Biegeberechnung(){
                 >
                     <ResultRow
                         label="Blank length"
-                        value={`${blankLength.toFixed(2)} mm`}
+                        value={
+                            `${blankLength.toFixed(2)} mm`
+                        }
                     />
 
                     {distanceToOuterApex>0&&(
                         <ResultRow
                             label="Reference"
-                            value={`${distanceToOuterApex.toFixed(2)} mm`}
+                            value={
+                                `${distanceToOuterApex.toFixed(2)} mm`
+                            }
                         />
                     )}
 
@@ -542,19 +729,25 @@ export default function Biegeberechnung(){
                             <ResultRow
                                 caption
                                 label="Stop position"
-                                value={`${machineParams.stopPosition} mm`}
+                                value={
+                                    `${machineParams.stopPosition} mm`
+                                }
                             />
 
                             <ResultRow
                                 caption
                                 label="Bend angle"
-                                value={`${machineParams.bendAngle}°`}
+                                value={
+                                    `${machineParams.bendAngle}°`
+                                }
                             />
 
                             <ResultRow
                                 caption
                                 label="Gap folding"
-                                value={`${machineParams.gapFolding} mm`}
+                                value={
+                                    `${machineParams.gapFolding} mm`
+                                }
                             />
                         </Stack>
                     )}
