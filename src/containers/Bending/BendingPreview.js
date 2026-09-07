@@ -192,16 +192,6 @@ const BendingPreview=({profile,blankLength,machineParams})=>{
 
     if(!profile)return null;
 
-    const renderLayer=(data,type,isGhost=false)=>data&&(
-        <BendProfileRender
-            data={data}
-            strokeColor={colors[type].line}
-            fillColor={colors[type].fill}
-            annotationColor={colors[type].annotation}
-            isGhost={isGhost}
-        />
-    );
-
     return(
         <Box
             className="bend-preview-root"
@@ -253,9 +243,27 @@ const BendingPreview=({profile,blankLength,machineParams})=>{
                         height="100%"
                         preserveAspectRatio="xMidYMid meet"
                     >
-                        {renderLayer(svgData.activeData,"active")}
-                        {renderLayer(svgData.ghostData,"ghost",true)}
-                        {renderLayer(svgData.blueData,"blue")}
+                        <BendProfileRender
+                            data={svgData.activeData}
+                            strokeColor={colors.active.line}
+                            fillColor={colors.active.fill}
+                            annotationColor={colors.active.annotation}
+                        />
+
+                        <BendProfileRender
+                            data={svgData.ghostData}
+                            strokeColor={colors.ghost.line}
+                            fillColor={colors.ghost.fill}
+                            annotationColor={colors.ghost.annotation}
+                            isGhost
+                        />
+
+                        <BendProfileRender
+                            data={svgData.blueData}
+                            strokeColor={colors.blue.line}
+                            fillColor={colors.blue.fill}
+                            annotationColor={colors.blue.annotation}
+                        />
                     </svg>
                 )}
             </Box>
