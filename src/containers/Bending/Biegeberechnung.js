@@ -622,20 +622,20 @@ const handleProfileRotationCommitted=useCallback(value=>{
                     elevation={2}
                     sx={{
                         mt:2,
-                        p:2
-                    }}
+                     }}
                 >
 
                     <Stack
                         direction="row"
                         alignItems="center"
                         sx={{
-                            mb:1,
+                            px:2,
+                            pt:2,
+                            pb:0,
                             width:"100%",
                             minWidth:0
                         }}
                     >
-
                         <Typography
                             variant="subtitle1"
                             fontWeight="500"
@@ -742,15 +742,6 @@ const handleProfileRotationCommitted=useCallback(value=>{
                         </Tooltip>
 
                     </Stack>
-                </Paper>
-
-
-                <Paper
-                    sx={{
-                        m:0,
-                        p:0
-                    }}
-                >
 
                     <Box sx={{
                         width:"100%",

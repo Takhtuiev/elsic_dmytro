@@ -21,9 +21,7 @@ const Parameters=({
 })=>(
     <Box
         sx={{
-            px:1,
-            pt:1,
-            pb:.5
+            p:1
         }}
     >
         <Box
