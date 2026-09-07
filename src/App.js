@@ -12,7 +12,9 @@ import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 
 import { Box } from "@mui/system";
-import { Protect } from "@clerk/clerk-react";
+import {
+    Protect,
+} from "@clerk/clerk-react";
 
 import { ColorModeContextProvider } from "./Providers/ColorModeProvider";
 import NavigationTabs from "./components/Navigation/NavigationTabs";

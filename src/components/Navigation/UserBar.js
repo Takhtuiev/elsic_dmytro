@@ -12,20 +12,28 @@ import {
     Typography,
     useTheme,
 } from "@mui/material";
+
 import {
     AccountCircleOutlined,
+    LoginOutlined,
     LogoutOutlined,
 } from "@mui/icons-material";
+
 import {
-    SignInButton,
     useClerk,
     useUser,
 } from "@clerk/clerk-react";
+
 import { dark } from "@clerk/ui/themes";
 
 function UserBar() {
     const { user, isLoaded } = useUser();
-    const { signOut, openUserProfile } = useClerk();
+    const {
+        openSignIn,
+        signOut,
+        openUserProfile,
+    } = useClerk();
+
     const theme = useTheme();
     const isDark = theme.palette.mode === "dark";
 
@@ -34,37 +42,58 @@ function UserBar() {
 
     if (!isLoaded) return null;
 
-    const clerkAppearance = isDark ? { theme: dark } : {};
+    const clerkAppearance = isDark
+        ? { theme: dark }
+        : {};
+
+    // =========================================================
+    // NOT AUTHENTICATED
+    // =========================================================
 
     if (!user) {
         return (
-            <SignInButton mode="modal" appearance={clerkAppearance}>
-                <Button
-                    variant="outlined"
-                    sx={{
-                        minWidth: 78,
-                        height: 36,
-                        px: 1.8,
-                        borderRadius: 1.5,
-                        textTransform: "none",
-                        fontSize: "0.875rem",
-                        fontWeight: 600,
-                        letterSpacing: 0.2,
-                        color: "text.primary",
-                        borderColor: "divider",
-                        bgcolor: "background.paper",
-                        "&:hover": {
-                            bgcolor: "action.hover",
-                            borderColor: "text.secondary",
-                        },
-                    }}
-                >
-                    Login
-                </Button>
-            </SignInButton>
+            <Button
+                variant="text"
+                startIcon={<LoginOutlined fontSize="small" />}
+                onClick={() =>
+                    openSignIn({
+                        appearance: clerkAppearance,
+                    })
+                }
+                sx={{
+                    height: 38,
+                    px: 1.7,
+                    borderRadius: 2,
+                    textTransform: "none",
+                    fontSize: "0.875rem",
+                    fontWeight: 600,
+                    letterSpacing: 0.1,
+                    color: "text.primary",
+                    transition: "all .18s ease",
+
+                    "& .MuiButton-startIcon": {
+                        mr: 0.8,
+                    },
+
+                    "&:hover": {
+                        bgcolor: "action.hover",
+                    },
+
+                    "&:focus-visible": {
+                        outline: `2px solid ${theme.palette.primary.main}`,
+                        outlineOffset: 2,
+                    },
+                }}
+            >
+                Login
+            </Button>
         );
     }
-    
+
+    // =========================================================
+    // USER
+    // =========================================================
+
     const name =
         user.fullName ||
         user.firstName ||
@@ -84,6 +113,7 @@ function UserBar() {
 
     const handleProfile = () => {
         handleClose();
+
         openUserProfile({
             appearance: clerkAppearance,
         });
@@ -98,17 +128,20 @@ function UserBar() {
         <>
             <IconButton
                 onClick={handleOpen}
+                aria-label="User menu"
                 sx={{
                     width: 42,
                     height: 42,
                     p: 0.5,
                     borderRadius: "50%",
                     transition: "all .2s ease",
+
                     "&:hover": {
                         bgcolor: isDark
                             ? "rgba(255,255,255,.08)"
                             : "rgba(0,0,0,.05)",
                     },
+
                     "&:focus-visible": {
                         outline: `2px solid ${theme.palette.primary.main}`,
                         outlineOffset: 2,
@@ -155,6 +188,7 @@ function UserBar() {
                             boxShadow: isDark
                                 ? "0 16px 45px rgba(0,0,0,.45)"
                                 : "0 12px 35px rgba(20,30,50,.12)",
+
                             "& .MuiMenuItem-root": {
                                 borderRadius: 1.5,
                                 mx: 0.75,
@@ -225,6 +259,7 @@ function UserBar() {
                         onClick={handleSignOut}
                         sx={{
                             color: "error.main",
+
                             "& .MuiListItemIcon-root": {
                                 color: "error.main",
                             },
