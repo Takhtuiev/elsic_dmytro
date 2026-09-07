@@ -105,11 +105,12 @@ const ProfileRow=memo(({
                            onShelfChange,
                            onShelfSideChange,
                            onVerticalShelfChange,
+                           isVertical,
                            onBendChange,
                            onBendDirectionChange,
                            onSelectBend,
                            onRemoveBend,
-                           canRemove
+                           canRemove,
                        })=>{
     const theme=useTheme();
 
@@ -218,35 +219,57 @@ const ProfileRow=memo(({
                 <Tooltip title={
                     selectedBendIndex!==-1
                         ?"Disabled when an angle is selected"
-                        :"Make vertical"
+                        :isVertical
+                            ?"Vertical shelf"
+                            :"Make vertical"
                 }>
-                    <span
-                        style={{
-                            display:"inline-flex"
-                        }}
-                    >
-                        <IconButton
-                            size="small"
-                            onClick={()=>
-                                onVerticalShelfChange(index)
-                            }
-                            disabled={
-                                selectedBendIndex!==-1
-                            }
-                            sx={{
-                                ...iconBtnStyle(),
-                                "&.Mui-disabled":{
-                                    borderColor:"divider",
-                                    backgroundColor:
-                                        "action.hover",
-                                    color:"text.disabled"
-                                }
-                            }}
-                        >
-                            <VerticalIcon/>
-                        </IconButton>
-                    </span>
+    <span
+        style={{
+            display:"inline-flex"
+        }}
+    >
+        <IconButton
+            size="small"
+            onClick={()=>
+                onVerticalShelfChange(index)
+            }
+            disabled={
+                selectedBendIndex!==-1
+            }
+            sx={{
+                ...iconBtnStyle(
+                    isVertical,
+                    "primary.main"
+                ),
+
+                "&:hover":{
+                    borderColor:
+                        "primary.main",
+                    color:
+                        "primary.main"
+                },
+
+                "&.Mui-disabled":{
+                    borderColor:
+                        isVertical
+                            ?"primary.main"
+                            :"divider",
+                    backgroundColor:
+                        isVertical
+                            ?"background.paper"
+                            :"action.hover",
+                    color:
+                        isVertical
+                            ?"primary.main"
+                            :"text.disabled"
+                }
+            }}
+        >
+            <VerticalIcon/>
+        </IconButton>
+    </span>
                 </Tooltip>
+
             </Box>
 
             {bend&&(

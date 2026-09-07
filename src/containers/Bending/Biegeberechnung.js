@@ -1,11 +1,14 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {
     Box,Button,IconButton,InputAdornment,Menu,MenuItem,
-    Paper,Stack,TextField,Typography
+    Paper,Slider,Stack,TextField,Tooltip,Typography
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import FlipIcon from "@mui/icons-material/Flip";
+import FullscreenIcon from "@mui/icons-material/Fullscreen";
 import {useDispatch,useSelector} from "react-redux";
+import {useNavigate} from "react-router-dom";
 
 import ProfileRow from "./ProfileRow";
 import BendingPreviewPage from "./BendingPreviewPage";
@@ -40,12 +43,14 @@ const INITIAL_STATE={
     bendViewMode:"toEnd"
 };
 
+
 const UNIT_SX={
     fontSize:"0.7rem",
     ml:0,
     mr:0,
     p:0
 };
+
 
 const ResultRow=({label,value,caption=false})=>(
     <Box sx={{
@@ -69,6 +74,7 @@ const ResultRow=({label,value,caption=false})=>(
         </Typography>
     </Box>
 );
+
 
 const ParamField=({
     label,
@@ -104,6 +110,7 @@ const ParamField=({
 
 
 export default function Biegeberechnung(){
+
     const savedProfile=useSelector(
         state=>state.bending.profile
     );
@@ -112,17 +119,44 @@ export default function Biegeberechnung(){
         ()=>savedProfile??INITIAL_STATE
     );
 
+
+    /*
+     * Временный угол Slider.
+     *
+     * null = Slider не двигается.
+     * Число = временный угол, который ещё
+     * не записан в profile.
+     */
+    const [rotationPreview,setRotationPreview]=useState(null);
+
+
+    /*
+     * Индекс полки, которую пользователь
+     * назначил вертикальной.
+     */
+    const [verticalShelfIndex,setVerticalShelfIndex]=
+        useState(null);
+
+
     const [thicknessMenuAnchor,setThicknessMenuAnchor]=
         useState(null);
 
-    // Последний rotation, установленный вертикальной полкой
-    const savedProfileRotation=useRef(0);
-
     const dispatch=useDispatch();
+    const navigate=useNavigate();
+
+
+    /*
+     * Запоминаем обычную ориентацию перед
+     * выбором угла.
+     */
+    const savedProfileRotation=useRef(0);
+    const savedProfileMirrored=useRef(false);
+
 
     useEffect(()=>{
         dispatch(setProfile(state));
     },[state,dispatch]);
+
 
     const updateParam=useCallback(
         (name,value)=>
@@ -132,6 +166,7 @@ export default function Biegeberechnung(){
             })),
         []
     );
+
 
     const updateNestedItem=useCallback(
         (type,index,name,value)=>{
@@ -147,8 +182,10 @@ export default function Biegeberechnung(){
         []
     );
 
+
     const handleSelectBend=useCallback(index=>{
         setState(prev=>{
+
             const before=prev.shelves.slice(0,index+1);
             const after=prev.shelves.slice(index+1);
 
@@ -172,7 +209,9 @@ export default function Biegeberechnung(){
                         ?"fromStart"
                         :"toEnd";
 
+
             const geometry=buildProfileGeometry(prev);
+
 
             const getShelfVector=(shelfIndex,fromEnd=false)=>{
                 const p1=geometry.sideA?.[shelfIndex];
@@ -191,6 +230,7 @@ export default function Biegeberechnung(){
                         y:p2.y-p1.y
                     };
             };
+
 
             const getRotation=(side,mirrored)=>{
                 const shelfIndex=
@@ -214,6 +254,7 @@ export default function Biegeberechnung(){
 
                 return -angle;
             };
+
 
             const isOppositeShelfDown=(
                 side,
@@ -248,6 +289,7 @@ export default function Biegeberechnung(){
                 return rotatedY>0;
             };
 
+
             const applyView=side=>{
                 let mirrored=prev.profileMirrored;
 
@@ -275,8 +317,18 @@ export default function Biegeberechnung(){
                 };
             };
 
-            // 1. Новый угол — первая сторона
+
+            /*
+             * 1. Новый угол — первая сторона.
+             */
             if(prev.selectedBendIndex!==index){
+
+                savedProfileRotation.current=
+                    prev.profileRotation;
+
+                savedProfileMirrored.current=
+                    prev.profileMirrored;
+
                 const {
                     mirrored,
                     rotation
@@ -291,13 +343,17 @@ export default function Biegeberechnung(){
                 };
             }
 
-            // 2. Тот же угол — вторая сторона
+
+            /*
+             * 2. Тот же угол — вторая сторона.
+             */
             const nextSide=
                 selectedSide==="fromStart"
                     ?"toEnd"
                     :"fromStart";
 
             if(prev.bendViewMode===selectedSide){
+
                 const {
                     mirrored,
                     rotation
@@ -312,19 +368,30 @@ export default function Biegeberechnung(){
                 };
             }
 
-            // 3. Тот же угол — снять выбор
+
+            /*
+             * 3. Тот же угол — снять выбор.
+             */
             return {
                 ...prev,
                 selectedBendIndex:-1,
                 bendViewMode:"toEnd",
-                profileRotation:savedProfileRotation.current,
-                profileMirrored:false
+                profileRotation:
+                    savedProfileRotation.current,
+                profileMirrored:
+                    savedProfileMirrored.current
             };
         });
     },[]);
 
 
+    /*
+     * Назначаем конкретную полку вертикальной
+     * и сразу рассчитываем угол для неё.
+     */
     const handleVerticalShelfChange=useCallback(index=>{
+        setVerticalShelfIndex(index);
+
         setState(prev=>{
             const geometry=buildProfileGeometry(prev);
 
@@ -334,16 +401,16 @@ export default function Biegeberechnung(){
             if(!p1||!p2)
                 return prev;
 
+            let dx=p2.x-p1.x;
+            const dy=p2.y-p1.y;
+
+            if(prev.profileMirrored)
+                dx=-dx;
+
             const profileRotation=
                 (-Math.PI/2-
-                    Math.atan2(
-                        p2.y-p1.y,
-                        p2.x-p1.x
-                    ))*
+                    Math.atan2(dy,dx))*
                 180/Math.PI;
-
-            // Запоминаем rotation
-            savedProfileRotation.current=profileRotation;
 
             return {
                 ...prev,
@@ -353,19 +420,88 @@ export default function Biegeberechnung(){
     },[]);
 
 
+    /*
+     * Slider меняет только временный угол.
+     */
     const handleProfileRotationChange=useCallback(value=>{
-        setState(prev=>({
-            ...prev,
-            profileRotation:Number(value)
-        }));
+        setRotationPreview(Number(value));
     },[]);
 
+
+    /*
+     * После отпускания:
+     *
+     * 1. временный угол записывается в profile;
+     * 2. временный угол сбрасывается в null.
+     */
+
+const handleProfileRotationCommitted=useCallback(value=>{
+    const rotation=Number(value);
+
+    setState(prev=>({
+        ...prev,
+        profileRotation:rotation
+    }));
+
+    setVerticalShelfIndex(null);
+    setRotationPreview(null);
+},[]);
+
+
+
+
+    /*
+     * Зеркалим профиль.
+     *
+     * Если вертикальная полка была выбрана,
+     * после зеркалирования именно она снова
+     * устанавливается вертикально.
+     */
     const handleProfileMirrorChange=useCallback(value=>{
-        setState(prev=>({
-            ...prev,
-            profileMirrored:Boolean(value)
-        }));
-    },[]);
+        setState(prev=>{
+            const mirrored=Boolean(value);
+
+            if(verticalShelfIndex==null){
+                return {
+                    ...prev,
+                    profileMirrored:mirrored
+                };
+            }
+
+            const geometry=buildProfileGeometry({
+                ...prev,
+                profileMirrored:mirrored
+            });
+
+            const p1=geometry.sideA?.[verticalShelfIndex];
+            const p2=geometry.sideA?.[verticalShelfIndex+1];
+
+            if(!p1||!p2){
+                return {
+                    ...prev,
+                    profileMirrored:mirrored
+                };
+            }
+
+            let dx=p2.x-p1.x;
+            const dy=p2.y-p1.y;
+
+            if(mirrored)
+                dx=-dx;
+
+            const profileRotation=
+                (-Math.PI/2-
+                    Math.atan2(dy,dx))*
+                180/Math.PI;
+
+            return {
+                ...prev,
+                profileMirrored:mirrored,
+                profileRotation
+            };
+        });
+    },[verticalShelfIndex]);
+
 
     const addBend=useCallback(()=>setState(prev=>({
         ...prev,
@@ -379,6 +515,7 @@ export default function Biegeberechnung(){
         ]
     })),[]);
 
+
     const removeBend=useCallback(index=>{
         setState(prev=>{
             const bends=prev.bends.filter(
@@ -389,7 +526,8 @@ export default function Biegeberechnung(){
                 (_,i)=>i!==index+1
             );
 
-            let selectedBendIndex=prev.selectedBendIndex;
+            let selectedBendIndex=
+                prev.selectedBendIndex;
 
             if(selectedBendIndex===index)
                 selectedBendIndex=-1;
@@ -405,6 +543,7 @@ export default function Biegeberechnung(){
         });
     },[]);
 
+
     const {
         selectedBendIndex,
         bendViewMode,
@@ -415,6 +554,7 @@ export default function Biegeberechnung(){
         rTool
     }=state;
 
+
     const distanceToOuterApex=useMemo(()=>{
         if(selectedBendIndex<0)
             return 0;
@@ -424,8 +564,10 @@ export default function Biegeberechnung(){
         );
     },[state,selectedBendIndex]);
 
+
     const selectedBend=
         bends[selectedBendIndex]||null;
+
 
     const machineParams=useMemo(()=>{
         if(!selectedBend)
@@ -445,7 +587,19 @@ export default function Biegeberechnung(){
         rTool
     ]);
 
+
     const blankLength=calculateBlankLength(state);
+
+
+    /*
+     * Пока Slider двигается —
+     * показываем временное значение.
+     *
+     * Иначе показываем сохранённый угол профиля.
+     */
+    const sliderRotation=
+        rotationPreview??state.profileRotation;
+
 
     return(
         <Box sx={{
@@ -456,24 +610,166 @@ export default function Biegeberechnung(){
             flexDirection:{xs:"column",md:"row"},
             alignItems:"flex-start"
         }}>
+
             <Box sx={{
                 flex:1,
                 minWidth:0,
                 width:"100%",
                 order:{xs:1,md:2}
             }}>
-                <BendingPreviewPage
-                    profile={state}
-                    blankLength={blankLength}
-                    machineParams={machineParams}
-                    onProfileRotationChange={
-                        handleProfileRotationChange
-                    }
-                    onProfileMirrorChange={
-                        handleProfileMirrorChange
-                    }
-                />
+
+                <Paper
+                    elevation={2}
+                    sx={{
+                        mt:2,
+                        p:2
+                    }}
+                >
+
+                    <Stack
+                        direction="row"
+                        alignItems="center"
+                        sx={{
+                            mb:1,
+                            width:"100%",
+                            minWidth:0
+                        }}
+                    >
+
+                        <Typography
+                            variant="subtitle1"
+                            fontWeight="500"
+                            color="text.secondary"
+                            sx={{
+                                flexShrink:0,
+                                whiteSpace:"nowrap"
+                            }}
+                        >
+                            Bend Profile
+                        </Typography>
+
+
+                        <Slider
+                            value={sliderRotation}
+                            min={-180}
+                            max={180}
+                            step={1}
+                            size="small"
+                            disabled={selectedBendIndex>=0}
+
+                            onChange={(_,value)=>
+                                handleProfileRotationChange(value)
+                            }
+
+                            onChangeCommitted={(_,value)=>
+                                handleProfileRotationCommitted(value)
+                            }
+
+                            sx={{
+                                flex:1,
+                                minWidth:80,
+                                mx:2,
+                                py:0,
+                                color:"text.secondary",
+                                opacity:.65,
+
+                                "& .MuiSlider-rail":{
+                                    height:1,
+                                    opacity:.45
+                                },
+
+                                "& .MuiSlider-track":{
+                                    height:1
+                                },
+
+                                "& .MuiSlider-thumb":{
+                                    width:7,
+                                    height:7,
+                                    boxShadow:"none"
+                                }
+                            }}
+                        />
+
+
+                        <Tooltip title="Mirror">
+                            <IconButton
+                                size="small"
+                                disabled={selectedBendIndex>=0}
+                                onClick={()=>
+                                    handleProfileMirrorChange(
+                                        !state.profileMirrored
+                                    )
+                                }
+                                sx={{
+                                    width:28,
+                                    height:28,
+                                    flexShrink:0
+                                }}
+                            >
+                                <FlipIcon
+                                    sx={{
+                                        fontSize:17,
+                                        transform:
+                                            state.profileMirrored
+                                                ?"scaleX(-1)"
+                                                :"none"
+                                    }}
+                                />
+                            </IconButton>
+                        </Tooltip>
+
+
+                        <Tooltip title="Full screen">
+                            <IconButton
+                                size="small"
+                                onClick={()=>
+                                    navigate(
+                                        "/biegeberechnung/preview"
+                                    )
+                                }
+                                sx={{
+                                    ml:4,
+                                    width:28,
+                                    height:28,
+                                    flexShrink:0,
+                                    color:"text.secondary"
+                                }}
+                            >
+                                <FullscreenIcon
+                                    fontSize="small"
+                                />
+                            </IconButton>
+                        </Tooltip>
+
+                    </Stack>
+                </Paper>
+
+
+                <Paper
+                    sx={{
+                        m:0,
+                        p:0
+                    }}
+                >
+
+                    <Box sx={{
+                        width:"100%",
+                        height:"65vh",
+                        minHeight:500,
+                        maxHeight:700
+                    }}>
+                        <BendingPreviewPage
+                            profile={state}
+                            blankLength={blankLength}
+                            machineParams={machineParams}
+                            rotationPreview={rotationPreview}
+                        />
+                    </Box>
+
+                </Paper>
+
             </Box>
+
 
             <Paper elevation={2} sx={{
                 p:{xs:2,sm:3},
@@ -483,6 +779,7 @@ export default function Biegeberechnung(){
                 flexShrink:0,
                 order:{xs:2,md:1}
             }}>
+
                 <Typography
                     variant="subtitle2"
                     fontWeight="600"
@@ -497,6 +794,7 @@ export default function Biegeberechnung(){
                     Shelves & Bends
                 </Typography>
 
+
                 <Stack spacing={0}>
                     {shelves.map((shelf,index)=>(
                         <ProfileRow
@@ -504,13 +802,10 @@ export default function Biegeberechnung(){
                             shelf={shelf}
                             index={index}
                             bend={bends[index]}
-                            selectedBendIndex={
-                                selectedBendIndex
-                            }
+                            selectedBendIndex={selectedBendIndex}
                             bendViewMode={bendViewMode}
-                            onVerticalShelfChange={
-                                handleVerticalShelfChange
-                            }
+                            isVertical={verticalShelfIndex===index}
+                            onVerticalShelfChange={handleVerticalShelfChange}
                             onShelfChange={(index,value)=>
                                 updateNestedItem(
                                     "shelves",
@@ -519,6 +814,7 @@ export default function Biegeberechnung(){
                                     value
                                 )
                             }
+
                             onBendChange={(index,value)=>
                                 updateNestedItem(
                                     "bends",
@@ -527,6 +823,7 @@ export default function Biegeberechnung(){
                                     value
                                 )
                             }
+
                             onShelfSideChange={(index,value)=>
                                 updateNestedItem(
                                     "shelves",
@@ -535,6 +832,7 @@ export default function Biegeberechnung(){
                                     value
                                 )
                             }
+
                             onBendDirectionChange={(index,value)=>
                                 updateNestedItem(
                                     "bends",
@@ -543,8 +841,10 @@ export default function Biegeberechnung(){
                                     value
                                 )
                             }
+
                             onRemoveBend={removeBend}
                             onSelectBend={handleSelectBend}
+
                             canRemove={
                                 !!bends[index]&&
                                 bends.length>1
@@ -552,6 +852,7 @@ export default function Biegeberechnung(){
                         />
                     ))}
                 </Stack>
+
 
                 <Box sx={{mt:2,mb:2}}>
                     <Button
@@ -563,6 +864,7 @@ export default function Biegeberechnung(){
                         Add Bend
                     </Button>
                 </Box>
+
 
                 <Typography
                     variant="subtitle2"
@@ -581,6 +883,7 @@ export default function Biegeberechnung(){
                     Parameters
                 </Typography>
 
+
                 <Box sx={{
                     display:"grid",
                     gridTemplateColumns:{
@@ -590,17 +893,21 @@ export default function Biegeberechnung(){
                     gap:1.5,
                     width:"100%",
                     mb:3,
+
                     "& > *":{
                         minWidth:0,
+
                         "& input::-webkit-outer-spin-button,& input::-webkit-inner-spin-button":{
                             WebkitAppearance:"none",
                             margin:0
                         },
+
                         "& input[type=number]":{
                             MozAppearance:"textfield"
                         }
                     }
                 }}>
+
                     <ParamField
                         label="Thickness"
                         value={thickness}
@@ -637,6 +944,7 @@ export default function Biegeberechnung(){
                         }
                     />
 
+
                     <ParamField
                         label="K-Factor"
                         value={kFactor}
@@ -649,6 +957,7 @@ export default function Biegeberechnung(){
                         max={1}
                         step={.01}
                     />
+
 
                     <ParamField
                         label="R_tool"
@@ -666,7 +975,9 @@ export default function Biegeberechnung(){
                             </Box>
                         }
                     />
+
                 </Box>
+
 
                 <Menu
                     anchorEl={thicknessMenuAnchor}
@@ -692,6 +1003,7 @@ export default function Biegeberechnung(){
                     ))}
                 </Menu>
 
+
                 <Stack
                     spacing={1}
                     sx={{
@@ -700,12 +1012,14 @@ export default function Biegeberechnung(){
                         border:"1px solid"
                     }}
                 >
+
                     <ResultRow
                         label="Blank length"
                         value={
                             `${blankLength.toFixed(2)} mm`
                         }
                     />
+
 
                     {distanceToOuterApex>0&&(
                         <ResultRow
@@ -715,6 +1029,7 @@ export default function Biegeberechnung(){
                             }
                         />
                     )}
+
 
                     {machineParams&&(
                         <Stack
@@ -726,6 +1041,7 @@ export default function Biegeberechnung(){
                                 borderColor:"grey.300"
                             }}
                         >
+
                             <ResultRow
                                 caption
                                 label="Stop position"
@@ -749,10 +1065,14 @@ export default function Biegeberechnung(){
                                     `${machineParams.gapFolding} mm`
                                 }
                             />
+
                         </Stack>
                     )}
+
                 </Stack>
+
             </Paper>
+
         </Box>
     );
 }

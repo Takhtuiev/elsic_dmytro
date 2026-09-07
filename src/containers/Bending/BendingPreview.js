@@ -9,14 +9,16 @@ import {alpha} from "@mui/material/styles";
 import BendProfileRender from "./BendProfileRender";
 import {prepareSvgLayers} from "./prepareSvgLayers";
 
+
 const MIN_BEND_ANGLE=45;
 const MAX_BEND_ANGLE=180;
 
+
 const Parameters=({
-                      profile,
-                      blankLength,
-                      machineParams
-                  })=>(
+    profile,
+    blankLength,
+    machineParams
+})=>(
     <Box
         sx={{
             px:1,
@@ -80,11 +82,12 @@ const Parameters=({
 
 
 const BendingPreview=({
-                          profile,
-                          blankLength,
-                          machineParams,
-                          rotationPreview
-                      })=>{
+    profile,
+    blankLength,
+    machineParams,
+    rotationPreview
+})=>{
+
     const theme=useTheme();
 
     const containerRef=useRef(null);
@@ -94,12 +97,10 @@ const BendingPreview=({
         height:500
     });
 
-    const committedRotation=Number(
-        profile?.profileRotation??0
-    );
 
     useEffect(()=>{
-        if(!containerRef.current)return;
+        if(!containerRef.current)
+            return;
 
         const observer=new ResizeObserver(
             ([{contentRect:{width,height}}])=>{
@@ -116,6 +117,7 @@ const BendingPreview=({
         return()=>observer.disconnect();
     },[]);
 
+
     const invalidAngleIndex=
         profile?.bends?.findIndex(
             ({angle})=>{
@@ -126,6 +128,7 @@ const BendingPreview=({
                     angle>MAX_BEND_ANGLE;
             }
         )??-1;
+
 
     const invalidShelfIndex=
         profile?.shelves?.findIndex(
@@ -141,12 +144,14 @@ const BendingPreview=({
             }
         )??-1;
 
+
     const validationError=
         invalidAngleIndex>=0
             ?`Angle ${invalidAngleIndex+1}: ${profile.bends[invalidAngleIndex].angle}° — allowed range is ${MIN_BEND_ANGLE}°–${MAX_BEND_ANGLE}°`
             :invalidShelfIndex>=0
                 ?`Leg ${invalidShelfIndex+1}: ${profile.shelves[invalidShelfIndex].length} mm — must be at least ${profile.thickness} mm`
                 :null;
+
 
     const colors={
         active:{
@@ -183,6 +188,13 @@ const BendingPreview=({
         }
     };
 
+
+    /*
+     * Геометрия пересчитывается только при изменении
+     * profile или размера контейнера.
+     *
+     * rotationPreview здесь НЕ используется.
+     */
     const svgData=useMemo(()=>{
         if(!profile||validationError)
             return null;
@@ -197,6 +209,31 @@ const BendingPreview=({
         validationError
     ]);
 
+
+    /*
+     * profile.profileRotation —
+     * последний подтверждённый угол.
+     *
+     * rotationPreview —
+     * временный угол от Slider.
+     *
+     * При движении Slider меняется только transform
+     * уже построенного SVG.
+     */
+    const committedRotation=
+        Number(profile?.profileRotation??0);
+
+    const visualRotation=
+        Number(
+            rotationPreview??
+            committedRotation
+        )-
+        committedRotation;
+
+
+    /*
+     * Центр вращения берём из текущего viewBox.
+     */
     const viewBoxValues=svgData?.viewBox
         ?.split(/\s+/)
         .map(Number);
@@ -214,9 +251,6 @@ const BendingPreview=({
                 y:0
             };
 
-    const visualRotation=
-        Number(rotationPreview??committedRotation)-
-        committedRotation;
 
     return(
         <Box
@@ -229,6 +263,7 @@ const BendingPreview=({
                 minHeight:0
             }}
         >
+
             <Box
                 ref={containerRef}
                 className="bend-preview-drawing"
@@ -242,6 +277,7 @@ const BendingPreview=({
                     overflow:"hidden"
                 }}
             >
+
                 {validationError?(
                     <Box
                         sx={{
@@ -269,6 +305,7 @@ const BendingPreview=({
                         height="100%"
                         preserveAspectRatio="xMidYMid meet"
                     >
+
                         <g
                             transform={
                                 visualRotation!==0
@@ -276,6 +313,7 @@ const BendingPreview=({
                                     :undefined
                             }
                         >
+
                             <BendProfileRender
                                 data={svgData.activeData}
                                 strokeColor={
@@ -315,10 +353,14 @@ const BendingPreview=({
                                     colors.blue.annotation
                                 }
                             />
+
                         </g>
+
                     </svg>
                 )}
+
             </Box>
+
 
             <Box
                 className="bend-preview-parameters"
@@ -332,8 +374,10 @@ const BendingPreview=({
                     machineParams={machineParams}
                 />
             </Box>
+
         </Box>
     );
 };
+
 
 export default BendingPreview;
