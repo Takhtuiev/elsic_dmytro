@@ -77,14 +77,14 @@ const ResultRow=({label,value,caption=false})=>(
 
 
 const ParamField=({
-    label,
-    value,
-    onChange,
-    min=0,
-    step=1,
-    max,
-    endAdornment
-})=>(
+                      label,
+                      value,
+                      onChange,
+                      min=0,
+                      step=1,
+                      max,
+                      endAdornment
+                  })=>(
     <TextField
         label={label}
         type="number"
@@ -377,9 +377,9 @@ export default function Biegeberechnung(){
                 selectedBendIndex:-1,
                 bendViewMode:"toEnd",
                 profileRotation:
-                    savedProfileRotation.current,
+                savedProfileRotation.current,
                 profileMirrored:
-                    savedProfileMirrored.current
+                savedProfileMirrored.current
             };
         });
     },[]);
@@ -435,17 +435,17 @@ export default function Biegeberechnung(){
      * 2. временный угол сбрасывается в null.
      */
 
-const handleProfileRotationCommitted=useCallback(value=>{
-    const rotation=Number(value);
+    const handleProfileRotationCommitted=useCallback(value=>{
+        const rotation=Number(value);
 
-    setState(prev=>({
-        ...prev,
-        profileRotation:rotation
-    }));
+        setState(prev=>({
+            ...prev,
+            profileRotation:rotation
+        }));
 
-    setVerticalShelfIndex(null);
-    setRotationPreview(null);
-},[]);
+        setVerticalShelfIndex(null);
+        setRotationPreview(null);
+    },[]);
 
 
 
@@ -458,49 +458,15 @@ const handleProfileRotationCommitted=useCallback(value=>{
      * устанавливается вертикально.
      */
     const handleProfileMirrorChange=useCallback(value=>{
-        setState(prev=>{
-            const mirrored=Boolean(value);
+        setState(prev=>({
+            ...prev,
+            profileMirrored:Boolean(value),
+            profileRotation:-prev.profileRotation
+        }));
 
-            if(verticalShelfIndex==null){
-                return {
-                    ...prev,
-                    profileMirrored:mirrored
-                };
-            }
+        setVerticalShelfIndex(null);
+    },[]);
 
-            const geometry=buildProfileGeometry({
-                ...prev,
-                profileMirrored:mirrored
-            });
-
-            const p1=geometry.sideA?.[verticalShelfIndex];
-            const p2=geometry.sideA?.[verticalShelfIndex+1];
-
-            if(!p1||!p2){
-                return {
-                    ...prev,
-                    profileMirrored:mirrored
-                };
-            }
-
-            let dx=p2.x-p1.x;
-            const dy=p2.y-p1.y;
-
-            if(mirrored)
-                dx=-dx;
-
-            const profileRotation=
-                (-Math.PI/2-
-                    Math.atan2(dy,dx))*
-                180/Math.PI;
-
-            return {
-                ...prev,
-                profileMirrored:mirrored,
-                profileRotation
-            };
-        });
-    },[verticalShelfIndex]);
 
 
     const addBend=useCallback(()=>setState(prev=>({
@@ -622,7 +588,7 @@ const handleProfileRotationCommitted=useCallback(value=>{
                     elevation={2}
                     sx={{
                         mt:2,
-                     }}
+                    }}
                 >
 
                     <Stack
