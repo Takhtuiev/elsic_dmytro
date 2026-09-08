@@ -47,7 +47,7 @@ const Parameters=({
             >
                 Blank length:{" "}
                 <strong>
-                    {blankLength ?? "—"} mm
+                    {blankLength.toFixed(2) ?? "—"} mm
                 </strong>
             </Typography>
         </Box>
