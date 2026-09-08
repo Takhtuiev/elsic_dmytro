@@ -10,19 +10,16 @@ import UndoIcon from "@mui/icons-material/Undo";
 import RedoIcon from "@mui/icons-material/Redo";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 
-const BendSelectIcon=()=>(
+const BendSelectIcon=({isSelected,bendSide})=>(
     <svg
         width="28"
         height="28"
         viewBox="0 0 28 28"
         fill="none"
-        style={{
-            display:"block",
-            flexShrink:0
-        }}
+        style={{display:"block",flexShrink:0}}
     >
         <path
-            d="M 2.25 7.0 L 10 20.42 L 25.5 20.42"
+            d="M2.25 7 L10 20.42 L25.5 20.42"
             stroke="currentColor"
             strokeWidth="1.5"
             strokeLinecap="round"
@@ -30,11 +27,29 @@ const BendSelectIcon=()=>(
         />
 
         <path
-            d="M 17 20.42 A 7 7 0 0 0 6.5 14.36"
+            d="M17 20.42 A7 7 0 0 0 6.5 14.36"
             stroke="currentColor"
-            strokeWidth="0.7"
+            strokeWidth=".7"
             strokeLinecap="round"
         />
+
+        {isSelected&&(
+            bendSide==="toEnd"
+                ?<path
+                    d="M10 5 L14 9 L18 5"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                />
+                :<path
+                    d="M10 9 L14 5 L18 9"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                />
+        )}
     </svg>
 );
 
@@ -44,20 +59,10 @@ const VerticalIcon=()=>(
         height="24"
         viewBox="0 0 24 24"
         fill="none"
-        style={{
-            display:"block",
-            flexShrink:0
-        }}
+        style={{display:"block",flexShrink:0}}
     >
         <path
-            d="M11 1V23"
-            stroke="currentColor"
-            strokeWidth="1"
-            strokeLinecap="round"
-        />
-
-        <path
-            d="M13 1V23"
+            d="M11 1V23M13 1V23"
             stroke="currentColor"
             strokeWidth="1"
             strokeLinecap="round"
@@ -71,28 +76,21 @@ const handleNumberKeyDown=e=>{
         "ArrowUp","ArrowDown","Tab","Home","End"
     ];
 
-    if(allowed.includes(e.key)||e.ctrlKey||e.metaKey)
-        return;
-
-    if(!/^[0-9.,]$/.test(e.key))
-        e.preventDefault();
+    if(allowed.includes(e.key)||e.ctrlKey||e.metaKey) return;
 
     if(
-        /[.,]/.test(e.key)&&
-        /[.,]/.test(e.currentTarget.value)
+        !/^[0-9.,]$/.test(e.key)||
+        (/[.,]/.test(e.key)&&/[.,]/.test(e.currentTarget.value))
     )
         e.preventDefault();
 };
 
 const sanitizeNumber=value=>{
-    const result=value
-        .replace(",",".")
-        .replace(/[^0-9.]/g,"");
+    const result=value.replace(",",".").replace(/[^0-9.]/g,"");
+    const [first,...rest]=result.split(".");
 
-    const parts=result.split(".");
-
-    return parts.length>2
-        ?parts[0]+"."+parts.slice(1).join("")
+    return rest.length
+        ?`${first}.${rest.join("")}`
         :result;
 };
 
@@ -100,30 +98,21 @@ const ProfileRow=memo(({
                            shelf,
                            bend,
                            index,
-                           selectedBendIndex,
-                           bendViewMode,
-                           onShelfChange,
-                           onShelfSideChange,
+                           bendIndex,
+                           bendSide,
+                           onUpdate,
                            onVerticalShelfChange,
                            isVertical,
-                           onBendChange,
-                           onBendDirectionChange,
                            onSelectBend,
                            onRemoveBend,
-                           canRemove,
+                           canRemove
                        })=>{
     const theme=useTheme();
+    const [angleMenuAnchor,setAngleMenuAnchor]=useState(null);
 
-    const [angleMenuAnchor,setAngleMenuAnchor]=
-        useState(null);
+    const isSelected=bendIndex===index;
 
-    const isSelected=
-        selectedBendIndex===index;
-
-    const iconBtnStyle=(
-        active=false,
-        color="primary.main"
-    )=>({
+    const iconBtnStyle=(active=false,color="primary.main")=>({
         borderRadius:"6px",
         border:"1px solid",
         borderColor:active?color:"divider",
@@ -135,11 +124,38 @@ const ProfileRow=memo(({
         flexShrink:0
     });
 
-    const bendColor=isSelected
-        ?bendViewMode==="toEnd"
-            ?"success.main"
-            :"warning.main"
-        :"primary.main";
+    const numberField=(label,value,onChange,unit,extra={})=>(
+        <TextField
+            label={label}
+            type="text"
+            inputMode="decimal"
+            value={value}
+            size="small"
+            fullWidth
+            onKeyDown={handleNumberKeyDown}
+            onChange={e=>onChange(sanitizeNumber(e.target.value))}
+            slotProps={{
+                htmlInput:{
+                    min:0,
+                    step:.01,
+                    ...extra
+                },
+                input:{
+                    endAdornment:unit&&(
+                        <InputAdornment position="end">
+                            {unit}
+                        </InputAdornment>
+                    )
+                }
+            }}
+        />
+    );
+
+    const updateShelf=(field,value)=>
+        onUpdate("shelves",index,field,value);
+
+    const updateBend=(field,value)=>
+        onUpdate("bends",index,field,value);
 
     return(
         <Box sx={{
@@ -147,6 +163,7 @@ const ProfileRow=memo(({
             flexDirection:"column",
             width:"100%"
         }}>
+            {/* Shelf */}
             <Box sx={{
                 display:"flex",
                 alignItems:"center",
@@ -158,47 +175,20 @@ const ProfileRow=memo(({
                 borderColor:"divider",
                 backgroundColor:"background.paper"
             }}>
-                <TextField
-                    label={`Leg ${index+1}`}
-                    type="text"
-                    inputMode="decimal"
-                    value={shelf.length}
-                    size="small"
-                    fullWidth
-                    onKeyDown={handleNumberKeyDown}
-                    onChange={e=>
-                        onShelfChange(
-                            index,
-                            sanitizeNumber(
-                                e.target.value
-                            )
-                        )
-                    }
-                    slotProps={{
-                        htmlInput:{
-                            min:0,
-                            step:0.01
-                        },
-                        input:{
-                            endAdornment:
-                                <InputAdornment
-                                    position="end"
-                                >
-                                    <Box sx={{
-                                        fontSize:"0.7rem"
-                                    }}>
-                                        mm
-                                    </Box>
-                                </InputAdornment>
-                        }
-                    }}
-                />
+                {numberField(
+                    `Leg ${index+1}`,
+                    shelf.length,
+                    value=>updateShelf("length",value),
+                    <Box sx={{fontSize:".7rem"}}>
+                        mm
+                    </Box>
+                )}
 
                 <Tooltip title="Switch side">
                     <IconButton
                         size="small"
-                        onClick={()=>onShelfSideChange(
-                            index,
+                        onClick={()=>updateShelf(
+                            "side",
                             shelf.side==="right"
                                 ?"left"
                                 :"right"
@@ -206,72 +196,45 @@ const ProfileRow=memo(({
                         sx={iconBtnStyle(true)}
                     >
                         {shelf.side==="right"
-                            ?<ArrowForwardIcon
-                                fontSize="small"
-                            />
-                            :<ArrowBackIcon
-                                fontSize="small"
-                            />
+                            ?<ArrowForwardIcon fontSize="small"/>
+                            :<ArrowBackIcon fontSize="small"/>
                         }
                     </IconButton>
                 </Tooltip>
 
                 <Tooltip title={
-                    selectedBendIndex!==-1
+                    bendIndex!==-1
                         ?"Disabled when an angle is selected"
                         :isVertical
                             ?"Vertical shelf"
                             :"Make vertical"
                 }>
-    <span
-        style={{
-            display:"inline-flex"
-        }}
-    >
-        <IconButton
-            size="small"
-            onClick={()=>
-                onVerticalShelfChange(index)
-            }
-            disabled={
-                selectedBendIndex!==-1
-            }
-            sx={{
-                ...iconBtnStyle(
-                    isVertical,
-                    "primary.main"
-                ),
-
-                "&:hover":{
-                    borderColor:
-                        "primary.main",
-                    color:
-                        "primary.main"
-                },
-
-                "&.Mui-disabled":{
-                    borderColor:
-                        isVertical
-                            ?"primary.main"
-                            :"divider",
-                    backgroundColor:
-                        isVertical
-                            ?"background.paper"
-                            :"action.hover",
-                    color:
-                        isVertical
-                            ?"primary.main"
-                            :"text.disabled"
-                }
-            }}
-        >
-            <VerticalIcon/>
-        </IconButton>
-    </span>
+                    <span style={{display:"inline-flex"}}>
+                        <IconButton
+                            size="small"
+                            onClick={()=>onVerticalShelfChange(index)}
+                            disabled={bendIndex!==-1}
+                            sx={{
+                                ...iconBtnStyle(isVertical),
+                                "&:hover":{
+                                    borderColor:"primary.main",
+                                    color:"primary.main"
+                                },
+                                "&.Mui-disabled":{
+                                    opacity:1,
+                                    borderColor:"divider",
+                                    backgroundColor:"action.hover",
+                                    color:"text.disabled"
+                                }
+                            }}
+                        >
+                            <VerticalIcon/>
+                        </IconButton>
+                    </span>
                 </Tooltip>
-
             </Box>
 
+            {/* Bend */}
             {bend&&(
                 <Box sx={{
                     display:"flex",
@@ -285,11 +248,11 @@ const ProfileRow=memo(({
                     <svg
                         style={{
                             position:"absolute",
-                            left:"12px",
+                            left:12,
                             top:0,
                             bottom:0,
                             height:"100%",
-                            width:"17px"
+                            width:17
                         }}
                         viewBox="0 0 17 100"
                         preserveAspectRatio="none"
@@ -317,73 +280,44 @@ const ProfileRow=memo(({
                             :"divider",
                         backgroundColor:"action.hover"
                     }}>
-                        <TextField
-                            label={`Angle ${index+1}`}
-                            type="text"
-                            inputMode="decimal"
-                            value={bend.angle}
-                            size="small"
-                            fullWidth
-                            onKeyDown={handleNumberKeyDown}
-                            onChange={e=>
-                                onBendChange(
-                                    index,
-                                    sanitizeNumber(
-                                        e.target.value
-                                    )
-                                )
-                            }
-                            slotProps={{
-                                htmlInput:{
-                                    min:0,
-                                    max:180,
-                                    step:0.01
-                                },
-                                input:{
-                                    endAdornment:
-                                        <InputAdornment
-                                            position="end"
-                                        >
-                                            <Box sx={{
-                                                display:"flex",
-                                                alignItems:
-                                                    "center"
-                                            }}>
-                                                <Box sx={{
-                                                    fontSize:"0.8rem",
-                                                    mr:0.2
-                                                }}>
-                                                    °
-                                                </Box>
+                        {numberField(
+                            `Angle ${index+1}`,
+                            bend.angle,
+                            value=>updateBend("angle",value),
+                            <Box sx={{
+                                display:"flex",
+                                alignItems:"center"
+                            }}>
+                                <Box sx={{
+                                    fontSize:".8rem",
+                                    mr:.2
+                                }}>
+                                    °
+                                </Box>
 
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={e=>
-                                                        setAngleMenuAnchor(
-                                                            e.currentTarget
-                                                        )
-                                                    }
-                                                    sx={{
-                                                        p:.25,
-                                                        color:
-                                                            "text.secondary"
-                                                    }}
-                                                >
-                                                    <KeyboardArrowDownIcon
-                                                        fontSize="small"
-                                                    />
-                                                </IconButton>
-                                            </Box>
-                                        </InputAdornment>
-                                }
-                            }}
-                        />
+                                <IconButton
+                                    size="small"
+                                    onClick={e=>
+                                        setAngleMenuAnchor(
+                                            e.currentTarget
+                                        )
+                                    }
+                                    sx={{
+                                        p:.25,
+                                        color:"text.secondary"
+                                    }}
+                                >
+                                    <KeyboardArrowDownIcon
+                                        fontSize="small"
+                                    />
+                                </IconButton>
+                            </Box>,
+                            {max:180}
+                        )}
 
                         <Menu
                             anchorEl={angleMenuAnchor}
-                            open={Boolean(
-                                angleMenuAnchor
-                            )}
+                            open={Boolean(angleMenuAnchor)}
                             onClose={()=>
                                 setAngleMenuAnchor(null)
                             }
@@ -392,14 +326,11 @@ const ProfileRow=memo(({
                                 <MenuItem
                                     key={angle}
                                     onClick={()=>{
-                                        onBendChange(
-                                            index,
+                                        updateBend(
+                                            "angle",
                                             String(angle)
                                         );
-
-                                        setAngleMenuAnchor(
-                                            null
-                                        );
+                                        setAngleMenuAnchor(null);
                                     }}
                                 >
                                     {angle}°
@@ -417,16 +348,12 @@ const ProfileRow=memo(({
                                     sx={{
                                         ...iconBtnStyle(),
                                         "&:hover":{
-                                            borderColor:
-                                                "error.main",
-                                            color:
-                                                "error.main"
+                                            borderColor:"error.main",
+                                            color:"error.main"
                                         }
                                     }}
                                 >
-                                    <DeleteIcon
-                                        fontSize="small"
-                                    />
+                                    <DeleteIcon fontSize="small"/>
                                 </IconButton>
                             </Tooltip>
                         )}
@@ -434,29 +361,25 @@ const ProfileRow=memo(({
                         <Tooltip title="Switch bend direction">
                             <IconButton
                                 size="small"
-                                onClick={()=>
-                                    onBendDirectionChange(
-                                        index,
-                                        bend.direction==="right"
-                                            ?"left"
-                                            :"right"
-                                    )
-                                }
+                                onClick={()=>updateBend(
+                                    "direction",
+                                    bend.direction==="right"
+                                        ?"left"
+                                        :"right"
+                                )}
                                 sx={iconBtnStyle(true)}
                             >
                                 {bend.direction==="right"
                                     ?<RedoIcon
                                         fontSize="small"
                                         style={{
-                                            transform:
-                                                "rotate(-90deg)"
+                                            transform:"rotate(-90deg)"
                                         }}
                                     />
                                     :<UndoIcon
                                         fontSize="small"
                                         style={{
-                                            transform:
-                                                "rotate(90deg)"
+                                            transform:"rotate(90deg)"
                                         }}
                                     />
                                 }
@@ -470,20 +393,18 @@ const ProfileRow=memo(({
                         }>
                             <IconButton
                                 size="small"
-                                onClick={()=>
-                                    onSelectBend(index)
-                                }
+                                onClick={()=>onSelectBend(index)}
                                 sx={{
-                                    ...iconBtnStyle(
-                                        isSelected,
-                                        bendColor
-                                    ),
+                                    ...iconBtnStyle(isSelected),
                                     display:"inline-flex",
                                     alignItems:"center",
                                     justifyContent:"center"
                                 }}
                             >
-                                <BendSelectIcon/>
+                                <BendSelectIcon
+                                    isSelected={isSelected}
+                                    bendSide={bendSide}
+                                />
                             </IconButton>
                         </Tooltip>
                     </Box>

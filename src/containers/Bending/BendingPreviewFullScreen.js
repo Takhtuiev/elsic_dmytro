@@ -14,9 +14,15 @@ import {
     calculateOuterLengthToEnd
 } from "./Calculations";
 
+
 const BendingPreviewFullScreen=()=>{
     const navigate=useNavigate();
-    const profile=useSelector(state=>state.bending.profile);
+
+    const profile=useSelector(
+        state=>state.bending.profile
+    );
+
+    const view=profile?.view;
 
     const blankLength=useMemo(()=>{
         if(!profile)return null;
@@ -24,28 +30,40 @@ const BendingPreviewFullScreen=()=>{
         return calculateBlankLength(profile);
     },[profile]);
 
+
     const machineParams=useMemo(()=>{
-        const selectedBendIndex=profile?.selectedBendIndex;
+        const selectedBendIndex=
+            profile?.view?.bendIndex??-1;
 
         if(
             !profile||
             selectedBendIndex<0||
             !profile.bends?.[selectedBendIndex]
-        )return null;
+        ){
+            return null;
+        }
 
-        const selectedBend=profile.bends[selectedBendIndex];
+        const selectedBend=
+            profile.bends[selectedBendIndex];
 
         const distanceToOuterApex=
-            calculateOuterLengthToEnd(profile);
+            calculateOuterLengthToEnd(
+                profile,
+                selectedBendIndex,
+                profile.view.bendSide
+            );
 
         return calculateBendingMachineParams({
             alpha:selectedBend.angle,
-            lInput:Number(distanceToOuterApex.toFixed(2)),
+            lInput:Number(
+                distanceToOuterApex.toFixed(2)
+            ),
             isInnerMode:false,
             t:profile.thickness,
             rTool:profile.rTool
         });
     },[profile]);
+
 
     if(!profile){
         return(
@@ -66,6 +84,7 @@ const BendingPreviewFullScreen=()=>{
         );
     }
 
+
     return(
         <Box
             className="bend-print-root"
@@ -78,6 +97,7 @@ const BendingPreviewFullScreen=()=>{
                 bgcolor:"background.default"
             }}
         >
+
             <Box
                 className="bend-print-toolbar"
                 sx={{
@@ -102,7 +122,10 @@ const BendingPreviewFullScreen=()=>{
                     variant="subtitle1"
                     fontWeight="500"
                     color="text.secondary"
-                    sx={{ml:1,flex:1}}
+                    sx={{
+                        ml:1,
+                        flex:1
+                    }}
                 >
                     Bend Profile (Geometric Drawing)
                 </Typography>
@@ -111,7 +134,9 @@ const BendingPreviewFullScreen=()=>{
                     size="small"
                     onClick={()=>window.print()}
                     title="Print"
-                    sx={{color:"text.secondary"}}
+                    sx={{
+                        color:"text.secondary"
+                    }}
                 >
                     <PrintIcon/>
                 </IconButton>
@@ -132,6 +157,7 @@ const BendingPreviewFullScreen=()=>{
                 </IconButton>
             </Box>
 
+
             <Box
                 className="bend-print-content"
                 sx={{
@@ -139,17 +165,23 @@ const BendingPreviewFullScreen=()=>{
                     minHeight:0,
                     width:"100%",
                     px:2,
-                    py:1
+                    py:1,
+                    display:"flex",
+                    flexDirection:"column",
+                    overflow:"hidden"
                 }}
             >
                 <BendingPreview
                     profile={profile}
+                    view={view}
                     blankLength={blankLength}
                     machineParams={machineParams}
                 />
             </Box>
+
         </Box>
     );
 };
+
 
 export default BendingPreviewFullScreen;

@@ -12,6 +12,7 @@ import {useNavigate} from "react-router-dom";
 
 import ProfileRow from "./ProfileRow";
 import BendingPreviewPage from "./BendingPreviewPage";
+
 import {
     calculateBlankLength,
     calculateOuterLengthToEnd,
@@ -37,73 +38,158 @@ const INITIAL_STATE={
         {angle:135,direction:"left"}
     ],
 
-    profileRotation:0,
-    profileMirrored:false,
-    selectedBendIndex:-1,
-    bendViewMode:"toEnd"
+    view:{
+        rotation:0,
+        mirrored:false,
+        bendIndex:-1,
+        bendSide:"toEnd"
+    }
 };
 
 
-const UNIT_SX={
-    fontSize:"0.7rem",
-    ml:0,
-    mr:0,
-    p:0
+const getShelfVector=(geometry,index,fromEnd=false)=>{
+    const p1=geometry.sideA?.[index];
+    const p2=geometry.sideA?.[index+1];
+
+    if(!p1||!p2) return null;
+
+    return fromEnd
+        ?{x:p1.x-p2.x,y:p1.y-p2.y}
+        :{x:p2.x-p1.x,y:p2.y-p1.y};
 };
 
 
-const ResultRow=({label,value,caption=false})=>(
-    <Box sx={{
-        display:"flex",
-        justifyContent:"space-between",
-        alignItems:"center"
-    }}>
-        <Typography
-            variant={caption?"caption":"body2"}
-            color="text.secondary"
-        >
-            {label}:
+const getPreferredSide=(shelves,index)=>{
+    const before=shelves.slice(0,index+1);
+    const after=shelves.slice(index+1);
+
+    const beforeLength=before.reduce(
+        (sum,s)=>sum+Number(s.length||0),0
+    );
+    const afterLength=after.reduce(
+        (sum,s)=>sum+Number(s.length||0),0
+    );
+
+    if(beforeLength<afterLength) return "fromStart";
+    if(beforeLength>afterLength) return "toEnd";
+
+    return before.length<=after.length
+        ?"fromStart"
+        :"toEnd";
+};
+
+
+const getViewRotation=(
+    geometry,index,side,mirrored,currentRotation
+)=>{
+    const shelfIndex=side==="fromStart"?index:index+1;
+
+    let vector=getShelfVector(geometry,shelfIndex);
+
+    if(!vector) return currentRotation;
+
+    if(mirrored)
+        vector={x:-vector.x,y:vector.y};
+
+    let angle=Math.atan2(vector.y,vector.x)*180/Math.PI;
+
+    if(side==="fromStart") angle+=180;
+
+    return -angle;
+};
+
+
+const isOppositeShelfDown=(
+    geometry,index,side,mirrored,rotation
+)=>{
+    const oppositeIndex=side==="fromStart"?index+1:index;
+
+    let vector=getShelfVector(
+        geometry,
+        oppositeIndex,
+        side==="toEnd"
+    );
+
+    if(!vector) return false;
+
+    if(mirrored)
+        vector={x:-vector.x,y:vector.y};
+
+    const rad=rotation*Math.PI/180;
+
+    const y=
+        vector.x*Math.sin(rad)+
+        vector.y*Math.cos(rad);
+
+    return y>0;
+};
+
+
+const calculateBendView=(
+    geometry,index,side,mirrored,currentRotation
+)=>{
+    let rotation=getViewRotation(
+        geometry,index,side,mirrored,currentRotation
+    );
+
+    if(isOppositeShelfDown(
+        geometry,index,side,mirrored,rotation
+    )){
+        mirrored=!mirrored;
+
+        rotation=getViewRotation(
+            geometry,index,side,mirrored,currentRotation
+        );
+    }
+
+    return {rotation,mirrored};
+};
+
+
+const ResultRow=({label,value})=>(
+    <Stack
+        direction="row"
+        justifyContent="space-between"
+        spacing={2}
+    >
+        <Typography variant="body2">
+            {label}
         </Typography>
 
-        <Typography
-            variant={caption?"caption":"body2"}
-            fontWeight="600"
-            sx={{ml:"auto"}}
-        >
+        <Typography variant="body2" fontWeight={500}>
             {value}
         </Typography>
-    </Box>
+    </Stack>
 );
 
 
 const ParamField=({
-                      label,
-                      value,
-                      onChange,
-                      min=0,
-                      step=1,
-                      max,
-                      endAdornment
-                  })=>(
+    label,value,onChange,step=1,endAdornment
+})=>(
     <TextField
         label={label}
-        type="number"
         size="small"
+        type="number"
         value={value}
-        onChange={e=>onChange(Number(e.target.value)||0)}
+        onChange={e=>onChange(e.target.value)}
         slotProps={{
-            htmlInput:{min,max,step},
-            ...(endAdornment&&{
-                input:{
-                    endAdornment:
-                        <InputAdornment
-                            position="end"
-                            sx={UNIT_SX}
-                        >
-                            {endAdornment}
-                        </InputAdornment>
+            htmlInput:{
+                step,
+                min:0,
+                sx:{
+                    "&::-webkit-outer-spin-button,&::-webkit-inner-spin-button":{
+                        display:"none"
+                    },
+                    MozAppearance:"textfield"
                 }
-            })
+            },
+            input:{
+                endAdornment:endAdornment&&(
+                    <InputAdornment position="end">
+                        {endAdornment}
+                    </InputAdornment>
+                )
+            }
         }}
     />
 );
@@ -111,70 +197,83 @@ const ParamField=({
 
 export default function Biegeberechnung(){
 
-    const savedProfile=useSelector(
+    const dispatch=useDispatch();
+    const navigate=useNavigate();
+
+    const savedView=useRef({
+        rotation:0,
+        mirrored:false
+    });
+
+    const profile=useSelector(
         state=>state.bending.profile
     );
 
     const [state,setState]=useState(
-        ()=>savedProfile??INITIAL_STATE
+        profile??INITIAL_STATE
     );
 
-
-    /*
-     * Временный угол Slider.
-     *
-     * null = Slider не двигается.
-     * Число = временный угол, который ещё
-     * не записан в profile.
-     */
     const [rotationPreview,setRotationPreview]=useState(null);
-
-
-    /*
-     * Индекс полки, которую пользователь
-     * назначил вертикальной.
-     */
-    const [verticalShelfIndex,setVerticalShelfIndex]=
-        useState(null);
-
-
-    const [thicknessMenuAnchor,setThicknessMenuAnchor]=
-        useState(null);
-
-    const dispatch=useDispatch();
-    const navigate=useNavigate();
-
-
-    /*
-     * Запоминаем обычную ориентацию перед
-     * выбором угла.
-     */
-    const savedProfileRotation=useRef(0);
-    const savedProfileMirrored=useRef(false);
-
+    const [verticalShelfIndex,setVerticalShelfIndex]=useState(null);
+    const [thicknessMenuAnchor,setThicknessMenuAnchor]=useState(null);
 
     useEffect(()=>{
         dispatch(setProfile(state));
     },[state,dispatch]);
 
 
-    const updateParam=useCallback(
-        (name,value)=>
-            setState(prev=>({
-                ...prev,
-                [name]:value
-            })),
-        []
-    );
+    const {
+        thickness,
+        kFactor,
+        rTool,
+        shelves,
+        bends,
+        view
+    }=state;
+
+    const {
+        rotation,
+        mirrored,
+        bendIndex,
+        bendSide
+    }=view;
 
 
-    const updateNestedItem=useCallback(
-        (type,index,name,value)=>{
+    const profileData=useMemo(()=>({
+        thickness,
+        kFactor,
+        rTool,
+        shelves,
+        bends
+    }),[
+        thickness,
+        kFactor,
+        rTool,
+        shelves,
+        bends
+    ]);
+
+
+    const selectedBend=bends[bendIndex]??null;
+
+
+    // Update root field
+    const updateField=useCallback((field,value)=>{
+        setState(prev=>({
+            ...prev,
+            [field]:value
+        }));
+    },[]);
+
+
+    // Update shelf or bend field
+    const updateItem=useCallback(
+        (collection,index,field,value)=>{
             setState(prev=>({
                 ...prev,
-                [type]:prev[type].map((item,i)=>
+                [collection]:prev[collection].map((item,i)=>
                     i===index
-                        ?{...item,[name]:value}
+                        ?{...item,[field]:value}
                         :item
                 )
             }));
@@ -186,261 +285,118 @@ export default function Biegeberechnung(){
     const handleSelectBend=useCallback(index=>{
         setState(prev=>{
 
-            const before=prev.shelves.slice(0,index+1);
-            const after=prev.shelves.slice(index+1);
-
-            const lengthBefore=before.reduce(
-                (sum,s)=>sum+Number(s.length||0),0
-            );
-
-            const lengthAfter=after.reduce(
-                (sum,s)=>sum+Number(s.length||0),0
-            );
-
-            let selectedSide;
-
-            if(lengthBefore<lengthAfter)
-                selectedSide="fromStart";
-            else if(lengthBefore>lengthAfter)
-                selectedSide="toEnd";
-            else
-                selectedSide=
-                    before.length<=after.length
-                        ?"fromStart"
-                        :"toEnd";
-
-
             const geometry=buildProfileGeometry(prev);
+            const preferredSide=getPreferredSide(
+                prev.shelves,
+                index
+            );
 
+            if(prev.view.bendIndex!==index){
 
-            const getShelfVector=(shelfIndex,fromEnd=false)=>{
-                const p1=geometry.sideA?.[shelfIndex];
-                const p2=geometry.sideA?.[shelfIndex+1];
-
-                if(!p1||!p2)
-                    return null;
-
-                return fromEnd
-                    ?{
-                        x:p1.x-p2.x,
-                        y:p1.y-p2.y
-                    }
-                    :{
-                        x:p2.x-p1.x,
-                        y:p2.y-p1.y
-                    };
-            };
-
-
-            const getRotation=(side,mirrored)=>{
-                const shelfIndex=
-                    side==="fromStart"
-                        ?index
-                        :index+1;
-
-                let v=getShelfVector(shelfIndex);
-
-                if(!v)
-                    return prev.profileRotation;
-
-                if(mirrored)
-                    v={x:-v.x,y:v.y};
-
-                let angle=
-                    Math.atan2(v.y,v.x)*180/Math.PI;
-
-                if(side==="fromStart")
-                    angle+=180;
-
-                return -angle;
-            };
-
-
-            const isOppositeShelfDown=(
-                side,
-                mirrored,
-                rotation
-            )=>{
-                const oppositeIndex=
-                    side==="fromStart"
-                        ?index+1
-                        :index;
-
-                const oppositeFromEnd=
-                    side==="toEnd";
-
-                let v=getShelfVector(
-                    oppositeIndex,
-                    oppositeFromEnd
-                );
-
-                if(!v)
-                    return false;
-
-                if(mirrored)
-                    v={x:-v.x,y:v.y};
-
-                const rad=rotation*Math.PI/180;
-
-                const rotatedY=
-                    v.x*Math.sin(rad)+
-                    v.y*Math.cos(rad);
-
-                return rotatedY>0;
-            };
-
-
-            const applyView=side=>{
-                let mirrored=prev.profileMirrored;
-
-                let rotation=getRotation(
-                    side,
-                    mirrored
-                );
-
-                if(isOppositeShelfDown(
-                    side,
-                    mirrored,
-                    rotation
-                )){
-                    mirrored=!mirrored;
-
-                    rotation=getRotation(
-                        side,
-                        mirrored
-                    );
-                }
-
-                return {
-                    mirrored,
-                    rotation
+                savedView.current={
+                    rotation:prev.view.rotation,
+                    mirrored:prev.view.mirrored
                 };
-            };
 
-
-            /*
-             * 1. Новый угол — первая сторона.
-             */
-            if(prev.selectedBendIndex!==index){
-
-                savedProfileRotation.current=
-                    prev.profileRotation;
-
-                savedProfileMirrored.current=
-                    prev.profileMirrored;
-
-                const {
-                    mirrored,
-                    rotation
-                }=applyView(selectedSide);
+                const nextView=calculateBendView(
+                    geometry,
+                    index,
+                    preferredSide,
+                    prev.view.mirrored,
+                    prev.view.rotation
+                );
 
                 return {
                     ...prev,
-                    selectedBendIndex:index,
-                    bendViewMode:selectedSide,
-                    profileMirrored:mirrored,
-                    profileRotation:rotation
+                    view:{
+                        ...prev.view,
+                        bendIndex:index,
+                        bendSide:preferredSide,
+                        ...nextView
+                    }
                 };
             }
 
+            if(prev.view.bendSide!==preferredSide){
 
-            /*
-             * 2. Тот же угол — вторая сторона.
-             */
+                return {
+                    ...prev,
+                    view:{
+                        ...prev.view,
+                        bendIndex:-1,
+                        bendSide:"toEnd",
+                        ...savedView.current
+                    }
+                };
+            }
+
             const nextSide=
-                selectedSide==="fromStart"
+                prev.view.bendSide==="fromStart"
                     ?"toEnd"
                     :"fromStart";
 
-            if(prev.bendViewMode===selectedSide){
+            const nextView=calculateBendView(
+                geometry,
+                index,
+                nextSide,
+                prev.view.mirrored,
+                prev.view.rotation
+            );
 
-                const {
-                    mirrored,
-                    rotation
-                }=applyView(nextSide);
-
-                return {
-                    ...prev,
-                    selectedBendIndex:index,
-                    bendViewMode:nextSide,
-                    profileMirrored:mirrored,
-                    profileRotation:rotation
-                };
-            }
-
-
-            /*
-             * 3. Тот же угол — снять выбор.
-             */
             return {
                 ...prev,
-                selectedBendIndex:-1,
-                bendViewMode:"toEnd",
-                profileRotation:
-                savedProfileRotation.current,
-                profileMirrored:
-                savedProfileMirrored.current
+                view:{
+                    ...prev.view,
+                    bendSide:nextSide,
+                    ...nextView
+                }
             };
         });
     },[]);
 
 
-    /*
-     * Назначаем конкретную полку вертикальной
-     * и сразу рассчитываем угол для неё.
-     */
     const handleVerticalShelfChange=useCallback(index=>{
         setVerticalShelfIndex(index);
 
         setState(prev=>{
             const geometry=buildProfileGeometry(prev);
+            const vector=getShelfVector(geometry,index);
 
-            const p1=geometry.sideA?.[index];
-            const p2=geometry.sideA?.[index+1];
+            if(!vector) return prev;
 
-            if(!p1||!p2)
-                return prev;
+            const dx=prev.view.mirrored
+                ?-vector.x
+                :vector.x;
 
-            let dx=p2.x-p1.x;
-            const dy=p2.y-p1.y;
-
-            if(prev.profileMirrored)
-                dx=-dx;
-
-            const profileRotation=
+            const rotation=
                 (-Math.PI/2-
-                    Math.atan2(dy,dx))*
-                180/Math.PI;
+                    Math.atan2(vector.y,dx)
+                )*180/Math.PI;
 
             return {
                 ...prev,
-                profileRotation
+                view:{
+                    ...prev.view,
+                    rotation
+                }
             };
         });
     },[]);
 
 
-    /*
-     * Slider меняет только временный угол.
-     */
-    const handleProfileRotationChange=useCallback(value=>{
-        setRotationPreview(Number(value));
-    },[]);
+    const handleProfileRotationChange=useCallback(
+        value=>setRotationPreview(Number(value)),
+        []
+    );
 
-
-    /*
-     * После отпускания:
-     *
-     * 1. временный угол записывается в profile;
-     * 2. временный угол сбрасывается в null.
-     */
 
     const handleProfileRotationCommitted=useCallback(value=>{
-        const rotation=Number(value);
-
         setState(prev=>({
             ...prev,
-            profileRotation:rotation
+            view:{
+                ...prev.view,
+                rotation:Number(value)
+            }
         }));
 
         setVerticalShelfIndex(null);
@@ -448,171 +404,140 @@ export default function Biegeberechnung(){
     },[]);
 
 
-
-
-    /*
-     * Зеркалим профиль.
-     *
-     * Если вертикальная полка была выбрана,
-     * после зеркалирования именно она снова
-     * устанавливается вертикально.
-     */
     const handleProfileMirrorChange=useCallback(value=>{
         setState(prev=>({
             ...prev,
-            profileMirrored:Boolean(value),
-            profileRotation:-prev.profileRotation
+            view:{
+                ...prev.view,
+                mirrored:Boolean(value),
+                rotation:-prev.view.rotation
+            }
         }));
-
     },[]);
 
 
-
-    const addBend=useCallback(()=>setState(prev=>({
-        ...prev,
-        bends:[
-            ...prev.bends,
-            {angle:180,direction:"right"}
-        ],
-        shelves:[
-            ...prev.shelves,
-            {length:50,side:"right"}
-        ]
-    })),[]);
+    const addBend=useCallback(()=>{
+        setState(prev=>({
+            ...prev,
+            bends:[
+                ...prev.bends,
+                {angle:180,direction:"right"}
+            ],
+            shelves:[
+                ...prev.shelves,
+                {length:50,side:"right"}
+            ]
+        }));
+    },[]);
 
 
     const removeBend=useCallback(index=>{
         setState(prev=>{
-            const bends=prev.bends.filter(
-                (_,i)=>i!==index
-            );
 
-            const shelves=prev.shelves.filter(
-                (_,i)=>i!==index+1
-            );
+            let nextIndex=prev.view.bendIndex;
 
-            let selectedBendIndex=
-                prev.selectedBendIndex;
-
-            if(selectedBendIndex===index)
-                selectedBendIndex=-1;
-            else if(selectedBendIndex>index)
-                selectedBendIndex--;
+            if(nextIndex===index)
+                nextIndex=-1;
+            else if(nextIndex>index)
+                nextIndex--;
 
             return {
                 ...prev,
-                bends,
-                shelves,
-                selectedBendIndex
+                bends:prev.bends.filter((_,i)=>i!==index),
+                shelves:prev.shelves.filter((_,i)=>i!==index+1),
+                view:{
+                    ...prev.view,
+                    bendIndex:nextIndex
+                }
             };
         });
     },[]);
 
 
-    const {
-        selectedBendIndex,
-        bendViewMode,
-        bends,
-        shelves,
-        thickness,
-        kFactor,
-        rTool
-    }=state;
+    const distanceToOuterApex=useMemo(
+        ()=>bendIndex<0
+            ?0
+            :Number(
+                calculateOuterLengthToEnd(
+                    profileData,
+                    bendIndex,
+                    bendSide
+                ).toFixed(2)
+            ),
+        [profileData,bendIndex,bendSide]
+    );
 
 
-    const distanceToOuterApex=useMemo(()=>{
-        if(selectedBendIndex<0)
-            return 0;
-
-        return Number(
-            calculateOuterLengthToEnd(state).toFixed(2)
-        );
-    },[state,selectedBendIndex]);
-
-
-    const selectedBend=
-        bends[selectedBendIndex]||null;
-
-
-    const machineParams=useMemo(()=>{
-        if(!selectedBend)
-            return null;
-
-        return calculateBendingMachineParams({
-            alpha:selectedBend.angle,
-            lInput:distanceToOuterApex,
-            isInnerMode:false,
-            t:thickness,
+    const machineParams=useMemo(
+        ()=>selectedBend
+            ?calculateBendingMachineParams({
+                alpha:selectedBend.angle,
+                lInput:distanceToOuterApex,
+                isInnerMode:false,
+                t:thickness,
+                rTool
+            })
+            :null,
+        [
+            selectedBend,
+            distanceToOuterApex,
+            thickness,
             rTool
-        });
-    },[
-        selectedBend,
-        distanceToOuterApex,
-        thickness,
-        rTool
-    ]);
+        ]
+    );
 
 
     const blankLength=calculateBlankLength(state);
-
-
-    /*
-     * Пока Slider двигается —
-     * показываем временное значение.
-     *
-     * Иначе показываем сохранённый угол профиля.
-     */
-    const sliderRotation=
-        rotationPreview??state.profileRotation;
+    const sliderRotation=rotationPreview??rotation;
 
 
     return(
-        <Box sx={{
-            display:"flex",
-            gap:2,
-            p:{xs:1,sm:2},
-            width:"100%",
-            flexDirection:{xs:"column",md:"row"},
-            alignItems:"flex-start"
-        }}>
-
-            <Box sx={{
-                flex:1,
-                minWidth:0,
-                width:"100%",
-                order:{xs:1,md:2}
-            }}>
-
+        <Box
+            sx={{
+                display:"flex",
+                flexDirection:{
+                    xs:"column",
+                    md:"row"
+                },
+                gap:2,
+                width:"100%"
+            }}
+        >
+            {/* Preview */}
+            <Box
+                sx={{
+                    order:{
+                        xs:1,
+                        md:2
+                    },
+                    flex:1,
+                    minWidth:0
+                }}
+            >
                 <Paper
-                    elevation={2}
                     sx={{
                         mt:2,
+                        p:1,
+                        height:"65vh",
+                        minHeight:500,
+                        maxHeight:700,
+                        display:"flex",
+                        flexDirection:"column",
+                        overflow:"hidden"
                     }}
                 >
-
                     <Stack
                         direction="row"
                         alignItems="center"
-                        sx={{
-                            px:2,
-                            pt:2,
-                            pb:0,
-                            width:"100%",
-                            minWidth:0
-                        }}
+                        spacing={1}
+                        sx={{flexShrink:0}}
                     >
                         <Typography
                             variant="subtitle1"
-                            fontWeight="500"
-                            color="text.secondary"
-                            sx={{
-                                flexShrink:0,
-                                whiteSpace:"nowrap"
-                            }}
+                            sx={{whiteSpace:"nowrap"}}
                         >
                             Bend Profile
                         </Typography>
-
 
                         <Slider
                             value={sliderRotation}
@@ -620,16 +545,13 @@ export default function Biegeberechnung(){
                             max={180}
                             step={1}
                             size="small"
-                            disabled={selectedBendIndex>=0}
-
+                            disabled={bendIndex>=0}
                             onChange={(_,value)=>
                                 handleProfileRotationChange(value)
                             }
-
                             onChangeCommitted={(_,value)=>
                                 handleProfileRotationCommitted(value)
                             }
-
                             sx={{
                                 flex:1,
                                 minWidth:80,
@@ -637,303 +559,161 @@ export default function Biegeberechnung(){
                                 py:0,
                                 color:"text.secondary",
                                 opacity:.65,
-
-                                "& .MuiSlider-rail":{
-                                    height:1,
-                                    opacity:.45
-                                },
-
-                                "& .MuiSlider-track":{
-                                    height:1
-                                },
-
                                 "& .MuiSlider-thumb":{
-                                    width:7,
-                                    height:7,
-                                    boxShadow:"none"
+                                    width:10,
+                                    height:10
                                 }
                             }}
                         />
 
-
                         <Tooltip title="Mirror">
+                        <span>
                             <IconButton
                                 size="small"
-                                disabled={selectedBendIndex>=0}
+                                disabled={bendIndex>=0}
                                 onClick={()=>
-                                    handleProfileMirrorChange(
-                                        !state.profileMirrored
-                                    )
+                                    handleProfileMirrorChange(!mirrored)
                                 }
-                                sx={{
-                                    width:28,
-                                    height:28,
-                                    flexShrink:0
-                                }}
                             >
                                 <FlipIcon
                                     sx={{
-                                        fontSize:17,
-                                        transform:
-                                            state.profileMirrored
-                                                ?"scaleX(-1)"
-                                                :"none"
+                                        transform:mirrored
+                                            ?"scaleX(-1)"
+                                            :"none"
                                     }}
                                 />
                             </IconButton>
+                        </span>
                         </Tooltip>
-
 
                         <Tooltip title="Full screen">
                             <IconButton
                                 size="small"
                                 onClick={()=>
-                                    navigate(
-                                        "/biegeberechnung/preview"
-                                    )
+                                    navigate("/biegeberechnung/preview")
                                 }
-                                sx={{
-                                    ml:4,
-                                    width:28,
-                                    height:28,
-                                    flexShrink:0,
-                                    color:"text.secondary"
-                                }}
                             >
-                                <FullscreenIcon
-                                    fontSize="small"
-                                />
+                                <FullscreenIcon/>
                             </IconButton>
                         </Tooltip>
-
                     </Stack>
 
-                    <Box sx={{
-                        width:"100%",
-                        height:"65vh",
-                        minHeight:500,
-                        maxHeight:700
-                    }}>
+                    <Box
+                        sx={{
+                            flex:1,
+                            minHeight:0,
+                            overflow:"hidden"
+                        }}
+                    >
                         <BendingPreviewPage
-                            profile={state}
+                            profile={profileData}
+                            view={view}
                             blankLength={blankLength}
                             machineParams={machineParams}
                             rotationPreview={rotationPreview}
                         />
                     </Box>
-
                 </Paper>
-
             </Box>
 
+            {/* Editor */}
+            <Paper
+                sx={{
+                    order:{
+                        xs:2,
+                        md:1
+                    },
+                    width:{
+                        xs:"100%",
+                        md:"22rem"
+                    },
+                    p:{
+                        xs:2,
+                        sm:3
+                    },
+                    flexShrink:0
+                }}
+            >
+                {shelves.map((shelf,index)=>(
+                    <ProfileRow
+                        key={index}
+                        shelf={shelf}
+                        index={index}
+                        bend={bends[index]}
+                        bendIndex={bendIndex}
+                        bendSide={bendSide}
+                        isVertical={verticalShelfIndex===index}
+                        onUpdate={updateItem}
+                        onSelectBend={()=>handleSelectBend(index)}
+                        onVerticalShelfChange={
+                            ()=>handleVerticalShelfChange(index)
+                        }
+                        onRemoveBend={()=>removeBend(index)}
+                        canRemove={bends.length>1}
+                    />
+                ))}
 
-            <Paper elevation={2} sx={{
-                p:{xs:2,sm:3},
-                width:{xs:"100%",md:"22rem"},
-                maxWidth:"100%",
-                boxSizing:"border-box",
-                flexShrink:0,
-                order:{xs:2,md:1}
-            }}>
-
-                <Typography
-                    variant="subtitle2"
-                    fontWeight="600"
-                    color="text.secondary"
-                    sx={{
-                        mb:1.5,
-                        textTransform:"uppercase",
-                        fontSize:".75rem",
-                        letterSpacing:".5px"
-                    }}
+                <Button
+                    fullWidth
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon/>}
+                    onClick={addBend}
+                    sx={{mt:1}}
                 >
-                    Shelves & Bends
-                </Typography>
-
-
-                <Stack spacing={0}>
-                    {shelves.map((shelf,index)=>(
-                        <ProfileRow
-                            key={index}
-                            shelf={shelf}
-                            index={index}
-                            bend={bends[index]}
-                            selectedBendIndex={selectedBendIndex}
-                            bendViewMode={bendViewMode}
-                            isVertical={verticalShelfIndex===index}
-                            onVerticalShelfChange={handleVerticalShelfChange}
-                            onShelfChange={(index,value)=>
-                                updateNestedItem(
-                                    "shelves",
-                                    index,
-                                    "length",
-                                    value
-                                )
-                            }
-
-                            onBendChange={(index,value)=>
-                                updateNestedItem(
-                                    "bends",
-                                    index,
-                                    "angle",
-                                    value
-                                )
-                            }
-
-                            onShelfSideChange={(index,value)=>
-                                updateNestedItem(
-                                    "shelves",
-                                    index,
-                                    "side",
-                                    value
-                                )
-                            }
-
-                            onBendDirectionChange={(index,value)=>
-                                updateNestedItem(
-                                    "bends",
-                                    index,
-                                    "direction",
-                                    value
-                                )
-                            }
-
-                            onRemoveBend={removeBend}
-                            onSelectBend={handleSelectBend}
-
-                            canRemove={
-                                !!bends[index]&&
-                                bends.length>1
-                            }
-                        />
-                    ))}
-                </Stack>
-
-
-                <Box sx={{mt:2,mb:2}}>
-                    <Button
-                        fullWidth
-                        variant="outlined"
-                        startIcon={<AddIcon/>}
-                        onClick={addBend}
-                    >
-                        Add Bend
-                    </Button>
-                </Box>
-
+                    Add Bend
+                </Button>
 
                 <Typography
                     variant="subtitle2"
-                    fontWeight="600"
-                    color="text.secondary"
-                    sx={{
-                        mb:1.5,
-                        pt:2,
-                        borderTop:"1px solid",
-                        borderColor:"divider",
-                        textTransform:"uppercase",
-                        fontSize:".75rem",
-                        letterSpacing:".5px"
-                    }}
+                    sx={{mt:2,mb:1}}
                 >
                     Parameters
                 </Typography>
 
-
-                <Box sx={{
-                    display:"grid",
-                    gridTemplateColumns:{
-                        xs:"minmax(0,1fr) minmax(0,.65fr) minmax(0,1fr)",
-                        md:"1fr .65fr 1fr"
-                    },
-                    gap:1.5,
-                    width:"100%",
-                    mb:3,
-
-                    "& > *":{
-                        minWidth:0,
-
-                        "& input::-webkit-outer-spin-button,& input::-webkit-inner-spin-button":{
-                            WebkitAppearance:"none",
-                            margin:0
-                        },
-
-                        "& input[type=number]":{
-                            MozAppearance:"textfield"
-                        }
-                    }
-                }}>
-
-                    <ParamField
+                <Box
+                    sx={{
+                        display:"grid",
+                        gridTemplateColumns:"1fr .75fr 1fr",
+                        gap:1
+                    }}
+                >
+                    <TextField
                         label="Thickness"
+                        size="small"
                         value={thickness}
-                        onChange={value=>
-                            updateParam(
-                                "thickness",
-                                value
-                            )
+                        onClick={e=>
+                            setThicknessMenuAnchor(e.currentTarget)
                         }
-                        step={1}
-                        endAdornment={
-                            <>
-                                <Box sx={UNIT_SX}>
-                                    mm
-                                </Box>
-
-                                <IconButton
-                                    size="small"
-                                    onClick={e=>
-                                        setThicknessMenuAnchor(
-                                            e.currentTarget
-                                        )
-                                    }
-                                    sx={{
-                                        p:.25,
-                                        color:"text.secondary"
-                                    }}
-                                >
-                                    <KeyboardArrowDownIcon
-                                        fontSize="small"
-                                    />
-                                </IconButton>
-                            </>
-                        }
+                        slotProps={{
+                            input:{
+                                readOnly:true,
+                                endAdornment:
+                                    <InputAdornment position="end">
+                                        <KeyboardArrowDownIcon/>
+                                    </InputAdornment>
+                            }
+                        }}
                     />
 
-
                     <ParamField
-                        label="K-Factor"
+                        label="K-factor"
                         value={kFactor}
+                        step=".01"
                         onChange={value=>
-                            updateParam(
-                                "kFactor",
-                                value
-                            )
+                            updateField("kFactor",Number(value))
                         }
-                        max={1}
-                        step={.01}
                     />
-
 
                     <ParamField
-                        label="R_tool"
+                        label="R tool"
                         value={rTool}
+                        step=".1"
                         onChange={value=>
-                            updateParam(
-                                "rTool",
-                                value
-                            )
-                        }
-                        step={1}
-                        endAdornment={
-                            <Box sx={UNIT_SX}>
-                                mm
-                            </Box>
+                            updateField("rTool",Number(value))
                         }
                     />
-
                 </Box>
-
 
                 <Menu
                     anchorEl={thicknessMenuAnchor}
@@ -945,90 +725,61 @@ export default function Biegeberechnung(){
                     {[4,5,6,8,10].map(value=>(
                         <MenuItem
                             key={value}
-                            selected={thickness===value}
                             onClick={()=>{
-                                updateParam(
-                                    "thickness",
-                                    value
-                                );
+                                updateField("thickness",value);
                                 setThicknessMenuAnchor(null);
                             }}
                         >
-                            {value}
+                            {value} mm
                         </MenuItem>
                     ))}
                 </Menu>
 
-
-                <Stack
-                    spacing={1}
+                <Paper
+                    variant="outlined"
                     sx={{
-                        p:2,
-                        borderRadius:"8px",
-                        border:"1px solid"
+                        mt:2,
+                        p:1.5
                     }}
                 >
-
-                    <ResultRow
-                        label="Blank length"
-                        value={
-                            `${blankLength.toFixed(2)} mm`
-                        }
-                    />
-
-
-                    {distanceToOuterApex>0&&(
+                    <Stack spacing={.7}>
                         <ResultRow
-                            label="Reference"
-                            value={
-                                `${distanceToOuterApex.toFixed(2)} mm`
-                            }
+                            label="Blank length"
+                            value={`${blankLength.toFixed(2)} mm`}
                         />
-                    )}
 
+                        {selectedBend&&(
+                            <>
+                                <Box
+                                    sx={{
+                                        borderTop:"1px dashed",
+                                        borderColor:"divider",
+                                        my:.5
+                                    }}
+                                />
 
-                    {machineParams&&(
-                        <Stack
-                            spacing={.8}
-                            sx={{
-                                mt:1,
-                                pt:1,
-                                borderTop:"1px dashed",
-                                borderColor:"grey.300"
-                            }}
-                        >
+                                <ResultRow
+                                    label="Reference"
+                                    value={`${distanceToOuterApex} mm`}
+                                />
 
-                            <ResultRow
-                                caption
-                                label="Stop position"
-                                value={
-                                    `${machineParams.stopPosition} mm`
-                                }
-                            />
-
-                            <ResultRow
-                                caption
-                                label="Bend angle"
-                                value={
-                                    `${machineParams.bendAngle}°`
-                                }
-                            />
-
-                            <ResultRow
-                                caption
-                                label="Gap folding"
-                                value={
-                                    `${machineParams.gapFolding} mm`
-                                }
-                            />
-
-                        </Stack>
-                    )}
-
-                </Stack>
-
+                                {machineParams&&(
+                                    <>
+                                        <ResultRow
+                                            label="Bending angle"
+                                            value={`${machineParams.alpha}°`}
+                                        />
+                                        <ResultRow
+                                            label="Input length"
+                                            value={`${machineParams.lInput} mm`}
+                                        />
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </Stack>
+                </Paper>
             </Paper>
-
         </Box>
     );
 }

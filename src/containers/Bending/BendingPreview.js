@@ -1,54 +1,23 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
-import {
-    Box,
-    Typography,
-    useTheme
-} from "@mui/material";
+import {Box,Typography,useTheme} from "@mui/material";
 import {alpha} from "@mui/material/styles";
 
 import BendProfileRender from "./BendProfileRender";
 import {prepareSvgLayers} from "./prepareSvgLayers";
+import {MAX_BEND_ANGLE, MIN_BEND_ANGLE} from "./svgConstants";
 
 
-const MIN_BEND_ANGLE=45;
-const MAX_BEND_ANGLE=180;
-
-
-const Parameters=({
-    profile,
-    blankLength,
-    machineParams
-})=>(
-    <Box
-        sx={{
-            p:1
-        }}
-    >
-        <Box
-            sx={{
-                display:"flex",
-                flexWrap:"wrap",
-                gap:2
-            }}
-        >
-            <Typography
-                variant="body2"
-                color="text.secondary"
-            >
+const Parameters=({profile,blankLength,machineParams})=>(
+    <Box sx={{p:1}}>
+        <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+            <Typography variant="body2" color="text.secondary">
                 Thickness:{" "}
-                <strong>
-                    {profile?.thickness ?? "—"} mm
-                </strong>
+                <strong>{profile?.thickness??"—"} mm</strong>
             </Typography>
 
-            <Typography
-                variant="body2"
-                color="text.secondary"
-            >
+            <Typography variant="body2" color="text.secondary">
                 Blank length:{" "}
-                <strong>
-                    {blankLength.toFixed(2) ?? "—"} mm
-                </strong>
+                <strong>{blankLength?.toFixed(2)??"—"} mm</strong>
             </Typography>
         </Box>
 
@@ -68,8 +37,7 @@ const Parameters=({
                             variant="body2"
                             color="text.secondary"
                         >
-                            {key}:{" "}
-                            <strong>{value}</strong>
+                            {key}: <strong>{value}</strong>
                         </Typography>
                     )
                 )}
@@ -81,13 +49,13 @@ const Parameters=({
 
 const BendingPreview=({
     profile,
+    view,
     blankLength,
     machineParams,
     rotationPreview
 })=>{
 
     const theme=useTheme();
-
     const containerRef=useRef(null);
 
     const [containerSize,setContainerSize]=useState({
@@ -97,50 +65,40 @@ const BendingPreview=({
 
 
     useEffect(()=>{
-        if(!containerRef.current)
-            return;
+        if(!containerRef.current) return;
 
         const observer=new ResizeObserver(
-            ([{contentRect:{width,height}}])=>{
-                if(width>0&&height>0)
-                    setContainerSize({
-                        width,
-                        height
-                    });
+            ([{contentRect}])=>{
+                const {width,height}=contentRect;
+
+                if(width&&height)
+                    setContainerSize({width,height});
             }
         );
 
         observer.observe(containerRef.current);
-
         return()=>observer.disconnect();
     },[]);
 
 
     const invalidAngleIndex=
-        profile?.bends?.findIndex(
-            ({angle})=>{
-                angle=Number(angle);
-
-                return !Number.isFinite(angle)||
-                    angle<MIN_BEND_ANGLE||
-                    angle>MAX_BEND_ANGLE;
-            }
-        )??-1;
+        profile?.bends?.findIndex(({angle})=>{
+            angle=Number(angle);
+            return !Number.isFinite(angle)||
+                angle<MIN_BEND_ANGLE||
+                angle>MAX_BEND_ANGLE;
+        })??-1;
 
 
     const invalidShelfIndex=
-        profile?.shelves?.findIndex(
-            ({length})=>{
-                length=Number(length);
+        profile?.shelves?.findIndex(({length})=>{
+            length=Number(length);
+            const thickness=Number(profile.thickness);
 
-                const thickness=
-                    Number(profile.thickness);
-
-                return !Number.isFinite(length)||
-                    !Number.isFinite(thickness)||
-                    length<thickness;
-            }
-        )??-1;
+            return !Number.isFinite(length)||
+                !Number.isFinite(thickness)||
+                length<thickness;
+        })??-1;
 
 
     const validationError=
@@ -151,103 +109,62 @@ const BendingPreview=({
                 :null;
 
 
-    const colors={
+    const colors=useMemo(()=>({
         active:{
             line:theme.palette.text.primary,
-            fill:alpha(
-                theme.palette.text.primary,
-                .1
-            ),
-            annotation:alpha(
-                theme.palette.text.primary,
-                .75
-            )
+            fill:alpha(theme.palette.text.primary,.1),
+            annotation:alpha(theme.palette.text.primary,.75)
         },
-
         ghost:{
             line:theme.palette.text.disabled,
-            fill:alpha(
-                theme.palette.text.disabled,
-                .02
-            ),
-            annotation:alpha(
-                theme.palette.text.disabled,
-                .4
-            )
+            fill:alpha(theme.palette.text.disabled,.02),
+            annotation:alpha(theme.palette.text.disabled,.4)
         },
-
         blue:{
             line:theme.palette.primary.main,
-            fill:alpha(
-                theme.palette.primary.main,
-                .08
-            ),
+            fill:alpha(theme.palette.primary.main,.08),
             annotation:theme.palette.primary.main
         }
-    };
+    }),[theme]);
 
 
-    /*
-     * Геометрия пересчитывается только при изменении
-     * profile или размера контейнера.
-     *
-     * rotationPreview здесь НЕ используется.
-     */
     const svgData=useMemo(()=>{
-        if(!profile||validationError)
-            return null;
+        if(!profile||validationError) return null;
 
         return prepareSvgLayers(
             profile,
+            view,
             containerSize
         );
-    },[
-        profile,
-        containerSize,
-        validationError
-    ]);
+    },[profile,view,containerSize,validationError]);
 
 
     /*
-     * profile.profileRotation —
-     * последний подтверждённый угол.
+     * view.rotation — подтверждённый угол.
+     * rotationPreview — временное значение Slider.
      *
-     * rotationPreview —
-     * временный угол от Slider.
-     *
-     * При движении Slider меняется только transform
-     * уже построенного SVG.
+     * В SVG вращаем только разницу между ними.
      */
-    const committedRotation=
-        Number(profile?.profileRotation??0);
+    const committedRotation=Number(view?.rotation??0);
 
     const visualRotation=
         Number(
-            rotationPreview??
-            committedRotation
-        )-
-        committedRotation;
+            rotationPreview??committedRotation
+        )-committedRotation;
 
 
-    /*
-     * Центр вращения берём из текущего viewBox.
-     */
     const viewBoxValues=svgData?.viewBox
         ?.split(/\s+/)
         .map(Number);
 
+
     const rotationCenter=
         viewBoxValues?.length===4
             ?{
-                x:viewBoxValues[0]+
-                    viewBoxValues[2]/2,
-                y:viewBoxValues[1]+
-                    viewBoxValues[3]/2
+                x:viewBoxValues[0]+viewBoxValues[2]/2,
+                y:viewBoxValues[1]+viewBoxValues[3]/2
             }
-            :{
-                x:0,
-                y:0
-            };
+            :{x:0,y:0};
 
 
     return(
@@ -261,7 +178,6 @@ const BendingPreview=({
                 minHeight:0
             }}
         >
-
             <Box
                 ref={containerRef}
                 className="bend-preview-drawing"
@@ -275,7 +191,6 @@ const BendingPreview=({
                     overflow:"hidden"
                 }}
             >
-
                 {validationError?(
                     <Box
                         sx={{
@@ -303,68 +218,42 @@ const BendingPreview=({
                         height="100%"
                         preserveAspectRatio="xMidYMid meet"
                     >
-
                         <g
                             transform={
-                                visualRotation!==0
+                                visualRotation
                                     ?`rotate(${visualRotation},${rotationCenter.x},${rotationCenter.y})`
                                     :undefined
                             }
                         >
-
                             <BendProfileRender
                                 data={svgData.activeData}
-                                strokeColor={
-                                    colors.active.line
-                                }
-                                fillColor={
-                                    colors.active.fill
-                                }
-                                annotationColor={
-                                    colors.active.annotation
-                                }
+                                strokeColor={colors.active.line}
+                                fillColor={colors.active.fill}
+                                annotationColor={colors.active.annotation}
                             />
 
                             <BendProfileRender
                                 data={svgData.ghostData}
-                                strokeColor={
-                                    colors.ghost.line
-                                }
-                                fillColor={
-                                    colors.ghost.fill
-                                }
-                                annotationColor={
-                                    colors.ghost.annotation
-                                }
+                                strokeColor={colors.ghost.line}
+                                fillColor={colors.ghost.fill}
+                                annotationColor={colors.ghost.annotation}
                                 isGhost
                             />
 
                             <BendProfileRender
                                 data={svgData.blueData}
-                                strokeColor={
-                                    colors.blue.line
-                                }
-                                fillColor={
-                                    colors.blue.fill
-                                }
-                                annotationColor={
-                                    colors.blue.annotation
-                                }
+                                strokeColor={colors.blue.line}
+                                fillColor={colors.blue.fill}
+                                annotationColor={colors.blue.annotation}
                             />
-
                         </g>
-
                     </svg>
                 )}
-
             </Box>
-
 
             <Box
                 className="bend-preview-parameters"
-                sx={{
-                    flexShrink:0
-                }}
+                sx={{flexShrink:0}}
             >
                 <Parameters
                     profile={profile}
@@ -372,7 +261,6 @@ const BendingPreview=({
                     machineParams={machineParams}
                 />
             </Box>
-
         </Box>
     );
 };

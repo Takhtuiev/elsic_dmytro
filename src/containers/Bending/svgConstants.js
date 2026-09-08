@@ -10,3 +10,7 @@ export const ANGLE_LABEL_OFFSET = 3;
 export const FONT_SIZE = 12;
 
 export const PADDING = 12;
+
+export const MIN_BEND_ANGLE=45;
+export const MAX_BEND_ANGLE=180;
+
