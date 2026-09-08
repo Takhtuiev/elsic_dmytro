@@ -464,7 +464,6 @@ export default function Biegeberechnung(){
             profileRotation:-prev.profileRotation
         }));
 
-        setVerticalShelfIndex(null);
     },[]);
 
 
