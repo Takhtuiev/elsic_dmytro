@@ -230,13 +230,13 @@ export const calculateBendingMachineParams=({
         ?lInput+deltaShelfInOut
         :lInput;
 
-    const gapFolding=
+    const barLowering=
         (rTool+t)-
         lPivotToCenter*Math.sin(angle2);
 
     const stopPosition=
         lShelf-
-        gapFolding/Math.sin(rad);
+        barLowering/Math.sin(rad);
 
     return {
         stopPosition:Number(
@@ -245,8 +245,8 @@ export const calculateBendingMachineParams=({
         bendAngle:Number(
             bendAngle.toFixed(2)
         ),
-        gapFolding:Number(
-            gapFolding.toFixed(2)
+        barLowering:Number(
+            barLowering.toFixed(2)
         )
     };
 };

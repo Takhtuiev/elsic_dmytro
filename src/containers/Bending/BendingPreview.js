@@ -7,42 +7,123 @@ import {prepareSvgLayers} from "./prepareSvgLayers";
 import {MAX_BEND_ANGLE, MIN_BEND_ANGLE} from "./svgConstants";
 
 
-const Parameters=({profile,blankLength,machineParams})=>(
+const PARAMETER_TEXT_COLOR="text.primary";
+const PARAMETER_TEXT_SIZE="0.8rem";
+
+const formatTime = (seconds) => {
+    if (!seconds || seconds < 0) return "0m 00s";
+
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+
+    return `${minutes}m ${String(secs).padStart(2, "0")}s`;
+};
+
+
+/**
+* Расчет времени для H.P. Burger с учетом толщины и температуры на регуляторе
+* @param {number} thicknessMm - Толщина ПВХ в мм (4, 5, 6 мм)
+* @param {number} tRegulator - Температура на приборе в °C (например, 180, 200, 210)
+*/
+function getPvcHeating(thicknessMm, tRegulator = 200) {
+    const kBase = 18.5;
+
+    // Эмпирическая температурная поправка
+    const tempFactor =
+        Math.pow(200 / tRegulator, 1.5);
+
+    const kDynamic = kBase * tempFactor;
+
+    const heatingSec = Math.round(
+        kDynamic * Math.pow(thicknessMm, 1.35)
+    );
+
+    const coolingSec = Math.max(
+        45,
+        Math.round(heatingSec * 0.75)
+    );
+
+    return {
+        thickness: thicknessMm + " mm",
+        regulatorTemp: tRegulator + " °C",
+        calculatedK: Number(kDynamic.toFixed(2)),
+        heatingTime: heatingSec,
+        coolingTime: coolingSec
+    };
+}
+
+
+
+
+const Parameters=({profile,blankLength,machineParams,heatingParams})=>(
     <Box sx={{p:1}}>
         <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
-            <Typography variant="body2" color="text.secondary">
+            <Typography
+                variant="body2"
+                color={PARAMETER_TEXT_COLOR}
+                fontSize={PARAMETER_TEXT_SIZE}
+            >
                 Thickness:{" "}
                 <strong>{profile?.thickness??"—"} mm</strong>
             </Typography>
 
-            <Typography variant="body2" color="text.secondary">
+            <Typography
+                variant="body2"
+                color={PARAMETER_TEXT_COLOR}
+                fontSize={PARAMETER_TEXT_SIZE}
+            >
                 Blank length:{" "}
                 <strong>{blankLength?.toFixed(2)??"—"} mm</strong>
             </Typography>
         </Box>
 
         {machineParams&&(
-            <Box
-                sx={{
-                    display:"flex",
-                    flexWrap:"wrap",
-                    gap:2,
-                    mt:.5
-                }}
-            >
-                {Object.entries(machineParams).map(
-                    ([key,value])=>(
-                        <Typography
-                            key={key}
-                            variant="body2"
-                            color="text.secondary"
-                        >
-                            {key}: <strong>{value}</strong>
-                        </Typography>
-                    )
-                )}
+            <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+                <Typography
+                    variant="body2"
+                    color={PARAMETER_TEXT_COLOR}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                >
+                    Stop position: <strong>{machineParams.stopPosition} mm</strong>
+                </Typography>
+
+                <Typography
+                    variant="body2"
+                    color={PARAMETER_TEXT_COLOR}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                >
+                    Bar lowering : <strong>{machineParams.barLowering} mm</strong>
+                </Typography>
+
+                <Typography
+                    variant="body2"
+                    color={PARAMETER_TEXT_COLOR}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                >
+                    Bending angle: <strong>{machineParams.bendAngle}°</strong>
+                </Typography>
             </Box>
         )}
+
+        <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+
+            <Typography
+                variant="body2"
+                color={PARAMETER_TEXT_COLOR}
+                fontSize={PARAMETER_TEXT_SIZE}
+            >
+                Heating temperature: <strong>{heatingParams.regulatorTemp}</strong>
+            </Typography>
+
+            <Typography
+                variant="body2"
+                color={PARAMETER_TEXT_COLOR}
+                fontSize={PARAMETER_TEXT_SIZE}
+            >
+                Heating time: <strong>{formatTime(heatingParams.heatingTime)}</strong>
+            </Typography>
+
+        </Box>
     </Box>
 );
 
@@ -80,6 +161,8 @@ const BendingPreview=({
         return()=>observer.disconnect();
     },[]);
 
+
+    const heatingParams = getPvcHeating(profile?.thickness, 200);
 
     const invalidAngleIndex=
         profile?.bends?.findIndex(({angle})=>{
@@ -259,6 +342,7 @@ const BendingPreview=({
                     profile={profile}
                     blankLength={blankLength}
                     machineParams={machineParams}
+                    heatingParams={heatingParams}
                 />
             </Box>
         </Box>
