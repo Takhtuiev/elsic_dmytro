@@ -21,10 +21,10 @@ const formatTime = (seconds) => {
 
 
 /**
-* Расчет времени для H.P. Burger с учетом толщины и температуры на регуляторе
-* @param {number} thicknessMm - Толщина ПВХ в мм (4, 5, 6 мм)
-* @param {number} tRegulator - Температура на приборе в °C (например, 180, 200, 210)
-*/
+ * Расчет времени для H.P. Burger с учетом толщины и температуры на регуляторе
+ * @param {number} thicknessMm - Толщина ПВХ в мм (4, 5, 6 мм)
+ * @param {number} tRegulator - Температура на приборе в °C (например, 180, 200, 210)
+ */
 function getPvcHeating(thicknessMm, tRegulator = 200) {
     const kBase = 18.5;
 
@@ -78,63 +78,65 @@ const Parameters=({profile,blankLength,machineParams,heatingParams})=>(
         </Box>
 
         {machineParams&&(
-            <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
-                <Typography
-                    variant="body2"
-                    color={PARAMETER_TEXT_COLOR}
-                    fontSize={PARAMETER_TEXT_SIZE}
-                >
-                    Stop position: <strong>{machineParams.stopPosition} mm</strong>
-                </Typography>
+            <>
+                <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+                    <Typography
+                        variant="body2"
+                        color={PARAMETER_TEXT_COLOR}
+                        fontSize={PARAMETER_TEXT_SIZE}
+                    >
+                        Stop position: <strong>{machineParams.stopPosition} mm</strong>
+                    </Typography>
 
-                <Typography
-                    variant="body2"
-                    color={PARAMETER_TEXT_COLOR}
-                    fontSize={PARAMETER_TEXT_SIZE}
-                >
-                    Bar lowering : <strong>{machineParams.barLowering} mm</strong>
-                </Typography>
+                    <Typography
+                        variant="body2"
+                        color={PARAMETER_TEXT_COLOR}
+                        fontSize={PARAMETER_TEXT_SIZE}
+                    >
+                        Bar low : <strong>{machineParams.barLowering} mm</strong>
+                    </Typography>
 
-                <Typography
-                    variant="body2"
-                    color={PARAMETER_TEXT_COLOR}
-                    fontSize={PARAMETER_TEXT_SIZE}
-                >
-                    Bending angle: <strong>{machineParams.bendAngle}°</strong>
-                </Typography>
-            </Box>
+                    <Typography
+                        variant="body2"
+                        color={PARAMETER_TEXT_COLOR}
+                        fontSize={PARAMETER_TEXT_SIZE}
+                    >
+                        Angle: <strong>{machineParams.bendAngle}°</strong>
+                    </Typography>
+                </Box>
+
+                <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+
+                    <Typography
+                        variant="body2"
+                        color={PARAMETER_TEXT_COLOR}
+                        fontSize={PARAMETER_TEXT_SIZE}
+                    >
+                        Heating temperature: <strong>{heatingParams.regulatorTemp}</strong>
+                    </Typography>
+
+                    <Typography
+                        variant="body2"
+                        color={PARAMETER_TEXT_COLOR}
+                        fontSize={PARAMETER_TEXT_SIZE}
+                    >
+                        Heating time: <strong>{formatTime(heatingParams.heatingTime)}</strong>
+                    </Typography>
+
+                </Box>
+            </>
         )}
-
-        <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
-
-            <Typography
-                variant="body2"
-                color={PARAMETER_TEXT_COLOR}
-                fontSize={PARAMETER_TEXT_SIZE}
-            >
-                Heating temperature: <strong>{heatingParams.regulatorTemp}</strong>
-            </Typography>
-
-            <Typography
-                variant="body2"
-                color={PARAMETER_TEXT_COLOR}
-                fontSize={PARAMETER_TEXT_SIZE}
-            >
-                Heating time: <strong>{formatTime(heatingParams.heatingTime)}</strong>
-            </Typography>
-
-        </Box>
     </Box>
 );
 
 
 const BendingPreview=({
-    profile,
-    view,
-    blankLength,
-    machineParams,
-    rotationPreview
-})=>{
+                          profile,
+                          view,
+                          blankLength,
+                          machineParams,
+                          rotationPreview
+                      })=>{
 
     const theme=useTheme();
     const containerRef=useRef(null);
