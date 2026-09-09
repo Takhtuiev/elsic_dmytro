@@ -146,22 +146,6 @@ const calculateBendView=(
 };
 
 
-const ResultRow=({label,value})=>(
-    <Stack
-        direction="row"
-        justifyContent="space-between"
-        spacing={2}
-    >
-        <Typography variant="body2">
-            {label}
-        </Typography>
-
-        <Typography variant="body2" fontWeight={500}>
-            {value}
-        </Typography>
-    </Stack>
-);
-
 
 const ParamField=({
     label,value,onChange,step=1,endAdornment
@@ -735,50 +719,7 @@ export default function Biegeberechnung(){
                     ))}
                 </Menu>
 
-                <Paper
-                    variant="outlined"
-                    sx={{
-                        mt:2,
-                        p:1.5
-                    }}
-                >
-                    <Stack spacing={.7}>
-                        <ResultRow
-                            label="Blank length"
-                            value={`${blankLength.toFixed(2)} mm`}
-                        />
 
-                        {selectedBend&&(
-                            <>
-                                <Box
-                                    sx={{
-                                        borderTop:"1px dashed",
-                                        borderColor:"divider",
-                                        my:.5
-                                    }}
-                                />
-
-                                <ResultRow
-                                    label="Reference"
-                                    value={`${distanceToOuterApex} mm`}
-                                />
-
-                                {machineParams&&(
-                                    <>
-                                        <ResultRow
-                                            label="Bending angle"
-                                            value={`${machineParams.alpha}°`}
-                                        />
-                                        <ResultRow
-                                            label="Input length"
-                                            value={`${machineParams.lInput} mm`}
-                                        />
-                                    </>
-                                )}
-                            </>
-                        )}
-                    </Stack>
-                </Paper>
             </Paper>
         </Box>
     );
