@@ -23,10 +23,10 @@ export default function Datenschutz(){
 
             <Typography sx={{mb:2}}>
                 Dmytro Takhtuiev<br/>
-                [Anschrift]<br/>
-                [PLZ Ort]<br/>
+                Schäferstraße 81 <br/>
+                41239 Mönchengladbach<br/>
                 Deutschland<br/>
-                E-Mail: [E-Mail-Adresse]
+                E-Mail: takhtuiev@gmail.com
             </Typography>
 
             <Typography sx={{mb:3}}>
