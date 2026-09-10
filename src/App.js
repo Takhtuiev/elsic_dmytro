@@ -27,6 +27,7 @@ import BendingPreviewFullScreen from "./containers/Bending/BendingPreviewFullScr
 import MyAccount from "./components/Navigation/MyAccount";
 import AccessDenied from "./components/Auth/AccessDenied";
 import OrganizationAdmin from "./components/Admin/OrganizationAdmin";
+import Datenschutz from "./containers/Datenschutz";
 
 const Home = lazy(() => import("./containers/Home"));
 const Contacts = lazy(() => import("./containers/Contacts"));
@@ -145,6 +146,8 @@ function AppLayout() {
                                 </Protect>
                             }
                         />
+
+                        <Route path="/datenschutz" element={<Datenschutz />} />
 
                         <Route
                             path="*"

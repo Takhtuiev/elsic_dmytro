@@ -5,6 +5,7 @@ import {
     Divider,
     Box,
 } from "@mui/material";
+import {Link as RouterLink} from "react-router-dom";
 
 function Footer() {
     return (
@@ -20,20 +21,20 @@ function Footer() {
                 sx={{
                     maxWidth: 1200,
                     mx: "auto",
-                    px: { xs: 2, sm: 3, md: 4 },
+                    px: {xs: 2, sm: 3, md: 4},
                 }}
             >
                 <Box
                     sx={{
-                        py: { xs: 4, md: 5 },
+                        py: {xs: 4, md: 5},
                         display: "flex",
-                        flexDirection: { xs: "column", md: "row" },
+                        flexDirection: {xs: "column", md: "row"},
                         justifyContent: "space-between",
-                        alignItems: { xs: "flex-start", md: "center" },
+                        alignItems: {xs: "flex-start", md: "center"},
                         gap: 4,
                     }}
                 >
-                    <Box sx={{ maxWidth: 430 }}>
+                    <Box sx={{maxWidth: 430}}>
                         <Typography
                             sx={{
                                 fontSize: "1.35rem",
@@ -62,7 +63,7 @@ function Footer() {
                         sx={{
                             display: "flex",
                             flexWrap: "wrap",
-                            gap: { xs: 2, sm: 3 },
+                            gap: {xs: 2, sm: 3},
                         }}
                     >
                         <FooterLink href="/">
@@ -75,6 +76,10 @@ function Footer() {
 
                         <FooterLink href="/biegeberechnung">
                             Biegeberechnung
+                        </FooterLink>
+
+                        <FooterLink href="/datenschutz">
+                            Datenschutz
                         </FooterLink>
                     </Box>
                 </Box>
@@ -89,9 +94,9 @@ function Footer() {
                     sx={{
                         py: 2.5,
                         display: "flex",
-                        flexDirection: { xs: "column", sm: "row" },
+                        flexDirection: {xs: "column", sm: "row"},
                         justifyContent: "space-between",
-                        alignItems: { xs: "flex-start", sm: "center" },
+                        alignItems: {xs: "flex-start", sm: "center"},
                         gap: 1.5,
                     }}
                 >
@@ -141,10 +146,11 @@ function Footer() {
     );
 }
 
-function FooterLink({ href, children }) {
+function FooterLink({href, children}) {
     return (
         <Link
-            href={href}
+            component={RouterLink}
+            to={href}
             underline="none"
             sx={{
                 color: "rgba(255,255,255,.65)",
