@@ -7,11 +7,9 @@ import {prepareSvgLayers} from "./prepareSvgLayers";
 import {MAX_BEND_ANGLE,MIN_BEND_ANGLE} from "./svgConstants";
 import {
     calculateBendingCycleTime,
-    MACHINES,
-    MATERIALS
+    MACHINES, MATERIALS,
 } from "./calculateBendingCycleTime";
 
-const MATERIAL=MATERIALS.PVC_CAW_RED;
 const MACHINA=MACHINES.MACHINE_LINE_1;
 
 const PARAMETER_TEXT_COLOR="text.primary";
@@ -53,7 +51,7 @@ const PartHeader=({profile})=>(
         </Typography>
 
         <Typography variant="body2">
-            Material: <strong>{MATERIAL.name}</strong>
+            Material: <strong>{MATERIALS[profile?.materialKey].name}</strong>
         </Typography>
 
         <Typography variant="body2">
@@ -203,7 +201,7 @@ const BendingPreview=({
 
     const heatingParams=calculateBendingCycleTime({
         thickness:profile?.thickness,
-        material:MATERIAL,
+        material:MATERIALS[profile?.materialKey],
         machine:MACHINA,
         regulatorTemp:200,
         tShop:20

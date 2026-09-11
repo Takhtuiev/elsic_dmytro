@@ -12,6 +12,7 @@ import {useNavigate} from "react-router-dom";
 
 import ProfileRow from "./ProfileRow";
 import BendingPreviewPage from "./BendingPreviewPage";
+import MaterialDialog from "./MaterialDialog";
 
 import {
     calculateBlankLength,
@@ -20,10 +21,12 @@ import {
 } from "./Calculations";
 import buildProfileGeometry from "./BuildProfileGeometry";
 import {setProfile} from "../../Store/bendingSlice";
+import {MATERIALS} from "./calculateBendingCycleTime";
 
 
 const INITIAL_STATE={
     name:"Detail-4301",
+    materialKey:"PVC_CAW_RED",
     thickness:4,
     kFactor:.32,
     rTool:1.2,
@@ -148,8 +151,8 @@ const calculateBendView=(
 
 
 const ParamField=({
-                      label,value,onChange,step=1,endAdornment
-                  })=>(
+    label,value,onChange,step=1,endAdornment
+})=>(
     <TextField
         label={label}
         size="small"
@@ -180,14 +183,14 @@ const ParamField=({
 
 
 const PreviewToolbar=({
-                          rotation,
-                          bendIndex,
-                          mirrored,
-                          onRotationChange,
-                          onRotationCommitted,
-                          onMirror,
-                          onFullscreen
-                      })=>(
+    rotation,
+    bendIndex,
+    mirrored,
+    onRotationChange,
+    onRotationCommitted,
+    onMirror,
+    onFullscreen
+})=>(
     <Box
         sx={{
             px:1,
@@ -200,7 +203,6 @@ const PreviewToolbar=({
             flexShrink:0
         }}
     >
-
         <Slider
             value={rotation}
             min={-180}
@@ -277,6 +279,7 @@ export default function Biegeberechnung(){
     const [rotationPreview,setRotationPreview]=useState(null);
     const [verticalShelfIndex,setVerticalShelfIndex]=useState(null);
     const [thicknessMenuAnchor,setThicknessMenuAnchor]=useState(null);
+    const [materialDialogOpen,setMaterialDialogOpen]=useState(false);
 
     useEffect(()=>{
         dispatch(setProfile(state));
@@ -284,6 +287,7 @@ export default function Biegeberechnung(){
 
 
     const {
+        materialKey,
         thickness,
         kFactor,
         rTool,
@@ -291,6 +295,8 @@ export default function Biegeberechnung(){
         bends,
         view
     }=state;
+
+    const material=MATERIALS[materialKey];
 
     const {
         rotation,
@@ -457,6 +463,7 @@ export default function Biegeberechnung(){
 
         setVerticalShelfIndex(index);
     },[]);
+
 
     const handleProfileRotationChange=useCallback(
         value=>setRotationPreview(Number(value)),
@@ -698,6 +705,54 @@ export default function Biegeberechnung(){
                     Parameters
                 </Typography>
 
+                {/* Material */}
+                <Box sx={{mb:1}}>
+                    <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{
+                            display:"block",
+                            mb:.5
+                        }}
+                    >
+                        Material
+                    </Typography>
+
+                    <Button
+                        fullWidth
+                        variant="outlined"
+                        onClick={()=>
+                            setMaterialDialogOpen(true)
+                        }
+                        sx={{
+                            justifyContent:"space-between",
+                            textTransform:"none",
+                            textAlign:"left",
+                            px:1.5,
+                            py:.8
+                        }}
+                    >
+                        <Box>
+                            <Typography variant="body2">
+                                {material?.name}
+                            </Typography>
+
+                            {material?.manufacturer&&(
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                >
+                                    {material.manufacturer}
+                                </Typography>
+                            )}
+                        </Box>
+
+                        <KeyboardArrowDownIcon
+                            fontSize="small"
+                        />
+                    </Button>
+                </Box>
+
                 <Box
                     sx={{
                         display:"grid",
@@ -712,6 +767,7 @@ export default function Biegeberechnung(){
                         value={thickness}
                         onChange={e=>{
                             const value=e.target.value;
+
                             updateField(
                                 "thickness",
                                 value===""?"":Number(value)
@@ -735,11 +791,15 @@ export default function Biegeberechnung(){
                                             size="small"
                                             edge="end"
                                             onClick={e=>
-                                                setThicknessMenuAnchor(e.currentTarget)
+                                                setThicknessMenuAnchor(
+                                                    e.currentTarget
+                                                )
                                             }
                                             sx={{p:.25}}
                                         >
-                                            <KeyboardArrowDownIcon fontSize="small"/>
+                                            <KeyboardArrowDownIcon
+                                                fontSize="small"
+                                            />
                                         </IconButton>
                                     </InputAdornment>
                                 )
@@ -794,6 +854,22 @@ export default function Biegeberechnung(){
                         </MenuItem>
                     ))}
                 </Menu>
+
+                <MaterialDialog
+                    open={materialDialogOpen}
+                    materialKey={materialKey}
+                    materials={MATERIALS}
+                    onSelect={key=>{
+                        updateField(
+                            "materialKey",
+                            key
+                        );
+                        setMaterialDialogOpen(false);
+                    }}
+                    onClose={()=>
+                        setMaterialDialogOpen(false)
+                    }
+                />
             </Paper>
         </Box>
     );
