@@ -426,20 +426,27 @@ export default function Biegeberechnung(){
             const baseRotation=
                 (-Math.PI/2-Math.atan2(vector.y,dx))*180/Math.PI;
 
-            const currentRotation=((prev.view.rotation%360)+360)%360;
-            const normalizedBase=((baseRotation%360)+360)%360;
+            const normalize=a=>((a+180)%360+360)%360-180;
+            const distance=(a,b)=>Math.abs(normalize(a-b));
+
+            const rotation0=baseRotation;
+            const rotation180=baseRotation+180;
+
+            const current=prev.view.rotation;
 
             const isVertical=
-                Math.abs(currentRotation-normalizedBase)<1 ||
-                Math.abs(currentRotation-(normalizedBase+180)%360)<1;
+                distance(current,rotation0)<1 ||
+                distance(current,rotation180)<1;
 
             const rotation=isVertical
-                ?Math.abs(currentRotation-normalizedBase)<1
-                    ?baseRotation+180
-                    :baseRotation
-                :baseRotation;
+                ?distance(current,rotation0)<1
+                    ?rotation180
+                    :rotation0
+                :distance(current,rotation0)<=distance(current,rotation180)
+                    ?rotation0
+                    :rotation180;
 
-            return {
+            return{
                 ...prev,
                 view:{
                     ...prev.view,
