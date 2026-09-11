@@ -1,7 +1,7 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {
     Box,Button,IconButton,InputAdornment,Menu,MenuItem,
-    Paper,Slider,Stack,TextField,Tooltip,Typography
+    Paper,Slider,TextField,Tooltip,Typography
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
@@ -23,6 +23,7 @@ import {setProfile} from "../../Store/bendingSlice";
 
 
 const INITIAL_STATE={
+    name:"Detail-4301",
     thickness:4,
     kFactor:.32,
     rTool:1.2,
@@ -146,10 +147,9 @@ const calculateBendView=(
 };
 
 
-
 const ParamField=({
-    label,value,onChange,step=1,endAdornment
-})=>(
+                      label,value,onChange,step=1,endAdornment
+                  })=>(
     <TextField
         label={label}
         size="small"
@@ -176,6 +176,83 @@ const ParamField=({
             }
         }}
     />
+);
+
+
+const PreviewToolbar=({
+                          rotation,
+                          bendIndex,
+                          mirrored,
+                          onRotationChange,
+                          onRotationCommitted,
+                          onMirror,
+                          onFullscreen
+                      })=>(
+    <Box
+        sx={{
+            px:1,
+            py:.5,
+            minHeight:42,
+            display:"flex",
+            alignItems:"center",
+            borderBottom:1,
+            borderColor:"divider",
+            flexShrink:0
+        }}
+    >
+
+        <Slider
+            value={rotation}
+            min={-180}
+            max={180}
+            step={1}
+            size="small"
+            disabled={bendIndex>=0}
+            onChange={(_,value)=>onRotationChange(value)}
+            onChangeCommitted={(_,value)=>
+                onRotationCommitted(value)
+            }
+            sx={{
+                flex:1,
+                minWidth:80,
+                mx:1,
+                color:"text.secondary",
+                opacity:.7,
+                "& .MuiSlider-thumb":{
+                    width:10,
+                    height:10
+                }
+            }}
+        />
+
+        <Tooltip title="Mirror">
+            <span>
+                <IconButton
+                    size="small"
+                    disabled={bendIndex>=0}
+                    onClick={onMirror}
+                >
+                    <FlipIcon
+                        fontSize="small"
+                        sx={{
+                            transform:mirrored
+                                ?"scaleX(-1)"
+                                :"none"
+                        }}
+                    />
+                </IconButton>
+            </span>
+        </Tooltip>
+
+        <Tooltip title="Full screen">
+            <IconButton
+                size="small"
+                onClick={onFullscreen}
+            >
+                <FullscreenIcon fontSize="small"/>
+            </IconButton>
+        </Tooltip>
+    </Box>
 );
 
 
@@ -241,7 +318,6 @@ export default function Biegeberechnung(){
     const selectedBend=bends[bendIndex]??null;
 
 
-    // Update root field
     const updateField=useCallback((field,value)=>{
         setState(prev=>({
             ...prev,
@@ -250,7 +326,6 @@ export default function Biegeberechnung(){
     },[]);
 
 
-    // Update shelf or bend field
     const updateItem=useCallback(
         (collection,index,field,value)=>{
             setState(prev=>({
@@ -487,6 +562,7 @@ export default function Biegeberechnung(){
                 width:"100%"
             }}
         >
+
             {/* Preview */}
             <Box
                 sx={{
@@ -500,8 +576,7 @@ export default function Biegeberechnung(){
             >
                 <Paper
                     sx={{
-                        mt:2,
-                        p:1,
+                        p:0,
                         height:"65vh",
                         minHeight:500,
                         maxHeight:700,
@@ -510,88 +585,34 @@ export default function Biegeberechnung(){
                         overflow:"hidden"
                     }}
                 >
-                    <Stack
-                        direction="row"
-                        alignItems="center"
-                        spacing={1}
-                        sx={{flexShrink:0}}
-                    >
-                        <Typography
-                            variant="subtitle1"
-                            sx={{whiteSpace:"nowrap"}}
-                        >
-                            Bend Profile
-                        </Typography>
-
-                        <Slider
-                            value={sliderRotation}
-                            min={-180}
-                            max={180}
-                            step={1}
-                            size="small"
-                            disabled={bendIndex>=0}
-                            onChange={(_,value)=>
-                                handleProfileRotationChange(value)
-                            }
-                            onChangeCommitted={(_,value)=>
-                                handleProfileRotationCommitted(value)
-                            }
-                            sx={{
-                                flex:1,
-                                minWidth:80,
-                                mx:2,
-                                py:0,
-                                color:"text.secondary",
-                                opacity:.65,
-                                "& .MuiSlider-thumb":{
-                                    width:10,
-                                    height:10
-                                }
-                            }}
-                        />
-
-                        <Tooltip title="Mirror">
-                        <span>
-                            <IconButton
-                                size="small"
-                                disabled={bendIndex>=0}
-                                onClick={()=>
-                                    handleProfileMirrorChange(!mirrored)
-                                }
-                            >
-                                <FlipIcon
-                                    sx={{
-                                        transform:mirrored
-                                            ?"scaleX(-1)"
-                                            :"none"
-                                    }}
-                                />
-                            </IconButton>
-                        </span>
-                        </Tooltip>
-
-                        <Tooltip title="Full screen">
-                            <IconButton
-                                size="small"
-                                onClick={()=>
-                                    navigate("/biegeberechnung/preview")
-                                }
-                            >
-                                <FullscreenIcon/>
-                            </IconButton>
-                        </Tooltip>
-                    </Stack>
+                    <PreviewToolbar
+                        rotation={sliderRotation}
+                        bendIndex={bendIndex}
+                        mirrored={mirrored}
+                        onRotationChange={
+                            handleProfileRotationChange
+                        }
+                        onRotationCommitted={
+                            handleProfileRotationCommitted
+                        }
+                        onMirror={()=>
+                            handleProfileMirrorChange(!mirrored)
+                        }
+                        onFullscreen={()=>
+                            navigate("/biegeberechnung/preview")
+                        }
+                    />
 
                     <Box
                         sx={{
                             flex:1,
                             minHeight:0,
-                            overflow:"hidden"
+                            overflow:"hidden",
+                            p:1
                         }}
                     >
                         <BendingPreviewPage
-                            profile={profileData}
-                            view={view}
+                            profile={state}
                             blankLength={blankLength}
                             machineParams={machineParams}
                             rotationPreview={rotationPreview}
@@ -599,6 +620,7 @@ export default function Biegeberechnung(){
                     </Box>
                 </Paper>
             </Box>
+
 
             {/* Editor */}
             <Paper
@@ -626,13 +648,19 @@ export default function Biegeberechnung(){
                         bend={bends[index]}
                         bendIndex={bendIndex}
                         bendSide={bendSide}
-                        isVertical={verticalShelfIndex===index}
-                        onUpdate={updateItem}
-                        onSelectBend={()=>handleSelectBend(index)}
-                        onVerticalShelfChange={
-                            ()=>handleVerticalShelfChange(index)
+                        isVertical={
+                            verticalShelfIndex===index
                         }
-                        onRemoveBend={()=>removeBend(index)}
+                        onUpdate={updateItem}
+                        onSelectBend={()=>
+                            handleSelectBend(index)
+                        }
+                        onVerticalShelfChange={()=>
+                            handleVerticalShelfChange(index)
+                        }
+                        onRemoveBend={()=>
+                            removeBend(index)
+                        }
                         canRemove={bends.length>1}
                     />
                 ))}
@@ -665,17 +693,41 @@ export default function Biegeberechnung(){
                     <TextField
                         label="Thickness"
                         size="small"
+                        type="number"
                         value={thickness}
-                        onClick={e=>
-                            setThicknessMenuAnchor(e.currentTarget)
-                        }
+                        onChange={e=>{
+                            const value=e.target.value;
+                            updateField(
+                                "thickness",
+                                value===""?"":Number(value)
+                            );
+                        }}
                         slotProps={{
+                            htmlInput:{
+                                min:0,
+                                step:.1,
+                                sx:{
+                                    "&::-webkit-outer-spin-button,&::-webkit-inner-spin-button":{
+                                        display:"none"
+                                    },
+                                    MozAppearance:"textfield"
+                                }
+                            },
                             input:{
-                                readOnly:true,
-                                endAdornment:
+                                endAdornment:(
                                     <InputAdornment position="end">
-                                        <KeyboardArrowDownIcon/>
+                                        <IconButton
+                                            size="small"
+                                            edge="end"
+                                            onClick={e=>
+                                                setThicknessMenuAnchor(e.currentTarget)
+                                            }
+                                            sx={{p:.25}}
+                                        >
+                                            <KeyboardArrowDownIcon fontSize="small"/>
+                                        </IconButton>
                                     </InputAdornment>
+                                )
                             }
                         }}
                     />
@@ -685,7 +737,10 @@ export default function Biegeberechnung(){
                         value={kFactor}
                         step=".01"
                         onChange={value=>
-                            updateField("kFactor",Number(value))
+                            updateField(
+                                "kFactor",
+                                value===""?"":Number(value)
+                            )
                         }
                     />
 
@@ -694,7 +749,10 @@ export default function Biegeberechnung(){
                         value={rTool}
                         step=".1"
                         onChange={value=>
-                            updateField("rTool",Number(value))
+                            updateField(
+                                "rTool",
+                                value===""?"":Number(value)
+                            )
                         }
                     />
                 </Box>
@@ -710,7 +768,10 @@ export default function Biegeberechnung(){
                         <MenuItem
                             key={value}
                             onClick={()=>{
-                                updateField("thickness",value);
+                                updateField(
+                                    "thickness",
+                                    value
+                                );
                                 setThicknessMenuAnchor(null);
                             }}
                         >
@@ -718,8 +779,6 @@ export default function Biegeberechnung(){
                         </MenuItem>
                     ))}
                 </Menu>
-
-
             </Paper>
         </Box>
     );
