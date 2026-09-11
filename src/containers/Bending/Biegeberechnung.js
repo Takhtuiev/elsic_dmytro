@@ -415,22 +415,29 @@ export default function Biegeberechnung(){
 
 
     const handleVerticalShelfChange=useCallback(index=>{
-        setVerticalShelfIndex(index);
-
         setState(prev=>{
             const geometry=buildProfileGeometry(prev);
             const vector=getShelfVector(geometry,index);
 
             if(!vector) return prev;
 
-            const dx=prev.view.mirrored
-                ?-vector.x
-                :vector.x;
+            const dx=prev.view.mirrored?-vector.x:vector.x;
 
-            const rotation=
-                (-Math.PI/2-
-                    Math.atan2(vector.y,dx)
-                )*180/Math.PI;
+            const baseRotation=
+                (-Math.PI/2-Math.atan2(vector.y,dx))*180/Math.PI;
+
+            const currentRotation=((prev.view.rotation%360)+360)%360;
+            const normalizedBase=((baseRotation%360)+360)%360;
+
+            const isVertical=
+                Math.abs(currentRotation-normalizedBase)<1 ||
+                Math.abs(currentRotation-(normalizedBase+180)%360)<1;
+
+            const rotation=isVertical
+                ?Math.abs(currentRotation-normalizedBase)<1
+                    ?baseRotation+180
+                    :baseRotation
+                :baseRotation;
 
             return {
                 ...prev,
@@ -440,8 +447,9 @@ export default function Biegeberechnung(){
                 }
             };
         });
-    },[]);
 
+        setVerticalShelfIndex(index);
+    },[]);
 
     const handleProfileRotationChange=useCallback(
         value=>setRotationPreview(Number(value)),
