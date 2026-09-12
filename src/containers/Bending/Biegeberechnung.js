@@ -29,6 +29,7 @@ const INITIAL_STATE={
     name:"Detail-4301",
     materialKey:"PVC_CAW_RED",
     thickness:4,
+    width:430,
     kFactor:0.40,
     rTool:1.2,
 
@@ -288,6 +289,7 @@ export default function Biegeberechnung(){
     const {
         materialKey,
         thickness,
+        width,
         kFactor,
         rTool,
         shelves,
@@ -304,21 +306,21 @@ export default function Biegeberechnung(){
         bendSide
     }=view;
 
-
     const profileData=useMemo(()=>({
         thickness,
+        width,
         kFactor,
         rTool,
         shelves,
         bends
     }),[
         thickness,
+        width,
         kFactor,
         rTool,
         shelves,
         bends
     ]);
-
 
     const selectedBend=bends[bendIndex]??null;
 
@@ -680,9 +682,7 @@ export default function Biegeberechnung(){
                 </Box>
 
 
-                <Box
-                    sx={{ p:1 }}
-                >
+                <Box sx={{p:1}}>
                     <Typography
                         variant="subtitle2"
                         sx={{mb:1}}
@@ -690,15 +690,8 @@ export default function Biegeberechnung(){
                         Parameters
                     </Typography>
 
-                    {/* Material + Thickness */}
-                    <Box
-                        sx={{
-                            display:"grid",
-                            gridTemplateColumns:"minmax(0,3fr) minmax(5.5rem,1fr)",
-                            gap:1,
-                            mb:1,
-                        }}
-                    >
+                    {/* Material */}
+                    <Box sx={{mb:1}}>
                         <TextField
                             label="Material"
                             value={material?.name||""}
@@ -736,64 +729,72 @@ export default function Biegeberechnung(){
                                 },
                             }}
                         />
+                    </Box>
 
-                        <TextField
+                    {/* Thickness + Part length */}
+                    <Box
+                        sx={{
+                            display:"grid",
+                            gridTemplateColumns:"1fr 1fr",
+                            gap:1,
+                            mb:1,
+                        }}
+                    >
+                        <ParamField
                             label="Thickness"
                             value={thickness}
-                            onChange={e=>{
-                                const value=e.target.value;
-
+                            step=".1"
+                            onChange={value=>
                                 updateField(
                                     "thickness",
                                     value==="" ? "" : Number(value)
-                                );
-                            }}
-                            size="small"
-                            fullWidth
-                            type="number"
-                            sx={{
-                                "& .MuiOutlinedInput-root":{
-                                    paddingRight:"5px",
-                                },
-                            }}
-                            slotProps={{
-                                htmlInput:{
-                                    min:0,
-                                    step:.1,
-                                    inputMode:"decimal",
-                                    sx:{
-                                        "&::-webkit-outer-spin-button,&::-webkit-inner-spin-button":{
-                                            display:"none",
-                                        },
-                                        MozAppearance:"textfield",
-                                    },
-                                },
-                                input:{
-                                    endAdornment:(
-                                        <InputAdornment
-                                            position="end"
-                                            sx={{
-                                                marginLeft:"5px",
-                                                marginRight:0,
-                                            }}
-                                        >
-                                            <IconButton
-                                                size="small"
-                                                onClick={e=>{
-                                                    e.stopPropagation();
-                                                    setThicknessMenuAnchor(
-                                                        e.currentTarget
-                                                    );
-                                                }}
-                                            >
-                                                <KeyboardArrowDownIcon
-                                                    fontSize="small"
-                                                />
-                                            </IconButton>
-                                        </InputAdornment>
-                                    ),
-                                },
-                            }}
+                                )
+                            }
+                            endAdornment={
+                                <Box sx={{
+                                    display:"flex",
+                                    alignItems:"center"
+                                }}>
+                                    <Box sx={{fontSize:"0.8rem"}}>
+                                        mm
+                                    </Box>
+
+                                    <IconButton
+                                        size="small"
+                                        onClick={e=>
+                                            setThicknessMenuAnchor(
+                                                e.currentTarget
+                                            )
+                                        }
+                                        sx={{
+                                            p:.25,
+                                            color:"text.secondary"
+                                        }}
+                                    >
+                                        <KeyboardArrowDownIcon fontSize="small"/>
+                                    </IconButton>
+                                </Box>
+                            }
+
+                        />
+
+                        <ParamField
+                            label="Part width"
+                            value={width}
+                            step=".1"
+                            onChange={value=>
+                                updateField(
+                                    "width",
+                                    value==="" ? "" : Number(value)
+                                )
+                            }
+                            endAdornment={
+                                <Box
+                                    sx={{ fontSize:"0.8rem" }}
+                                >
+                                    mm
+                                </Box>
+                            }
                         />
                     </Box>
 
@@ -826,6 +827,9 @@ export default function Biegeberechnung(){
                                     "rTool",
                                     value===""?"":Number(value)
                                 )
+                            }
+                            endAdornment={
+                                <Box sx={{ fontSize:"0.8rem" }} > mm </Box>
                             }
                         />
                     </Box>

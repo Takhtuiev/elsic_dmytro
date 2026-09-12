@@ -179,7 +179,7 @@ const ProfileRow=memo(({
                     `Leg ${index+1}`,
                     shelf.length,
                     value=>updateShelf("length",value),
-                    <Box sx={{fontSize:".7rem"}}>
+                    <Box sx={{fontSize:".8rem"}}>
                         mm
                     </Box>
                 )}

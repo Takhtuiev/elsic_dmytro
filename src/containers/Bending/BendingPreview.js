@@ -7,14 +7,13 @@ import {prepareSvgLayers} from "./prepareSvgLayers";
 import {MAX_BEND_ANGLE,MIN_BEND_ANGLE} from "./svgConstants";
 import {
     calculateBendingCycleTime,
-    MACHINES, MATERIALS,
+    MACHINES,MATERIALS
 } from "./calculateBendingCycleTime";
 
 const MACHINA=MACHINES.MACHINE_LINE_1;
 
 const PARAMETER_TEXT_COLOR="text.primary";
 const PARAMETER_TEXT_SIZE="0.8rem";
-
 
 const formatTime=seconds=>{
     if(!seconds||seconds<0) return "0m 00s";
@@ -25,7 +24,6 @@ const formatTime=seconds=>{
 
     return `${minutes}m ${String(secs).padStart(2,"0")}s`;
 };
-
 
 const PartHeader=({profile})=>(
     <Box
@@ -43,15 +41,12 @@ const PartHeader=({profile})=>(
             flexShrink:0
         }}
     >
-        <Typography
-            variant="body2"
-            fontWeight={600}
-        >
+        <Typography variant="body2" fontWeight={600}>
             Part: <strong>{profile?.name||"—"}</strong>
         </Typography>
 
         <Typography variant="body2">
-            Material: <strong>{MATERIALS[profile?.materialKey].name}</strong>
+            Material: <strong>{MATERIALS[profile?.materialKey]?.name||"—"}</strong>
         </Typography>
 
         <Typography variant="body2">
@@ -60,109 +55,123 @@ const PartHeader=({profile})=>(
     </Box>
 );
 
-
 const Parameters=({
-                      blankLength,
+                      profile,
+                      part,
                       machineParams,
                       heatingParams
-                  })=>(
-    <Box sx={{p:1}}>
-        <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+                  })=>{
+    const material=MATERIALS[profile?.materialKey];
 
-            <Typography
-                variant="body2"
-                color={PARAMETER_TEXT_COLOR}
-                fontSize={PARAMETER_TEXT_SIZE}
-            >
-                Blank length: <strong>
-                {blankLength?.toFixed(2)??"—"} mm
-            </strong>
-            </Typography>
+    const blankLength=Number(part?.blankLength);
+    const width=Number(profile?.width);
+    const thickness=Number(profile?.thickness);
+    const density=Number(material?.density);
+
+    const mass=
+        Number.isFinite(blankLength)&&
+        Number.isFinite(width)&&
+        Number.isFinite(thickness)&&
+        Number.isFinite(density)
+            ?blankLength*width*thickness*density/1e9
+            :null;
+
+    return(
+        <Box sx={{p:1}}>
+            <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+                <Typography
+                    variant="body2"
+                    color={PARAMETER_TEXT_COLOR}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                >
+                    Blank length: <strong>{Number.isFinite(blankLength)?blankLength.toFixed(2):"—"} mm</strong>
+                </Typography>
+
+                <Typography
+                    variant="body2"
+                    color={PARAMETER_TEXT_COLOR}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                >
+                    Width: <strong>{Number.isFinite(width)?width:"—"} mm</strong>
+                </Typography>
+
+                <Typography
+                    variant="body2"
+                    color={PARAMETER_TEXT_COLOR}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                >
+                    Mass: <strong>{mass!==null?mass.toFixed(3):"—"} kg</strong>
+                </Typography>
+            </Box>
+
+            {machineParams&&(
+                <>
+                    <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+                        <Typography
+                            variant="body2"
+                            color={PARAMETER_TEXT_COLOR}
+                            fontSize={PARAMETER_TEXT_SIZE}
+                        >
+                            Stop pos: <strong>{machineParams.stopPosition} mm</strong>
+                        </Typography>
+
+                        <Typography
+                            variant="body2"
+                            color={PARAMETER_TEXT_COLOR}
+                            fontSize={PARAMETER_TEXT_SIZE}
+                        >
+                            Bar low: <strong>{machineParams.barLowering} mm</strong>
+                        </Typography>
+
+                        <Typography
+                            variant="body2"
+                            color={PARAMETER_TEXT_COLOR}
+                            fontSize={PARAMETER_TEXT_SIZE}
+                        >
+                            Angle: <strong>{machineParams.bendAngle}°</strong>
+                        </Typography>
+                    </Box>
+
+                    <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+                        <Typography
+                            variant="body2"
+                            color={PARAMETER_TEXT_COLOR}
+                            fontSize={PARAMETER_TEXT_SIZE}
+                        >
+                            Heat temp: <strong>{heatingParams.regulatorTemp} °C</strong>
+                        </Typography>
+
+                        <Typography
+                            variant="body2"
+                            color={PARAMETER_TEXT_COLOR}
+                            fontSize={PARAMETER_TEXT_SIZE}
+                        >
+                            Heating time: <strong>{formatTime(heatingParams.time)}</strong>
+                        </Typography>
+                    </Box>
+
+                    <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+                        <Typography
+                            variant="body2"
+                            color={PARAMETER_TEXT_COLOR}
+                            fontSize={PARAMETER_TEXT_SIZE}
+                        >
+                            Surface temperature: <strong>{heatingParams.tSurf.toFixed(0)} °C</strong>
+                        </Typography>
+
+                        <Typography
+                            variant="body2"
+                            color={PARAMETER_TEXT_COLOR}
+                            fontSize={PARAMETER_TEXT_SIZE}
+                        >
+                            Theoretical time: <strong>{formatTime(heatingParams.baseTime)}</strong>
+                        </Typography>
+                    </Box>
+                </>
+            )}
         </Box>
-
-        {machineParams&&(
-            <>
-                <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
-                    <Typography
-                        variant="body2"
-                        color={PARAMETER_TEXT_COLOR}
-                        fontSize={PARAMETER_TEXT_SIZE}
-                    >
-                        Stop pos: <strong>
-                        {machineParams.stopPosition} mm
-                    </strong>
-                    </Typography>
-
-                    <Typography
-                        variant="body2"
-                        color={PARAMETER_TEXT_COLOR}
-                        fontSize={PARAMETER_TEXT_SIZE}
-                    >
-                        Bar low: <strong>
-                        {machineParams.barLowering} mm
-                    </strong>
-                    </Typography>
-
-                    <Typography
-                        variant="body2"
-                        color={PARAMETER_TEXT_COLOR}
-                        fontSize={PARAMETER_TEXT_SIZE}
-                    >
-                        Angle: <strong>
-                        {machineParams.bendAngle}°
-                    </strong>
-                    </Typography>
-                </Box>
-
-                <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
-                    <Typography
-                        variant="body2"
-                        color={PARAMETER_TEXT_COLOR}
-                        fontSize={PARAMETER_TEXT_SIZE}
-                    >
-                        Heat temp: <strong>
-                        {heatingParams.regulatorTemp} °C
-                    </strong>
-                    </Typography>
-
-                    <Typography
-                        variant="body2"
-                        color={PARAMETER_TEXT_COLOR}
-                        fontSize={PARAMETER_TEXT_SIZE}
-                    >
-                        Heating time: <strong>
-                        {formatTime(heatingParams.time)}
-                    </strong>
-                    </Typography>
-                </Box>
-
-                <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
-
-                    <Typography
-                        variant="body2"
-                        color={PARAMETER_TEXT_COLOR}
-                        fontSize={PARAMETER_TEXT_SIZE}
-                    >
-                        Surface temperature: <strong>
-                        {heatingParams.tSurf.toFixed(0)} °C
-                    </strong>
-                    </Typography>
-
-                    <Typography
-                        variant="body2"
-                        color={PARAMETER_TEXT_COLOR}
-                        fontSize={PARAMETER_TEXT_SIZE}
-                    >
-                        Theoretical time: <strong>
-                        {formatTime(heatingParams.baseTime)}
-                    </strong>
-                    </Typography>
-                </Box>
-            </>
-        )}
-    </Box>
-);
-
+    );
+};
 
 const BendingPreview=({
                           profile,
@@ -179,7 +188,6 @@ const BendingPreview=({
         width:800,
         height:500
     });
-
 
     useEffect(()=>{
         if(!containerRef.current) return;
@@ -198,7 +206,6 @@ const BendingPreview=({
         return()=>observer.disconnect();
     },[]);
 
-
     const heatingParams=calculateBendingCycleTime({
         thickness:profile?.thickness,
         material:MATERIALS[profile?.materialKey],
@@ -206,7 +213,6 @@ const BendingPreview=({
         regulatorTemp:200,
         tShop:20
     });
-
 
     const invalidAngleIndex=
         profile?.bends?.findIndex(({angle})=>{
@@ -216,7 +222,6 @@ const BendingPreview=({
                 angle<MIN_BEND_ANGLE||
                 angle>MAX_BEND_ANGLE;
         })??-1;
-
 
     const invalidShelfIndex=
         profile?.shelves?.findIndex(({length})=>{
@@ -228,14 +233,12 @@ const BendingPreview=({
                 length<thickness;
         })??-1;
 
-
     const validationError=
         invalidAngleIndex>=0
             ?`Angle ${invalidAngleIndex+1}: ${profile.bends[invalidAngleIndex].angle}° — allowed range is ${MIN_BEND_ANGLE}°–${MAX_BEND_ANGLE}°`
             :invalidShelfIndex>=0
                 ?`Leg ${invalidShelfIndex+1}: ${profile.shelves[invalidShelfIndex].length} mm — must be at least ${profile.thickness} mm`
                 :null;
-
 
     const colors=useMemo(()=>({
         active:{
@@ -255,7 +258,6 @@ const BendingPreview=({
         }
     }),[theme]);
 
-
     const svgData=useMemo(()=>{
         if(!profile||validationError) return null;
 
@@ -266,7 +268,6 @@ const BendingPreview=({
         );
     },[profile,view,containerSize,validationError]);
 
-
     const committedRotation=Number(view?.rotation??0);
 
     const visualRotation=
@@ -274,11 +275,9 @@ const BendingPreview=({
             rotationPreview??committedRotation
         )-committedRotation;
 
-
     const viewBoxValues=svgData?.viewBox
         ?.split(/\s+/)
         .map(Number);
-
 
     const rotationCenter=
         viewBoxValues?.length===4
@@ -287,7 +286,6 @@ const BendingPreview=({
                 y:viewBoxValues[1]+viewBoxValues[3]/2
             }
             :{x:0,y:0};
-
 
     return(
         <Box
@@ -379,7 +377,8 @@ const BendingPreview=({
                 sx={{flexShrink:0}}
             >
                 <Parameters
-                    blankLength={blankLength}
+                    profile={profile}
+                    part={{blankLength}}
                     machineParams={machineParams}
                     heatingParams={heatingParams}
                 />
@@ -387,6 +386,5 @@ const BendingPreview=({
         </Box>
     );
 };
-
 
 export default BendingPreview;

@@ -61,7 +61,6 @@ export const calculateBendingCycleTime = ({
     tShop = 20.0
 }) => {
 
-    console.log("regulatorTemp", regulatorTemp);
     const {
         lambda,
         density,
@@ -80,7 +79,6 @@ export const calculateBendingCycleTime = ({
         ? regulatorTemp * tempTransferCoef
         : defaultTSurf;
 
-    console.log(tSurf)
     // 2. Температуропроводность материала
     const alpha = lambda / (density * specificHeat);
 
