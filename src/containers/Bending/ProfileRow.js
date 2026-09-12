@@ -288,14 +288,8 @@ const ProfileRow=memo(({
                                 display:"flex",
                                 alignItems:"center"
                             }}>
-                                <Box sx={{
-                                    fontSize:".8rem",
-                                    mr:.2
-                                }}>
-                                    °
-                                </Box>
-
-                                <IconButton
+                                °
+                                 <IconButton
                                     size="small"
                                     onClick={e=>
                                         setAngleMenuAnchor(
