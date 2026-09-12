@@ -107,7 +107,7 @@ const BendingPreviewFullScreen=()=>{
                     alignItems:"center",
                     px:2,
                     borderBottom:"1px solid",
-                    borderColor:"divider"
+                    borderColor:"divider",
                 }}
             >
                 <IconButton
@@ -118,43 +118,39 @@ const BendingPreviewFullScreen=()=>{
                     <ArrowBackIcon/>
                 </IconButton>
 
-                <Typography
-                    variant="subtitle1"
-                    fontWeight="500"
-                    color="text.secondary"
+                <Box
                     sx={{
-                        ml:1,
-                        flex:1
+                        ml:"auto",
+                        display:"flex",
+                        alignItems:"center",
                     }}
                 >
-                    Bend Profile (Geometric Drawing)
-                </Typography>
+                    <IconButton
+                        size="small"
+                        onClick={()=>window.print()}
+                        title="Print"
+                        sx={{
+                            color:"text.secondary",
+                        }}
+                    >
+                        <PrintIcon/>
+                    </IconButton>
 
-                <IconButton
-                    size="small"
-                    onClick={()=>window.print()}
-                    title="Print"
-                    sx={{
-                        color:"text.secondary"
-                    }}
-                >
-                    <PrintIcon/>
-                </IconButton>
-
-                <IconButton
-                    size="small"
-                    onClick={()=>navigate(-1)}
-                    title="Close"
-                    sx={{
-                        color:"text.secondary",
-                        "&:hover":{
-                            color:"error.main",
-                            backgroundColor:"action.hover"
-                        }
-                    }}
-                >
-                    <CloseIcon/>
-                </IconButton>
+                    <IconButton
+                        size="small"
+                        onClick={()=>navigate(-1)}
+                        title="Close"
+                        sx={{
+                            color:"text.secondary",
+                            "&:hover":{
+                                color:"error.main",
+                                backgroundColor:"action.hover",
+                            },
+                        }}
+                    >
+                        <CloseIcon/>
+                    </IconButton>
+                </Box>
             </Box>
 
 

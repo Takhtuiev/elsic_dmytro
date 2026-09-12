@@ -195,13 +195,11 @@ const PreviewToolbar=({
     <Box
         sx={{
             px:1,
-            py:.5,
+            py:0,
             minHeight:42,
             display:"flex",
             alignItems:"center",
-            borderBottom:1,
-            borderColor:"divider",
-            flexShrink:0
+             flexShrink:0
         }}
     >
         <Slider
@@ -602,6 +600,7 @@ export default function Biegeberechnung(){
                     overflow:"hidden",
                 }}
             >
+                {/* Preview */}
                 <PreviewToolbar
                     rotation={sliderRotation}
                     bendIndex={bendIndex}

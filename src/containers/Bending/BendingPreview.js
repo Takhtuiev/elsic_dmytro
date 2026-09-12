@@ -299,12 +299,7 @@ const BendingPreview=({
                 minHeight:0
             }}
         >
-            <Box
-                className="bend-preview-parameters"
-                sx={{flexShrink:0}}
-            >
-                <PartHeader profile={profile}/>
-            </Box>
+            <PartHeader profile={profile}/>
 
             <Box
                 ref={containerRef}

@@ -11,36 +11,43 @@ export const MACHINES = {
 
 export const MATERIALS = {
     PVC_CAW_RED: {
-        name: "PVC-CAW Red",
-        lambda: 0.15,
-        density: 1380.0,
-        specificHeat: 1000.0,
-        defaultTSurf: 160.0,
-        defaultTCenter: 130.0
+        name:"PVC-CAW Red",
+        lambda:0.15,
+        density:1380.0,
+        specificHeat:1000.0,
+        defaultTSurf:160.0,
+        defaultTCenter:130.0,
+        decompositionTemp:180.0
     },
+
     PVC_CAW_DARK_GREY: {
-        name: "PVC-CAW Grey",
-        lambda: 0.15,
-        density: 1380.0,
-        specificHeat: 1000.0,
-        defaultTSurf: 160.0,
-        defaultTCenter: 130.0
+        name:"PVC-CAW Grey",
+        lambda:0.15,
+        density:1380.0,
+        specificHeat:1000.0,
+        defaultTSurf:160.0,
+        defaultTCenter:130.0,
+        decompositionTemp:180.0
     },
+
     PVC_CAW_TRANSPARENT: {
-        name: "PVC Transparent",
-        lambda: 0.15,
-        density: 1390.0,
-        specificHeat: 1000.0,
-        defaultTSurf: 165.0,
-        defaultTCenter: 130.0
+        name:"PVC Transparent",
+        lambda:0.15,
+        density:1390.0,
+        specificHeat:1000.0,
+        defaultTSurf:165.0,
+        defaultTCenter:130.0,
+        decompositionTemp:180.0
     },
+
     POLYCARBONATE_STANDARD: {
-        name: "Polycarbonate Standard",
-        lambda: 0.20,
-        density: 1200.0,
-        specificHeat: 1200.0,
-        defaultTSurf: 180.0,
-        defaultTCenter: 150.0
+        name:"Polycarbonate Standard",
+        lambda:0.20,
+        density:1200.0,
+        specificHeat:1200.0,
+        defaultTSurf:180.0,
+        defaultTCenter:150.0,
+        decompositionTemp:300.0
     }
 };
 

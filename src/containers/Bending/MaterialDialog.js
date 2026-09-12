@@ -14,14 +14,15 @@ import {
 } from "@mui/material";
 
 const physicalProps = [
-    { key: "lambda", label: "Thermal conductivity", unit: "W/(m·K)", color: "#ed6c02" },
-    { key: "density", label: "Density", unit: "kg/m³", color: "#0288d1" },
-    { key: "specificHeat", label: "Specific heat", unit: "J/(kg·K)", color: "#2e7d32" }
+    {key:"lambda",label:"Thermal conductivity",unit:"W/(m·K)",color:"#0288d1"},
+    {key:"density",label:"Density",unit:"kg/m³",color:"#7b1fa2"},
+    {key:"specificHeat",label:"Specific heat",unit:"J/(kg·K)",color:"#2e7d32"}
 ];
 
 const tempProps = [
-    { key: "defaultTSurf", label: "Surface temp.", unit: "°C", color: "#d32f2f" },
-    { key: "defaultTCenter", label: "Center temp.", unit: "°C", color: "#c62828" }
+    {key:"decompositionTemp",label:"Decomposition temp.",unit:"°C",color:"#d32f2f"},
+    {key:"defaultTSurf",label:"Surface temp.",unit:"°C",color:"#f57c00"},
+    {key:"defaultTCenter",label:"Center temp.",unit:"°C",color:"#0288d1"},
 ];
 
 const Transition = forwardRef(function Transition(props, ref) {
