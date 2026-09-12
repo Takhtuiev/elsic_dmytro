@@ -149,24 +149,6 @@ const Parameters=({
                             Heating time: <strong>{formatTime(heatingParams.time)}</strong>
                         </Typography>
                     </Box>
-
-                    <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
-                        <Typography
-                            variant="body2"
-                            color={PARAMETER_TEXT_COLOR}
-                            fontSize={PARAMETER_TEXT_SIZE}
-                        >
-                            Surface temperature: <strong>{heatingParams.tSurf.toFixed(0)} °C</strong>
-                        </Typography>
-
-                        <Typography
-                            variant="body2"
-                            color={PARAMETER_TEXT_COLOR}
-                            fontSize={PARAMETER_TEXT_SIZE}
-                        >
-                            Theoretical time: <strong>{formatTime(heatingParams.baseTime)}</strong>
-                        </Typography>
-                    </Box>
                 </>
             )}
         </Box>

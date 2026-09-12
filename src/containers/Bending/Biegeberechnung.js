@@ -324,7 +324,6 @@ export default function Biegeberechnung(){
 
     const selectedBend=bends[bendIndex]??null;
 
-
     const updateField=useCallback((field,value)=>{
         setState(prev=>({
             ...prev,
@@ -335,14 +334,42 @@ export default function Biegeberechnung(){
 
     const updateItem=useCallback(
         (collection,index,field,value)=>{
-            setState(prev=>({
-                ...prev,
-                [collection]:prev[collection].map((item,i)=>
-                    i===index
-                        ?{...item,[field]:value}
-                        :item
-                )
-            }));
+            setState(prev=>{
+                const next={
+                    ...prev,
+                    [collection]:prev[collection].map((item,i)=>
+                        i===index
+                            ?{...item,[field]:value}
+                            :item
+                    )
+                };
+
+                if(
+                    collection==="bends" &&
+                    field==="direction" &&
+                    prev.view.bendIndex>=0
+                ){
+                    const geometry=buildProfileGeometry(next);
+
+                    const nextView=calculateBendView(
+                        geometry,
+                        prev.view.bendIndex,
+                        prev.view.bendSide,
+                        prev.view.mirrored,
+                        prev.view.rotation
+                    );
+
+                    return{
+                        ...next,
+                        view:{
+                            ...next.view,
+                            ...nextView
+                        }
+                    };
+                }
+
+                return next;
+            });
         },
         []
     );
