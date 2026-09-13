@@ -7,14 +7,11 @@ export const MACHINES = {
 
         heaters: [
             {
-                heaterTemperatureC: 400,
+                heaterTemperatureC: 200,
+                airTemperatureFactor: 0.80,
                 heaterEmissivity: 0.90,
                 viewFactor: 1,
-                ambientViewFactor: null,
                 radiationGain: 1,
-                radiationMode: "heaterTemperature",
-                heatFluxWm2: 0,
-                surfaceReflectance: null
             },
             {
                 heaterEmissivity: 0.90
@@ -29,23 +26,17 @@ export const MACHINES = {
         heaters: [
             {
                 heaterTemperatureC: 360,
+                airTemperatureFactor: 0.70,
                 heaterEmissivity: 0.90,
                 viewFactor: 1,
-                ambientViewFactor: null,
                 radiationGain: 1,
-                radiationMode: "heaterTemperature",
-                heatFluxWm2: 0,
-                surfaceReflectance: null
             },
             {
                 heaterTemperatureC: 360,
+                airTemperatureFactor: 0.70,
                 heaterEmissivity: 0.90,
                 viewFactor: 1,
-                ambientViewFactor: null,
                 radiationGain: 1,
-                radiationMode: "heaterTemperature",
-                heatFluxWm2: 0,
-                surfaceReflectance: null
             }
         ]
     }
@@ -62,7 +53,6 @@ export const MATERIALS = {
         specificHeat: 1000,
 
         emissivity: 0.93,
-        absorptionCoefficient: 147,
         surfaceReflectance: 0,
 
         defaultTSurf: 160,
@@ -78,7 +68,6 @@ export const MATERIALS = {
         specificHeat: 1000,
 
         emissivity: 0.93,
-        absorptionCoefficient: 147,
         surfaceReflectance: 0,
 
         defaultTSurf: 160,
@@ -94,7 +83,6 @@ export const MATERIALS = {
         specificHeat: 1000,
 
         emissivity: 0.93,
-        absorptionCoefficient: 147,
         surfaceReflectance: 0,
 
         defaultTSurf: 165,
@@ -110,7 +98,6 @@ export const MATERIALS = {
         specificHeat: 1200,
 
         emissivity: 0.93,
-        absorptionCoefficient: 147,
         surfaceReflectance: 0,
 
         defaultTSurf: 180,

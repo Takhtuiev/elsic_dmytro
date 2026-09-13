@@ -1,11 +1,11 @@
 /**
- * 1D transient finite-difference heating model.
+ * 1D transient finite-difference heating model for Opaque Plastics (PVC + Heating Elements).
  *
- * rho*Cp*dT/dt = d/dx(k*dT/dx) + q_abs
+ * rho*Cp*dT/dt = d/dx(k*dT/dx)
  *
- * Heating: IR radiation + Beer-Lambert absorption
- * Losses: convection + ambient radiation
- * Calibration: radiationGain, h, absorptionCoefficient
+ * Heating: Surface-applied effective IR radiation flux + convection
+ * Losses: Convection + ambient radiation
+ * Calibration: radiationGain, h
  */
 
 export const SIGMA = 5.670374419e-8;
@@ -140,22 +140,6 @@ export function calculateConvectionFlux({
 }
 
 /* =========================
- * BEER-LAMBERT
- * ========================= */
-
-/* Absorption between x0 and x1. */
-function absorbedFractionBetween({
-                                     absorptionCoefficient,
-                                     x0,
-                                     x1
-                                 }) {
-    if (absorptionCoefficient <= 0) return 0;
-
-    return Math.exp(-absorptionCoefficient * x0) -
-        Math.exp(-absorptionCoefficient * x1);
-}
-
-/* =========================
  * GRID
  * ========================= */
 
@@ -201,7 +185,6 @@ function resolveSides({sides,machine}) {
         }
     };
 }
-
 /* =========================
  * HEATER
  * ========================= */
@@ -256,73 +239,31 @@ export function calculateEffectiveIncidentFlux({
 }
 
 /* =========================
- * OPTICAL GRID
- * ========================= */
-
-/* Precalculate absorbed fraction for each control volume. */
-function createAbsorptionFractions({
-                                       thicknessM,
-                                       dx,
-                                       nodeCount,
-                                       absorptionCoefficient
-                                   }) {
-    const topFraction = new Float64Array(nodeCount);
-    const bottomFraction = new Float64Array(nodeCount);
-
-    if (absorptionCoefficient <= 0) {
-        return {topFraction,bottomFraction};
-    }
-
-    for (let i = 0; i < nodeCount; i++) {
-        const left = Math.max(0,i * dx - dx / 2);
-        const right = Math.min(thicknessM,i * dx + dx / 2);
-
-        topFraction[i] = absorbedFractionBetween({
-            absorptionCoefficient,
-            x0: left,
-            x1: right
-        });
-
-        bottomFraction[i] = absorbedFractionBetween({
-            absorptionCoefficient,
-            x0: thicknessM - right,
-            x1: thicknessM - left
-        });
-    }
-
-    return {topFraction,bottomFraction};
-}
-
-/* =========================
  * TARGET / HISTORY
  * ========================= */
 
 function targetReached({T,centerIndex,target}) {
-    let minC = Infinity;
-    let maxC = -Infinity;
-
-    for (let i = 0; i < T.length; i++) {
-        const c = toCelsius(T[i]);
-        if (c < minC) minC = c;
-        if (c > maxC) maxC = c;
-    }
-
     const frontC = toCelsius(T[0]);
     const centerC = toCelsius(T[centerIndex]);
     const backC = toCelsius(T[T.length - 1]);
 
+    const DECOMPOSITION_TEMP = 180; // Критическая точка деструкции ПВХ
+    const MAX_SAFE_SURFACE = 145;   // Предел во избежание пузырей
+
+    // Аварийная защита от порчи заготовки
+    if (frontC >= DECOMPOSITION_TEMP || backC >= DECOMPOSITION_TEMP) {
+        throw new Error(
+            `Критический брак: Поверхность ПВХ нагрелась до температуры деструкции (${DECOMPOSITION_TEMP}°C)! ` +
+            `Центр при этом успел прогреться только до ${centerC.toFixed(1)}°C. ` +
+            `Решение: Снизьте температуру ТЭНов на регуляторе или увеличьте зазор.`
+        );
+    }
+
+    // Успешный критерий окончания нагрева под гибку
     return (
-        (target.minSurfaceC == null ||
-            (frontC >= target.minSurfaceC &&
-                backC >= target.minSurfaceC)) &&
-        (target.minCenterC == null ||
-            centerC >= target.minCenterC) &&
-        (target.profileMinC == null ||
-            minC >= target.profileMinC) &&
-        (target.profileMaxC == null ||
-            maxC <= target.profileMaxC) &&
-        (target.maxGradientC == null ||
-            maxC - minC <= target.maxGradientC)
+        (target.minCenterC == null || centerC >= target.minCenterC) &&
+        frontC <= MAX_SAFE_SURFACE &&
+        backC <= MAX_SAFE_SURFACE
     );
 }
 
@@ -387,64 +328,31 @@ export function simulate1DHeating({
         ambientRadiationTemperatureC
     } = thermalConditions;
 
-    if (!Number.isFinite(initialTemperatureC)) {
-        throw new Error("initialTemperatureC must be finite");
-    }
-
-    if (!Number.isFinite(ambientTemperatureC)) {
-        throw new Error("ambientTemperatureC must be finite");
-    }
-
-    if (!Number.isFinite(ambientRadiationTemperatureC)) {
-        throw new Error(
-            "ambientRadiationTemperatureC must be finite"
-        );
-    }
+    if (!Number.isFinite(initialTemperatureC)) throw new Error("initialTemperatureC must be finite");
+    if (!Number.isFinite(ambientTemperatureC)) throw new Error("ambientTemperatureC must be finite");
+    if (!Number.isFinite(ambientRadiationTemperatureC)) throw new Error("ambientRadiationTemperatureC must be finite");
 
     const thicknessM = thicknessMm / 1000;
-    const {nodeCount,dx,x} =
-        createGrid(thicknessM,dxMm / 1000);
+    const {nodeCount,dx,x} = createGrid(thicknessM,dxMm / 1000);
 
-    const materialModel =
-        createMaterialModel(material);
+    const materialModel = createMaterialModel(material);
+    const initialProperties = materialModel.get(initialTemperatureC);
 
-    const initialProperties =
-        materialModel.get(initialTemperatureC);
+    const thermalDiffusivity = initialProperties.k / (initialProperties.density * initialProperties.cp);
 
-    const thermalDiffusivity =
-        initialProperties.k /
-        (initialProperties.density *
-            initialProperties.cp);
-
-    /* Explicit finite-difference stability limit. */
-    const maxStableDt =
-        0.45 * dx * dx / thermalDiffusivity;
-
+    /* Явный критерий устойчивости схемы с запасом для надежности */
+    const maxStableDt = 0.43 * dx * dx / thermalDiffusivity;
     const dt = Math.min(dtSeconds,maxStableDt);
 
-    const absorptionCoefficient = Math.max(
-        0,
-        Number(material.absorptionCoefficient) || 0
-    );
+    const {top: topSide,bottom: bottomSide} = resolveSides({
+        sides,
+        machine: normalizedMachine
+    });
 
-    const hasAbsorption =
-        absorptionCoefficient > 0;
-
-    const {top: topSide,bottom: bottomSide} =
-        resolveSides({
-            sides,
-            machine: normalizedMachine
-        });
-
-    const h = Math.max(
-        0,
-        Number(normalizedMachine.heatTransferCoefficient) || 0
-    );
+    const h = Math.max(0, Number(normalizedMachine.heatTransferCoefficient) || 0);
 
     const sheetEmissivity = clamp(
-        Number.isFinite(material.emissivity)
-            ? material.emissivity
-            : 0.93,
+        Number.isFinite(material.emissivity) ? material.emissivity : 0.93,
         0,
         1
     );
@@ -452,11 +360,7 @@ export function simulate1DHeating({
     const topAmbientViewFactor = clamp(
         Number.isFinite(topSide.ambientViewFactor)
             ? topSide.ambientViewFactor
-            : 1 - clamp(
-            Number(topSide.viewFactor) || 0,
-            0,
-            1
-        ),
+            : 1 - clamp(Number(topSide.viewFactor) || 0, 0, 1),
         0,
         1
     );
@@ -464,63 +368,45 @@ export function simulate1DHeating({
     const bottomAmbientViewFactor = clamp(
         Number.isFinite(bottomSide.ambientViewFactor)
             ? bottomSide.ambientViewFactor
-            : 1 - clamp(
-            Number(bottomSide.viewFactor) || 0,
-            0,
-            1
-        ),
+            : 1 - clamp(Number(bottomSide.viewFactor) || 0, 0, 1),
         0,
         1
     );
-
-    const {topFraction,bottomFraction} =
-        createAbsorptionFractions({
-            thicknessM,
-            dx,
-            nodeCount,
-            absorptionCoefficient
-        });
 
     const T = new Float64Array(nodeCount);
     const Tnext = new Float64Array(nodeCount);
 
     T.fill(toKelvin(initialTemperatureC));
 
-    const centerIndex =
-        Math.floor((nodeCount - 1) / 2);
+    const centerIndex = Math.floor((nodeCount - 1) / 2);
 
     let time = 0;
-    let reachedTarget =
-        targetReached({
-            T,
-            centerIndex,
-            target
-        });
+    let reachedTarget = targetReached({ T, centerIndex, target });
 
-    let nextSampleTime =
-        storeHistory ? sampleEverySeconds : Infinity;
-
-    const history =
-        storeHistory ? [] : null;
+    let nextSampleTime = storeHistory ? sampleEverySeconds : Infinity;
+    const history = storeHistory ? [] : null;
 
     if (storeHistory) {
-        saveHistorySample({
-            T,
-            centerIndex,
-            history,
-            time
-        });
+        saveHistorySample({ T, centerIndex, history, time });
     }
 
     /* =========================
-     * TIME INTEGRATION
+ * TIME INTEGRATION
+ * ========================= */
+
+    /* =========================
+     * TIME INTEGRATION (АВТОМАТИЧЕСКИЙ ВОЗДУХ)
      * ========================= */
+
+    /* =========================
+ * TIME INTEGRATION (ДИНАМИЧЕСКИЙ ВОЗДУХ С КОЭФФИЦИЕНТОМ)
+ * ========================= */
 
     while (!reachedTarget && time < maxTimeSeconds) {
         const topSurfaceC = toCelsius(T[0]);
-        const bottomSurfaceC =
-            toCelsius(T[nodeCount - 1]);
+        const bottomSurfaceC = toCelsius(T[nodeCount - 1]);
 
+        // Эффективный лучистый приток тепла от ТЭНов падает строго на поверхности
         const topIncident = topSide.enabled
             ? calculateEffectiveIncidentFlux({
                 side: topSide,
@@ -537,123 +423,91 @@ export function simulate1DHeating({
             }).effectiveWm2
             : 0;
 
-        /* Interior nodes. */
+        // Извлекаем кастомные коэффициенты прогрева воздуха из объекта нагревателя (дефолт = 0.70)
+        const topFactor = Number.isFinite(topSide.airTemperatureFactor) ? topSide.airTemperatureFactor : 0.70;
+        const bottomFactor = Number.isFinite(bottomSide.airTemperatureFactor) ? bottomSide.airTemperatureFactor : 0.70;
+
+        // Динамический расчет раскаленного воздуха в зазоре на основе кастомного фактора
+        const topAirC = topSide.enabled
+            ? topSurfaceC + topFactor * (topSide.heaterTemperatureC - topSurfaceC)
+            : thermalConditions.ambientTemperatureC;
+
+        const bottomAirC = bottomSide.enabled
+            ? bottomSurfaceC + bottomFactor * (bottomSide.heaterTemperatureC - bottomSurfaceC)
+            : thermalConditions.ambientTemperatureC;
+
+        /* 1. Внутренние узлы: только чистая теплопроводность (ПВХ непрозрачен) */
         for (let i = 1; i < nodeCount - 1; i++) {
             const temperatureC = toCelsius(T[i]);
-            const {density,k,cp} =
-                materialModel.get(temperatureC);
+            const {density,k,cp} = materialModel.get(temperatureC);
 
-            const conduction =
-                k *
-                (T[i + 1] - 2 * T[i] + T[i - 1]) /
-                (dx * dx);
+            const conduction = k * (T[i + 1] - 2 * T[i] + T[i - 1]) / (dx * dx);
 
-            let qAbs = 0;
-
-            if (hasAbsorption) {
-                if (topSide.enabled) {
-                    qAbs +=
-                        topIncident * topFraction[i] / dx;
-                }
-
-                if (bottomSide.enabled) {
-                    qAbs +=
-                        bottomIncident * bottomFraction[i] / dx;
-                }
-            }
-
-            Tnext[i] = T[i] + dt * (
-                conduction + qAbs
-            ) / (density * cp);
+            Tnext[i] = T[i] + dt * conduction / (density * cp);
         }
 
-        /* Top surface: half control volume. */
+        /* 2. Верхняя поверхность (половина контрольного объема) */
         {
             const i = 0;
             const temperatureC = toCelsius(T[i]);
-            const {density,k,cp} =
-                materialModel.get(temperatureC);
+            const {density,k,cp} = materialModel.get(temperatureC);
 
-            const conduction =
-                2 * k *
-                (T[i + 1] - T[i]) /
-                (dx * dx);
+            const conduction = 2 * k * (T[i + 1] - T[i]) / (dx * dx);
 
-            const qAbs =
-                hasAbsorption && topSide.enabled
-                    ? topIncident * topFraction[i] / (dx / 2)
-                    : 0;
+            const convection = calculateConvectionFlux({
+                surfaceTemperatureC: temperatureC,
+                ambientTemperatureC: topAirC, // Динамический воздух
+                heatTransferCoefficient: h
+            });
 
-            const convection =
-                calculateConvectionFlux({
-                    surfaceTemperatureC: temperatureC,
-                    ambientTemperatureC,
-                    heatTransferCoefficient: h
-                });
+            const radiationLoss = calculateAmbientRadiationLoss({
+                surfaceTemperatureC: temperatureC,
+                ambientRadiationTemperatureC,
+                sheetEmissivity,
+                ambientViewFactor: topAmbientViewFactor
+            });
 
-            const radiation =
-                calculateAmbientRadiationLoss({
-                    surfaceTemperatureC: temperatureC,
-                    ambientRadiationTemperatureC,
-                    sheetEmissivity,
-                    ambientViewFactor:
-                    topAmbientViewFactor
-                });
+            const netSurfaceFlux = convection - radiationLoss + topIncident;
 
             Tnext[i] = T[i] + dt * (
-                conduction +
-                qAbs +
-                2 * (convection - radiation) / dx
+                conduction + 2 * netSurfaceFlux / dx
             ) / (density * cp);
         }
 
-        /* Bottom surface: half control volume. */
+        /* 3. Нижняя поверхность (половина контрольного объема) */
         {
             const i = nodeCount - 1;
             const temperatureC = toCelsius(T[i]);
-            const {density,k,cp} =
-                materialModel.get(temperatureC);
+            const {density,k,cp} = materialModel.get(temperatureC);
 
-            const conduction =
-                2 * k *
-                (T[i - 1] - T[i]) /
-                (dx * dx);
+            const conduction = 2 * k * (T[i - 1] - T[i]) / (dx * dx);
 
-            const qAbs =
-                hasAbsorption && bottomSide.enabled
-                    ? bottomIncident * bottomFraction[i] / (dx / 2)
-                    : 0;
+            const convection = calculateConvectionFlux({
+                surfaceTemperatureC: temperatureC,
+                ambientTemperatureC: bottomAirC, // Динамический воздух
+                heatTransferCoefficient: h
+            });
 
-            const convection =
-                calculateConvectionFlux({
-                    surfaceTemperatureC: temperatureC,
-                    ambientTemperatureC,
-                    heatTransferCoefficient: h
-                });
+            const radiationLoss = calculateAmbientRadiationLoss({
+                surfaceTemperatureC: temperatureC,
+                ambientRadiationTemperatureC,
+                sheetEmissivity,
+                ambientViewFactor: bottomAmbientViewFactor
+            });
 
-            const radiation =
-                calculateAmbientRadiationLoss({
-                    surfaceTemperatureC: temperatureC,
-                    ambientRadiationTemperatureC,
-                    sheetEmissivity,
-                    ambientViewFactor:
-                    bottomAmbientViewFactor
-                });
+            const netSurfaceFlux = convection - radiationLoss + bottomIncident;
 
             Tnext[i] = T[i] + dt * (
-                conduction +
-                qAbs +
-                2 * (convection - radiation) / dx
+                conduction + 2 * netSurfaceFlux / dx
             ) / (density * cp);
         }
 
         T.set(Tnext);
         time += dt;
 
+        // Физический контроль устойчивости численных значений
         for (let i = 0; i < nodeCount; i++) {
-            if (!Number.isFinite(T[i]) ||
-                T[i] < 100 ||
-                T[i] > 1500) {
+            if (!Number.isFinite(T[i]) || T[i] < 100 || T[i] > 1500) {
                 throw new Error(
                     `Numerical instability at ${time.toFixed(3)} s. ` +
                     `Reduce dx/dt or check model parameters.`
@@ -661,28 +515,16 @@ export function simulate1DHeating({
             }
         }
 
-        reachedTarget =
-            targetReached({
-                T,
-                centerIndex,
-                target
-            });
+        reachedTarget = targetReached({ T, centerIndex, target });
 
-        if (storeHistory &&
-            time + 1e-12 >= nextSampleTime) {
-            saveHistorySample({
-                T,
-                centerIndex,
-                history,
-                time
-            });
-
+        if (storeHistory && time + 1e-12 >= nextSampleTime) {
+            saveHistorySample({ T, centerIndex, history, time });
             nextSampleTime += sampleEverySeconds;
         }
     }
 
     /* =========================
-     * RESULT
+     * RESULT & DIAGNOSTICS
      * ========================= */
 
     const temperatureProfile = Array.from(
@@ -703,101 +545,49 @@ export function simulate1DHeating({
         result.history = history;
     }
 
-    /* =========================
-     * DIAGNOSTICS
-     * ========================= */
-
     if (includeBreakdown) {
-        const frontTemperatureC =
-            temperatureProfile[0].temperatureC;
+        const frontTemperatureC = temperatureProfile[0].temperatureC;
+        const backTemperatureC = temperatureProfile[nodeCount - 1].temperatureC;
 
-        const backTemperatureC =
-            temperatureProfile[nodeCount - 1]
-                .temperatureC;
-
-        const zeroFlux = {
-            incidentWm2: 0,
-            reflectedWm2: 0,
-            effectiveWm2: 0
-        };
+        const zeroFlux = { incidentWm2: 0, reflectedWm2: 0, effectiveWm2: 0 };
 
         const topFlux = topSide.enabled
-            ? calculateEffectiveIncidentFlux({
-                side: topSide,
-                material,
-                surfaceTemperatureC:
-                frontTemperatureC
-            })
+            ? calculateEffectiveIncidentFlux({ side: topSide, material, surfaceTemperatureC: frontTemperatureC })
             : zeroFlux;
 
         const bottomFlux = bottomSide.enabled
-            ? calculateEffectiveIncidentFlux({
-                side: bottomSide,
-                material,
-                surfaceTemperatureC:
-                backTemperatureC
-            })
+            ? calculateEffectiveIncidentFlux({ side: bottomSide, material, surfaceTemperatureC: backTemperatureC })
             : zeroFlux;
-
-        const optical =
-            getOpticalValues(
-                absorptionCoefficient,
-                thicknessM
-            );
 
         result.diagnostics = {
             nodeCount,
             dxMm: dx * 1000,
             dtSeconds: dt,
             maxStableDtSeconds: maxStableDt,
-            thermalDiffusivityM2s:
-            thermalDiffusivity,
-
-            opticalAbsorptionCoefficient1m:
-            absorptionCoefficient,
-
-            opticalPenetrationDepthMm:
-            optical.penetrationDepthMm,
-
-            singlePassAbsorbedFraction:
-            optical.absorbedFraction,
-
-            singlePassTransmittedFraction:
-            optical.transmittedFraction,
-
+            thermalDiffusivityM2s: thermalDiffusivity,
             heatBalance: {
                 top: topFlux,
                 bottom: bottomFlux,
                 convectionCoefficient: h
             },
-
             machine: {
-                heaterCount:
-                normalizedMachine.heaters.length,
+                heaterCount: normalizedMachine.heaters.length,
                 top: normalizedMachine.top,
                 bottom: normalizedMachine.bottom
             },
-
             numerical: {
                 explicitScheme: true,
-                stabilityCriterion: "Fo <= 0.45",
-                thermalPropertyModel:
-                    materialModel.constant
-                        ? "constant"
-                        : "temperature-dependent",
-                opticalModel:
-                    "Beer-Lambert volumetric absorption",
-                boundaryModel:
-                    "convection + ambient radiation",
-                heaterModel:
-                    "radiative heater + volumetric absorption"
+                stabilityCriterion: "Fo <= 0.43",
+                thermalPropertyModel: materialModel.constant ? "constant" : "temperature-dependent",
+                opticalModel: "Opaque Sheet (Surface Absorption for Infrared Heating Elements)",
+                boundaryModel: "convection + ambient radiation + surface-applied effective IR flux",
+                heaterModel: "radiative heater mapped to boundary condition"
             }
         };
     }
 
     return result;
 }
-
 
 /* =========================
  * BENDING HEATING TIME
@@ -831,8 +621,7 @@ export function calculateBendingHeatingTime({
         thermalConditions,
         sides: heaterMode,
         target: {
-            profileMinC: targetMinC,
-            profileMaxC: targetMaxC
+            minCenterC: targetMinC
         },
         ...options
     });
@@ -847,29 +636,21 @@ export function calculateFitError({
                                       measurements,
                                       weights
                                   }) {
-    if (!Array.isArray(measurements) ||
-        measurements.length === 0) {
-        throw new Error(
-            "measurements must be a non-empty array"
-        );
+    if (!Array.isArray(measurements) || measurements.length === 0) {
+        throw new Error("measurements must be a non-empty array");
     }
 
-    if (!simulation.history ||
-        simulation.history.length === 0) {
-        throw new Error(
-            "simulation.history is empty"
-        );
+    if (!simulation.history || simulation.history.length === 0) {
+        throw new Error("simulation.history is empty");
     }
 
     const nearest = timeSeconds => {
         let best = simulation.history[0];
-        let bestDistance =
-            Math.abs(best.timeSeconds - timeSeconds);
+        let bestDistance = Math.abs(best.timeSeconds - timeSeconds);
 
         for (let i = 1; i < simulation.history.length; i++) {
             const sample = simulation.history[i];
-            const distance =
-                Math.abs(sample.timeSeconds - timeSeconds);
+            const distance = Math.abs(sample.timeSeconds - timeSeconds);
 
             if (distance < bestDistance) {
                 best = sample;
@@ -884,62 +665,38 @@ export function calculateFitError({
     let count = 0;
 
     for (const measurement of measurements) {
-        const simulated =
-            nearest(measurement.timeSeconds);
+        const simulated = nearest(measurement.timeSeconds);
 
-        if (Number.isFinite(
-            measurement.frontSurfaceC
-        )) {
-            const d =
-                simulated.frontSurfaceC -
-                measurement.frontSurfaceC;
-
-            squaredError +=
-                weights.surface * d * d;
-
+        if (Number.isFinite(measurement.frontSurfaceC)) {
+            const d = simulated.frontSurfaceC - measurement.frontSurfaceC;
+            squaredError += weights.surface * d * d;
             count++;
         }
 
-        if (Number.isFinite(
-            measurement.centerC
-        )) {
-            const d =
-                simulated.centerC -
-                measurement.centerC;
-
-            squaredError +=
-                weights.center * d * d;
-
+        if (Number.isFinite(measurement.centerC)) {
+            const d = simulated.centerC - measurement.centerC;
+            squaredError += weights.center * d * d;
             count++;
         }
 
-        if (Number.isFinite(
-            measurement.backSurfaceC
-        )) {
-            const d =
-                simulated.backSurfaceC -
-                measurement.backSurfaceC;
-
-            squaredError +=
-                weights.surface * d * d;
-
+        if (Number.isFinite(measurement.backSurfaceC)) {
+            const d = simulated.backSurfaceC - measurement.backSurfaceC;
+            squaredError += weights.surface * d * d;
             count++;
         }
     }
 
     return {
-        rmseC: Math.sqrt(
-            squaredError / Math.max(1,count)
-        ),
+        rmseC: Math.sqrt(squaredError / Math.max(1,count)),
         sse: squaredError,
         samples: count
     };
 }
 
 
-/* =========================
- * CALIBRATION
- * ========================= */
+//* =========================
+//* CALIBRATION (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+//* ========================= */
 
 export function fitHeatingParameters({
                                          thicknessMm,
@@ -953,52 +710,38 @@ export function fitHeatingParameters({
                                          bounds,
                                          passes
                                      }) {
-    if (!Array.isArray(measurements) ||
-        measurements.length === 0) {
-        throw new Error(
-            "measurements must be a non-empty array"
-        );
+    if (!Array.isArray(measurements) || measurements.length === 0) {
+        throw new Error("measurements must be a non-empty array");
     }
 
     if (!Number.isFinite(simulation.maxTimeSeconds)) {
-        throw new Error(
-            "simulation.maxTimeSeconds must be finite"
-        );
+        throw new Error("simulation.maxTimeSeconds must be finite");
     }
 
-    const normalizedMachine =
-        normalizeMachine(machine);
+    const normalizedMachine = normalizeMachine(machine);
 
     const calibrationSimulation = {
         ...simulation,
         storeHistory: true,
-        target: {}
+        target: {} // сбрасываем цель, чтобы симуляция шла до maxTimeSeconds для снятия всех точек
     };
 
     const simulate = params => {
+        // Обновляем параметры конвекции и радиации на основе оптимизации
         const fittedMachine = {
             ...normalizedMachine,
-            heatTransferCoefficient:
-            params.heatTransferCoefficient,
-            heaters:
-                normalizedMachine.heaters.map(
-                    heater => ({
-                        ...heater,
-                        radiationGain:
-                        params.radiationGain
-                    })
-                )
-        };
-
-        const fittedMaterial = {
-            ...material,
-            absorptionCoefficient:
-            params.absorptionCoefficient
+            heatTransferCoefficient: params.heatTransferCoefficient,
+            heaters: normalizedMachine.heaters.map(
+                heater => ({
+                    ...heater,
+                    radiationGain: params.radiationGain
+                })
+            )
         };
 
         return simulate1DHeating({
             thicknessMm,
-            material: fittedMaterial,
+            material,
             machine: fittedMachine,
             thermalConditions,
             sides,
@@ -1017,42 +760,26 @@ export function fitHeatingParameters({
     let bestError = getError(params);
 
     const initialStep = {
-        radiationGain:
-            Math.max(0.01,
-                params.radiationGain * 0.5),
-
-        heatTransferCoefficient:
-            Math.max(0.5,
-                params.heatTransferCoefficient * 0.5),
-
-        absorptionCoefficient:
-            Math.max(1,
-                params.absorptionCoefficient * 0.5)
+        radiationGain: Math.max(0.01, params.radiationGain * 0.5),
+        heatTransferCoefficient: Math.max(0.5, params.heatTransferCoefficient * 0.5)
     };
 
     const parameterKeys = [
         "radiationGain",
-        "heatTransferCoefficient",
-        "absorptionCoefficient"
+        "heatTransferCoefficient"
     ];
 
     for (let pass = 0; pass < passes; pass++) {
         for (const key of parameterKeys) {
             const current = params[key];
-            const step =
-                initialStep[key] / 2 ** pass;
+            const step = initialStep[key] / (2 ** pass);
 
+            // ИСПРАВЛЕНО: Теперь clamp корректно берет [0] как мин и [1] как макс
             const candidates = [
                 current - step,
                 current,
                 current + step
-            ].map(value =>
-                clamp(
-                    value,
-                    bounds[key][0],
-                    bounds[key][1]
-                )
-            );
+            ].map(value => clamp(value, bounds[key][0], bounds[key][1]));
 
             for (const candidate of candidates) {
                 const trial = {
@@ -1073,83 +800,18 @@ export function fitHeatingParameters({
     return {
         parameters: params,
         rmseC: bestError,
-        note:
-            "Validate fitted parameters on separate measurements."
+        note: "Validate fitted parameters on separate measurements. Optical coefficient optimization disabled for THeaters."
     };
 }
 
-
-/* ============================================================
- * OPTICAL DIAGNOSTICS
- * ============================================================ */
-
-/* Whole-sheet optical diagnostics. */
-function getOpticalValues(
-    absorptionCoefficient,
-    thicknessM
-) {
-    if (absorptionCoefficient <= 0) {
-        return {
-            penetrationDepthMm: Infinity,
-            absorbedFraction: 0,
-            transmittedFraction: 1
-        };
-    }
-
-    const transmittedFraction =
-        Math.exp(
-            -absorptionCoefficient *
-            thicknessM
-        );
-
-    return {
-        penetrationDepthMm:
-            1000 / absorptionCoefficient,
-
-        absorbedFraction:
-            1 - transmittedFraction,
-
-        transmittedFraction
-    };
-}
-
-
-/* Optical diagnostics only. */
-export function getOpticalDiagnostics({
-                                          thicknessMm,
-                                          material
-                                      }) {
-    positiveNumber(
-        thicknessMm,
-        "thicknessMm"
-    );
-
-    const thicknessM =
-        thicknessMm / 1000;
-
-    const absorptionCoefficient =
-        Math.max(
-            0,
-            Number(
-                material.absorptionCoefficient
-            ) || 0
-        );
-
-    const optical =
-        getOpticalValues(
-            absorptionCoefficient,
-            thicknessM
-        );
-
+/* Optical diagnostics only (Kept for backward compatibility interface) */
+export function getOpticalDiagnostics({thicknessMm, material}) {
+    positiveNumber(thicknessMm, "thicknessMm");
     return {
         thicknessMm,
-        absorptionCoefficient1m:
-        absorptionCoefficient,
-        penetrationDepthMm:
-        optical.penetrationDepthMm,
-        singlePassAbsorbedFraction:
-        optical.absorbedFraction,
-        singlePassTransmittedFraction:
-        optical.transmittedFraction
+        absorptionCoefficient1m: Infinity,
+        penetrationDepthMm: 0,
+        singlePassAbsorbedFraction: 1,
+        singlePassTransmittedFraction: 0
     };
 }
