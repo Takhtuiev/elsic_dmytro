@@ -5,12 +5,9 @@ import {alpha} from "@mui/material/styles";
 import BendProfileRender from "./BendProfileRender";
 import {prepareSvgLayers} from "./prepareSvgLayers";
 import {MAX_BEND_ANGLE,MIN_BEND_ANGLE} from "./svgConstants";
-import {
-    calculateBendingCycleTime,
-    MACHINES,MATERIALS
-} from "./calculateBendingCycleTime";
+import {MACHINES, MATERIALS} from "./parameters";
+import {calculateBendingHeatingTime} from "./pvc-1d-transient-heating";
 
-const MACHINA=MACHINES.MACHINE_LINE_1;
 
 const PARAMETER_TEXT_COLOR="text.primary";
 const PARAMETER_TEXT_SIZE="0.8rem";
@@ -77,7 +74,13 @@ const Parameters=({
             :null;
 
     return(
-        <Box sx={{p:1}}>
+        <Box
+            className="bend-preview-parameters"
+            sx={{
+                p:1,
+                flexShrink:0,
+            }}
+        >
             <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
                 <Typography
                     variant="body2"
@@ -138,7 +141,7 @@ const Parameters=({
                             color={PARAMETER_TEXT_COLOR}
                             fontSize={PARAMETER_TEXT_SIZE}
                         >
-                            Heat temp: <strong>{heatingParams.regulatorTemp} °C</strong>
+                            Heat temp: <strong>{"200"} °C</strong>
                         </Typography>
 
                         <Typography
@@ -146,7 +149,7 @@ const Parameters=({
                             color={PARAMETER_TEXT_COLOR}
                             fontSize={PARAMETER_TEXT_SIZE}
                         >
-                            Heating time: <strong>{formatTime(heatingParams.time)}</strong>
+                            Heating time: <strong>{formatTime(heatingParams.heatingTimeSeconds)}</strong>
                         </Typography>
                     </Box>
                 </>
@@ -188,13 +191,34 @@ const BendingPreview=({
         return()=>observer.disconnect();
     },[]);
 
-    const heatingParams=calculateBendingCycleTime({
-        thickness:profile?.thickness,
-        material:MATERIALS[profile?.materialKey],
-        machine:MACHINA,
-        regulatorTemp:200,
-        tShop:20
-    });
+    const MACHINA=MACHINES.MACHINE_LINE_1;
+    const MATERIAL = MATERIALS[profile.materialKey];
+
+    const heatingParams = useMemo(() => {
+        
+        if (!profile?.thickness || !profile?.materialKey) {
+            return null;
+        }
+
+        return calculateBendingHeatingTime({
+            thicknessMm: profile.thickness,
+            material: MATERIAL,
+            machine: MACHINA,
+
+            thermalConditions: {
+                initialTemperatureC: 20,
+                ambientTemperatureC: 20,
+                ambientRadiationTemperatureC: 20
+            },
+
+            heaterMode: "both",
+
+            dxMm: 0.1,
+            dtSeconds: 0.02,
+            maxTimeSeconds: 1200
+        });
+    }, [profile.thickness, profile?.materialKey, MATERIAL, MACHINA]);
+    
 
     const invalidAngleIndex=
         profile?.bends?.findIndex(({angle})=>{
@@ -354,17 +378,12 @@ const BendingPreview=({
                 )}
             </Box>
 
-            <Box
-                className="bend-preview-parameters"
-                sx={{flexShrink:0}}
-            >
-                <Parameters
-                    profile={profile}
-                    part={{blankLength}}
-                    machineParams={machineParams}
-                    heatingParams={heatingParams}
-                />
-            </Box>
+            <Parameters
+                profile={profile}
+                part={{blankLength}}
+                machineParams={machineParams}
+                heatingParams={heatingParams}
+            />
         </Box>
     );
 };

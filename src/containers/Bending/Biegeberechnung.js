@@ -22,7 +22,7 @@ import {
 } from "./Calculations";
 import buildProfileGeometry from "./BuildProfileGeometry";
 import {setProfile} from "../../Store/bendingSlice";
-import {MATERIALS} from "./calculateBendingCycleTime";
+import {MATERIALS} from "./parameters";
 
 
 const INITIAL_STATE={
