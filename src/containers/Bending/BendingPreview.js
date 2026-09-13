@@ -610,9 +610,6 @@ const BendingPreview=({
             },
 
             heaterMode:"both",
-
-            dxMm:.1,
-            dtSeconds:.02,
             maxTimeSeconds:1200
         });
     },[
