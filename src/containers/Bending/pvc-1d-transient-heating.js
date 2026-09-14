@@ -1,22 +1,23 @@
 /**
- * 1D transient finite-difference heating model for Opaque Plastics.
+ * 1D transient implicit finite-difference heating model for opaque plastics.
  *
  * rho*Cp*dT/dt = d/dx(k*dT/dx)
  *
  * Heating: IR radiation + convection
  * Losses: convection + ambient radiation
+ *
+ * Numerical method:
+ * Fully implicit conduction with linearized nonlinear radiation.
+ * Tridiagonal system solved by Thomas algorithm.
  */
 
-/* =========================
- * NUMERICAL CONTROL
- * ========================= */
-
-export const GRID_CELLS_PER_THICKNESS = 12;
+export const GRID_CELLS_PER_THICKNESS = 21;
 export const MIN_DX_MM = 0.25;
 export const MAX_DX_MM = 1.5;
 
-export const STABILITY_FACTOR = 0.5;
-export const TIME_STEP_FACTOR = 0.25;
+export const DEFAULT_DT_SECONDS = 0.5;
+export const MAX_NONLINEAR_ITERATIONS = 3;
+export const NONLINEAR_TOLERANCE_C = 0.1;
 
 export const SIGMA = 5.670374419e-8;
 
@@ -25,23 +26,19 @@ export const SIGMA = 5.670374419e-8;
  * ========================= */
 
 export function normalizeMachine(machine) {
-    if (!machine || typeof machine !== "object") {
+    if (!machine || typeof machine !== "object")
         throw new Error("machine must be an object");
-    }
 
-    if (
-        !Array.isArray(machine.heaters) ||
+    if (!Array.isArray(machine.heaters) ||
         machine.heaters.length < 1 ||
-        machine.heaters.length > 2
-    ) {
+        machine.heaters.length > 2)
         throw new Error("machine.heaters must contain 1 or 2 heaters");
-    }
 
     const top = {...machine.heaters[0]};
 
     const bottom =
         machine.heaters.length === 2
-            ? {...top, ...(machine.heaters[1] || {})}
+            ? {...top,...(machine.heaters[1] || {})}
             : null;
 
     return {...machine,top,bottom};
@@ -55,9 +52,8 @@ const clamp = (v,min,max) =>
     Math.min(max,Math.max(min,v));
 
 const positiveNumber = (v,name) => {
-    if (!Number.isFinite(v) || v <= 0) {
+    if (!Number.isFinite(v) || v <= 0)
         throw new Error(`${name} must be > 0`);
-    }
     return v;
 };
 
@@ -91,9 +87,7 @@ function createMaterialModel(material) {
         typeof material.specificHeat !== "function";
 
     const properties =
-        constant
-            ? getMaterialProperties(material,20)
-            : null;
+        constant ? getMaterialProperties(material,20) : null;
 
     return {
         constant,
@@ -123,21 +117,18 @@ function createGrid(thicknessM,requestedDxM) {
         Math.round(thicknessM / requestedDxM) + 1
     );
 
-    const dx =
-        thicknessM / (nodeCount - 1);
+    const dx = thicknessM / (nodeCount - 1);
 
-    const x =
-        new Float64Array(nodeCount);
+    const x = new Float64Array(nodeCount);
 
-    for (let i = 0; i < nodeCount; i++) {
+    for (let i = 0; i < nodeCount; i++)
         x[i] = i * dx;
-    }
 
     return {nodeCount,dx,x};
 }
 
 /* =========================
- * RADIATION / CONVECTION
+ * RADIATION
  * ========================= */
 
 export function calculateHeaterRadiationFlux({
@@ -295,23 +286,17 @@ function checkDecomposition({
                                 centerIndex,
                                 material
                             }) {
-    const frontC =
-        toCelsius(T[0]);
-
-    const centerC =
-        toCelsius(T[centerIndex]);
-
-    const backC =
-        toCelsius(T[T.length - 1]);
+    const frontC = toCelsius(T[0]);
+    const centerC = toCelsius(T[centerIndex]);
+    const backC = toCelsius(T[T.length - 1]);
 
     const decompositionTemp =
         Number(material.decompositionTemp);
 
-    if (!Number.isFinite(decompositionTemp)) {
+    if (!Number.isFinite(decompositionTemp))
         throw new Error(
             "material.decompositionTemp must be finite"
         );
-    }
 
     if (
         frontC >= decompositionTemp ||
@@ -355,6 +340,217 @@ function saveHistorySample({
         maxC,
         gradientC: maxC - minC
     });
+}
+
+/* =========================
+ * LINEARIZED RADIATION
+ * ========================= */
+
+/*
+ * q(T) = C - D*T
+ *
+ * Linearization:
+ *
+ * T^4 ≈ 4*T0^3*T - 3*T0^4
+ *
+ * This makes the nonlinear radiation
+ * compatible with a tridiagonal implicit system.
+ */
+
+function linearizeSurfaceFlux({
+                                  side,
+                                  material,
+                                  surfaceTemperatureK,
+                                  ambientRadiationTemperatureC,
+                                  ambientTemperatureC,
+                                  sheetEmissivity,
+                                  ambientViewFactor,
+                                  h
+                              }) {
+    const Ts = surfaceTemperatureK;
+    const Ta = toKelvin(ambientRadiationTemperatureC);
+
+    let constantFlux = 0;
+    let temperatureCoefficient = 0;
+
+    /* =========================
+     * HEATER
+     * ========================= */
+
+    if (side.enabled) {
+        const reflectance =
+            clamp(
+                Number.isFinite(side.surfaceReflectance)
+                    ? side.surfaceReflectance
+                    : Number(material.surfaceReflectance) || 0,
+                0,
+                0.999999
+            );
+
+        const absorption =
+            1 - reflectance;
+
+        if (side.radiationMode === "heatFlux") {
+            const q =
+                Math.max(
+                    0,
+                    Number(side.heatFluxWm2) || 0
+                ) * absorption;
+
+            constantFlux += q;
+        } else {
+            const Th =
+                toKelvin(side.heaterTemperatureC);
+
+            const gain =
+                Number(side.radiationGain) || 0;
+
+            const emissivity =
+                Number(side.heaterEmissivity) || 0;
+
+            const viewFactor =
+                Number(side.viewFactor) || 0;
+
+            const A =
+                gain *
+                emissivity *
+                viewFactor *
+                SIGMA;
+
+            /*
+             * qheater =
+             * A * (Th^4 - Ts^4)
+             */
+
+            if (Th > Ts) {
+                constantFlux +=
+                    absorption *
+                    A *
+                    (
+                        Th ** 4 +
+                        3 * Ts ** 4
+                    );
+
+                temperatureCoefficient +=
+                    absorption *
+                    A *
+                    4 *
+                    Ts ** 3;
+            }
+        }
+    }
+
+    /* =========================
+     * CONVECTION
+     * ========================= */
+
+    if (side.enabled) {
+        const factor =
+            Number.isFinite(side.airTemperatureFactor)
+                ? side.airTemperatureFactor
+                : 0.70;
+
+        const heaterTemperatureK =
+            toKelvin(side.heaterTemperatureC);
+
+        /*
+         * Tair =
+         * Ts + factor*(Theater-Ts)
+         *
+         * Therefore:
+         *
+         * qconv =
+         * h*factor*(Theater-Ts)
+         */
+
+        const hc = h * factor;
+
+        constantFlux +=
+            hc *
+            heaterTemperatureK;
+
+        temperatureCoefficient += hc;
+    } else {
+        constantFlux +=
+            h *
+            toKelvin(ambientTemperatureC);
+
+        temperatureCoefficient += h;
+    }
+
+    /* =========================
+     * AMBIENT RADIATION
+     * ========================= */
+
+    const radiationA =
+        sheetEmissivity *
+        ambientViewFactor *
+        SIGMA;
+
+    /*
+     * qloss =
+     * radiationA*(Ts^4-Ta^4)
+     *
+     * subtracting qloss:
+     *
+     * + radiationA*Ta^4
+     * - radiationA*Ts^4
+     */
+
+    constantFlux +=
+        radiationA *
+        (
+            Ta ** 4 +
+            3 * Ts ** 4
+        );
+
+    temperatureCoefficient +=
+        radiationA *
+        4 *
+        Ts ** 3;
+
+    return {
+        constantFlux,
+        temperatureCoefficient
+    };
+}
+
+/* =========================
+ * THOMAS SOLVER
+ * ========================= */
+
+function solveTridiagonal(
+    lower,
+    diagonal,
+    upper,
+    rhs,
+    result
+) {
+    const n = diagonal.length;
+
+    for (let i = 1; i < n; i++) {
+        const factor =
+            lower[i] / diagonal[i - 1];
+
+        diagonal[i] -=
+            factor * upper[i - 1];
+
+        rhs[i] -=
+            factor * rhs[i - 1];
+    }
+
+    result[n - 1] =
+        rhs[n - 1] /
+        diagonal[n - 1];
+
+    for (let i = n - 2; i >= 0; i--) {
+        result[i] =
+            (
+                rhs[i] -
+                upper[i] * result[i + 1]
+            ) /
+            diagonal[i];
+    }
 }
 
 /* =========================
@@ -406,27 +602,20 @@ export function simulate1DHeating({
         ambientRadiationTemperatureC
     } = thermalConditions;
 
-    if (!Number.isFinite(initialTemperatureC)) {
+    if (!Number.isFinite(initialTemperatureC))
         throw new Error(
             "initialTemperatureC must be finite"
         );
-    }
 
-    if (!Number.isFinite(ambientTemperatureC)) {
+    if (!Number.isFinite(ambientTemperatureC))
         throw new Error(
             "ambientTemperatureC must be finite"
         );
-    }
 
-    if (
-        !Number.isFinite(
-            ambientRadiationTemperatureC
-        )
-    ) {
+    if (!Number.isFinite(ambientRadiationTemperatureC))
         throw new Error(
             "ambientRadiationTemperatureC must be finite"
         );
-    }
 
     const thicknessM =
         thicknessMm / 1000;
@@ -443,35 +632,11 @@ export function simulate1DHeating({
     const materialModel =
         createMaterialModel(material);
 
-    const initialProperties =
-        materialModel.get(
-            initialTemperatureC
-        );
-
-    const thermalDiffusivity =
-        initialProperties.k /
-        (
-            initialProperties.density *
-            initialProperties.cp
-        );
-
-    const maxStableDt =
-        STABILITY_FACTOR *
-        dx * dx /
-        thermalDiffusivity;
-
-    const requestedDtSeconds =
+    const dt =
         Number.isFinite(dtSeconds) &&
         dtSeconds > 0
             ? dtSeconds
-            : maxStableDt *
-            TIME_STEP_FACTOR;
-
-    const dt =
-        Math.min(
-            requestedDtSeconds,
-            maxStableDt
-        );
+            : DEFAULT_DT_SECONDS;
 
     const {
         top: topSide,
@@ -535,10 +700,26 @@ export function simulate1DHeating({
             1
         );
 
+    /* =========================
+     * ARRAYS
+     * ========================= */
+
     const T =
         new Float64Array(nodeCount);
 
     const Tnext =
+        new Float64Array(nodeCount);
+
+    const lower =
+        new Float64Array(nodeCount);
+
+    const diagonal =
+        new Float64Array(nodeCount);
+
+    const upper =
+        new Float64Array(nodeCount);
+
+    const rhs =
         new Float64Array(nodeCount);
 
     T.fill(
@@ -576,225 +757,274 @@ export function simulate1DHeating({
         });
     }
 
+    /* =========================
+     * TIME LOOP
+     * ========================= */
+
     while (
         !reachedTarget &&
         time < maxTimeSeconds
         ) {
-        const topSurfaceC =
-            toCelsius(T[0]);
-
-        const bottomSurfaceC =
-            toCelsius(
-                T[nodeCount - 1]
+        const stepDt =
+            Math.min(
+                dt,
+                maxTimeSeconds - time
             );
 
-        const topIncident =
-            topSide.enabled
-                ? calculateEffectiveIncidentFlux({
-                    side: topSide,
-                    material,
-                    surfaceTemperatureC:
-                    topSurfaceC
-                }).effectiveWm2
-                : 0;
+        /*
+         * Initial linearization point.
+         * Previous time step is the natural
+         * Newton/Picard starting point.
+         */
 
-        const bottomIncident =
-            bottomSide.enabled
-                ? calculateEffectiveIncidentFlux({
-                    side: bottomSide,
-                    material,
-                    surfaceTemperatureC:
-                    bottomSurfaceC
-                }).effectiveWm2
-                : 0;
-
-        const topFactor =
-            Number.isFinite(
-                topSide.airTemperatureFactor
-            )
-                ? topSide.airTemperatureFactor
-                : 0.70;
-
-        const bottomFactor =
-            Number.isFinite(
-                bottomSide.airTemperatureFactor
-            )
-                ? bottomSide.airTemperatureFactor
-                : 0.70;
-
-        const topAirC =
-            topSide.enabled
-                ? topSurfaceC +
-                topFactor *
-                (
-                    topSide.heaterTemperatureC -
-                    topSurfaceC
-                )
-                : ambientTemperatureC;
-
-        const bottomAirC =
-            bottomSide.enabled
-                ? bottomSurfaceC +
-                bottomFactor *
-                (
-                    bottomSide.heaterTemperatureC -
-                    bottomSurfaceC
-                )
-                : ambientTemperatureC;
+        Tnext.set(T);
 
         for (
-            let i = 1;
-            i < nodeCount - 1;
-            i++
+            let nonlinearIteration = 0;
+            nonlinearIteration <
+            MAX_NONLINEAR_ITERATIONS;
+            nonlinearIteration++
         ) {
-            const temperatureC =
-                toCelsius(T[i]);
+            const oldT =
+                nonlinearIteration === 0
+                    ? T
+                    : Tnext;
 
-            const {
-                density,
-                k,
-                cp
-            } =
-                materialModel.get(
-                    temperatureC
-                );
+            /* =========================
+             * INTERNAL NODES
+             * ========================= */
 
-            const conduction =
-                k *
-                (
-                    T[i + 1] -
-                    2 * T[i] +
-                    T[i - 1]
-                ) /
-                (dx * dx);
+            for (
+                let i = 1;
+                i < nodeCount - 1;
+                i++
+            ) {
+                const temperatureC =
+                    toCelsius(oldT[i]);
 
-            Tnext[i] =
-                T[i] +
-                dt *
-                conduction /
-                (density * cp);
-        }
+                const {
+                    density,
+                    k,
+                    cp
+                } =
+                    materialModel.get(
+                        temperatureC
+                    );
 
-        {
-            const i = 0;
+                const capacity =
+                    density *
+                    cp /
+                    stepDt;
 
-            const temperatureC =
-                toCelsius(T[i]);
+                const conduction =
+                    k / (dx * dx);
 
-            const {
-                density,
-                k,
-                cp
-            } =
-                materialModel.get(
-                    temperatureC
-                );
+                lower[i] =
+                    -conduction;
 
-            const conduction =
-                2 *
-                k *
-                (T[i + 1] - T[i]) /
-                (dx * dx);
+                diagonal[i] =
+                    capacity +
+                    2 * conduction;
 
-            const convection =
-                calculateConvectionFlux({
-                    surfaceTemperatureC:
-                    temperatureC,
-                    ambientTemperatureC:
-                    topAirC,
-                    heatTransferCoefficient:
-                    h
-                });
+                upper[i] =
+                    -conduction;
 
-            const radiationLoss =
-                calculateAmbientRadiationLoss({
-                    surfaceTemperatureC:
-                    temperatureC,
-                    ambientRadiationTemperatureC,
-                    sheetEmissivity,
-                    ambientViewFactor:
-                    topAmbientViewFactor
-                });
+                rhs[i] =
+                    capacity * T[i];
+            }
 
-            const netSurfaceFlux =
-                convection -
-                radiationLoss +
-                topIncident;
+            /* =========================
+             * TOP SURFACE
+             * ========================= */
 
-            Tnext[i] =
-                T[i] +
-                dt *
-                (
+            {
+                const i = 0;
+
+                const temperatureK =
+                    oldT[i];
+
+                const temperatureC =
+                    toCelsius(
+                        temperatureK
+                    );
+
+                const {
+                    density,
+                    k,
+                    cp
+                } =
+                    materialModel.get(
+                        temperatureC
+                    );
+
+                const capacity =
+                    density *
+                    cp /
+                    stepDt;
+
+                const conduction =
+                    2 * k / (dx * dx);
+
+                const {
+                    constantFlux,
+                    temperatureCoefficient
+                } =
+                    linearizeSurfaceFlux({
+                        side: topSide,
+                        material,
+                        surfaceTemperatureK:
+                        temperatureK,
+                        ambientRadiationTemperatureC,
+                        ambientTemperatureC,
+                        sheetEmissivity,
+                        ambientViewFactor:
+                        topAmbientViewFactor,
+                        h
+                    });
+
+                /*
+                 * q = C - D*T
+                 *
+                 * Boundary equation:
+                 *
+                 * capacity*Tnew
+                 * =
+                 * capacity*Told
+                 * + conduction*(T1-Tnew)
+                 * + 2/dx*(C-D*Tnew)
+                 */
+
+                lower[i] = 0;
+
+                diagonal[i] =
+                    capacity +
                     conduction +
                     2 *
-                    netSurfaceFlux /
-                    dx
-                ) /
-                (density * cp);
-        }
+                    temperatureCoefficient /
+                    dx;
 
-        {
-            const i =
-                nodeCount - 1;
+                upper[i] =
+                    -conduction;
 
-            const temperatureC =
-                toCelsius(T[i]);
+                rhs[i] =
+                    capacity * T[i] +
+                    2 *
+                    constantFlux /
+                    dx;
+            }
 
-            const {
-                density,
-                k,
-                cp
-            } =
-                materialModel.get(
-                    temperatureC
-                );
+            /* =========================
+             * BOTTOM SURFACE
+             * ========================= */
 
-            const conduction =
-                2 *
-                k *
-                (T[i - 1] - T[i]) /
-                (dx * dx);
+            {
+                const i =
+                    nodeCount - 1;
 
-            const convection =
-                calculateConvectionFlux({
-                    surfaceTemperatureC:
-                    temperatureC,
-                    ambientTemperatureC:
-                    bottomAirC,
-                    heatTransferCoefficient:
-                    h
-                });
+                const temperatureK =
+                    oldT[i];
 
-            const radiationLoss =
-                calculateAmbientRadiationLoss({
-                    surfaceTemperatureC:
-                    temperatureC,
-                    ambientRadiationTemperatureC,
-                    sheetEmissivity,
-                    ambientViewFactor:
-                    bottomAmbientViewFactor
-                });
+                const temperatureC =
+                    toCelsius(
+                        temperatureK
+                    );
 
-            const netSurfaceFlux =
-                convection -
-                radiationLoss +
-                bottomIncident;
+                const {
+                    density,
+                    k,
+                    cp
+                } =
+                    materialModel.get(
+                        temperatureC
+                    );
 
-            Tnext[i] =
-                T[i] +
-                dt *
-                (
+                const capacity =
+                    density *
+                    cp /
+                    stepDt;
+
+                const conduction =
+                    2 * k / (dx * dx);
+
+                const {
+                    constantFlux,
+                    temperatureCoefficient
+                } =
+                    linearizeSurfaceFlux({
+                        side: bottomSide,
+                        material,
+                        surfaceTemperatureK:
+                        temperatureK,
+                        ambientRadiationTemperatureC,
+                        ambientTemperatureC,
+                        sheetEmissivity,
+                        ambientViewFactor:
+                        bottomAmbientViewFactor,
+                        h
+                    });
+
+                lower[i] =
+                    -conduction;
+
+                diagonal[i] =
+                    capacity +
                     conduction +
                     2 *
-                    netSurfaceFlux /
-                    dx
-                ) /
-                (density * cp);
+                    temperatureCoefficient /
+                    dx;
+
+                upper[i] = 0;
+
+                rhs[i] =
+                    capacity * T[i] +
+                    2 *
+                    constantFlux /
+                    dx;
+            }
+
+            /* =========================
+             * SOLVE
+             * ========================= */
+
+            solveTridiagonal(
+                lower,
+                diagonal,
+                upper,
+                rhs,
+                Tnext
+            );
+
+            /* =========================
+             * NONLINEAR CONVERGENCE
+             * ========================= */
+
+            let maxDeltaC = 0;
+
+            for (let i = 0; i < nodeCount; i++) {
+                const deltaC =
+                    Math.abs(
+                        Tnext[i] -
+                        oldT[i]
+                    );
+
+                if (deltaC > maxDeltaC)
+                    maxDeltaC = deltaC;
+            }
+
+            if (
+                maxDeltaC <=
+                NONLINEAR_TOLERANCE_C
+            )
+                break;
         }
 
         T.set(Tnext);
 
-        time += dt;
+        time += stepDt;
+
+        /* =========================
+         * SAFETY
+         * ========================= */
 
         for (let i = 0; i < nodeCount; i++) {
             if (
@@ -804,7 +1034,7 @@ export function simulate1DHeating({
             ) {
                 throw new Error(
                     `Numerical instability at ${time.toFixed(3)} s. ` +
-                    `Reduce dx/dt or check model parameters.`
+                    `Check model parameters.`
                 );
             }
         }
@@ -822,6 +1052,10 @@ export function simulate1DHeating({
                 target
             });
 
+        /* =========================
+         * HISTORY
+         * ========================= */
+
         if (
             storeHistory &&
             time + 1e-12 >=
@@ -834,16 +1068,26 @@ export function simulate1DHeating({
                 time
             });
 
-            nextSampleTime +=
-                sampleEverySeconds;
+            while (
+                nextSampleTime <=
+                time + 1e-12
+                ) {
+                nextSampleTime +=
+                    sampleEverySeconds;
+            }
         }
     }
+
+    /* =========================
+     * RESULT
+     * ========================= */
 
     const temperatureProfile =
         Array.from(
             T,
             (temperatureK,i) => ({
-                xMm: x[i] * 1000,
+                xMm:
+                    x[i] * 1000,
                 temperatureC:
                     toCelsius(
                         temperatureK
@@ -857,9 +1101,12 @@ export function simulate1DHeating({
         temperatureProfile
     };
 
-    if (storeHistory) {
+    if (storeHistory)
         result.history = history;
-    }
+
+    /* =========================
+     * DIAGNOSTICS
+     * ========================= */
 
     if (includeBreakdown) {
         const frontTemperatureC =
@@ -902,11 +1149,20 @@ export function simulate1DHeating({
                 })
                 : zeroFlux;
 
+        const materialProperties =
+            materialModel.get(
+                centerTemperatureC
+            );
+
         result.diagnostics = {
             nodeCount,
-            dxMm: dx * 1000,
+
+            dxMm:
+                dx * 1000,
+
             requestedDxMm:
             effectiveDxMm,
+
             automaticDx:
                 !(
                     Number.isFinite(dxMm) &&
@@ -914,46 +1170,62 @@ export function simulate1DHeating({
                 ),
 
             dtSeconds: dt,
-            requestedDtSeconds,
+
+            requestedDtSeconds:
+                Number.isFinite(dtSeconds) &&
+                dtSeconds > 0
+                    ? dtSeconds
+                    : DEFAULT_DT_SECONDS,
+
             automaticDt:
                 !(
-                    Number.isFinite(
-                        dtSeconds
-                    ) &&
+                    Number.isFinite(dtSeconds) &&
                     dtSeconds > 0
                 ),
-            maxStableDtSeconds:
-            maxStableDt,
 
             thermalDiffusivityM2s:
-            thermalDiffusivity,
+                materialProperties.k /
+                (
+                    materialProperties.density *
+                    materialProperties.cp
+                ),
 
             numericalControl: {
                 gridCellsPerThickness:
                 GRID_CELLS_PER_THICKNESS,
-                minDxMm: MIN_DX_MM,
-                maxDxMm: MAX_DX_MM,
-                stabilityFactor:
-                STABILITY_FACTOR,
-                timeStepFactor:
-                TIME_STEP_FACTOR,
-                fourierNumber:
-                    thermalDiffusivity *
-                    dt /
-                    (dx * dx)
+
+                minDxMm:
+                MIN_DX_MM,
+
+                maxDxMm:
+                MAX_DX_MM,
+
+                defaultDtSeconds:
+                DEFAULT_DT_SECONDS,
+
+                nonlinearIterations:
+                MAX_NONLINEAR_ITERATIONS,
+
+                nonlinearToleranceC:
+                NONLINEAR_TOLERANCE_C
             },
 
             target: {
                 centerC:
                 target.minCenterC,
+
                 surfaceC:
                 target.maxSurfaceC,
+
                 actualCenterC:
                 centerTemperatureC,
+
                 actualFrontSurfaceC:
                 frontTemperatureC,
+
                 actualBackSurfaceC:
                 backTemperatureC,
+
                 decompositionC:
                 material.decompositionTemp
             },
@@ -968,23 +1240,34 @@ export function simulate1DHeating({
                 heaterCount:
                 normalizedMachine
                     .heaters.length,
-                top: normalizedMachine.top,
+
+                top:
+                normalizedMachine.top,
+
                 bottom:
                 normalizedMachine.bottom
             },
 
             numerical: {
-                explicitScheme: true,
+                implicitScheme: true,
+
+                solver:
+                    "Tridiagonal Thomas algorithm",
+
                 stabilityCriterion:
-                    `Fo <= ${STABILITY_FACTOR}`,
+                    "Unconditionally stable for linear diffusion equation",
+
                 thermalPropertyModel:
                     materialModel.constant
                         ? "constant"
                         : "temperature-dependent",
+
                 opticalModel:
                     "Opaque Sheet (Surface Absorption for Infrared Heating Elements)",
+
                 boundaryModel:
-                    "convection + ambient radiation + surface-applied effective IR flux",
+                    "implicit conduction + linearized convection + linearized radiation + surface-applied IR flux",
+
                 heaterModel:
                     "radiative heater mapped to boundary condition"
             }
@@ -1014,27 +1297,24 @@ export function calculateBendingHeatingTime({
     targetMaxC ??=
         material.defaultTSurf;
 
-    if (!Number.isFinite(targetMinC)) {
+    if (!Number.isFinite(targetMinC))
         throw new Error(
             "targetMinC must be finite"
         );
-    }
 
-    if (!Number.isFinite(targetMaxC)) {
+    if (!Number.isFinite(targetMaxC))
         throw new Error(
             "targetMaxC must be finite"
         );
-    }
 
     if (
         !Number.isFinite(
             material.decompositionTemp
         )
-    ) {
+    )
         throw new Error(
             "material.decompositionTemp must be finite"
         );
-    }
 
     return simulate1DHeating({
         thicknessMm,
@@ -1042,10 +1322,15 @@ export function calculateBendingHeatingTime({
         machine,
         thermalConditions,
         sides: heaterMode,
+
         target: {
-            minCenterC: targetMinC,
-            maxSurfaceC: targetMaxC
+            minCenterC:
+            targetMinC,
+
+            maxSurfaceC:
+            targetMaxC
         },
+
         ...options
     });
 }
