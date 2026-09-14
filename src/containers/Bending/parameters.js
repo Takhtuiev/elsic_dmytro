@@ -3,18 +3,24 @@ export const MACHINES = {
     MACHINE_LINE_1: {
         name: "H.P. Burger Line 1",
 
-        heatTransferCoefficient: 10,
-
         heaters: [
             {
-                heaterTemperatureC: 200,
-                airTemperatureFactor: 0.80,
+                // top
+                heaterTemperatureC: 300,
                 heaterEmissivity: 0.90,
-                viewFactor: 1,
-                radiationGain: 1,
+                viewFactor: 0.95,
+                radiationGain: 1.00,
+                convectiveHeatTransferCoefficient: 8,
+                airTemperatureFactor: 0.45
             },
             {
-                heaterEmissivity: 0.90
+                // bottom
+                heaterTemperatureC: 300,
+                heaterEmissivity: 0.90,
+                viewFactor: 0.95,
+                radiationGain: 1.00,
+                convectiveHeatTransferCoefficient: 8,
+                airTemperatureFactor: 0.55
             }
         ]
     },

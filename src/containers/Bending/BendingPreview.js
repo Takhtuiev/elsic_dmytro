@@ -1,4 +1,4 @@
-import React,{useEffect,useMemo,useRef,useState} from "react";
+import React, {memo, useEffect, useMemo, useRef, useState} from "react";
 import {Box,Typography,useTheme} from "@mui/material";
 import {alpha} from "@mui/material/styles";
 
@@ -55,117 +55,77 @@ const PartHeader=({profile})=>(
 );
 
 
-const TemperatureProfileChart=({temperatureProfile})=>{
-    if(!temperatureProfile?.length) return null;
+const TemperatureProfileChart=memo(({temperatureProfile:data,status})=>{
+    const theme=useTheme();
+    if(!data?.length||data.length<2) return null;
 
-    const width=280;
-    const height=120;
+    const width=280,height=120;
+    const pad={left:42,right:15,top:20,bottom:25};
+    const wPlot=width-pad.left-pad.right;
+    const hPlot=height-pad.top-pad.bottom;
 
-    const padding={
-        left:42,
-        right:15,
-        top:22,
-        bottom:26
-    };
+    const xMin=data[0].xMm;
+    const xMax=data[data.length-1].xMm;
+    const xDelta=xMax-xMin||1;
 
-    const xMin=temperatureProfile[0].xMm;
-    const xMax=temperatureProfile[temperatureProfile.length-1].xMm;
+    let minIdx=0,maxIdx=0,minV=Infinity,maxV=-Infinity;
 
-    const temperatures=temperatureProfile.map(
-        p=>p.temperatureC
-    );
-
-    const tMinActual=Math.min(...temperatures);
-    const tMaxActual=Math.max(...temperatures);
-
-    const tMin=Math.floor(tMinActual/10)*10;
-    const tMax=Math.ceil((tMaxActual+5)/10)*10;
-
-    const plotWidth=width-padding.left-padding.right;
-    const plotHeight=height-padding.top-padding.bottom;
-
-    const xScale=x=>
-        padding.left+
-        ((x-xMin)/(xMax-xMin))*plotWidth;
-
-    const yScale=t=>
-        padding.top+
-        ((tMax-t)/(tMax-tMin))*plotHeight;
-
-    const minIndex=temperatures.indexOf(tMinActual);
-    const maxIndex=temperatures.indexOf(tMaxActual);
-
-    const minPoint={
-        x:xScale(temperatureProfile[minIndex].xMm),
-        y:yScale(tMinActual),
-        val:tMinActual
-    };
-
-    const maxPoint={
-        x:xScale(temperatureProfile[maxIndex].xMm),
-        y:yScale(tMaxActual),
-        val:tMaxActual
-    };
-
-    const xCenter=(xMin+xMax)/2;
-    const xCenterScaled=xScale(xCenter);
-
-    let dPath="";
-    let dArea="";
-
-    if(temperatureProfile.length>1){
-        dPath=
-            `M ${xScale(temperatureProfile[0].xMm)} `+
-            `${yScale(temperatureProfile[0].temperatureC)}`;
-
-        for(let i=0;i<temperatureProfile.length-1;i++){
-            const p0=
-                temperatureProfile[Math.max(0,i-1)];
-
-            const p1=
-                temperatureProfile[i];
-
-            const p2=
-                temperatureProfile[i+1];
-
-            const p3=
-                temperatureProfile[
-                    Math.min(
-                        temperatureProfile.length-1,
-                        i+2
-                    )
-                ];
-
-            const cp1x=
-                xScale(p1.xMm)+
-                (xScale(p2.xMm)-xScale(p0.xMm))/6;
-
-            const cp1y=
-                yScale(p1.temperatureC)+
-                (yScale(p2.temperatureC)-
-                    yScale(p0.temperatureC))/6;
-
-            const cp2x=
-                xScale(p2.xMm)-
-                (xScale(p3.xMm)-xScale(p1.xMm))/6;
-
-            const cp2y=
-                yScale(p2.temperatureC)-
-                (yScale(p3.temperatureC)-
-                    yScale(p1.temperatureC))/6;
-
-            dPath+=
-                ` C ${cp1x},${cp1y}`+
-                ` ${cp2x},${cp2y}`+
-                ` ${xScale(p2.xMm)},${yScale(p2.temperatureC)}`;
-        }
-
-        dArea=
-            `${dPath}`+
-            ` L ${xScale(xMax)} ${height-padding.bottom}`+
-            ` L ${xScale(xMin)} ${height-padding.bottom}`+
-            " Z";
+    for(let i=0;i<data.length;i++){
+        const t=Math.round(data[i].temperatureC*10)/10;
+        if(t<minV){minV=t;minIdx=i;}
+        if(t>maxV){maxV=t;maxIdx=i;}
     }
+
+    const leftT=Math.round(data[0].temperatureC*10)/10;
+    const rightT=Math.round(data[data.length-1].temperatureC*10)/10;
+
+    if(leftT===rightT){
+        if(Math.abs(data[0].temperatureC-data[data.length-1].temperatureC)>1e-9)
+            maxIdx=data[0].temperatureC>data[data.length-1].temperatureC?0:data.length-1;
+    }else if(leftT>rightT){
+        maxIdx=0;
+    }else{
+        maxIdx=data.length-1;
+    }
+
+    const tMin=Math.floor(minV/10)*10;
+    const tMax=Math.ceil((maxV+5)/10)*10;
+    const tDelta=tMax-tMin||1;
+    const tCenter=(tMax+tMin)/2;
+
+    const xs=x=>pad.left+((x-xMin)/xDelta)*wPlot;
+    const ys=t=>pad.top+((tMax-t)/tDelta)*hPlot;
+    const xCenter=xs((xMin+xMax)/2);
+
+    let dPath=`M ${xs(xMin)} ${ys(data[0].temperatureC)}`;
+
+    for(let i=0;i<data.length-1;i++){
+        const p0=data[i?i-1:0],p1=data[i],p2=data[i+1],p3=data[i+2]||p2;
+        const x0=xs(p0.xMm),x1=xs(p1.xMm),x2=xs(p2.xMm),x3=xs(p3.xMm);
+        const y0=ys(p0.temperatureC),y1=ys(p1.temperatureC),y2=ys(p2.temperatureC),y3=ys(p3.temperatureC);
+
+        dPath+=` C ${x1+(x2-x0)/6},${y1+(y2-y0)/6} ${x2-(x3-x1)/6},${y2-(y3-y1)/6} ${x2},${y2}`;
+    }
+
+    const dArea=`${dPath} L ${xs(xMax)} ${height-pad.bottom} L ${xs(xMin)} ${height-pad.bottom} Z`;
+
+    const point=(idx,val)=>({
+        x:xs(data[idx].xMm),
+        y:ys(data[idx].temperatureC),
+        val,
+        anchor:idx===0?"start":idx===data.length-1?"end":"middle",
+        dx:idx===0?4:idx===data.length-1?-4:0
+    });
+
+    const minP=point(minIdx,minV);
+    const maxP=point(maxIdx,maxV);
+
+    const chartColor=
+        status?.type==="error"
+            ?theme.palette.error.main
+            :status?.type==="warning"
+                ?theme.palette.warning.main
+                :theme.palette.text.primary;
 
     return(
         <Box
@@ -178,204 +138,109 @@ const TemperatureProfileChart=({temperatureProfile})=>{
                 display:"flex",
                 alignItems:"center",
                 border:"1px solid",
-                borderColor:"divider",
-                borderRadius:"8px",
+                borderColor:status?.type==="ok"?theme.palette.divider:chartColor,
+                borderRadius:"6px",
                 p:.5,
-                boxSizing:"border-box"
+                boxSizing:"border-box",
+                fontFamily:'"Roboto Mono","SF Mono",monospace'
             }}
         >
             <svg
                 width="100%"
                 height={height}
                 viewBox={`0 0 ${width} ${height}`}
-                preserveAspectRatio="xMidYMid meet"
                 style={{overflow:"visible"}}
+                shapeRendering="geometricPrecision"
             >
-                <defs>
-                    <linearGradient
-                        id="areaGradient"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                    >
-                        <stop
-                            offset="0%"
-                            stopColor="currentColor"
-                            stopOpacity=".25"
-                        />
-
-                        <stop
-                            offset="100%"
-                            stopColor="currentColor"
-                            stopOpacity="0"
-                        />
-                    </linearGradient>
-                </defs>
-
-                <line
-                    x1={padding.left}
-                    y1={yScale(tMax)}
-                    x2={width-padding.right}
-                    y2={yScale(tMax)}
-                    stroke="currentColor"
-                    opacity=".1"
-                    strokeDasharray="3 3"
-                />
-
-                <line
-                    x1={padding.left}
-                    y1={yScale(tMin)}
-                    x2={width-padding.right}
-                    y2={yScale(tMin)}
-                    stroke="currentColor"
-                    opacity=".1"
-                    strokeDasharray="3 3"
-                />
-
-                <line
-                    x1={xCenterScaled}
-                    y1={padding.top}
-                    x2={xCenterScaled}
-                    y2={height-padding.bottom}
-                    stroke="currentColor"
-                    opacity=".15"
-                    strokeDasharray="4 4"
-                />
-
-                <line
-                    x1={padding.left}
-                    y1={padding.top}
-                    x2={padding.left}
-                    y2={height-padding.bottom}
-                    stroke="currentColor"
-                    opacity=".35"
-                    strokeWidth="1.5"
-                />
-
-                <line
-                    x1={padding.left}
-                    y1={height-padding.bottom}
-                    x2={width-padding.right}
-                    y2={height-padding.bottom}
-                    stroke="currentColor"
-                    opacity=".35"
-                    strokeWidth="1.5"
-                />
-
-                {dArea&&(
-                    <path
-                        d={dArea}
-                        fill="url(#areaGradient)"
+                {[tMax,tCenter,tMin].map((_,i)=>(
+                    <line
+                        key={i}
+                        x1={pad.left}
+                        y1={pad.top+(i*hPlot)/2}
+                        x2={width-pad.right}
+                        y2={pad.top+(i*hPlot)/2}
+                        stroke={theme.palette.divider}
+                        strokeDasharray="2 2"
+                        shapeRendering="crispEdges"
                     />
-                )}
+                ))}
 
-                {dPath&&(
-                    <path
-                        d={dPath}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                    />
-                )}
-
-                <circle
-                    cx={maxPoint.x}
-                    cy={maxPoint.y}
-                    r="4"
-                    fill="#ff4d4d"
-                    stroke="#fff"
-                    strokeWidth="1.5"
+                <line
+                    x1={xCenter}
+                    y1={pad.top}
+                    x2={xCenter}
+                    y2={height-pad.bottom}
+                    stroke={theme.palette.divider}
+                    strokeDasharray="2 2"
+                    shapeRendering="crispEdges"
                 />
 
-                <text
-                    x={maxPoint.x}
-                    y={maxPoint.y-8}
-                    textAnchor="middle"
-                    fontSize="10"
-                    fontWeight="bold"
-                    fill="currentColor"
-                >
-                    {maxPoint.val.toFixed(1)}°C
-                </text>
-
-                <circle
-                    cx={minPoint.x}
-                    cy={minPoint.y}
-                    r="4"
-                    fill="#2f80ed"
-                    stroke="#fff"
-                    strokeWidth="1.5"
+                <line
+                    x1={pad.left}
+                    y1={pad.top}
+                    x2={pad.left}
+                    y2={height-pad.bottom}
+                    stroke={theme.palette.text.secondary}
+                    opacity=".7"
+                    shapeRendering="crispEdges"
                 />
 
-                <text
-                    x={minPoint.x}
-                    y={minPoint.y+14}
-                    textAnchor="middle"
-                    fontSize="10"
-                    fontWeight="bold"
-                    fill="currentColor"
-                >
-                    {minPoint.val.toFixed(1)}°C
-                </text>
-
-                <text
-                    x={padding.left-8}
-                    y={yScale(tMax)+3}
-                    textAnchor="end"
-                    fontSize="10"
-                    fill="currentColor"
+                <line
+                    x1={pad.left}
+                    y1={height-pad.bottom}
+                    x2={width-pad.right}
+                    y2={height-pad.bottom}
+                    stroke={theme.palette.text.secondary}
                     opacity=".7"
-                >
-                    {tMax}°
-                </text>
+                    shapeRendering="crispEdges"
+                />
 
-                <text
-                    x={padding.left-8}
-                    y={yScale(tMin)+3}
-                    textAnchor="end"
-                    fontSize="10"
-                    fill="currentColor"
-                    opacity=".7"
-                >
-                    {tMin}°
-                </text>
+                <path d={dArea} fill={chartColor} fillOpacity=".05"/>
+                <path d={dPath} fill="none" stroke={chartColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
 
-                <text
-                    x={padding.left}
-                    y={height-8}
-                    textAnchor="middle"
-                    fontSize="10"
-                    fill="currentColor"
-                    opacity=".7"
-                >
-                    {xMin}
-                </text>
+                {[
+                    {p:maxP,c:theme.palette.error.main,dy:-6},
+                    {p:minP,c:theme.palette.primary.main,dy:14}
+                ].map(({p,c,dy},i)=>(
+                    <g key={i}>
+                        <circle
+                            cx={p.x}
+                            cy={p.y}
+                            r="3"
+                            fill={c}
+                            stroke={theme.palette.background.paper}
+                            strokeWidth="1"
+                        />
+                        <text
+                            x={p.x}
+                            y={p.y+dy}
+                            dx={p.dx}
+                            textAnchor={p.anchor}
+                            fontSize="11"
+                            fontWeight="bold"
+                            fill={theme.palette.text.primary}
+                        >
+                            {p.val.toFixed(1)}°C
+                        </text>
+                    </g>
+                ))}
 
-                <text
-                    x={width-padding.right}
-                    y={height-8}
-                    textAnchor="end"
-                    fontSize="10"
-                    fill="currentColor"
-                    opacity=".7"
-                >
-                    {xMax} mm
-                </text>
+                <text x={pad.left-6} y={pad.top+3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMax}°</text>
+                <text x={pad.left-6} y={height-pad.bottom+3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMin}°</text>
+                <text x={pad.left} y={height-9} textAnchor="middle" fontSize="8.5" fill={theme.palette.text.secondary}>{xMin} mm</text>
+                <text x={width-pad.right} y={height-9} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{xMax} mm</text>
             </svg>
         </Box>
     );
-};
+});
 
 
 const Parameters=({
-    profile,
-    part,
-    machineParams,
-    heatingParams
-})=>{
+                      profile,
+                      part,
+                      machineParams,
+                      heatingParams
+                  })=>{
     const material=MATERIALS[profile?.materialKey];
 
     const blankLength=Number(part?.blankLength);
@@ -388,12 +253,17 @@ const Parameters=({
         Number.isFinite(width)&&
         Number.isFinite(thickness)&&
         Number.isFinite(density)
-            ?blankLength*
-            width*
-            thickness*
-            density/
-            1e9
+            ?blankLength*width*thickness*density/1e9
             :null;
+
+    const status=heatingParams?.status;
+
+    const statusColor=
+        status?.type==="error"
+            ?"error"
+            :status?.type==="warning"
+                ?"warning"
+                :"text.secondary";
 
     return(
         <Box
@@ -427,10 +297,7 @@ const Parameters=({
                     >
                         Blank length:{" "}
                         <strong>
-                            {Number.isFinite(blankLength)
-                                ?blankLength.toFixed(2)
-                                :"—"}{" "}
-                            mm
+                            {Number.isFinite(blankLength)?blankLength.toFixed(2):"—"} mm
                         </strong>
                     </Typography>
 
@@ -441,10 +308,7 @@ const Parameters=({
                     >
                         Width:{" "}
                         <strong>
-                            {Number.isFinite(width)
-                                ?width
-                                :"—"}{" "}
-                            mm
+                            {Number.isFinite(width)?width:"—"} mm
                         </strong>
                     </Typography>
 
@@ -455,10 +319,7 @@ const Parameters=({
                     >
                         Mass:{" "}
                         <strong>
-                            {mass!==null
-                                ?mass.toFixed(3)
-                                :"—"}{" "}
-                            kg
+                            {mass!==null?mass.toFixed(3):"—"} kg
                         </strong>
                     </Typography>
                 </Box>
@@ -519,9 +380,7 @@ const Parameters=({
                                 fontSize={PARAMETER_TEXT_SIZE}
                             >
                                 Heat temp:{" "}
-                                <strong>
-                                    {"200"} °C
-                                </strong>
+                                <strong>{"200"} °C</strong>
                             </Typography>
 
                             <Typography
@@ -531,25 +390,33 @@ const Parameters=({
                             >
                                 Heating time:{" "}
                                 <strong>
-                                    {formatTime(
-                                        heatingParams?.heatingTimeSeconds
-                                    )}
+                                    {formatTime(heatingParams?.heatingTimeSeconds)}
                                 </strong>
                             </Typography>
                         </Box>
+
+                        {status?.message&&(
+                            <Typography
+                                variant="body2"
+                                color={statusColor}
+                                fontSize={PARAMETER_TEXT_SIZE}
+                                fontWeight={500}
+                                sx={{mt:.5}}
+                            >
+                                {status.message}
+                            </Typography>
+                        )}
                     </>
                 )}
             </Box>
 
             <TemperatureProfileChart
-                temperatureProfile={
-                    heatingParams?.temperatureProfile
-                }
+                temperatureProfile={heatingParams?.temperatureProfile}
+                status={heatingParams?.status}
             />
         </Box>
     );
 };
-
 
 const BendingPreview=({
     profile,
@@ -618,6 +485,8 @@ const BendingPreview=({
         MATERIAL,
         MACHINA
     ]);
+
+//    console.log(heatingParams)
 
     const invalidAngleIndex=
         profile?.bends?.findIndex(({angle})=>{
