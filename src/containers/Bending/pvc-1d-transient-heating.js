@@ -116,7 +116,7 @@ function getLinearizedFluxParams(side, TsK, ambientTemperatureC, ambientRadiatio
     const q_conv = h * (TboxK - TsK);
     const dq_conv_dTs = -h;
 
-    let q_rad_heater = 0;
+    let q_rad_heater;
     let dq_rad_heater_dTs = 0;
 
     const ThK = toKelvin(getHeaterTemperatureC({ side, ambientTemperatureC }));
