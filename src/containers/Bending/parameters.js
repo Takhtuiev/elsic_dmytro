@@ -6,21 +6,21 @@ export const MACHINES = {
         heaters: [
             {
                 // top
-                heaterTemperatureC: 300,
+                regulatorTemperatureC: 200,
+                heaterTemperatureFactor: 1.20,
                 heaterEmissivity: 0.90,
                 viewFactor: 0.95,
                 radiationGain: 1.00,
                 convectiveHeatTransferCoefficient: 8,
-                airTemperatureFactor: 0.45
-            },
+           },
             {
                 // bottom
-                heaterTemperatureC: 300,
+                regulatorTemperatureC: 200,
+                heaterTemperatureFactor: 1.20,
                 heaterEmissivity: 0.90,
                 viewFactor: 0.95,
                 radiationGain: 1.00,
                 convectiveHeatTransferCoefficient: 8,
-                airTemperatureFactor: 0.55
             }
         ]
     },

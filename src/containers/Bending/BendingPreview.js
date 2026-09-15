@@ -6,7 +6,7 @@ import BendProfileRender from "./BendProfileRender";
 import {prepareSvgLayers} from "./prepareSvgLayers";
 import {MAX_BEND_ANGLE,MIN_BEND_ANGLE} from "./svgConstants";
 import {MACHINES,MATERIALS} from "./parameters";
-import {calculateBendingHeatingTime} from "./pvc-1d-transient-heating";
+import {simulate1DHeating} from "./pvc-1d-transient-heating";
 
 
 const PARAMETER_TEXT_COLOR="text.primary";
@@ -465,20 +465,29 @@ const BendingPreview=({
             return null;
         }
 
-        return calculateBendingHeatingTime({
-            thicknessMm:profile.thickness,
-            material:MATERIAL,
-            machine:MACHINA,
+        return simulate1DHeating({
+            thicknessMm: profile.thickness,
+            material: MATERIAL,
+            machine: MACHINA,
 
-            thermalConditions:{
-                initialTemperatureC:20,
-                ambientTemperatureC:20,
-                ambientRadiationTemperatureC:20
+            thermalConditions: {
+                initialTemperatureC: 20,
+                ambientTemperatureC: 20,
+                ambientRadiationTemperatureC: 20
             },
 
-            heaterMode:"both",
-            maxTimeSeconds:1200
+            // 1. Заменяем heaterMode на sides
+            sides: "both",
+
+            // 2. Обязательно передаем целевые температуры, чтобы симулятор знал, когда ПВХ готов
+            target: {
+                minCenterC: MATERIAL?.defaultTCenter ?? 115, // температура в центре для гибки
+                maxSurfaceC: MATERIAL?.defaultTSurf ?? 150   // максимальная температура поверхности
+            },
+
+            maxTimeSeconds: 1200
         });
+
     },[
         profile.thickness,
         profile?.materialKey,
@@ -486,7 +495,7 @@ const BendingPreview=({
         MACHINA
     ]);
 
-//    console.log(heatingParams)
+    //console.log(heatingParams)
 
     const invalidAngleIndex=
         profile?.bends?.findIndex(({angle})=>{
