@@ -107,42 +107,61 @@ export function calculateEffectiveIncidentFlux({ side, material, surfaceTemperat
 /**
  * Физически точная линеаризация потоков для закрытого сзади короба с узким зазором 5мм.
  */
-function getLinearizedFluxParams(side, TsK, ambientTemperatureC, ambientRadiationTemperatureC, sheetEmissivity, viewFactor) {
+function getLinearizedFluxParams(side, TsK, ambientTemperatureC, ambientRadiationTemperatureC, sheetEmissivity) {
     if (!side.enabled) return { g0: 0, g1: 0 };
 
     const h = Math.max(0, Number(side.convectiveHeatTransferCoefficient) || 0);
-    const TboxK = toKelvin(Number.isFinite(side.regulatorTemperatureC) ? side.regulatorTemperatureC : ambientTemperatureC);
 
+    // Короба не выключали, они сразу прогреты: воздух и стенки зазора равны уставке Tregulator (200°C)
+    const envC = Number.isFinite(side.regulatorTemperatureC) ? side.regulatorTemperatureC : ambientTemperatureC;
+    const TboxK = toKelvin(envC);
+
+    // 1. Конвекция (теплообмен с уже раскаленной воздушной прослойкой зазора 200°C)
     const q_conv = h * (TboxK - TsK);
     const dq_conv_dTs = -h;
 
+    // --- СТРОГАЯ ГЕОМЕТРИЯ ЗАКРЫТОЙ КАМЕРЫ ---
+    // Чистый fH — фактор обзора строго на ИК-спирали ТЭНа
+    const fH = clamp(Number.isFinite(side.viewFactor) ? side.viewFactor : 0, 0, 1);
+    // Чистый envF — фактор обзора на раскаленные стенки короба (остаток полусферы)
+    const envF = clamp(side.ambientViewFactor ?? (1 - fH), 0, 1);
+
+    // 2. Радиационный нагреватель (прямое ИК-излучение спиралей ТЭНа)
     let q_rad_heater;
     let dq_rad_heater_dTs = 0;
 
-    const ThK = toKelvin(getHeaterTemperatureC({ side, ambientTemperatureC }));
-    const epsH = clamp(Number.isFinite(side.heaterEmissivity) ? side.heaterEmissivity : 0, 0, 1);
-
-    // ИСПОЛЬЗУЕМ ВНЕШНИЙ АРГУМЕНТ viewFactor ТУТ:
-    const fH = clamp(viewFactor, 0, 1);
-    const radA = (Number.isFinite(side.radiationGain) ? side.radiationGain : 1) * epsH * fH * SIGMA;
-
-    if (side.radiationMode !== "heatFlux") {
-        q_rad_heater = Math.max(0, radA * (ThK ** 4 - TsK ** 4));
-        if (ThK > TsK) dq_rad_heater_dTs = -4 * radA * (TsK ** 3);
-    } else {
+    if (side.radiationMode === "heatFlux") {
         q_rad_heater = Math.max(0, Number(side.heatFluxWm2) || 0);
+    } else {
+        // Температура спиралей ТЭНа считается от базового холодного цеха (20°C), так как они откалиброваны на холодный старт
+        const regulatorTemperatureC = Number.isFinite(side.regulatorTemperatureC) ? side.regulatorTemperatureC : ambientTemperatureC;
+        const heaterTemperatureFactor = Number.isFinite(side.heaterTemperatureFactor) ? side.heaterTemperatureFactor : 1;
+        const ThC = ambientTemperatureC + heaterTemperatureFactor * (regulatorTemperatureC - ambientTemperatureC);
+        const ThK = toKelvin(ThC);
+
+        const epsH = clamp(Number.isFinite(side.heaterEmissivity) ? side.heaterEmissivity : 0, 0, 1);
+        const gain = Number.isFinite(side.radiationGain) ? side.radiationGain : 1;
+        const radA = gain * epsH * fH * SIGMA;
+
+        q_rad_heater = Math.max(0, radA * (ThK ** 4 - TsK ** 4));
+        if (ThK > TsK) {
+            dq_rad_heater_dTs = -4 * radA * (TsK ** 3);
+        }
     }
 
-    // И ТУТ ТОЖЕ ИСПОЛЬЗУЕМ ЕГО ДЛЯ ОСТАТКА ПОЛУСФЕРЫ:
-    const envF = clamp(side.ambientViewFactor ?? (1 - fH), 0, 1);
+    // 3. Радиационный обмен с раскаленным телом короба (Рефлекторы)
+    // Возвращаем структуру автора (уход тепла со знаком минус), но замыкаем поток на горячий TboxK
     const radEnv = sheetEmissivity * envF * SIGMA;
+    const q_rad_loss = radEnv * (TsK ** 4 - TboxK ** 4);
+    const dq_rad_loss_dTs = 4 * radEnv * (TsK ** 3);
 
-    const q_rad_box = radEnv * (TboxK ** 4 - TsK ** 4);
-    const dq_rad_box_dTs = -4 * radEnv * (TsK ** 3);
+    // Идеальный консервативный баланс под оригинальный implicit-решатель файла:
+    const total_q = q_rad_heater + q_conv - q_rad_loss;
+    const total_dq_dTs = dq_rad_heater_dTs + dq_conv_dTs - dq_rad_loss_dTs;
 
     return {
-        g1: dq_rad_heater_dTs + dq_conv_dTs + dq_rad_box_dTs,
-        g0: (q_rad_heater + q_conv + q_rad_box) - (dq_rad_heater_dTs + dq_conv_dTs + dq_rad_box_dTs) * TsK
+        g1: total_dq_dTs,                 // Коэффициент Якобиана (стабильный шаг времени)
+        g0: total_q - total_dq_dTs * TsK  // Линейный сдвиг аппроксимации
     };
 }
 
