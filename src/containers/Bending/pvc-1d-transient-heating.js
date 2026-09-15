@@ -1,12 +1,7 @@
 /**
  * Optimized 1D transient implicit finite-difference heating model for opaque plastics (PVC).
- *
+ * Configuration: Semi-enclosed heater box with ultra-narrow gap (5-6mm).
  * rho*Cp*dT/dt = d/dx(k*dT/dx)
- *
- * Physical properties of PVC:
- * - Tg (Glass transition): ~80°C
- * - Optimal bending window: 110°C - 130°C
- * - Thermal degradation/decomposition: >170°C (HCl release)
  */
 
 export const GRID_CELLS_PER_THICKNESS = 22;
@@ -110,49 +105,47 @@ export function calculateEffectiveIncidentFlux({ side, material, surfaceTemperat
 }
 
 /**
- * Highly optimized inline surface flux linearization to reduce GC pressure and call stack depth.
+ * Физически точная линеаризация потоков для закрытого сзади короба с узким зазором 5мм.
  */
 function getLinearizedFluxParams(side, TsK, ambientTemperatureC, ambientRadiationTemperatureC, sheetEmissivity, viewFactor) {
     if (!side.enabled) return { g0: 0, g1: 0 };
 
     const h = Math.max(0, Number(side.convectiveHeatTransferCoefficient) || 0);
-    const envC = Number.isFinite(side.regulatorTemperatureC) ? side.regulatorTemperatureC : ambientTemperatureC;
-    const TaK = toKelvin(ambientRadiationTemperatureC);
+    const TboxK = toKelvin(Number.isFinite(side.regulatorTemperatureC) ? side.regulatorTemperatureC : ambientTemperatureC);
 
-    // 1. Convection component
-    let q_conv = h * (toKelvin(envC) - TsK);
-    let dq_conv_dTs = -h;
+    const q_conv = h * (TboxK - TsK);
+    const dq_conv_dTs = -h;
 
-    // 2. Radiation heater component
-    let q_rad_heater;
+    let q_rad_heater = 0;
     let dq_rad_heater_dTs = 0;
-    if (side.radiationMode === "heatFlux") {
-        q_rad_heater = Math.max(0, Number(side.heatFluxWm2) || 0);
-    } else {
-        const ThK = toKelvin(ambientTemperatureC + (Number.isFinite(side.heaterTemperatureFactor) ? side.heaterTemperatureFactor : 1) * ((Number.isFinite(side.regulatorTemperatureC) ? side.regulatorTemperatureC : ambientTemperatureC) - ambientTemperatureC));
-        const epsH = clamp(Number.isFinite(side.heaterEmissivity) ? side.heaterEmissivity : 0, 0, 1);
-        const fH = clamp(Number.isFinite(side.viewFactor) ? side.viewFactor : 0, 0, 1);
-        const gain = Number.isFinite(side.radiationGain) ? side.radiationGain : 1;
-        const radA = gain * epsH * fH * SIGMA;
 
+    const ThK = toKelvin(getHeaterTemperatureC({ side, ambientTemperatureC }));
+    const epsH = clamp(Number.isFinite(side.heaterEmissivity) ? side.heaterEmissivity : 0, 0, 1);
+
+    // ИСПОЛЬЗУЕМ ВНЕШНИЙ АРГУМЕНТ viewFactor ТУТ:
+    const fH = clamp(viewFactor, 0, 1);
+    const radA = (Number.isFinite(side.radiationGain) ? side.radiationGain : 1) * epsH * fH * SIGMA;
+
+    if (side.radiationMode !== "heatFlux") {
         q_rad_heater = Math.max(0, radA * (ThK ** 4 - TsK ** 4));
         if (ThK > TsK) dq_rad_heater_dTs = -4 * radA * (TsK ** 3);
+    } else {
+        q_rad_heater = Math.max(0, Number(side.heatFluxWm2) || 0);
     }
 
-    // 3. Ambient radiation loss component
-    const radEnv = sheetEmissivity * viewFactor * SIGMA;
-    const q_rad_loss = radEnv * (TsK ** 4 - TaK ** 4);
-    const dq_rad_loss_dTs = 4 * radEnv * (TsK ** 3);
+    // И ТУТ ТОЖЕ ИСПОЛЬЗУЕМ ЕГО ДЛЯ ОСТАТКА ПОЛУСФЕРЫ:
+    const envF = clamp(side.ambientViewFactor ?? (1 - fH), 0, 1);
+    const radEnv = sheetEmissivity * envF * SIGMA;
 
-    // Cumulative balance: q = q_rad_heater + q_conv - q_rad_loss
-    const total_q = q_rad_heater + q_conv - q_rad_loss;
-    const total_dq_dTs = dq_rad_heater_dTs + dq_conv_dTs - dq_rad_loss_dTs;
+    const q_rad_box = radEnv * (TboxK ** 4 - TsK ** 4);
+    const dq_rad_box_dTs = -4 * radEnv * (TsK ** 3);
 
     return {
-        g1: total_dq_dTs, // Slope component for implicit solver matrix
-        g0: total_q - total_dq_dTs * TsK // Intercept component
+        g1: dq_rad_heater_dTs + dq_conv_dTs + dq_rad_box_dTs,
+        g0: (q_rad_heater + q_conv + q_rad_box) - (dq_rad_heater_dTs + dq_conv_dTs + dq_rad_box_dTs) * TsK
     };
 }
+
 
 /* =========================
  * TRIDIAGONAL MATRIX SOLVER (THOMAS ALGORITHM)
@@ -210,7 +203,7 @@ export function simulate1DHeating({
     const [lower, diagonal, upper, rhs] = Array.from({ length: 4 }, () => new Float64Array(nodeCount));
     const history = storeHistory ? [] : null;
 
-    const getBoundary = (side, tVal, vFact) => getLinearizedFluxParams(side, tVal, ambT, ambRadT, epsS, clamp(side.ambientViewFactor ?? (1 - clamp(side.viewFactor ?? 0, 0, 1)), 0, 1));
+    const getBoundary = (side, tVal) => getLinearizedFluxParams(side, tVal, ambT, ambRadT, epsS, clamp(side.ambientViewFactor ?? (1 - clamp(side.viewFactor ?? 0, 0, 1)), 0, 1));
     const checkTarget = () => target.minCenterC == null || toCelsius(T[centerIndex]) >= target.minCenterC;
 
     if (storeHistory) history.push({ timeSeconds: 0, frontSurfaceC: toCelsius(T[0]), centerC: toCelsius(T[centerIndex]), backSurfaceC: toCelsius(T[nodeCount - 1]) });
@@ -276,7 +269,6 @@ export function simulate1DHeating({
     return res;
 }
 
-
 /* =========================
  * OPTIMIZED ERROR ANALYSIS (BINARY SEARCH MATCHING)
  * ========================= */
@@ -290,7 +282,6 @@ export function calculateFitError({ simulation, measurements, weights = { surfac
     for (const m of measurements) {
         if (!Number.isFinite(m?.timeSeconds)) continue;
 
-        // O(log N) Binary Search bounds detection replaces native full O(N) iterative scans
         let low = 0, high = history.length - 1;
         while (low < high - 1) {
             const mid = (low + high) >> 1;
