@@ -7,7 +7,7 @@
 export const GRID_CELLS_PER_THICKNESS = 22;
 export const MIN_DX_MM = 0.25;
 export const MAX_DX_MM = 1.5;
-export const DEFAULT_DT_SECONDS = 0.2;
+export const DEFAULT_DT_SECONDS = 0.25;
 export const MAX_NONLINEAR_ITERATIONS = 3;
 export const NONLINEAR_TOLERANCE_K = 0.1;
 export const SIGMA = 5.670374419e-8;
@@ -107,63 +107,51 @@ export function calculateEffectiveIncidentFlux({ side, material, surfaceTemperat
 /**
  * Физически точная линеаризация потоков для закрытого сзади короба с узким зазором 5мм.
  */
-function getLinearizedFluxParams(side, TsK, ambientTemperatureC, ambientRadiationTemperatureC, sheetEmissivity) {
+const getLinearizedFluxParams = (side, TsK, ambientTemperatureC, ambientRadiationTemperatureC, sheetEmissivity) => {
     if (!side.enabled) return { g0: 0, g1: 0 };
 
     const h = Math.max(0, Number(side.convectiveHeatTransferCoefficient) || 0);
 
-    // Короба не выключали, они сразу прогреты: воздух и стенки зазора равны уставке Tregulator (200°C)
+    // Машину не выключают, короба и воздух в зазоре ВСЕГДА прогреты до уставки (200°C)
     const envC = Number.isFinite(side.regulatorTemperatureC) ? side.regulatorTemperatureC : ambientTemperatureC;
     const TboxK = toKelvin(envC);
 
-    // 1. Конвекция (теплообмен с уже раскаленной воздушной прослойкой зазора 200°C)
+    // 1. Конвекция (мгновенный теплообмен с уже горячей воздушной прослойкой 200°C)
     const q_conv = h * (TboxK - TsK);
     const dq_conv_dTs = -h;
 
-    // --- СТРОГАЯ ГЕОМЕТРИЯ ЗАКРЫТОЙ КАМЕРЫ ---
-    // Чистый fH — фактор обзора строго на ИК-спирали ТЭНа
-    const fH = clamp(Number.isFinite(side.viewFactor) ? side.viewFactor : 0, 0, 1);
-    // Чистый envF — фактор обзора на раскаленные стенки короба (остаток полусферы)
-    const envF = clamp(side.ambientViewFactor ?? (1 - fH), 0, 1);
+    // --- ГЕОМЕТРИЯ СТАНКА (Распределение площадей в зеве алюминиевого клина) ---
+    const fH = clamp(Number.isFinite(side.viewFactor) ? side.viewFactor : 0.6, 0, 1); // Доля прямого обзора на овальный ТЭН
+    const envF = clamp(side.ambientViewFactor ?? (1 - fH), 0, 1); // Доля обзора на внутренние стенки алюминиевого короба
 
-    // 2. Радиационный нагреватель (прямое ИК-излучение спиралей ТЭНа)
-    let q_rad_heater;
-    let dq_rad_heater_dTs = 0;
+    // 2. Радиационный нагреватель (Овальный ТЭН, который ВСЕГДА раскален и не остывает)
+    // Рассчитываем физическую температуру ТЭНа через строгий коэффициент лучистого перегрева от TboxK
+    const heaterTemperatureFactor = Number.isFinite(side.heaterTemperatureFactor) ? side.heaterTemperatureFactor : 1.3;
+    const epsH = clamp(Number.isFinite(side.heaterEmissivity) ? side.heaterEmissivity : 0.85, 0, 1);
+    const gain = Number.isFinite(side.radiationGain) ? side.radiationGain : 1;
 
-    if (side.radiationMode === "heatFlux") {
-        q_rad_heater = Math.max(0, Number(side.heatFluxWm2) || 0);
-    } else {
-        // Температура спиралей ТЭНа считается от базового холодного цеха (20°C), так как они откалиброваны на холодный старт
-        const regulatorTemperatureC = Number.isFinite(side.regulatorTemperatureC) ? side.regulatorTemperatureC : ambientTemperatureC;
-        const heaterTemperatureFactor = Number.isFinite(side.heaterTemperatureFactor) ? side.heaterTemperatureFactor : 1;
-        const ThC = ambientTemperatureC + heaterTemperatureFactor * (regulatorTemperatureC - ambientTemperatureC);
-        const ThK = toKelvin(ThC);
+    // В термодинамическом равновесии замкнутого короба мощность ТЭНа пропорциональна четвертой степени TboxK
+    const radA = gain * epsH * fH * SIGMA;
+    const ThK_4 = (TboxK ** 4) * heaterTemperatureFactor; // Прямая эффективная излучательная мощность спирали
 
-        const epsH = clamp(Number.isFinite(side.heaterEmissivity) ? side.heaterEmissivity : 0, 0, 1);
-        const gain = Number.isFinite(side.radiationGain) ? side.radiationGain : 1;
-        const radA = gain * epsH * fH * SIGMA;
+    const q_rad_heater = Math.max(0, radA * (ThK_4 - TsK ** 4));
+    const dq_rad_heater_dTs = ThK_4 > (TsK ** 4) ? -4 * radA * (TsK ** 3) : 0;
 
-        q_rad_heater = Math.max(0, radA * (ThK ** 4 - TsK ** 4));
-        if (ThK > TsK) {
-            dq_rad_heater_dTs = -4 * radA * (TsK ** 3);
-        }
-    }
-
-    // 3. Радиационный обмен с раскаленным телом короба (Рефлекторы)
-    // Возвращаем структуру автора (уход тепла со знаком минус), но замыкаем поток на горячий TboxK
+    // 3. Вторичное ИК-излучение от нагретых внутренних стенок алюминиевого клина (200°C)
     const radEnv = sheetEmissivity * envF * SIGMA;
-    const q_rad_loss = radEnv * (TsK ** 4 - TboxK ** 4);
-    const dq_rad_loss_dTs = 4 * radEnv * (TsK ** 3);
+    const q_rad_box = radEnv * (TboxK ** 4 - TsK ** 4);
+    const dq_rad_box_dTs = -4 * radEnv * (TsK ** 3);
 
-    // Идеальный консервативный баланс под оригинальный implicit-решатель файла:
-    const total_q = q_rad_heater + q_conv - q_rad_loss;
-    const total_dq_dTs = dq_rad_heater_dTs + dq_conv_dTs - dq_rad_loss_dTs;
+    // Полный результирующий баланс входящей энергии (все потоки стабильно греют лист с 0-й секунды)
+    const total_q = q_rad_heater + q_conv + q_rad_box;
+    const total_dq_dTs = dq_rad_heater_dTs + dq_conv_dTs + dq_rad_box_dTs;
 
+    //console.log("q_rad_heater,q_conv,q_rad_box: ", q_rad_heater,q_conv,q_rad_box);
     return {
-        g1: total_dq_dTs,                 // Коэффициент Якобиана (стабильный шаг времени)
-        g0: total_q - total_dq_dTs * TsK  // Линейный сдвиг аппроксимации
+        g1: total_dq_dTs,                 // Отрицательный Градиент (гарантия стабильности матрицы Томаса)
+        g0: total_q - total_dq_dTs * TsK  // Свободный член линейной аппроксимации
     };
-}
+};
 
 
 /* =========================
@@ -211,9 +199,13 @@ export function simulate1DHeating({
 
     const dx = (Number.isFinite(dxMm) && dxMm > 0 ? dxMm : calculateDxMm(status ? 2 : thicknessMm)) / 1000;
     const { nodeCount } = createGrid((status ? 2 : thicknessMm) / 1000, dx);
-    const centerIndex = Math.floor((nodeCount - 1) / 2), decompTemp = Number(material?.decompositionTemp);
+    const centerIndex = Math.floor((nodeCount - 1) / 2);
+    const decompTemp = Number(material?.decompositionTemp);
+    const decompTempK = decompTemp ? toKelvin(decompTemp) : null;
+    const targetMinCenterK = target.minCenterC != null ? toKelvin(target.minCenterC) : null;
 
-    const [useTop, useBot] = ["both", sides].flatMap(s => [sides === s || sides === "top" || sides === "one-sided-top", sides === s || sides === "bottom" || sides === "one-sided-bottom"]);
+    const useTop = sides === "both" || sides === "top" || sides === "one-sided-top";
+    const useBot = sides === "both" || sides === "bottom" || sides === "one-sided-bottom";
     const topSide = mach ? { ...(mach.top || {}), enabled: useTop && !!mach.top } : { enabled: false };
     const botSide = mach ? { ...(mach.bottom || {}), enabled: useBot && !!mach.bottom } : { enabled: false };
     const epsS = clamp(material?.emissivity ?? 0.93, 0, 1);
@@ -222,68 +214,138 @@ export function simulate1DHeating({
     const [lower, diagonal, upper, rhs] = Array.from({ length: 4 }, () => new Float64Array(nodeCount));
     const history = storeHistory ? [] : null;
 
-    const getBoundary = (side, tVal) => getLinearizedFluxParams(side, tVal, ambT, ambRadT, epsS, clamp(side.ambientViewFactor ?? (1 - clamp(side.viewFactor ?? 0, 0, 1)), 0, 1));
-    const checkTarget = () => target.minCenterC == null || toCelsius(T[centerIndex]) >= target.minCenterC;
+    const getBoundary = (side, tVal) => getLinearizedFluxParams(side, tVal, ambT, ambRadT, epsS);
+    const getMinC = values => { let min = Infinity; for (let i = 0; i < values.length; i++) if (values[i] < min) min = values[i]; return toCelsius(min); };
 
-    if (storeHistory) history.push({ timeSeconds: 0, frontSurfaceC: toCelsius(T[0]), centerC: toCelsius(T[centerIndex]), backSurfaceC: toCelsius(T[nodeCount - 1]) });
+    if (storeHistory) {
+        history.push({ timeSeconds: 0, frontSurfaceC: toCelsius(T[0]), centerC: toCelsius(T[centerIndex]), backSurfaceC: toCelsius(T[nodeCount - 1]), minTemperatureC: toCelsius(T[0]) });
+    }
 
     while (!status && time < maxTimeSeconds) {
-        if (checkTarget()) break;
+        // Ранний выход, если условие уже выполнено изначально
+        if (targetMinCenterK != null && T[0] >= targetMinCenterK) {
+            let initialReached = true;
+            for (let i = 1; i < nodeCount; i++) { if (T[i] < targetMinCenterK) { initialReached = false; break; } }
+            if (initialReached) break;
+        }
+
         oldT.set(T);
         let converged = false;
 
         for (let iter = 0; iter < MAX_NONLINEAR_ITERATIONS; iter++) {
             for (let i = 1; i < nodeCount - 1; i++) {
-                const { density, k, cp } = matModel.get(toCelsius(T[i]));
-                const r = dt * k / (density * cp * dx * dx);
+                const { density, k, cp } = matModel.get(toCelsius(T[i])), r = dt * k / (density * cp * dx * dx);
                 lower[i] = upper[i] = -r; diagonal[i] = 1 + 2 * r; rhs[i] = oldT[i];
             }
-            [[0, topSide, 1], [nodeCount - 1, botSide, -1]].forEach(([i, side, sign]) => {
-                const props = matModel.get(toCelsius(T[i])), flux = getBoundary(side, T[i]);
-                const factor = 2 * dt / (props.density * props.cp * dx), cond = 2 * props.k * dt / (props.density * props.cp * dx * dx);
-                diagonal[i] = 1 + cond - factor * flux.g1; rhs[i] = oldT[i] + factor * flux.g0;
-                if (sign === 1) upper[0] = -cond; else lower[i] = -cond;
-            });
+
+            // Граничные условия (кэшируем свойства для узлов 0 и nodeCount-1)
+            const propsTop = matModel.get(toCelsius(T[0])), fluxTop = getBoundary(topSide, T[0]);
+            const factorTop = 2 * dt / (propsTop.density * propsTop.cp * dx), condTop = 2 * propsTop.k * dt / (propsTop.density * propsTop.cp * dx * dx);
+            diagonal[0] = 1 + condTop - factorTop * fluxTop.g1; rhs[0] = oldT[0] + factorTop * fluxTop.g0; upper[0] = -condTop;
+
+            const last = nodeCount - 1;
+            const propsBot = matModel.get(toCelsius(T[last])), fluxBot = getBoundary(botSide, T[last]);
+            const factorBot = 2 * dt / (propsBot.density * propsBot.cp * dx), condBot = 2 * propsBot.k * dt / (propsBot.density * propsBot.cp * dx * dx);
+            diagonal[last] = 1 + condBot - factorBot * fluxBot.g1; rhs[last] = oldT[last] + factorBot * fluxBot.g0; lower[last] = -condBot;
 
             if (!solveTridiagonal(lower, diagonal, upper, rhs, Tnext)) break;
-            if ((converged = Tnext.every((val, i) => Math.abs(val - T[i]) <= NONLINEAR_TOLERANCE_K))) { T.set(Tnext); break; }
+
+            converged = true;
+            for (let i = 0; i < nodeCount; i++) {
+                if (Math.abs(Tnext[i] - T[i]) > NONLINEAR_TOLERANCE_K) { converged = false; break; }
+            }
             T.set(Tnext);
+            if (converged) break;
         }
 
-        if (!converged) status = { type: "error", message: `Diverged at ${time.toFixed(2)}s.` };
-        else if (decompTemp && (toCelsius(T[0]) >= decompTemp || toCelsius(T[nodeCount - 1]) >= decompTemp)) status = { type: "error", message: `Degradation! Surface > ${decompTemp}°C.` };
-        else {
-            time += dt;
-            if (storeHistory && Math.abs(time % sampleEverySeconds) < dt / 2) history.push({ timeSeconds: time, frontSurfaceC: toCelsius(T[0]), centerC: toCelsius(T[centerIndex]), backSurfaceC: toCelsius(T[nodeCount - 1]) });
+        if (!converged) {
+            status = { type: "error", message: `Diverged at ${time.toFixed(2)}s.` };
+            break;
+        }
+
+        // Интегрированная интерполяция перегрева (деградации)
+        if (decompTempK && (T[0] >= decompTempK || T[nodeCount - 1] >= decompTempK)) {
+            let decompFraction = 1;
+            if (T[0] >= decompTempK && T[0] !== oldT[0]) {
+                const f = (decompTempK - oldT[0]) / (T[0] - oldT[0]);
+                if (f >= 0 && f < decompFraction) decompFraction = f;
+            }
+            if (T[nodeCount - 1] >= decompTempK && T[nodeCount - 1] !== oldT[nodeCount - 1]) {
+                const f = (decompTempK - oldT[nodeCount - 1]) / (T[nodeCount - 1] - oldT[nodeCount - 1]);
+                if (f >= 0 && f < decompFraction) decompFraction = f;
+            }
+
+            time += decompFraction * dt;
+            for (let i = 0; i < nodeCount; i++) T[i] = oldT[i] + decompFraction * (T[i] - oldT[i]);
+
+            if (storeHistory) {
+                history.push({ timeSeconds: time, frontSurfaceC: toCelsius(T[0]), centerC: toCelsius(T[centerIndex]), backSurfaceC: toCelsius(T[nodeCount - 1]), minTemperatureC: getMinC(T) });
+            }
+            status = { type: "error", message: `Degradation! Surface > ${decompTemp}°C.` };
+            break;
+        }
+
+        // Интегрированная интерполяция целевой температуры
+        if (targetMinCenterK != null) {
+            let fraction = 0, canReach = true;
+            for (let i = 0; i < nodeCount; i++) {
+                if (oldT[i] >= targetMinCenterK) continue;
+                if (T[i] < targetMinCenterK) { canReach = false; break; }
+                const dT = T[i] - oldT[i];
+                if (dT <= 0) { canReach = false; break; }
+                fraction = Math.max(fraction, (targetMinCenterK - oldT[i]) / dT);
+            }
+
+            if (canReach && fraction <= 1) {
+                time += fraction * dt;
+                for (let i = 0; i < nodeCount; i++) T[i] = oldT[i] + fraction * (T[i] - oldT[i]);
+                if (storeHistory) {
+                    history.push({ timeSeconds: time, frontSurfaceC: toCelsius(T[0]), centerC: toCelsius(T[centerIndex]), backSurfaceC: toCelsius(T[nodeCount - 1]), minTemperatureC: getMinC(T) });
+                }
+                break;
+            }
+        }
+
+        time += dt;
+        if (storeHistory && (Math.abs(time % sampleEverySeconds) < dt / 2 || time >= maxTimeSeconds)) {
+            history.push({ timeSeconds: time, frontSurfaceC: toCelsius(T[0]), centerC: toCelsius(T[centerIndex]), backSurfaceC: toCelsius(T[nodeCount - 1]), minTemperatureC: getMinC(T) });
         }
     }
 
-    const [reachedTarget, centerC, frontC, backC] = [checkTarget(), toCelsius(T[centerIndex]), toCelsius(T[0]), toCelsius(T[nodeCount - 1])];
-    const surfC = Math.max(frontC, backC);
+    const minTemperatureC = getMinC(T), reachedTarget = target.minCenterC == null || minTemperatureC >= target.minCenterC;
+    const centerC = toCelsius(T[centerIndex]), frontC = toCelsius(T[0]), backC = toCelsius(T[nodeCount - 1]), surfC = Math.max(frontC, backC);
 
     if (!status) {
         status = { type: "ok", message: "Compiled successfully." };
-        if (!reachedTarget && time >= maxTimeSeconds) status = { type: "error", message: `Timeout: Center (${target.minCenterC}°C) not reached within ${(maxTimeSeconds / 60).toFixed(0)} min. Current: ${centerC.toFixed(1)}°C.` };
-        else if (reachedTarget && target.maxSurfaceC && surfC > target.maxSurfaceC) status = { type: "warning", message: `Warning: Surface (${surfC.toFixed(1)}°C) > limit (${target.maxSurfaceC}°C).` };
+        if (!reachedTarget && time >= maxTimeSeconds) {
+            status = { type: "error", message: `Timeout: Minimum sheet temperature (${target.minCenterC}°C) not reached within ${(maxTimeSeconds / 60).toFixed(0)} min. Current minimum: ${minTemperatureC.toFixed(1)}°C.` };
+        } else if (reachedTarget && target.maxSurfaceC && surfC > target.maxSurfaceC) {
+            status = { type: "warning", message: `Warning: Surface (${surfC.toFixed(1)}°C) > limit (${target.maxSurfaceC}°C).` };
+        }
     }
 
-    const res = { heatingTimeSeconds: time, reachedTarget, status, temperatureProfile: Array.from(T, (tk, i) => ({ xMm: i * dx * 1000, temperatureC: toCelsius(tk) })), history };
+    // Оптимизированный перевод массива T из Кельвинов в Цельсии прямо на месте (in-place)
+    for (let i = 0; i < T.length; i++) {
+        T[i] = T[i] - 273.15; // Аналог toCelsius(T[i]) без вызова лишних функций
+    }
+
+    const res = { heatingTimeSeconds: time, reachedTarget, status, temperatureProfile: {temperaturesC: T,dxMm: dx * 1000}, history };
 
     if (includeBreakdown) {
-        const { density = 1400, k = 0.16, cp = 1000 } = matModel?.get(centerC) || {};
-        const diff = k / (density * cp), zeroF = { incidentWm2: 0, reflectedWm2: 0, effectiveWm2: 0 };
+        const { density = 1400, k = 0.16, cp = 1000 } = matModel?.get(centerC) || {}, diff = k / (density * cp), zeroF = { incidentWm2: 0, reflectedWm2: 0, effectiveWm2: 0 };
         res.diagnostics = {
-            nodeCount, dxMm: dx * 1000, requestedDxMm: dxMm || dx * 1000, dtSeconds: dt, maxStableDtSeconds: 0.5 * dx * dx / diff, thermalDiffusivityM2s: diff,
+            nodeCount, dxMm: dx * 1000, requestedDxMm: dxMm || dx * 1000, dtSeconds: dt,
+            maxStableDtSeconds: 0.5 * dx * dx / diff, thermalDiffusivityM2s: diff,
             numericalControl: { gridCellsPerThickness: GRID_CELLS_PER_THICKNESS, minDxMm: MIN_DX_MM, maxDxMm: MAX_DX_MM, nonlinearIterations: MAX_NONLINEAR_ITERATIONS, nonlinearToleranceK: NONLINEAR_TOLERANCE_K, fourierNumber: diff * dt / (dx * dx) },
-            target: { centerC: target.minCenterC, surfaceC: target.maxSurfaceC, actualCenterC: centerC, actualFrontSurfaceC: frontC, actualBackSurfaceC: backC, decompositionC: decompTemp },
+            target: { centerC: target.minCenterC, surfaceC: target.maxSurfaceC, actualCenterC: centerC, actualMinTemperatureC: minTemperatureC, actualFrontSurfaceC: frontC, actualBackSurfaceC: backC, decompositionC: decompTemp },
             heatBalance: {
                 top: topSide.enabled ? calculateEffectiveIncidentFlux({ side: topSide, material, surfaceTemperatureC: frontC, ambientTemperatureC: ambT }) : zeroF,
                 bottom: botSide.enabled ? calculateEffectiveIncidentFlux({ side: botSide, material, surfaceTemperatureC: backC, ambientTemperatureC: ambT }) : zeroF,
-                topRegulatorTemperatureC: topSide.regulatorTemperatureC ?? null, bottomRegulatorTemperatureC: botSide.regulatorTemperatureC ?? null,
-                topHeaterTemperatureC: topSide.enabled ? getHeaterTemperatureC({ side: topSide, ambientTemperatureC: ambT }) : null, bottomHeaterTemperatureC: botSide.enabled ? getHeaterTemperatureC({ side: botSide, ambientTemperatureC: ambT }) : null,
-                convectionCoefficient: mach ? Math.max(0, Number(mach.heatTransferCoefficient) || 0) : 0
-            }
-        };
+                topRegulatorTemperatureC: topSide.regulatorTemperatureC ?? null,
+                bottomRegulatorTemperatureC: botSide.regulatorTemperatureC ?? null,
+                topHeaterTemperatureC: topSide.enabled ? getHeaterTemperatureC({ side: topSide, ambientTemperatureC: ambT }) : null,
+                bottomHeaterTemperatureC: botSide.enabled ? getHeaterTemperatureC({ side: botSide, ambientTemperatureC: ambT }) : null,
+                convectionCoefficient: mach ? Math.max(0, Number(mach.heatTransferCoefficient) || 0) : 0}};
     }
     return res;
 }

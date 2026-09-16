@@ -55,169 +55,199 @@ const PartHeader=({profile})=>(
 );
 
 
-const TemperatureProfileChart=memo(({temperatureProfile:data,status})=>{
-    const theme=useTheme();
-    if(!data?.length||data.length<2) return null;
+const TemperatureProfileChart = memo(({ temperatureProfile: data, status }) => {
+    const theme = useTheme();
 
-    const width=280,height=120;
-    const pad={left:42,right:15,top:20,bottom:25};
-    const wPlot=width-pad.left-pad.right;
-    const hPlot=height-pad.top-pad.bottom;
+    const temps = data?.temperaturesC;
+    const dxMm = data?.dxMm;
+    if (!temps || !temps.length || temps.length < 2 || typeof dxMm !== 'number') return null;
 
-    const xMin=data[0].xMm;
-    const xMax=data[data.length-1].xMm;
-    const xDelta=xMax-xMin||1;
+    const len = temps.length;
+    const width = 280, height = 120;
+    const pad = { left: 42, right: 15, top: 20, bottom: 25 };
+    const wPlot = width - pad.left - pad.right;
+    const hPlot = height - pad.top - pad.bottom;
 
-    let minIdx=0,maxIdx=0,minV=Infinity,maxV=-Infinity;
+    const xMin = 0;
+    const xMax = (len - 1) * dxMm;
+    const xDelta = xMax - xMin || 1;
 
-    for(let i=0;i<data.length;i++){
-        const t=Math.round(data[i].temperatureC*10)/10;
-        if(t<minV){minV=t;minIdx=i;}
-        if(t>maxV){maxV=t;maxIdx=i;}
+    let minIdx = 0, maxIdx = 0, minV = Infinity, maxV = -Infinity;
+
+    // Поиск экстремумов
+    for (let i = 0; i < len; i++) {
+        const t = Math.round(temps[i] * 10) / 10;
+        if (t < minV) { minV = t; minIdx = i; }
+        if (t > maxV) { maxV = t; maxIdx = i; }
     }
 
-    const leftT=Math.round(data[0].temperatureC*10)/10;
-    const rightT=Math.round(data[data.length-1].temperatureC*10)/10;
+    // Вычисляем физическую разницу между макс и мин температурами
+    const deltaT = maxV - minV;
 
-    if(leftT===rightT){
-        if(Math.abs(data[0].temperatureC-data[data.length-1].temperatureC)>1e-9)
-            maxIdx=data[0].temperatureC>data[data.length-1].temperatureC?0:data.length-1;
-    }else if(leftT>rightT){
-        maxIdx=0;
-    }else{
-        maxIdx=data.length-1;
+    const leftT = Math.round(temps[0] * 10) / 10;
+    const rightT = Math.round(temps[len - 1] * 10) / 10;
+
+    if (leftT === rightT) {
+        if (Math.abs(temps[0] - temps[len - 1]) > 1e-9)
+            maxIdx = temps[0] > temps[len - 1] ? 0 : len - 1;
+    } else if (leftT > rightT) {
+        maxIdx = 0;
+    } else {
+        maxIdx = len - 1;
     }
 
-    const tMin=Math.floor(minV/10)*10;
-    const tMax=Math.ceil((maxV+5)/10)*10;
-    const tDelta=tMax-tMin||1;
-    const tCenter=(tMax+tMin)/2;
+    const tMin = Math.floor(minV / 10) * 10;
+    const tMax = Math.ceil((maxV + 5) / 10) * 10;
+    const tDelta = tMax - tMin || 1;
+    const tCenter = (tMax + tMin) / 2;
 
-    const xs=x=>pad.left+((x-xMin)/xDelta)*wPlot;
-    const ys=t=>pad.top+((tMax-t)/tDelta)*hPlot;
-    const xCenter=xs((xMin+xMax)/2);
+    const xs = x => pad.left + ((x - xMin) / xDelta) * wPlot;
+    const ys = t => pad.top + ((tMax - t) / tDelta) * hPlot;
+    const xCenter = xs((xMin + xMax) / 2);
 
-    let dPath=`M ${xs(xMin)} ${ys(data[0].temperatureC)}`;
+    let dPath = `M ${xs(xMin)} ${ys(temps[0])}`;
 
-    for(let i=0;i<data.length-1;i++){
-        const p0=data[i?i-1:0],p1=data[i],p2=data[i+1],p3=data[i+2]||p2;
-        const x0=xs(p0.xMm),x1=xs(p1.xMm),x2=xs(p2.xMm),x3=xs(p3.xMm);
-        const y0=ys(p0.temperatureC),y1=ys(p1.temperatureC),y2=ys(p2.temperatureC),y3=ys(p3.temperatureC);
+    for (let i = 0; i < len - 1; i++) {
+        const t0 = temps[i ? i - 1 : 0];
+        const t1 = temps[i];
+        const t2 = temps[i + 1];
+        const t3 = temps[i + 2] !== undefined ? temps[i + 2] : t2;
 
-        dPath+=` C ${x1+(x2-x0)/6},${y1+(y2-y0)/6} ${x2-(x3-x1)/6},${y2-(y3-y1)/6} ${x2},${y2}`;
+        const x0 = xs((i ? i - 1 : 0) * dxMm), x1 = xs(i * dxMm), x2 = xs((i + 1) * dxMm), x3 = xs((i + 2 >= len ? len - 1 : i + 2) * dxMm);
+        const y0 = ys(t0), y1 = ys(t1), y2 = ys(t2), y3 = ys(t3);
+
+        dPath += ` C ${x1 + (x2 - x0) / 6},${y1 + (y2 - y0) / 6} ${x2 - (x3 - x1) / 6},${y2 - (y3 - y1) / 6} ${x2},${y2}`;
     }
 
-    const dArea=`${dPath} L ${xs(xMax)} ${height-pad.bottom} L ${xs(xMin)} ${height-pad.bottom} Z`;
+    const dArea = `${dPath} L ${xs(xMax)} ${height - pad.bottom} L ${xs(xMin)} ${height - pad.bottom} Z`;
 
-    const point=(idx,val)=>({
-        x:xs(data[idx].xMm),
-        y:ys(data[idx].temperatureC),
+    const makePoint = (idx, val) => ({
+        id: idx,
+        x: xs(idx * dxMm),
+        y: ys(temps[idx]),
         val,
-        anchor:idx===0?"start":idx===data.length-1?"end":"middle",
-        dx:idx===0?4:idx===data.length-1?-4:0
+        anchor: idx === 0 ? "start" : idx === len - 1 ? "end" : "middle",
+        dx: idx === 0 ? 4 : idx === len - 1 ? -4 : 0
     });
 
-    const minP=point(minIdx,minV);
-    const maxP=point(maxIdx,maxV);
+    const allPoints = [
+        { ...makePoint(maxIdx, maxV), color: theme.palette.error.main, defaultDy: -6 },
+        { ...makePoint(minIdx, minV), color: theme.palette.primary.main, defaultDy: 14 },
+        { ...makePoint(0, temps[0]), color: theme.palette.text.primary, defaultDy: -6 },
+        { ...makePoint(len - 1, temps[len - 1]), color: theme.palette.text.primary, defaultDy: -6 }
+    ];
 
-    const chartColor=
-        status?.type==="error"
-            ?theme.palette.error.main
-            :status?.type==="warning"
-                ?theme.palette.warning.main
-                :theme.palette.text.primary;
+    const seenIds = new Set();
+    const uniquePoints = [];
 
-    return(
+    for (const p of allPoints) {
+        if (!seenIds.has(p.id)) {
+            seenIds.add(p.id);
+            let dy = p.defaultDy;
+            if (p.id === minIdx) dy = 14;
+            uniquePoints.push({ ...p, dy });
+        }
+    }
+
+    const chartColor =
+        status?.type === "error"
+            ? theme.palette.error.main
+            : status?.type === "warning"
+                ? theme.palette.warning.main
+                : theme.palette.text.primary;
+
+    return (
         <Box
             sx={{
-                width:280,
-                maxWidth:"100%",
+                width: 280,
+                maxWidth: "100%",
                 height,
-                flex:"0 1 280px",
-                flexShrink:0,
-                display:"flex",
-                alignItems:"center",
-                border:"1px solid",
-                borderColor:status?.type==="ok"?theme.palette.divider:chartColor,
-                borderRadius:"6px",
-                p:.5,
-                boxSizing:"border-box",
-                fontFamily:'"Roboto Mono","SF Mono",monospace'
+                flex: "0 1 280px",
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                border: "1px solid",
+                borderColor: status?.type === "ok" ? theme.palette.divider : chartColor,
+                borderRadius: "6px",
+                p: .5,
+                boxSizing: "border-box",
+                fontFamily: '"Roboto Mono","SF Mono",monospace'
             }}
         >
             <svg
                 width="100%"
                 height={height}
                 viewBox={`0 0 ${width} ${height}`}
-                style={{overflow:"visible"}}
+                style={{ overflow: "visible" }}
                 shapeRendering="geometricPrecision"
             >
-                {[tMax,tCenter,tMin].map((_,i)=>(
+                {/* Сетка температур */}
+                {[tMax, tCenter, tMin].map((_, i) => (
                     <line
                         key={i}
                         x1={pad.left}
-                        y1={pad.top+(i*hPlot)/2}
-                        x2={width-pad.right}
-                        y2={pad.top+(i*hPlot)/2}
+                        y1={pad.top + (i * hPlot) / 2}
+                        x2={width - pad.right}
+                        y2={pad.top + (i * hPlot) / 2}
                         stroke={theme.palette.divider}
                         strokeDasharray="2 2"
                         shapeRendering="crispEdges"
                     />
                 ))}
 
+                {/* Ось центра листа */}
                 <line
                     x1={xCenter}
                     y1={pad.top}
                     x2={xCenter}
-                    y2={height-pad.bottom}
+                    y2={height - pad.bottom}
                     stroke={theme.palette.divider}
                     strokeDasharray="2 2"
                     shapeRendering="crispEdges"
                 />
 
+                {/* Границы осей */}
                 <line
                     x1={pad.left}
                     y1={pad.top}
                     x2={pad.left}
-                    y2={height-pad.bottom}
+                    y2={height - pad.bottom}
                     stroke={theme.palette.text.secondary}
                     opacity=".7"
                     shapeRendering="crispEdges"
                 />
-
                 <line
                     x1={pad.left}
-                    y1={height-pad.bottom}
-                    x2={width-pad.right}
-                    y2={height-pad.bottom}
+                    y1={height - pad.bottom}
+                    x2={width - pad.right}
+                    y2={height - pad.bottom}
                     stroke={theme.palette.text.secondary}
                     opacity=".7"
                     shapeRendering="crispEdges"
                 />
 
-                <path d={dArea} fill={chartColor} fillOpacity=".05"/>
-                <path d={dPath} fill="none" stroke={chartColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                {/* Площадь под графиком и линия */}
+                <path d={dArea} fill={chartColor} fillOpacity=".05" />
+                <path d={dPath} fill="none" stroke={chartColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 
-                {[
-                    {p:maxP,c:theme.palette.error.main,dy:-6},
-                    {p:minP,c:theme.palette.primary.main,dy:14}
-                ].map(({p,c,dy},i)=>(
+                {/* Точки перепадов и температур узлов */}
+                {uniquePoints.map((p, i) => (
                     <g key={i}>
                         <circle
                             cx={p.x}
                             cy={p.y}
                             r="3"
-                            fill={c}
+                            fill={p.color}
                             stroke={theme.palette.background.paper}
                             strokeWidth="1"
                         />
                         <text
                             x={p.x}
-                            y={p.y+dy}
+                            y={p.y + p.dy}
                             dx={p.dx}
                             textAnchor={p.anchor}
-                            fontSize="11"
-                            fontWeight="bold"
+                            fontSize="10"
+                            fontWeight={p.id === minIdx || p.id === maxIdx ? "bold" : "normal"}
                             fill={theme.palette.text.primary}
                         >
                             {p.val.toFixed(1)}°C
@@ -225,10 +255,24 @@ const TemperatureProfileChart=memo(({temperatureProfile:data,status})=>{
                     </g>
                 ))}
 
-                <text x={pad.left-6} y={pad.top+3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMax}°</text>
-                <text x={pad.left-6} y={height-pad.bottom+3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMin}°</text>
-                <text x={pad.left} y={height-9} textAnchor="middle" fontSize="8.5" fill={theme.palette.text.secondary}>{xMin} mm</text>
-                <text x={width-pad.right} y={height-9} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{xMax} mm</text>
+                {/* Текстовая плашка вывода дельты температур*/}
+                <text
+                    x={xCenter}
+                    y={pad.top - 7}
+                    textAnchor="middle"
+                    fontSize="9"
+                    fontWeight="bold"
+                    fill={chartColor}
+                >
+                    ΔT = {deltaT.toFixed(1)}°C
+                </text>
+
+
+                {/* Подписи шкал */}
+                <text x={pad.left - 6} y={pad.top + 3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMax}°</text>
+                <text x={pad.left - 6} y={height - pad.bottom + 3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMin}°</text>
+                <text x={pad.left} y={height - 9} textAnchor="middle" fontSize="8.5" fill={theme.palette.text.secondary}>{xMin.toFixed(1)} mm</text>
+                <text x={width - pad.right} y={height - 9} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{xMax.toFixed(1)} mm</text>
             </svg>
         </Box>
     );
@@ -367,7 +411,11 @@ const Parameters=({
                             </Typography>
                         </Box>
 
-                        <Box
+                    </>
+                )}
+
+
+                <Box
                             sx={{
                                 display:"flex",
                                 flexWrap:"wrap",
@@ -395,7 +443,7 @@ const Parameters=({
                             </Typography>
                         </Box>
 
-                        {status?.message&&(
+                        {status?.type !== "ok" && status?.message && (
                             <Typography
                                 variant="body2"
                                 color={statusColor}
@@ -406,14 +454,14 @@ const Parameters=({
                                 {status.message}
                             </Typography>
                         )}
-                    </>
-                )}
             </Box>
 
-            <TemperatureProfileChart
-                temperatureProfile={heatingParams?.temperatureProfile}
-                status={heatingParams?.status}
-            />
+            <Box sx={{flex:"0 0 280px",mx:"auto"}}>
+                <TemperatureProfileChart
+                    temperatureProfile={heatingParams?.temperatureProfile}
+                    status={heatingParams?.status}
+                />
+            </Box>
         </Box>
     );
 };
