@@ -348,7 +348,10 @@ const Parameters=({
                                 fontSize={PARAMETER_TEXT_SIZE}
                             >
                                 Heat temp:{" "}
-                                <strong>{"200"} °C</strong>
+                                <strong>
+                                    top: {heatingParams?.temperatureProfile.heaterTemperaturesC.top}°C,
+                                    bottom: {heatingParams?.temperatureProfile.heaterTemperaturesC.bottom}°C
+                                </strong>
                             </Typography>
 
                             <Typography

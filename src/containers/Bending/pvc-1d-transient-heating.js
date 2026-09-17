@@ -574,6 +574,10 @@ export function simulate1DHeating({
         status,
         temperatureProfile: {
             temperaturesC: heatingProfileC,
+            heaterTemperaturesC: {
+                top: machine.heaters[0].regulatorTemperatureC,
+                bottom: machine.heaters[1].regulatorTemperatureC
+            },
             cooldownProfileC, // Профиль после 10 секунд переноса (°C)
             cooldownSec: cooldownTimeSeconds,
             dxMm: dx * 1000
