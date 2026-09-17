@@ -61,7 +61,7 @@ export const MATERIALS = {
         surfaceReflectance: 0,
 
         defaultTSurf: 160,
-        defaultTCenter: 120,
+        defaultTCenter: 130,
         decompositionTemp: 180
     },
 

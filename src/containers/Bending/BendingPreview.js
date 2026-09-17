@@ -457,7 +457,7 @@ const BendingPreview=({
             },
 
             maxTimeSeconds: 1200,
-            cooldownTimeSeconds: 15
+            cooldownTimeSeconds: 10
         });
 
     },[
