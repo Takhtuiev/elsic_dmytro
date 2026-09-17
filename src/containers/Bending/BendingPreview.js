@@ -55,81 +55,41 @@ const PartHeader=({profile})=>(
 );
 
 
+
 const TemperatureProfileChart = memo(({ temperatureProfile: data, status }) => {
-    const theme = useTheme();
+    const theme = useTheme(), temps = data?.temperaturesC, cooldownTemps = data?.cooldownProfileC, dxMm = data?.dxMm;
+    if (!temps?.length || temps.length < 2 || typeof dxMm !== "number") return null;
 
-    const temps = data?.temperaturesC;
-    const dxMm = data?.dxMm;
-    if (!temps || !temps.length || temps.length < 2 || typeof dxMm !== 'number') return null;
-
-    const len = temps.length;
-    const width = 280, height = 120;
-    const pad = { left: 42, right: 15, top: 20, bottom: 25 };
-    const wPlot = width - pad.left - pad.right;
-    const hPlot = height - pad.top - pad.bottom;
-
-    const xMin = 0;
-    const xMax = (len - 1) * dxMm;
-    const xDelta = xMax - xMin || 1;
+    const len = temps.length, hasCooldown = cooldownTemps?.length === len, width = 280, height = 120;
+    const pad = { left: 42, right: 15, top: 20, bottom: 25 }, wPlot = width - pad.left - pad.right, hPlot = height - pad.top - pad.bottom;
+    const xMin = 0, xMax = (len - 1) * dxMm, xDelta = xMax || 1, xs = x => pad.left + x / xDelta * wPlot;
 
     let minIdx = 0, maxIdx = 0, minV = Infinity, maxV = -Infinity;
-
-    // Поиск экстремумов
     for (let i = 0; i < len; i++) {
-        const t = Math.round(temps[i] * 10) / 10;
-        if (t < minV) { minV = t; minIdx = i; }
-        if (t > maxV) { maxV = t; maxIdx = i; }
+        if (temps[i] < minV) { minV = temps[i]; minIdx = i; }
+        if (temps[i] > maxV) { maxV = temps[i]; maxIdx = i; }
     }
 
-    // Вычисляем физическую разницу между макс и мин температурами
-    const deltaT = maxV - minV;
+    const allTemps = hasCooldown ? [...temps, ...cooldownTemps] : [...temps];
+    const dataMin = Math.min(...allTemps), dataMax = Math.max(...allTemps);
+    const tMin = Math.floor(dataMin / 10) * 10, tMax = Math.ceil(dataMax / 10) * 10, tDelta = tMax - tMin || 1, tCenter = (tMax + tMin) / 2;
+    const ys = t => pad.top + (tMax - t) / tDelta * hPlot, xCenter = xs(xMax / 2);
 
-    const leftT = Math.round(temps[0] * 10) / 10;
-    const rightT = Math.round(temps[len - 1] * 10) / 10;
+    const makePath = values => {
+        let d = `M ${xs(0)} ${ys(values[0])}`;
+        for (let i = 0; i < values.length - 1; i++) {
+            const t0 = values[i ? i - 1 : 0], t1 = values[i], t2 = values[i + 1], t3 = values[i + 2] ?? t2;
+            const x0 = xs((i ? i - 1 : 0) * dxMm), x1 = xs(i * dxMm), x2 = xs((i + 1) * dxMm), x3 = xs((i + 2 >= values.length ? values.length - 1 : i + 2) * dxMm);
+            const y0 = ys(t0), y1 = ys(t1), y2 = ys(t2), y3 = ys(t3);
+            d += ` C ${x1 + (x2 - x0) / 6},${y1 + (y2 - y0) / 6} ${x2 - (x3 - x1) / 6},${y2 - (y3 - y1) / 6} ${x2},${y2}`;
+        }
+        return d;
+    };
 
-    if (leftT === rightT) {
-        if (Math.abs(temps[0] - temps[len - 1]) > 1e-9)
-            maxIdx = temps[0] > temps[len - 1] ? 0 : len - 1;
-    } else if (leftT > rightT) {
-        maxIdx = 0;
-    } else {
-        maxIdx = len - 1;
-    }
+    const dPath = makePath(temps), cooldownPath = hasCooldown ? makePath(cooldownTemps) : null;
+    const chartColor = status?.type === "error" ? theme.palette.error.main : status?.type === "warning" ? theme.palette.warning.main : theme.palette.text.primary;
 
-    const tMin = Math.floor(minV / 10) * 10;
-    const tMax = Math.ceil((maxV + 5) / 10) * 10;
-    const tDelta = tMax - tMin || 1;
-    const tCenter = (tMax + tMin) / 2;
-
-    const xs = x => pad.left + ((x - xMin) / xDelta) * wPlot;
-    const ys = t => pad.top + ((tMax - t) / tDelta) * hPlot;
-    const xCenter = xs((xMin + xMax) / 2);
-
-    let dPath = `M ${xs(xMin)} ${ys(temps[0])}`;
-
-    for (let i = 0; i < len - 1; i++) {
-        const t0 = temps[i ? i - 1 : 0];
-        const t1 = temps[i];
-        const t2 = temps[i + 1];
-        const t3 = temps[i + 2] !== undefined ? temps[i + 2] : t2;
-
-        const x0 = xs((i ? i - 1 : 0) * dxMm), x1 = xs(i * dxMm), x2 = xs((i + 1) * dxMm), x3 = xs((i + 2 >= len ? len - 1 : i + 2) * dxMm);
-        const y0 = ys(t0), y1 = ys(t1), y2 = ys(t2), y3 = ys(t3);
-
-        dPath += ` C ${x1 + (x2 - x0) / 6},${y1 + (y2 - y0) / 6} ${x2 - (x3 - x1) / 6},${y2 - (y3 - y1) / 6} ${x2},${y2}`;
-    }
-
-    const dArea = `${dPath} L ${xs(xMax)} ${height - pad.bottom} L ${xs(xMin)} ${height - pad.bottom} Z`;
-
-    const makePoint = (idx, val) => ({
-        id: idx,
-        x: xs(idx * dxMm),
-        y: ys(temps[idx]),
-        val,
-        anchor: idx === 0 ? "start" : idx === len - 1 ? "end" : "middle",
-        dx: idx === 0 ? 4 : idx === len - 1 ? -4 : 0
-    });
-
+    const makePoint = (idx, val) => ({ id: idx, x: xs(idx * dxMm), y: ys(val), val, anchor: idx === 0 ? "start" : idx === len - 1 ? "end" : "middle", dx: idx === 0 ? 4 : idx === len - 1 ? -4 : 0 });
     const allPoints = [
         { ...makePoint(maxIdx, maxV), color: theme.palette.error.main, defaultDy: -6 },
         { ...makePoint(minIdx, minV), color: theme.palette.primary.main, defaultDy: 14 },
@@ -137,138 +97,37 @@ const TemperatureProfileChart = memo(({ temperatureProfile: data, status }) => {
         { ...makePoint(len - 1, temps[len - 1]), color: theme.palette.text.primary, defaultDy: -6 }
     ];
 
-    const seenIds = new Set();
-    const uniquePoints = [];
-
+    const seenIds = new Set(), uniquePoints = [];
     for (const p of allPoints) {
         if (!seenIds.has(p.id)) {
             seenIds.add(p.id);
-            let dy = p.defaultDy;
-            if (p.id === minIdx) dy = 14;
-            uniquePoints.push({ ...p, dy });
+            uniquePoints.push({ ...p, dy: p.id === minIdx ? 14 : p.defaultDy });
         }
     }
 
-    const chartColor =
-        status?.type === "error"
-            ? theme.palette.error.main
-            : status?.type === "warning"
-                ? theme.palette.warning.main
-                : theme.palette.text.primary;
-
     return (
-        <Box
-            sx={{
-                width: 280,
-                maxWidth: "100%",
-                height,
-                flex: "0 1 280px",
-                flexShrink: 0,
-                display: "flex",
-                alignItems: "center",
-                border: "1px solid",
-                borderColor: status?.type === "ok" ? theme.palette.divider : chartColor,
-                borderRadius: "6px",
-                p: .5,
-                boxSizing: "border-box",
-                fontFamily: '"Roboto Mono","SF Mono",monospace'
-            }}
-        >
-            <svg
-                width="100%"
-                height={height}
-                viewBox={`0 0 ${width} ${height}`}
-                style={{ overflow: "visible" }}
-                shapeRendering="geometricPrecision"
-            >
-                {/* Сетка температур */}
-                {[tMax, tCenter, tMin].map((_, i) => (
-                    <line
-                        key={i}
-                        x1={pad.left}
-                        y1={pad.top + (i * hPlot) / 2}
-                        x2={width - pad.right}
-                        y2={pad.top + (i * hPlot) / 2}
-                        stroke={theme.palette.divider}
-                        strokeDasharray="2 2"
-                        shapeRendering="crispEdges"
-                    />
-                ))}
+        <Box sx={{ width: 280, maxWidth: "100%", height, flex: "0 1 280px", flexShrink: 0, display: "flex", alignItems: "center", border: "1px solid", borderColor: status?.type === "ok" ? theme.palette.divider : chartColor, borderRadius: "6px", p: .5, boxSizing: "border-box", fontFamily: '"Roboto Mono","SF Mono",monospace' }}>
+            <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} style={{ overflow: "visible" }} shapeRendering="geometricPrecision">
+                {[tMax, tCenter, tMin].map((_, i) => <line key={i} x1={pad.left} y1={pad.top + i * hPlot / 2} x2={width - pad.right} y2={pad.top + i * hPlot / 2} stroke={theme.palette.divider} strokeDasharray="2 2" shapeRendering="crispEdges" />)}
+                <line x1={xCenter} y1={pad.top} x2={xCenter} y2={height - pad.bottom} stroke={theme.palette.divider} strokeDasharray="2 2" shapeRendering="crispEdges" />
+                <line x1={pad.left} y1={pad.top} x2={pad.left} y2={height - pad.bottom} stroke={theme.palette.text.secondary} opacity=".7" shapeRendering="crispEdges" />
+                <line x1={pad.left} y1={height - pad.bottom} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.text.secondary} opacity=".7" shapeRendering="crispEdges" />
 
-                {/* Ось центра листа */}
-                <line
-                    x1={xCenter}
-                    y1={pad.top}
-                    x2={xCenter}
-                    y2={height - pad.bottom}
-                    stroke={theme.palette.divider}
-                    strokeDasharray="2 2"
-                    shapeRendering="crispEdges"
-                />
-
-                {/* Границы осей */}
-                <line
-                    x1={pad.left}
-                    y1={pad.top}
-                    x2={pad.left}
-                    y2={height - pad.bottom}
-                    stroke={theme.palette.text.secondary}
-                    opacity=".7"
-                    shapeRendering="crispEdges"
-                />
-                <line
-                    x1={pad.left}
-                    y1={height - pad.bottom}
-                    x2={width - pad.right}
-                    y2={height - pad.bottom}
-                    stroke={theme.palette.text.secondary}
-                    opacity=".7"
-                    shapeRendering="crispEdges"
-                />
-
-                {/* Площадь под графиком и линия */}
-                <path d={dArea} fill={chartColor} fillOpacity=".05" />
                 <path d={dPath} fill="none" stroke={chartColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                {hasCooldown && <path d={cooldownPath} fill="none" stroke={theme.palette.text.secondary} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />}
 
-                {/* Точки перепадов и температур узлов */}
+                {hasCooldown && [0, len - 1].map(i => <circle key={`cooldown-${i}`} cx={xs(i * dxMm)} cy={ys(cooldownTemps[i])} r="2.5" fill={theme.palette.text.secondary} />)}
+
                 {uniquePoints.map((p, i) => (
                     <g key={i}>
-                        <circle
-                            cx={p.x}
-                            cy={p.y}
-                            r="3"
-                            fill={p.color}
-                            stroke={theme.palette.background.paper}
-                            strokeWidth="1"
-                        />
-                        <text
-                            x={p.x}
-                            y={p.y + p.dy}
-                            dx={p.dx}
-                            textAnchor={p.anchor}
-                            fontSize="10"
-                            fontWeight={p.id === minIdx || p.id === maxIdx ? "bold" : "normal"}
-                            fill={theme.palette.text.primary}
-                        >
-                            {p.val.toFixed(1)}°C
-                        </text>
+                        <circle cx={p.x} cy={p.y} r="3" fill={p.color} stroke={theme.palette.background.paper} strokeWidth="1" />
+                        <text x={p.x} y={p.y + p.dy} dx={p.dx} textAnchor={p.anchor} fontSize="10" fontWeight={p.id === minIdx || p.id === maxIdx ? "bold" : "normal"} fill={theme.palette.text.primary}>{p.val.toFixed(1)}°C</text>
                     </g>
                 ))}
 
-                {/* Текстовая плашка вывода дельты температур*/}
-                <text
-                    x={xCenter}
-                    y={pad.top - 7}
-                    textAnchor="middle"
-                    fontSize="9"
-                    fontWeight="bold"
-                    fill={chartColor}
-                >
-                    ΔT = {deltaT.toFixed(1)}°C
-                </text>
+                {hasCooldown && [0, len - 1].map(i => <text key={`cooldown-text-${i}`} x={xs(i * dxMm)} y={ys(cooldownTemps[i]) + 11} dx={i === 0 ? 4 : -4} textAnchor={i === 0 ? "start" : "end"} fontSize="8.5" fill={theme.palette.text.secondary}>{cooldownTemps[i].toFixed(1)}°C</text>)}
 
-
-                {/* Подписи шкал */}
+                <text x={xCenter} y={pad.top - 7} textAnchor="middle" fontSize="9" fontWeight="bold" fill={chartColor}>ΔT = {(maxV - minV).toFixed(1)}°C</text>
                 <text x={pad.left - 6} y={pad.top + 3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMax}°</text>
                 <text x={pad.left - 6} y={height - pad.bottom + 3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMin}°</text>
                 <text x={pad.left} y={height - 9} textAnchor="middle" fontSize="8.5" fill={theme.palette.text.secondary}>{xMin.toFixed(1)} mm</text>
@@ -277,6 +136,7 @@ const TemperatureProfileChart = memo(({ temperatureProfile: data, status }) => {
         </Box>
     );
 });
+
 
 
 const Parameters=({
@@ -533,7 +393,8 @@ const BendingPreview=({
                 maxSurfaceC: MATERIAL?.defaultTSurf ?? 150   // максимальная температура поверхности
             },
 
-            maxTimeSeconds: 1200
+            maxTimeSeconds: 1200,
+            cooldownTimeSeconds: 15
         });
 
     },[

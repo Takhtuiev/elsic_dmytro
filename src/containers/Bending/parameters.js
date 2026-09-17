@@ -6,16 +6,20 @@ export const MACHINES = {
         heaters: [
             {
                 // top
-                regulatorTemperatureC: 200,
-                heaterTemperatureFactor: 1.2,
+                regulatorTemperatureC: 270,
+                heaterTemperatureFactor: 1,
                 heaterEmissivity: 0.90,
-                viewFactor: 0.97,
+                boxEmissivity: 0.55,
+                viewFactor: 0.8,
                 radiationGain: 1.00,
                 convectiveHeatTransferCoefficient: 8,
+                boxEfficiency: 0.45
            },
             {
                 // bottom
-                convectiveHeatTransferCoefficient: 20,
+                regulatorTemperatureC: 280,
+                convectiveHeatTransferCoefficient: 16,
+                boxEfficiency: 0.6
             }
         ]
     },
@@ -57,7 +61,7 @@ export const MATERIALS = {
         surfaceReflectance: 0,
 
         defaultTSurf: 160,
-        defaultTCenter: 110,
+        defaultTCenter: 120,
         decompositionTemp: 180
     },
 
@@ -83,7 +87,7 @@ export const MATERIALS = {
         thermalConductivity: 0.15,
         specificHeat: 1000,
 
-        emissivity: 0.93,
+        emissivity: 0.89,
         surfaceReflectance: 0,
 
         defaultTSurf: 165,

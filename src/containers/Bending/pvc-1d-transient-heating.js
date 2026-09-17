@@ -79,7 +79,9 @@ function createGrid(thicknessM, requestedDxM) {
 export function getHeaterTemperatureC({ side, ambientTemperatureC }) {
     const regulatorTemperatureC = Number.isFinite(side.regulatorTemperatureC) ? side.regulatorTemperatureC : ambientTemperatureC;
     const heaterTemperatureFactor = Number.isFinite(side.heaterTemperatureFactor) ? side.heaterTemperatureFactor : 1;
-    return ambientTemperatureC + heaterTemperatureFactor * (regulatorTemperatureC - ambientTemperatureC);
+
+    // Если датчик из-за зазора занижает температуру, реальный ТЭН пропорционально горячее (в °C)
+    return regulatorTemperatureC * heaterTemperatureFactor;
 }
 
 export function calculateIncidentHeaterFlux({ side, surfaceTemperatureC, ambientTemperatureC = 20 }) {
@@ -108,50 +110,67 @@ export function calculateEffectiveIncidentFlux({ side, material, surfaceTemperat
  * Физически точная линеаризация потоков для закрытого сзади короба с узким зазором 5мм.
  */
 const getLinearizedFluxParams = (side, TsK, ambientTemperatureC, ambientRadiationTemperatureC, sheetEmissivity) => {
-    if (!side.enabled) return { g0: 0, g1: 0 };
+    if (!side || !side.enabled) return { g0: 0, g1: 0 };
 
+    const SIGMA = 5.67e-8;
+
+    // --- 1. РЕАЛЬНАЯ ТЕМПЕРАТУРА ТЭНа (С учетом зазора датчика) ---
+    const T_heater_C = getHeaterTemperatureC({ side, ambientTemperatureC });
+    const T_heater_K = T_heater_C + 273.15;
+
+    // --- 2. ЕДИНЫЙ КОЭФФИЦИЕНТ ЭФФЕКТИВНОСТИ СРЕДЫ КОРОБА (boxEfficiency) ---
+    let etaBox = Number.isFinite(side.boxEfficiency) ? side.boxEfficiency : null;
+    if (etaBox == null) {
+        const isTopBox = side.position === "top" || side.isTop;
+        etaBox = isTopBox ? 0.45 : 0.60;
+    }
+    etaBox = clamp(etaBox, 0, 1);
+
+    // Эмпирическая эффективная температура lumped-модели короба
+    const T_box_envC = ambientTemperatureC + etaBox * (T_heater_C - ambientTemperatureC);
+    const T_box_envK = T_box_envC + 273.15;
+
+    // --- 3. КОНВЕКТИВНЫЙ ТЕПЛООБМЕН (lumped) ---
     const h = Math.max(0, Number(side.convectiveHeatTransferCoefficient) || 0);
-
-    // Машину не выключают, короба и воздух в зазоре ВСЕГДА прогреты до уставки (200°C)
-    const envC = Number.isFinite(side.regulatorTemperatureC) ? side.regulatorTemperatureC : ambientTemperatureC;
-    const TboxK = toKelvin(envC);
-
-    // 1. Конвекция (мгновенный теплообмен с уже горячей воздушной прослойкой 200°C)
-    const q_conv = h * (TboxK - TsK);
+    const q_conv = h * (T_box_envK - TsK);
     const dq_conv_dTs = -h;
 
-    // --- ГЕОМЕТРИЯ СТАНКА (Распределение площадей в зеве алюминиевого клина) ---
-    const fH = clamp(Number.isFinite(side.viewFactor) ? side.viewFactor : 0.6, 0, 1); // Доля прямого обзора на овальный ТЭН
-    const envF = clamp(side.ambientViewFactor ?? (1 - fH), 0, 1); // Доля обзора на внутренние стенки алюминиевого короба
+    // --- 4. ГЕОМЕТРИЯ ЗАКРЫТОЙ ПОЛОСТИ (Sichtaktoren) ---
+    const fH = clamp(Number.isFinite(side.viewFactor) ? side.viewFactor : 0.80, 0, 1);
+    const envF = clamp(side.ambientViewFactor ?? (1 - fH), 0, 1);
 
-    // 2. Радиационный нагреватель (Овальный ТЭН, который ВСЕГДА раскален и не остывает)
-    // Рассчитываем физическую температуру ТЭНа через строгий коэффициент лучистого перегрева от TboxK
-    const heaterTemperatureFactor = Number.isFinite(side.heaterTemperatureFactor) ? side.heaterTemperatureFactor : 1.3;
-    const epsH = clamp(Number.isFinite(side.heaterEmissivity) ? side.heaterEmissivity : 0.85, 0, 1);
-    const gain = Number.isFinite(side.radiationGain) ? side.radiationGain : 1;
+    // --- 5. ПРЯМОЕ ИЗЛУЧЕНИЕ ТЭНа ---
+    const epsH = clamp(Number.isFinite(side.heaterEmissivity) ? side.heaterEmissivity : 0.90, 0, 1);
 
-    // В термодинамическом равновесии замкнутого короба мощность ТЭНа пропорциональна четвертой степени TboxK
-    const radA = gain * epsH * fH * SIGMA;
-    const ThK_4 = (TboxK ** 4) * heaterTemperatureFactor; // Прямая эффективная излучательная мощность спирали
+    // Защищенный коэффициент усиления излучения
+    const gain = Math.max(0, Number.isFinite(side.radiationGain) ? side.radiationGain : 1);
 
-    const q_rad_heater = Math.max(0, radA * (ThK_4 - TsK ** 4));
-    const dq_rad_heater_dTs = ThK_4 > (TsK ** 4) ? -4 * radA * (TsK ** 3) : 0;
+    const radA = gain * epsH * sheetEmissivity * fH * SIGMA;
+    const q_rad_heater = radA * (T_heater_K ** 4 - TsK ** 4);
+    const dq_rad_heater_dTs = -4 * radA * (TsK ** 3);
 
-    // 3. Вторичное ИК-излучение от нагретых внутренних стенок алюминиевого клина (200°C)
-    const radEnv = sheetEmissivity * envF * SIGMA;
-    const q_rad_box = radEnv * (TboxK ** 4 - TsK ** 4);
+    // --- 6. ВТОРИЧНОЕ ИЗЛУЧЕНИЕ СТЕНOК КОРОБА ---
+    const epsBox = clamp(Number.isFinite(side.boxEmissivity) ? side.boxEmissivity : 0.55, 0, 1);
+
+    const denom = epsBox + sheetEmissivity - epsBox * sheetEmissivity;
+    const eps_priv = denom > 0 ? (epsBox * sheetEmissivity) / denom : 0;
+    const radEnv = eps_priv * envF * SIGMA;
+
+    const q_rad_box = radEnv * (T_box_envK ** 4 - TsK ** 4);
     const dq_rad_box_dTs = -4 * radEnv * (TsK ** 3);
 
-    // Полный результирующий баланс входящей энергии (все потоки стабильно греют лист с 0-й секунды)
+    // --- 7. РЕЗУЛЬТИРУЮЩИЙ ЛИНЕЙНЫЙ БАЛАНС ДЛЯ МАТРИЦЫ ТОМАСА ---
     const total_q = q_rad_heater + q_conv + q_rad_box;
     const total_dq_dTs = dq_rad_heater_dTs + dq_conv_dTs + dq_rad_box_dTs;
 
-    //console.log("q_rad_heater,q_conv,q_rad_box: ", q_rad_heater,q_conv,q_rad_box);
     return {
-        g1: total_dq_dTs,                 // Отрицательный Градиент (гарантия стабильности матрицы Томаса)
-        g0: total_q - total_dq_dTs * TsK  // Свободный член линейной аппроксимации
+        g1: total_dq_dTs,
+        g0: total_q - total_dq_dTs * TsK
     };
 };
+
+
+
 
 
 /* =========================
@@ -180,12 +199,101 @@ function solveTridiagonal(lower, diagonal, upper, rhs, result) {
     return true;
 }
 
+
+/**
+ * Симуляция свободного остывания (релаксации) листа ПВХ на воздухе цеха во время переноса.
+ * Учитывает естественную конвекцию и открытое ИК-излучение поверхностей пластика.
+ */
+export function simulateCooldown({
+                                     initialProfileK, nodeCount, dx, dt, matModel, epsS, ambT, ambRadT,
+                                     cooldownTimeSeconds = 10.0, maxNonlinearIterations = 3, nonlinearToleranceK = 0.1
+                                 }) {
+    let cooldownTime = 0;
+
+    // Создаем рабочие массивы для неявной схемы Томаса
+    const T_cool = new Float64Array(initialProfileK);
+    const T_cool_next = new Float64Array(nodeCount);
+    const oldT_cool = new Float64Array(nodeCount);
+    const [lower, diagonal, upper, rhs] = Array.from({ length: 4 }, () => new Float64Array(nodeCount));
+
+    // Параметры среды в Кельвинах
+    const T_room_K = ambT + 273.15;
+    const T_rad_room_K = ambRadT + 273.15;
+    const h_cool = 7.5; // Коэффициент естественной конвекции свободной горизонтальной пластины, Вт/(м²·К)
+
+    // Локальная функция расчета гладких потоков релаксации на воздухе
+    const getCooldownBoundary = (tSurfK) => {
+        const q_conv = h_cool * (T_room_K - tSurfK);
+        const dq_conv_dTs = -h_cool;
+
+        const radA = epsS * SIGMA;
+        const q_rad = radA * (T_rad_room_K ** 4 - tSurfK ** 4);
+        const dq_rad_dTs = -4 * radA * (tSurfK ** 3);
+
+        const total_q = q_conv + q_rad;
+        const total_dq_dTs = dq_conv_dTs + dq_rad_dTs;
+
+        return {
+            g1: total_dq_dTs,
+            g0: total_q - total_dq_dTs * tSurfK
+        };
+    };
+
+    // Главный цикл остывания по времени
+    while (cooldownTime < cooldownTimeSeconds) {
+        oldT_cool.set(T_cool);
+
+        for (let iter = 0; iter < maxNonlinearIterations; iter++) {
+            // Внутренние узлы (свойства ПВХ продолжают динамически зависеть от меняющейся температуры)
+            for (let i = 1; i < nodeCount - 1; i++) {
+                const { density, k, cp } = matModel.get(toCelsius(T_cool[i]));
+                const r = dt * k / (density * cp * dx * dx);
+                lower[i] = upper[i] = -r; diagonal[i] = 1 + 2 * r; rhs[i] = oldT_cool[i];
+            }
+
+            // Верхняя граница (Узел 0)
+            const propsTop = matModel.get(toCelsius(T_cool[0]));
+            const fluxTop = getCooldownBoundary(T_cool[0]);
+            const factorTop = 2 * dt / (propsTop.density * propsTop.cp * dx);
+            const condTop = 2 * propsTop.k * dt / (propsTop.density * propsTop.cp * dx * dx);
+            diagonal[0] = 1 + condTop - factorTop * fluxTop.g1; rhs[0] = oldT_cool[0] + factorTop * fluxTop.g0; upper[0] = -condTop;
+
+            // Нижняя граница (Узел last)
+            const last = nodeCount - 1;
+            const propsBot = matModel.get(toCelsius(T_cool[last]));
+            const fluxBot = getCooldownBoundary(T_cool[last]);
+            const factorBot = 2 * dt / (propsBot.density * propsBot.cp * dx);
+            const condBot = 2 * propsBot.k * dt / (propsBot.density * propsBot.cp * dx * dx);
+            diagonal[last] = 1 + condBot - factorBot * fluxBot.g1; rhs[last] = oldT_cool[last] + factorBot * fluxBot.g0; lower[last] = -condBot;
+
+            // Решение трехдиагональной матрицы Томаса
+            if (!solveTridiagonal(lower, diagonal, upper, rhs, T_cool_next)) break;
+
+            let converged = true;
+            for (let i = 0; i < nodeCount; i++) {
+                if (Math.abs(T_cool_next[i] - T_cool[i]) > nonlinearToleranceK) { converged = false; break; }
+            }
+            T_cool.set(T_cool_next);
+            if (converged) break;
+        }
+        cooldownTime += dt;
+    }
+
+    // Переводим полученный профиль релаксации в градусы Цельсия (in-place)
+    for (let i = 0; i < T_cool.length; i++) {
+        T_cool[i] = T_cool[i] - 273.15;
+    }
+
+    return T_cool;
+}
+
+
 /* =========================
  * MAIN SIMULATION RUNNER
  * ========================= */
 export function simulate1DHeating({
                                       thicknessMm, material, machine, thermalConditions, sides = "both", dxMm, dtSeconds,
-                                      maxTimeSeconds = 1800, target = { minCenterC: null, maxSurfaceC: null },
+                                      maxTimeSeconds = 1800, cooldownTimeSeconds = 10, target = { minCenterC: null, maxSurfaceC: null },
                                       sampleEverySeconds = 1, storeHistory = false, includeBreakdown = false
                                   }) {
     let status = null, time = 0, dt = dtSeconds > 0 ? dtSeconds : DEFAULT_DT_SECONDS;
@@ -324,12 +432,29 @@ export function simulate1DHeating({
         }
     }
 
+
+    // 1. Считаем профиль остывания через новую функцию, ПОКА основной массив T еще в Кельвинах!
+    const cooldownProfileC = simulateCooldown({
+        initialProfileK: T, // Передаем текущее состояние сетки после нагрева
+        nodeCount, dx, dt, matModel, epsS, ambT, ambRadT,
+        cooldownTimeSeconds: cooldownTimeSeconds, // Время переноса листа рабочим в секундах
+        maxNonlinearIterations: MAX_NONLINEAR_ITERATIONS,
+        nonlinearToleranceK: NONLINEAR_TOLERANCE_K
+    });
+
+
     // Оптимизированный перевод массива T из Кельвинов в Цельсии прямо на месте (in-place)
     for (let i = 0; i < T.length; i++) {
         T[i] = T[i] - 273.15; // Аналог toCelsius(T[i]) без вызова лишних функций
     }
 
-    const res = { heatingTimeSeconds: time, reachedTarget, status, temperatureProfile: {temperaturesC: T,dxMm: dx * 1000}, history };
+    const res = {
+        heatingTimeSeconds: time,
+        cooldownTimeSeconds: cooldownTimeSeconds,
+        reachedTarget,
+        status,
+        temperatureProfile: {temperaturesC: T, cooldownProfileC: cooldownProfileC, dxMm: dx * 1000},
+        history };
 
     if (includeBreakdown) {
         const { density = 1400, k = 0.16, cp = 1000 } = matModel?.get(centerC) || {}, diff = k / (density * cp), zeroF = { incidentWm2: 0, reflectedWm2: 0, effectiveWm2: 0 };
