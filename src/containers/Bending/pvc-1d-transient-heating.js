@@ -17,7 +17,6 @@ export const SIGMA = 5.670374419e-8;
  * ========================= */
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 const toKelvin = c => c + 273.15;
-const toCelsius = k => k - 273.15;
 const validPositive = v => Number.isFinite(v) && v > 0;
 
 const getProperty = (property, temperatureC) =>
@@ -200,161 +199,102 @@ function solveTridiagonal(lower, diagonal, upper, rhs, result) {
 }
 
 
-/**
- * Симуляция свободного остывания (релаксации) листа ПВХ на воздухе цеха во время переноса.
- * Учитывает естественную конвекцию и открытое ИК-излучение поверхностей пластика.
- */
-export function simulateCooldown({
-                                     initialProfileK, nodeCount, dx, dt, matModel, epsS, ambT, ambRadT,
-                                     cooldownTimeSeconds = 10.0, maxNonlinearIterations = 3, nonlinearToleranceK = 0.1
-                                 }) {
-    let cooldownTime = 0;
+export function simulateHeating({
+                                    nodeCount, dx, dt, matModel, topSide, botSide, ambT, ambRadT, epsS,
+                                    targetMinCenterK, decompTempK, maxTimeSeconds = 1800, sampleEverySeconds = 1,
+                                    storeHistory = false, initialTemperatureC = 20,
+                                    // Передаем буферы памяти снаружи для переиспользования во всех фазах (нагрев + остывание)
+                                    buffers = null
+                                }) {
+    let status = null, time = 0;
 
-    // Создаем рабочие массивы для неявной схемы Томаса
-    const T_cool = new Float64Array(initialProfileK);
-    const T_cool_next = new Float64Array(nodeCount);
-    const oldT_cool = new Float64Array(nodeCount);
-    const [lower, diagonal, upper, rhs] = Array.from({ length: 4 }, () => new Float64Array(nodeCount));
-
-    // Параметры среды в Кельвинах
-    const T_room_K = ambT + 273.15;
-    const T_rad_room_K = ambRadT + 273.15;
-    const h_cool = 7.5; // Коэффициент естественной конвекции свободной горизонтальной пластины, Вт/(м²·К)
-
-    // Локальная функция расчета гладких потоков релаксации на воздухе
-    const getCooldownBoundary = (tSurfK) => {
-        const q_conv = h_cool * (T_room_K - tSurfK);
-        const dq_conv_dTs = -h_cool;
-
-        const radA = epsS * SIGMA;
-        const q_rad = radA * (T_rad_room_K ** 4 - tSurfK ** 4);
-        const dq_rad_dTs = -4 * radA * (tSurfK ** 3);
-
-        const total_q = q_conv + q_rad;
-        const total_dq_dTs = dq_conv_dTs + dq_rad_dTs;
-
-        return {
-            g1: total_dq_dTs,
-            g0: total_q - total_dq_dTs * tSurfK
-        };
+    // Инициализируем буферы локально, если они не были переданы снаружи
+    const bufs = buffers || {
+        lower: new Float64Array(nodeCount),
+        diagonal: new Float64Array(nodeCount),
+        upper: new Float64Array(nodeCount),
+        rhs: new Float64Array(nodeCount),
+        Tnext: new Float64Array(nodeCount),
+        oldT: new Float64Array(nodeCount)
     };
 
-    // Главный цикл остывания по времени
-    while (cooldownTime < cooldownTimeSeconds) {
-        oldT_cool.set(T_cool);
+    const lower = bufs.lower;
+    const diagonal = bufs.diagonal;
+    const upper = bufs.upper;
+    const rhs = bufs.rhs;
+    const Tnext = bufs.Tnext;
+    const oldT = bufs.oldT;
 
-        for (let iter = 0; iter < maxNonlinearIterations; iter++) {
-            // Внутренние узлы (свойства ПВХ продолжают динамически зависеть от меняющейся температуры)
-            for (let i = 1; i < nodeCount - 1; i++) {
-                const { density, k, cp } = matModel.get(toCelsius(T_cool[i]));
-                const r = dt * k / (density * cp * dx * dx);
-                lower[i] = upper[i] = -r; diagonal[i] = 1 + 2 * r; rhs[i] = oldT_cool[i];
-            }
-
-            // Верхняя граница (Узел 0)
-            const propsTop = matModel.get(toCelsius(T_cool[0]));
-            const fluxTop = getCooldownBoundary(T_cool[0]);
-            const factorTop = 2 * dt / (propsTop.density * propsTop.cp * dx);
-            const condTop = 2 * propsTop.k * dt / (propsTop.density * propsTop.cp * dx * dx);
-            diagonal[0] = 1 + condTop - factorTop * fluxTop.g1; rhs[0] = oldT_cool[0] + factorTop * fluxTop.g0; upper[0] = -condTop;
-
-            // Нижняя граница (Узел last)
-            const last = nodeCount - 1;
-            const propsBot = matModel.get(toCelsius(T_cool[last]));
-            const fluxBot = getCooldownBoundary(T_cool[last]);
-            const factorBot = 2 * dt / (propsBot.density * propsBot.cp * dx);
-            const condBot = 2 * propsBot.k * dt / (propsBot.density * propsBot.cp * dx * dx);
-            diagonal[last] = 1 + condBot - factorBot * fluxBot.g1; rhs[last] = oldT_cool[last] + factorBot * fluxBot.g0; lower[last] = -condBot;
-
-            // Решение трехдиагональной матрицы Томаса
-            if (!solveTridiagonal(lower, diagonal, upper, rhs, T_cool_next)) break;
-
-            let converged = true;
-            for (let i = 0; i < nodeCount; i++) {
-                if (Math.abs(T_cool_next[i] - T_cool[i]) > nonlinearToleranceK) { converged = false; break; }
-            }
-            T_cool.set(T_cool_next);
-            if (converged) break;
-        }
-        cooldownTime += dt;
-    }
-
-    // Переводим полученный профиль релаксации в градусы Цельсия (in-place)
-    for (let i = 0; i < T_cool.length; i++) {
-        T_cool[i] = T_cool[i] - 273.15;
-    }
-
-    return T_cool;
-}
-
-
-/* =========================
- * MAIN SIMULATION RUNNER
- * ========================= */
-export function simulate1DHeating({
-                                      thicknessMm, material, machine, thermalConditions, sides = "both", dxMm, dtSeconds,
-                                      maxTimeSeconds = 1800, cooldownTimeSeconds = 10, target = { minCenterC: null, maxSurfaceC: null },
-                                      sampleEverySeconds = 1, storeHistory = false, includeBreakdown = false
-                                  }) {
-    let status = null, time = 0, dt = dtSeconds > 0 ? dtSeconds : DEFAULT_DT_SECONDS;
-    const { initialTemperatureC: initT = 20, ambientTemperatureC: ambT = 20, ambientRadiationTemperatureC: ambRadT = 20 } = thermalConditions || {};
-
-    if (!validPositive(thicknessMm) || !validPositive(maxTimeSeconds)) status = { type: "error", message: "Invalid geometry/limits." };
-    const mach = normalizeMachine(machine);
-    if (!status && !mach) status = { type: "error", message: "Invalid machine." };
-    const matModel = createMaterialModel(material);
-    if (!status && !matModel) status = { type: "error", message: "Invalid material model." };
-
-    const dx = (Number.isFinite(dxMm) && dxMm > 0 ? dxMm : calculateDxMm(status ? 2 : thicknessMm)) / 1000;
-    const { nodeCount } = createGrid((status ? 2 : thicknessMm) / 1000, dx);
-    const centerIndex = Math.floor((nodeCount - 1) / 2);
-    const decompTemp = Number(material?.decompositionTemp);
-    const decompTempK = decompTemp ? toKelvin(decompTemp) : null;
-    const targetMinCenterK = target.minCenterC != null ? toKelvin(target.minCenterC) : null;
-
-    const useTop = sides === "both" || sides === "top" || sides === "one-sided-top";
-    const useBot = sides === "both" || sides === "bottom" || sides === "one-sided-bottom";
-    const topSide = mach ? { ...(mach.top || {}), enabled: useTop && !!mach.top } : { enabled: false };
-    const botSide = mach ? { ...(mach.bottom || {}), enabled: useBot && !!mach.bottom } : { enabled: false };
-    const epsS = clamp(material?.emissivity ?? 0.93, 0, 1);
-
-    const T = new Float64Array(nodeCount).fill(toKelvin(initT)), Tnext = new Float64Array(nodeCount), oldT = new Float64Array(nodeCount);
-    const [lower, diagonal, upper, rhs] = Array.from({ length: 4 }, () => new Float64Array(nodeCount));
+    const T = new Float64Array(nodeCount).fill(initialTemperatureC + 273.15); // in-place toKelvin
     const history = storeHistory ? [] : null;
+    const centerIndex = (nodeCount - 1) >> 1; // Быстрое деление пополам битовым сдвигом
+    const last = nodeCount - 1;
 
     const getBoundary = (side, tVal) => getLinearizedFluxParams(side, tVal, ambT, ambRadT, epsS);
-    const getMinC = values => { let min = Infinity; for (let i = 0; i < values.length; i++) if (values[i] < min) min = values[i]; return toCelsius(min); };
+
+    const getMinC = values => {
+        let min = Infinity;
+        for (let i = 0; i < values.length; i++) { if (values[i] < min) min = values[i]; }
+        return min - 273.15; // in-place toCelsius
+    };
 
     if (storeHistory) {
-        history.push({ timeSeconds: 0, frontSurfaceC: toCelsius(T[0]), centerC: toCelsius(T[centerIndex]), backSurfaceC: toCelsius(T[nodeCount - 1]), minTemperatureC: toCelsius(T[0]) });
+        history.push({
+            timeSeconds: 0,
+            frontSurfaceC: T[0] - 273.15,
+            centerC: T[centerIndex] - 273.15,
+            backSurfaceC: T[last] - 273.15,
+            minTemperatureC: getMinC(T)
+        });
     }
 
-    while (!status && time < maxTimeSeconds) {
-        // Ранний выход, если условие уже выполнено изначально
+    const dt_div_dx = dt / dx;
+    const dt_div_dx2 = dt / (dx * dx);
+
+    while (time < maxTimeSeconds) {
+        // Ранний выход
         if (targetMinCenterK != null && T[0] >= targetMinCenterK) {
-            let initialReached = true;
-            for (let i = 1; i < nodeCount; i++) { if (T[i] < targetMinCenterK) { initialReached = false; break; } }
-            if (initialReached) break;
+            let reached = true;
+            for (let i = 1; i < nodeCount; i++) {
+                if (T[i] < targetMinCenterK) { reached = false; break; }
+            }
+            if (reached) break;
         }
 
         oldT.set(T);
         let converged = false;
 
         for (let iter = 0; iter < MAX_NONLINEAR_ITERATIONS; iter++) {
-            for (let i = 1; i < nodeCount - 1; i++) {
-                const { density, k, cp } = matModel.get(toCelsius(T[i])), r = dt * k / (density * cp * dx * dx);
-                lower[i] = upper[i] = -r; diagonal[i] = 1 + 2 * r; rhs[i] = oldT[i];
+            // Внутренние узлы (Оптимизировано арифметикой без вызова toCelsius)
+            for (let i = 1; i < last; i++) {
+                const props = matModel.get(T[i] - 273.15);
+                const r = dt_div_dx2 * props.k / (props.density * props.cp);
+                lower[i] = upper[i] = -r;
+                diagonal[i] = 1.0 + 2.0 * r;
+                rhs[i] = oldT[i];
             }
 
-            // Граничные условия (кэшируем свойства для узлов 0 и nodeCount-1)
-            const propsTop = matModel.get(toCelsius(T[0])), fluxTop = getBoundary(topSide, T[0]);
-            const factorTop = 2 * dt / (propsTop.density * propsTop.cp * dx), condTop = 2 * propsTop.k * dt / (propsTop.density * propsTop.cp * dx * dx);
-            diagonal[0] = 1 + condTop - factorTop * fluxTop.g1; rhs[0] = oldT[0] + factorTop * fluxTop.g0; upper[0] = -condTop;
+            // Граничные условия: ВЕРХ (Узел 0)
+            const propsTop = matModel.get(T[0] - 273.15);
+            const fluxTop = getBoundary(topSide, T[0]);
+            const invVolTop = 1.0 / (propsTop.density * propsTop.cp);
+            const factorTop = 2.0 * dt_div_dx * invVolTop;
+            const condTop = 2.0 * propsTop.k * dt_div_dx2 * invVolTop;
 
-            const last = nodeCount - 1;
-            const propsBot = matModel.get(toCelsius(T[last])), fluxBot = getBoundary(botSide, T[last]);
-            const factorBot = 2 * dt / (propsBot.density * propsBot.cp * dx), condBot = 2 * propsBot.k * dt / (propsBot.density * propsBot.cp * dx * dx);
-            diagonal[last] = 1 + condBot - factorBot * fluxBot.g1; rhs[last] = oldT[last] + factorBot * fluxBot.g0; lower[last] = -condBot;
+            diagonal[0] = 1.0 + condTop - factorTop * fluxTop.g1;
+            rhs[0] = oldT[0] + factorTop * fluxTop.g0;
+            upper[0] = -condTop;
+
+            // Граничные условия: НИЗ (Узел last)
+            const propsBot = matModel.get(T[last] - 273.15);
+            const fluxBot = getBoundary(botSide, T[last]);
+            const invVolBot = 1.0 / (propsBot.density * propsBot.cp);
+            const factorBot = 2.0 * dt_div_dx * invVolBot;
+            const condBot = 2.0 * propsBot.k * dt_div_dx2 * invVolBot;
+
+            diagonal[last] = 1.0 + condBot - factorBot * fluxBot.g1;
+            rhs[last] = oldT[last] + factorBot * fluxBot.g0;
+            lower[last] = -condBot;
 
             if (!solveTridiagonal(lower, diagonal, upper, rhs, Tnext)) break;
 
@@ -371,29 +311,28 @@ export function simulate1DHeating({
             break;
         }
 
-        // Интегрированная интерполяция перегрева (деградации)
-        if (decompTempK && (T[0] >= decompTempK || T[nodeCount - 1] >= decompTempK)) {
-            let decompFraction = 1;
+        // Интерполяция перегрева
+        if (decompTempK && (T[0] >= decompTempK || T[last] >= decompTempK)) {
+            let fraction = 1.0;
             if (T[0] >= decompTempK && T[0] !== oldT[0]) {
                 const f = (decompTempK - oldT[0]) / (T[0] - oldT[0]);
-                if (f >= 0 && f < decompFraction) decompFraction = f;
+                if (f >= 0 && f < fraction) fraction = f;
             }
-            if (T[nodeCount - 1] >= decompTempK && T[nodeCount - 1] !== oldT[nodeCount - 1]) {
-                const f = (decompTempK - oldT[nodeCount - 1]) / (T[nodeCount - 1] - oldT[nodeCount - 1]);
-                if (f >= 0 && f < decompFraction) decompFraction = f;
+            if (T[last] >= decompTempK && T[last] !== oldT[last]) {
+                const f = (decompTempK - oldT[last]) / (T[last] - oldT[last]);
+                if (f >= 0 && f < fraction) fraction = f;
             }
-
-            time += decompFraction * dt;
-            for (let i = 0; i < nodeCount; i++) T[i] = oldT[i] + decompFraction * (T[i] - oldT[i]);
+            time += fraction * dt;
+            for (let i = 0; i < nodeCount; i++) T[i] = oldT[i] + fraction * (T[i] - oldT[i]);
 
             if (storeHistory) {
-                history.push({ timeSeconds: time, frontSurfaceC: toCelsius(T[0]), centerC: toCelsius(T[centerIndex]), backSurfaceC: toCelsius(T[nodeCount - 1]), minTemperatureC: getMinC(T) });
+                history.push({ timeSeconds: time, frontSurfaceC: T[0] - 273.15, centerC: T[centerIndex] - 273.15, backSurfaceC: T[last] - 273.15, minTemperatureC: getMinC(T) });
             }
-            status = { type: "error", message: `Degradation! Surface > ${decompTemp}°C.` };
+            status = { type: "error", message: `Degradation! Surface > ${(decompTempK - 273.15).toFixed(0)}°C.` };
             break;
         }
 
-        // Интегрированная интерполяция целевой температуры
+        // Интерполяция целевой температуры
         if (targetMinCenterK != null) {
             let fraction = 0, canReach = true;
             for (let i = 0; i < nodeCount; i++) {
@@ -403,66 +342,275 @@ export function simulate1DHeating({
                 if (dT <= 0) { canReach = false; break; }
                 fraction = Math.max(fraction, (targetMinCenterK - oldT[i]) / dT);
             }
-
-            if (canReach && fraction <= 1) {
+            if (canReach && fraction <= 1.0) {
                 time += fraction * dt;
                 for (let i = 0; i < nodeCount; i++) T[i] = oldT[i] + fraction * (T[i] - oldT[i]);
                 if (storeHistory) {
-                    history.push({ timeSeconds: time, frontSurfaceC: toCelsius(T[0]), centerC: toCelsius(T[centerIndex]), backSurfaceC: toCelsius(T[nodeCount - 1]), minTemperatureC: getMinC(T) });
+                    history.push({ timeSeconds: time, frontSurfaceC: T[0] - 273.15, centerC: T[centerIndex] - 273.15, backSurfaceC: T[last] - 273.15, minTemperatureC: getMinC(T) });
                 }
                 break;
             }
         }
 
         time += dt;
-        if (storeHistory && (Math.abs(time % sampleEverySeconds) < dt / 2 || time >= maxTimeSeconds)) {
-            history.push({ timeSeconds: time, frontSurfaceC: toCelsius(T[0]), centerC: toCelsius(T[centerIndex]), backSurfaceC: toCelsius(T[nodeCount - 1]), minTemperatureC: getMinC(T) });
+        if (storeHistory && (Math.abs(time % sampleEverySeconds) < dt / 2.0 || time >= maxTimeSeconds)) {
+            history.push({ timeSeconds: time, frontSurfaceC: T[0] - 273.15, centerC: T[centerIndex] - 273.15, backSurfaceC: T[last] - 273.15, minTemperatureC: getMinC(T) });
         }
     }
 
-    const minTemperatureC = getMinC(T), reachedTarget = target.minCenterC == null || minTemperatureC >= target.minCenterC;
-    const centerC = toCelsius(T[centerIndex]), frontC = toCelsius(T[0]), backC = toCelsius(T[nodeCount - 1]), surfC = Math.max(frontC, backC);
+    const minTemperatureC = getMinC(T);
+    const reachedTarget = targetMinCenterK == null || minTemperatureC >= (targetMinCenterK - 273.15);
 
-    if (!status) {
-        status = { type: "ok", message: "Compiled successfully." };
-        if (!reachedTarget && time >= maxTimeSeconds) {
-            status = { type: "error", message: `Timeout: Minimum sheet temperature (${target.minCenterC}°C) not reached within ${(maxTimeSeconds / 60).toFixed(0)} min. Current minimum: ${minTemperatureC.toFixed(1)}°C.` };
-        } else if (reachedTarget && target.maxSurfaceC && surfC > target.maxSurfaceC) {
-            status = { type: "warning", message: `Warning: Surface (${surfC.toFixed(1)}°C) > limit (${target.maxSurfaceC}°C).` };
-        }
+    if (!status) status = { type: "ok", message: "Compiled successfully." };
+    if (!reachedTarget && time >= maxTimeSeconds) {
+        status = { type: "error", message: `Timeout: Minimum sheet temperature ${(targetMinCenterK - 273.15).toFixed(0)}°C not reached.` };
     }
 
+    // Создаем копии выходных профилей
+    const temperatureProfileK = new Float64Array(T);
 
-    // 1. Считаем профиль остывания через новую функцию, ПОКА основной массив T еще в Кельвинах!
-    const cooldownProfileC = simulateCooldown({
-        initialProfileK: T, // Передаем текущее состояние сетки после нагрева
-        nodeCount, dx, dt, matModel, epsS, ambT, ambRadT,
-        cooldownTimeSeconds: cooldownTimeSeconds, // Время переноса листа рабочим в секундах
-        maxNonlinearIterations: MAX_NONLINEAR_ITERATIONS,
-        nonlinearToleranceK: NONLINEAR_TOLERANCE_K
+    return { temperatureProfileK,  heatingTimeSeconds: time, reachedTarget, status, history, buffers: bufs };
+}
+
+/**
+ * Высокооптимизированная симуляция свободного остывания листа ПВХ во время переноса.
+ * Выделение памяти сведено к нулю за счет переиспользования буферов.
+ */
+export function simulateCooldown({
+                                     initialProfileK, nodeCount, dx, dt, matModel, epsS, ambT, ambRadT,
+                                     cooldownTimeSeconds = 10, maxNonlinearIterations = 3, nonlinearToleranceK = 0.1,
+                                     buffers // Передаем буферы прогонки из simulate1DHeating
+                                 }) {
+    let cooldownTime = 0;
+
+    // Инициализируем буферы из переданного объекта (Zero-Allocation)
+    const lower = buffers.lower;
+    const diagonal = buffers.diagonal;
+    const upper = buffers.upper;
+    const rhs = buffers.rhs;
+    const T_cool_next = buffers.Tnext;
+    const oldT_cool = buffers.oldT;
+
+    // Копируем профиль нагрева
+    const T_cool = new Float64Array(initialProfileK);
+
+    const T_room_K = ambT + 273.15;
+    const T_rad_room_K = ambRadT + 273.15;
+    const T_rad_room_K_2 = T_rad_room_K * T_rad_room_K;
+
+    const h_cool = 7.5; // Естественная конвекция свободной пластины
+    const last = nodeCount - 1;
+
+    const dt_div_dx = dt / dx;
+    const dt_div_dx2 = dt / (dx * dx);
+
+    // Стабильная линеаризация ИК-излучения через эффективный h_rad
+    const getCooldownBoundary = tSurfK => {
+        // h_rad = eps * sigma * (T_rad_room^2 + Ts^2) * (T_rad_room + Ts)
+        const h_rad = epsS * SIGMA * (T_rad_room_K_2 + tSurfK * tSurfK) * (T_rad_room_K + tSurfK);
+
+        // Строгое разложение потока q = g0 + g1 * Ts
+        const g0 = h_cool * T_room_K + h_rad * T_rad_room_K;
+        const g1 = -(h_cool + h_rad);
+
+        return { g0, g1 };
+    };
+
+    while (cooldownTime < cooldownTimeSeconds) {
+        oldT_cool.set(T_cool);
+
+        for (let iter = 0; iter < maxNonlinearIterations; iter++) {
+            // 1. Внутренние узлы
+            for (let i = 1; i < last; i++) {
+                const props = matModel.get(T_cool[i] - 273.15);
+                const r = dt_div_dx2 * props.k / (props.density * props.cp);
+                lower[i] = upper[i] = -r;
+                diagonal[i] = 1.0 + 2.0 * r;
+                rhs[i] = oldT_cool[i];
+            }
+
+            // 2. Верхняя граница (Узел 0)
+            const propsTop = matModel.get(T_cool[0] - 273.15);
+            const fluxTop = getCooldownBoundary(T_cool[0]);
+            const invVolTop = 1.0 / (propsTop.density * propsTop.cp);
+            const factorTop = 2.0 * dt_div_dx * invVolTop;
+            const condTop = 2.0 * propsTop.k * dt_div_dx2 * invVolTop;
+
+            diagonal[0] = 1.0 + condTop - factorTop * fluxTop.g1;
+            rhs[0] = oldT_cool[0] + factorTop * fluxTop.g0;
+            upper[0] = -condTop;
+
+            // 3. Нижняя граница (Узел last)
+            const propsBot = matModel.get(T_cool[last] - 273.15);
+            const fluxBot = getCooldownBoundary(T_cool[last]);
+            const invVolBot = 1.0 / (propsBot.density * propsBot.cp);
+            const factorBot = 2.0 * dt_div_dx * invVolBot;
+            const condBot = 2.0 * propsBot.k * dt_div_dx2 * invVolBot;
+
+            diagonal[last] = 1.0 + condBot - factorBot * fluxBot.g1;
+            rhs[last] = oldT_cool[last] + factorBot * fluxBot.g0;
+            lower[last] = -condBot;
+
+            if (!solveTridiagonal(lower, diagonal, upper, rhs, T_cool_next)) break;
+
+            let converged = true;
+            for (let i = 0; i < nodeCount; i++) {
+                if (Math.abs(T_cool_next[i] - T_cool[i]) > nonlinearToleranceK) {
+                    converged = false;
+                    break;
+                }
+            }
+            T_cool.set(T_cool_next);
+            if (converged) break;
+        }
+        cooldownTime += dt;
+    }
+
+    return T_cool;
+}
+
+
+
+
+export function simulate1DHeating({
+                                      thicknessMm, material, machine, thermalConditions, sides = "both", dxMm, dtSeconds,
+                                      maxTimeSeconds = 1800, cooldownTimeSeconds = 10,
+                                      target = { minCenterC: null, maxSurfaceC: null },
+                                      sampleEverySeconds = 1, storeHistory = false, includeBreakdown = false
+                                  }) {
+    let status = null;
+    const dt = dtSeconds > 0 ? dtSeconds : DEFAULT_DT_SECONDS;
+    const { initialTemperatureC: initT = 20, ambientTemperatureC: ambT = 20, ambientRadiationTemperatureC: ambRadT = 20 } = thermalConditions || {};
+
+    if (!validPositive(thicknessMm) || !validPositive(maxTimeSeconds)) {
+        status = { type: "error", message: "Invalid geometry/limits." };
+    }
+
+    const mach = normalizeMachine(machine);
+    if (!status && !mach) status = { type: "error", message: "Invalid machine." };
+
+    const matModel = createMaterialModel(material);
+    if (!status && !matModel) status = { type: "error", message: "Invalid material model." };
+
+    const dx = (Number.isFinite(dxMm) && dxMm > 0 ? dxMm : calculateDxMm(status ? 2 : thicknessMm)) / 1000;
+    const { nodeCount } = createGrid((status ? 2 : thicknessMm) / 1000, dx);
+
+    // --- ВЫСОКОСКОРОСТНАЯ АЛЛОКАЦИЯ ПАМЯТИ (ОДИН РАЗ НА ВЕСЬ ПРОЦЕСС) ---
+    const buffers = {
+        lower: new Float64Array(nodeCount),
+        diagonal: new Float64Array(nodeCount),
+        upper: new Float64Array(nodeCount),
+        rhs: new Float64Array(nodeCount),
+        Tnext: new Float64Array(nodeCount),
+        oldT: new Float64Array(nodeCount)
+    };
+
+    const decompTemp = Number(material?.decompositionTemp);
+    const decompTempK = decompTemp ? toKelvin(decompTemp) : null;
+    const targetMinCenterK = target.minCenterC != null ? toKelvin(target.minCenterC) : null;
+
+    const useTop = sides === "both" || sides === "top" || sides === "one-sided-top";
+    const useBot = sides === "both" || sides === "bottom" || sides === "one-sided-bottom";
+
+    // Прокидываем position маркеры для корректного выбора дефолтных boxEfficiency в ядре
+    const topSide = mach ? { ...(mach.top || {}), enabled: useTop && !!mach.top, position: "top" } : { enabled: false };
+    const botSide = mach ? { ...(mach.bottom || {}), enabled: useBot && !!mach.bottom, position: "bottom" } : { enabled: false };
+    const epsS = clamp(material?.emissivity ?? 0.93, 0, 1);
+
+    // 1. ЗАПУСК ОПТИМИЗИРОВАННОГО НАГРЕВА (Пробрасываем наши общие буферы)
+    const heating = simulateHeating({
+        nodeCount, dx, dt, matModel, topSide, botSide, ambT, ambRadT, epsS,
+        targetMinCenterK, decompTempK, maxTimeSeconds, sampleEverySeconds, storeHistory,
+        initialTemperatureC: initT, buffers
     });
 
+    status = heating.status;
 
-    // Оптимизированный перевод массива T из Кельвинов в Цельсии прямо на месте (in-place)
-    for (let i = 0; i < T.length; i++) {
-        T[i] = T[i] - 273.15; // Аналог toCelsius(T[i]) без вызова лишних функций
+    // Если на этапе инициализации или геометрии возникла фатальная ошибка, прерываемся без фазы остывания
+    if (status && status.type === "error" && heating.heatingTimeSeconds === 0) {
+        return makeError(status.message);
     }
 
-    const res = {
-        heatingTimeSeconds: time,
-        cooldownTimeSeconds: cooldownTimeSeconds,
-        reachedTarget,
-        status,
-        temperatureProfile: {temperaturesC: T, cooldownProfileC: cooldownProfileC, dxMm: dx * 1000},
-        history };
+    const heatingProfileK = heating.temperatureProfileK;
 
+    // 2. ЗАПУСК ОПТИМИЗИРОВАННОГО ОСТЫВАНИЯ (Переиспользуем те же самые буферы повторно!)
+    const cooldownProfileK = simulateCooldown({
+        initialProfileK: heatingProfileK,
+        nodeCount, dx, dt, matModel, epsS, ambT, ambRadT, cooldownTimeSeconds,
+        maxNonlinearIterations: MAX_NONLINEAR_ITERATIONS,
+        nonlinearToleranceK: NONLINEAR_TOLERANCE_K,
+        buffers
+    });
+
+    // ТОЧКА КОНВЕРТАЦИИ В ГРАДУСЫ ЦЕЛЬСИЯ (in-place) ---
+    const heatingProfileC = new Float64Array(nodeCount);
+    const cooldownProfileC = new Float64Array(nodeCount);
+
+    for (let i = 0; i < nodeCount; i++) {
+        heatingProfileC[i] = heatingProfileK[i] - 273.15;
+        cooldownProfileC[i] = cooldownProfileK[i] - 273.15;
+    }
+
+    const centerIndex = (nodeCount - 1) >> 1;
+    const centerC = heatingProfileC[centerIndex];
+    const frontC = heatingProfileC[0];
+    const backC = heatingProfileC[nodeCount - 1];
+    const surfC = Math.max(frontC, backC);
+
+    // Оптимизированный in-place поиск минимума без создания функций в цикле
+    let minTemperatureC = Infinity;
+    for (let i = 0; i < nodeCount; i++) {
+        if (heatingProfileC[i] < minTemperatureC) minTemperatureC = heatingProfileC[i];
+    }
+
+    if (heating.reachedTarget && target.maxSurfaceC != null && surfC > target.maxSurfaceC) {
+        status = { type: "warning", message: `Warning: Surface (${surfC.toFixed(1)}°C) > limit (${target.maxSurfaceC}°C).` };
+    }
+
+    // Сохраняем структуру возвращаемого объекта, передавая массив остывания
+    const res = {
+        heatingTimeSeconds: heating.heatingTimeSeconds,
+       reachedTarget: heating.reachedTarget,
+        status,
+        temperatureProfile: {
+            temperaturesC: heatingProfileC,
+            cooldownProfileC, // Профиль после 10 секунд переноса (°C)
+            cooldownSec: cooldownTimeSeconds,
+            dxMm: dx * 1000
+        },
+        history: heating.history
+    };
+
+    // Блок расширенной диагностики
     if (includeBreakdown) {
-        const { density = 1400, k = 0.16, cp = 1000 } = matModel?.get(centerC) || {}, diff = k / (density * cp), zeroF = { incidentWm2: 0, reflectedWm2: 0, effectiveWm2: 0 };
+        const { density = 1400, k = 0.16, cp = 1000 } = matModel?.get(centerC) || {};
+        const diff = k / (density * cp);
+        const zeroF = { incidentWm2: 0, reflectedWm2: 0, effectiveWm2: 0 };
+
         res.diagnostics = {
-            nodeCount, dxMm: dx * 1000, requestedDxMm: dxMm || dx * 1000, dtSeconds: dt,
-            maxStableDtSeconds: 0.5 * dx * dx / diff, thermalDiffusivityM2s: diff,
-            numericalControl: { gridCellsPerThickness: GRID_CELLS_PER_THICKNESS, minDxMm: MIN_DX_MM, maxDxMm: MAX_DX_MM, nonlinearIterations: MAX_NONLINEAR_ITERATIONS, nonlinearToleranceK: NONLINEAR_TOLERANCE_K, fourierNumber: diff * dt / (dx * dx) },
-            target: { centerC: target.minCenterC, surfaceC: target.maxSurfaceC, actualCenterC: centerC, actualMinTemperatureC: minTemperatureC, actualFrontSurfaceC: frontC, actualBackSurfaceC: backC, decompositionC: decompTemp },
+            nodeCount,
+            dxMm: dx * 1000,
+            requestedDxMm: dxMm || dx * 1000,
+            dtSeconds: dt,
+            maxStableDtSeconds: 0.5 * dx * dx / diff,
+            thermalDiffusivityM2s: diff,
+            numericalControl: {
+                gridCellsPerThickness: GRID_CELLS_PER_THICKNESS,
+                minDxMm: MIN_DX_MM,
+                maxDxMm: MAX_DX_MM,
+                nonlinearIterations: MAX_NONLINEAR_ITERATIONS,
+                nonlinearToleranceK: NONLINEAR_TOLERANCE_K,
+                fourierNumber: diff * dt / (dx * dx)
+            },
+            target: {
+                centerC: target.minCenterC,
+                surfaceC: target.maxSurfaceC,
+                actualCenterC: centerC,
+                actualMinTemperatureC: minTemperatureC,
+                actualFrontSurfaceC: frontC,
+                actualBackSurfaceC: backC,
+                decompositionC: decompTemp
+            },
             heatBalance: {
                 top: topSide.enabled ? calculateEffectiveIncidentFlux({ side: topSide, material, surfaceTemperatureC: frontC, ambientTemperatureC: ambT }) : zeroF,
                 bottom: botSide.enabled ? calculateEffectiveIncidentFlux({ side: botSide, material, surfaceTemperatureC: backC, ambientTemperatureC: ambT }) : zeroF,
@@ -470,7 +618,9 @@ export function simulate1DHeating({
                 bottomRegulatorTemperatureC: botSide.regulatorTemperatureC ?? null,
                 topHeaterTemperatureC: topSide.enabled ? getHeaterTemperatureC({ side: topSide, ambientTemperatureC: ambT }) : null,
                 bottomHeaterTemperatureC: botSide.enabled ? getHeaterTemperatureC({ side: botSide, ambientTemperatureC: ambT }) : null,
-                convectionCoefficient: mach ? Math.max(0, Number(mach.heatTransferCoefficient) || 0) : 0}};
+                convectionCoefficient: mach ? Math.max(0, Number(mach.heatTransferCoefficient) || 0) : 0
+            }
+        };
     }
     return res;
 }

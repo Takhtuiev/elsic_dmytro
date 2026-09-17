@@ -55,14 +55,26 @@ const PartHeader=({profile})=>(
 );
 
 
-
 const TemperatureProfileChart = memo(({ temperatureProfile: data, status }) => {
-    const theme = useTheme(), temps = data?.temperaturesC, cooldownTemps = data?.cooldownProfileC, dxMm = data?.dxMm;
+    const theme = useTheme();
+    const temps = data?.temperaturesC;
+    const cooldownTemps = data?.cooldownProfileC;
+    const dxMm = data?.dxMm;
+    const cooldownSec = data?.cooldownSec;
+
     if (!temps?.length || temps.length < 2 || typeof dxMm !== "number") return null;
 
-    const len = temps.length, hasCooldown = cooldownTemps?.length === len, width = 280, height = 120;
-    const pad = { left: 42, right: 15, top: 20, bottom: 25 }, wPlot = width - pad.left - pad.right, hPlot = height - pad.top - pad.bottom;
-    const xMin = 0, xMax = (len - 1) * dxMm, xDelta = xMax || 1, xs = x => pad.left + x / xDelta * wPlot;
+    const len = temps.length;
+    const hasCooldown = cooldownTemps?.length === len;
+    const width = 300, height = 150;
+    const pad = { left: 36, right: 16, top: 27, bottom: 39 };
+    const wPlot = width - pad.left - pad.right;
+    const hPlot = height - pad.top - pad.bottom;
+
+    const xMin = 0;
+    const xMax = (len - 1) * dxMm;
+    const xDelta = xMax || 1;
+    const xs = x => pad.left + (x / xDelta) * wPlot;
 
     let minIdx = 0, maxIdx = 0, minV = Infinity, maxV = -Infinity;
     for (let i = 0; i < len; i++) {
@@ -70,73 +82,121 @@ const TemperatureProfileChart = memo(({ temperatureProfile: data, status }) => {
         if (temps[i] > maxV) { maxV = temps[i]; maxIdx = i; }
     }
 
+    let cooldownDelta = 0;
+    if (hasCooldown) {
+        const cMin = Math.min(...cooldownTemps);
+        const cMax = Math.max(...cooldownTemps);
+        cooldownDelta = cMax - cMin;
+    }
+
     const allTemps = hasCooldown ? [...temps, ...cooldownTemps] : [...temps];
-    const dataMin = Math.min(...allTemps), dataMax = Math.max(...allTemps);
-    const tMin = Math.floor(dataMin / 10) * 10, tMax = Math.ceil(dataMax / 10) * 10, tDelta = tMax - tMin || 1, tCenter = (tMax + tMin) / 2;
-    const ys = t => pad.top + (tMax - t) / tDelta * hPlot, xCenter = xs(xMax / 2);
+    const dataMin = Math.min(...allTemps);
+    const dataMax = Math.max(...allTemps);
+    let tMin = Math.floor(dataMin / 10) * 10;
+    let tMax = Math.ceil(dataMax / 10) * 10;
+    if (tMax === tMin) { tMin -= 10; tMax += 10; }
+
+    const tDelta = tMax - tMin;
+    const tCenter = (tMax + tMin) / 2;
+    const ys = t => pad.top + ((tMax - t) / tDelta) * hPlot;
+    const xCenter = xs(xMax / 2);
 
     const makePath = values => {
         let d = `M ${xs(0)} ${ys(values[0])}`;
         for (let i = 0; i < values.length - 1; i++) {
-            const t0 = values[i ? i - 1 : 0], t1 = values[i], t2 = values[i + 1], t3 = values[i + 2] ?? t2;
-            const x0 = xs((i ? i - 1 : 0) * dxMm), x1 = xs(i * dxMm), x2 = xs((i + 1) * dxMm), x3 = xs((i + 2 >= values.length ? values.length - 1 : i + 2) * dxMm);
+            const t0 = values[i > 0 ? i - 1 : 0], t1 = values[i], t2 = values[i + 1], t3 = values[Math.min(i + 2, values.length - 1)];
+            const x0 = xs((i > 0 ? i - 1 : 0) * dxMm), x1 = xs(i * dxMm), x2 = xs((i + 1) * dxMm), x3 = xs(Math.min(i + 2, values.length - 1) * dxMm);
             const y0 = ys(t0), y1 = ys(t1), y2 = ys(t2), y3 = ys(t3);
             d += ` C ${x1 + (x2 - x0) / 6},${y1 + (y2 - y0) / 6} ${x2 - (x3 - x1) / 6},${y2 - (y3 - y1) / 6} ${x2},${y2}`;
         }
         return d;
     };
 
-    const dPath = makePath(temps), cooldownPath = hasCooldown ? makePath(cooldownTemps) : null;
+    const dPath = makePath(temps);
+    const cooldownPath = hasCooldown ? makePath(cooldownTemps) : null;
     const chartColor = status?.type === "error" ? theme.palette.error.main : status?.type === "warning" ? theme.palette.warning.main : theme.palette.text.primary;
 
-    const makePoint = (idx, val) => ({ id: idx, x: xs(idx * dxMm), y: ys(val), val, anchor: idx === 0 ? "start" : idx === len - 1 ? "end" : "middle", dx: idx === 0 ? 4 : idx === len - 1 ? -4 : 0 });
-    const allPoints = [
-        { ...makePoint(maxIdx, maxV), color: theme.palette.error.main, defaultDy: -6 },
-        { ...makePoint(minIdx, minV), color: theme.palette.primary.main, defaultDy: 14 },
-        { ...makePoint(0, temps[0]), color: theme.palette.text.primary, defaultDy: -6 },
-        { ...makePoint(len - 1, temps[len - 1]), color: theme.palette.text.primary, defaultDy: -6 }
+    const rawPoints = [
+        { id: maxIdx, val: maxV, isExtremum: true, color: theme.palette.error.main, forceDy: -8, priority: 1 },
+        { id: minIdx, val: minV, isExtremum: true, color: theme.palette.primary.main, forceDy: 14, priority: 2 },
+        { id: 0, val: temps[0], isExtremum: false, color: theme.palette.text.secondary, forceDy: -8, priority: 3 },
+        { id: len - 1, val: temps[len - 1], isExtremum: false, color: theme.palette.text.secondary, forceDy: -8, priority: 4 }
     ];
 
-    const seenIds = new Set(), uniquePoints = [];
-    for (const p of allPoints) {
+    const uniquePoints = [];
+    const seenIds = new Set();
+
+    for (const p of [...rawPoints].sort((a, b) => a.priority - b.priority)) {
         if (!seenIds.has(p.id)) {
             seenIds.add(p.id);
-            uniquePoints.push({ ...p, dy: p.id === minIdx ? 14 : p.defaultDy });
+            uniquePoints.push({
+                id: p.id,
+                x: xs(p.id * dxMm),
+                y: ys(p.val),
+                val: p.val,
+                color: p.color,
+                isBold: p.isExtremum,
+                dy: p.forceDy,
+                anchor: p.id === 0 ? "start" : p.id === len - 1 ? "end" : "middle",
+                dx: p.id === 0 ? 6 : p.id === len - 1 ? -6 : 0
+            });
+        }
+    }
+
+    uniquePoints.sort((a, b) => a.x - b.x);
+
+    for (let i = 0; i < uniquePoints.length - 1; i++) {
+        const a = uniquePoints[i], b = uniquePoints[i + 1];
+        if (Math.abs(a.x - b.x) < 34 && Math.abs(a.y - b.y) < 18 && a.dy === b.dy) {
+            a.dy = -9;
+            b.dy = 14;
+            if (a.anchor === "middle") a.dx = -5;
+            if (b.anchor === "middle") b.dx = 5;
         }
     }
 
     return (
-        <Box sx={{ width: 280, maxWidth: "100%", height, flex: "0 1 280px", flexShrink: 0, display: "flex", alignItems: "center", border: "1px solid", borderColor: status?.type === "ok" ? theme.palette.divider : chartColor, borderRadius: "6px", p: .5, boxSizing: "border-box", fontFamily: '"Roboto Mono","SF Mono",monospace' }}>
-            <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} style={{ overflow: "visible" }} shapeRendering="geometricPrecision">
-                {[tMax, tCenter, tMin].map((_, i) => <line key={i} x1={pad.left} y1={pad.top + i * hPlot / 2} x2={width - pad.right} y2={pad.top + i * hPlot / 2} stroke={theme.palette.divider} strokeDasharray="2 2" shapeRendering="crispEdges" />)}
-                <line x1={xCenter} y1={pad.top} x2={xCenter} y2={height - pad.bottom} stroke={theme.palette.divider} strokeDasharray="2 2" shapeRendering="crispEdges" />
-                <line x1={pad.left} y1={pad.top} x2={pad.left} y2={height - pad.bottom} stroke={theme.palette.text.secondary} opacity=".7" shapeRendering="crispEdges" />
-                <line x1={pad.left} y1={height - pad.bottom} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.text.secondary} opacity=".7" shapeRendering="crispEdges" />
+        <Box sx={{ width: 300, maxWidth: "100%", height, flex: "0 1 300px", flexShrink: 0, display: "flex", alignItems: "center", border: "1px solid", borderColor: status?.type === "ok" ? theme.palette.divider : chartColor, borderRadius: "6px", p: .5, boxSizing: "border-box", fontFamily: '"Roboto Mono","SF Mono",monospace', backgroundColor: theme.palette.background.paper }}>
+            <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" style={{ overflow: "visible" }} shapeRendering="geometricPrecision">
+                {[tMax, tCenter].map((_, i) => <line key={i} x1={pad.left} y1={pad.top + i * hPlot / 2} x2={width - pad.right} y2={pad.top + i * hPlot / 2} stroke={theme.palette.divider} strokeWidth="1" strokeDasharray="2 2" shapeRendering="crispEdges" />)}
+                <line x1={xCenter} y1={pad.top} x2={xCenter} y2={height - pad.bottom} stroke={theme.palette.divider} strokeWidth="1" strokeDasharray="2 2" shapeRendering="crispEdges" />
+                <line x1={width - pad.right} y1={pad.top} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.divider} strokeWidth="1" strokeDasharray="2 2" shapeRendering="crispEdges" />
+                <line x1={pad.left} y1={pad.top} x2={pad.left} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth="1,7" opacity=".45" shapeRendering="crispEdges" />
+                <line x1={pad.left} y1={height - pad.bottom} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth="1,7" opacity=".45" shapeRendering="crispEdges" />
 
+                {hasCooldown && <path d={cooldownPath} fill="none" stroke={theme.palette.text.secondary} strokeWidth="1" strokeDasharray="3 1" opacity=".5" strokeLinecap="round" strokeLinejoin="round" />}
                 <path d={dPath} fill="none" stroke={chartColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                {hasCooldown && <path d={cooldownPath} fill="none" stroke={theme.palette.text.secondary} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />}
 
-                {hasCooldown && [0, len - 1].map(i => <circle key={`cooldown-${i}`} cx={xs(i * dxMm)} cy={ys(cooldownTemps[i])} r="2.5" fill={theme.palette.text.secondary} />)}
+                {hasCooldown && [0, len - 1].map(i => <circle key={`c-pt-${i}`} cx={xs(i * dxMm)} cy={ys(cooldownTemps[i])} r="2" fill={theme.palette.text.secondary} opacity=".6" />)}
 
-                {uniquePoints.map((p, i) => (
-                    <g key={i}>
+                {uniquePoints.map(p => (
+                    <g key={`kp-${p.id}`}>
                         <circle cx={p.x} cy={p.y} r="3" fill={p.color} stroke={theme.palette.background.paper} strokeWidth="1" />
-                        <text x={p.x} y={p.y + p.dy} dx={p.dx} textAnchor={p.anchor} fontSize="10" fontWeight={p.id === minIdx || p.id === maxIdx ? "bold" : "normal"} fill={theme.palette.text.primary}>{p.val.toFixed(1)}°C</text>
+                        <text x={p.x} y={p.y + p.dy} dx={p.dx} textAnchor={p.anchor} fontSize="9" fontWeight={p.isBold ? "bold" : "normal"} fill={theme.palette.text.primary}>{p.val.toFixed(1)}°</text>
                     </g>
                 ))}
 
-                {hasCooldown && [0, len - 1].map(i => <text key={`cooldown-text-${i}`} x={xs(i * dxMm)} y={ys(cooldownTemps[i]) + 11} dx={i === 0 ? 4 : -4} textAnchor={i === 0 ? "start" : "end"} fontSize="8.5" fill={theme.palette.text.secondary}>{cooldownTemps[i].toFixed(1)}°C</text>)}
+                {hasCooldown && [0, len - 1].map(i => {
+                    const isNearMain = Math.abs(cooldownTemps[i] - temps[i]) < 8;
+                    const coolingDy = isNearMain ? 14 : i === 0 ? 12 : -6;
+                    return <text key={`c-txt-${i}`} x={xs(i * dxMm)} y={ys(cooldownTemps[i]) + coolingDy} dx={i === 0 ? 6 : -6} textAnchor={i === 0 ? "start" : "end"} fontSize="8.5" fontWeight="bold" fill={theme.palette.text.primary}>{cooldownTemps[i].toFixed(1)}°</text>;
+                })}
 
-                <text x={xCenter} y={pad.top - 7} textAnchor="middle" fontSize="9" fontWeight="bold" fill={chartColor}>ΔT = {(maxV - minV).toFixed(1)}°C</text>
-                <text x={pad.left - 6} y={pad.top + 3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMax}°</text>
-                <text x={pad.left - 6} y={height - pad.bottom + 3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMin}°</text>
-                <text x={pad.left} y={height - 9} textAnchor="middle" fontSize="8.5" fill={theme.palette.text.secondary}>{xMin.toFixed(1)} mm</text>
-                <text x={width - pad.right} y={height - 9} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{xMax.toFixed(1)} mm</text>
+                <text x={xCenter} y={14} textAnchor="middle" fontSize="9.5" fontWeight="bold" fill={chartColor}>ΔT = {(maxV - minV).toFixed(1)}°C</text>
+                <text x={pad.left - 5} y={pad.top + 3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMax}°</text>
+                <text x={pad.left - 5} y={height - pad.bottom + 3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMin}°</text>
+                <text x={pad.left} y={height - 22} textAnchor="middle" fontSize="8.5" fill={theme.palette.text.secondary}>{xMin} mm</text>
+                <text x={width - pad.right} y={height - 22} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{xMax.toFixed(0)} mm</text>
+
+                {typeof cooldownSec === "number" && (
+                    <text x={xCenter} y={height - 6} textAnchor="middle" fontSize="8.5" fontWeight="500" fill={theme.palette.text.secondary}>
+                        Cooling: {cooldownSec}s{hasCooldown && ` (ΔT = ${cooldownDelta.toFixed(1)}°C)`}
+                    </text>
+                )}
             </svg>
         </Box>
     );
 });
-
 
 
 const Parameters=({
