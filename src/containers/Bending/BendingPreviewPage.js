@@ -5,6 +5,7 @@ import BendingPreview from "./BendingPreview";
 
 const BendingPreviewPage=({
                               profile,
+                              machine,
                               blankLength,
                               machineParams,
                               target,
@@ -21,9 +22,10 @@ const BendingPreviewPage=({
     >
         <BendingPreview
             profile={profile}
+            machine={machine}
             blankLength={blankLength}
             machineParams={machineParams}
-            target = {target}
+            target={target}
             rotationPreview={rotationPreview}
         />
     </Box>

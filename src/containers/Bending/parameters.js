@@ -3,6 +3,8 @@ export const MACHINES = {
     MACHINE_LINE_1: {
         name: "H.P. Burger Line 1",
 
+        rTool: 1.2,
+
         heaters: [
             {
                 // top
@@ -26,22 +28,26 @@ export const MACHINES = {
 
 
     MACHINE_LINE_2: {
-        heatTransferCoefficient: 10,
+        name: "Line 2",
+
+        rTool: 1.2,
 
         heaters: [
             {
-                heaterTemperatureC: 360,
-                airTemperatureFactor: 0.70,
+                regulatorTemperatureC: 200,
+                heaterTemperatureFactor: 1.3,
                 heaterEmissivity: 0.90,
-                viewFactor: 1,
-                radiationGain: 1,
+                boxEmissivity: 0.55,
+                viewFactor: 0.8,
+                radiationGain: 1.00,
+                convectiveHeatTransferCoefficient: 8,
+                boxEfficiency: 0.45
             },
             {
-                heaterTemperatureC: 360,
-                airTemperatureFactor: 0.70,
-                heaterEmissivity: 0.90,
-                viewFactor: 1,
-                radiationGain: 1,
+                // bottom
+                regulatorTemperatureC: 200,
+                convectiveHeatTransferCoefficient: 16,
+                boxEfficiency: 0.6
             }
         ]
     }
@@ -62,7 +68,9 @@ export const MATERIALS = {
 
         defaultTSurf: 160,
         defaultTCenter: 130,
-        decompositionTemp: 180
+        decompositionTemp: 180,
+
+        kFactor:0.40,
     },
 
     PVC_CAW_DARK_GREY: {
@@ -77,7 +85,9 @@ export const MATERIALS = {
 
         defaultTSurf: 160,
         defaultTCenter: 130,
-        decompositionTemp: 180
+        decompositionTemp: 180,
+
+        kFactor:0.40,
     },
 
     PVC_CAW_TRANSPARENT: {
@@ -92,7 +102,9 @@ export const MATERIALS = {
 
         defaultTSurf: 165,
         defaultTCenter: 130,
-        decompositionTemp: 180
+        decompositionTemp: 180,
+
+        kFactor:0.40,
     },
 
     POLYCARBONATE_STANDARD: {
@@ -107,6 +119,8 @@ export const MATERIALS = {
 
         defaultTSurf: 180,
         defaultTCenter: 150,
-        decompositionTemp: 300
+        decompositionTemp: 300,
+
+        kFactor:0.40,
     }
 };

@@ -1,18 +1,16 @@
-import React, {useEffect, useMemo, useRef, useState} from "react";
+import React,{useEffect,useMemo,useRef,useState} from "react";
 import {Box,Typography,useTheme} from "@mui/material";
 import {alpha} from "@mui/material/styles";
 
 import BendProfileRender from "./BendProfileRender";
 import {prepareSvgLayers} from "./prepareSvgLayers";
 import {MAX_BEND_ANGLE,MIN_BEND_ANGLE} from "./svgConstants";
-import {MACHINES,MATERIALS} from "./parameters";
+import {MATERIALS} from "./parameters";
 import {simulate1DHeating} from "./pvc-1d-transient-heating";
-import {formatTime, TemperatureProfileChart} from "./TemperatureProfileChart";
-
+import {formatTime,TemperatureProfileChart} from "./TemperatureProfileChart";
 
 const PARAMETER_TEXT_COLOR="text.primary";
 const PARAMETER_TEXT_SIZE="0.8rem";
-
 
 const PartHeader=({profile})=>(
     <Box
@@ -44,41 +42,134 @@ const PartHeader=({profile})=>(
     </Box>
 );
 
-
 const Parameters=({profile,part,machineParams,data})=>{
     const material=MATERIALS[profile?.materialKey];
-    const blankLength=Number(part?.blankLength),width=Number(profile?.width),thickness=Number(profile?.thickness),density=Number(material?.density);
-    const mass=Number.isFinite(blankLength)&&Number.isFinite(width)&&Number.isFinite(thickness)&&Number.isFinite(density)?blankLength*width*thickness*density/1e9:null;
+
+    const blankLength=Number(part?.blankLength);
+    const width=Number(profile?.width);
+    const thickness=Number(profile?.thickness);
+    const density=Number(material?.density);
+
+    const mass=
+        Number.isFinite(blankLength)&&
+        Number.isFinite(width)&&
+        Number.isFinite(thickness)&&
+        Number.isFinite(density)
+            ?blankLength*width*thickness*density/1e9
+            :null;
+
     const status=data?.status;
-    const statusColor=status?.type==="error"?"error":status?.type==="warning"?"warning":"text.secondary";
+
+    const statusColor=
+        status?.type==="error"
+            ?"error"
+            :status?.type==="warning"
+                ?"warning"
+                :"text.secondary";
 
     return(
-        <Box className="bend-preview-parameters" >
+        <Box className="bend-preview-parameters">
             <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
-                <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Blank length: <strong>{Number.isFinite(blankLength)?blankLength.toFixed(2):"—"} mm</strong></Typography>
-                <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Width: <strong>{Number.isFinite(width)?width:"—"} mm</strong></Typography>
-                <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Mass: <strong>{mass!==null?mass.toFixed(3):"—"} kg</strong></Typography>
+                <Typography
+                    variant="body2"
+                    color={PARAMETER_TEXT_COLOR}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                >
+                    Blank length: <strong>
+                    {Number.isFinite(blankLength)
+                        ?blankLength.toFixed(2)
+                        :"—"} mm
+                </strong>
+                </Typography>
+
+                <Typography
+                    variant="body2"
+                    color={PARAMETER_TEXT_COLOR}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                >
+                    Width: <strong>
+                    {Number.isFinite(width)?width:"—"} mm
+                </strong>
+                </Typography>
+
+                <Typography
+                    variant="body2"
+                    color={PARAMETER_TEXT_COLOR}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                >
+                    Mass: <strong>
+                    {mass!==null
+                        ?mass.toFixed(3)
+                        :"—"} kg
+                </strong>
+                </Typography>
             </Box>
 
             {machineParams&&(
                 <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
-                    <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Stop pos: <strong>{machineParams.stopPosition} mm</strong></Typography>
-                    <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Bar low: <strong>{machineParams.barLowering} mm</strong></Typography>
-                    <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Angle: <strong>{machineParams.bendAngle}°</strong></Typography>
+                    <Typography
+                        variant="body2"
+                        color={PARAMETER_TEXT_COLOR}
+                        fontSize={PARAMETER_TEXT_SIZE}
+                    >
+                        Stop pos: <strong>
+                        {machineParams.stopPosition} mm
+                    </strong>
+                    </Typography>
+
+                    <Typography
+                        variant="body2"
+                        color={PARAMETER_TEXT_COLOR}
+                        fontSize={PARAMETER_TEXT_SIZE}
+                    >
+                        Bar low: <strong>
+                        {machineParams.barLowering} mm
+                    </strong>
+                    </Typography>
+
+                    <Typography
+                        variant="body2"
+                        color={PARAMETER_TEXT_COLOR}
+                        fontSize={PARAMETER_TEXT_SIZE}
+                    >
+                        Angle: <strong>
+                        {machineParams.bendAngle}°
+                    </strong>
+                    </Typography>
                 </Box>
             )}
 
             <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
-                <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
-                    Heat temp: <strong>top: {data?.heaterTemperaturesC?.top??"—"}°C, bottom: {data?.heaterTemperaturesC?.bottom??"—"}°C</strong>
+                <Typography
+                    variant="body2"
+                    color={PARAMETER_TEXT_COLOR}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                >
+                    Heat temp: <strong>
+                    top: {data?.heaterTemperaturesC?.top??"—"}°C,
+                    {" "}bottom: {data?.heaterTemperaturesC?.bottom??"—"}°C
+                </strong>
                 </Typography>
-                <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
-                    Heating time: <strong>{formatTime(data?.heatingTimeSeconds)}</strong>
+
+                <Typography
+                    variant="body2"
+                    color={PARAMETER_TEXT_COLOR}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                >
+                    Heating time: <strong>
+                    {formatTime(data?.heatingTimeSeconds)}
+                </strong>
                 </Typography>
             </Box>
 
             {status?.type!=="ok"&&status?.message&&(
-                <Typography variant="body2" color={statusColor} fontSize={PARAMETER_TEXT_SIZE} fontWeight={500} sx={{mt:.5}}>
+                <Typography
+                    variant="body2"
+                    color={statusColor}
+                    fontSize={PARAMETER_TEXT_SIZE}
+                    fontWeight={500}
+                    sx={{mt:.5}}
+                >
                     {status.message}
                 </Typography>
             )}
@@ -87,12 +178,13 @@ const Parameters=({profile,part,machineParams,data})=>{
 };
 
 const BendingPreview=({
-    profile,
-    blankLength,
-    machineParams,
-    target,
-    rotationPreview
-})=>{
+                          profile,
+                          machine,
+                          blankLength,
+                          machineParams,
+                          target,
+                          rotationPreview
+                      })=>{
     const theme=useTheme();
     const containerRef=useRef(null);
 
@@ -104,17 +196,14 @@ const BendingPreview=({
     });
 
     useEffect(()=>{
-        if(!containerRef.current) return;
+        if(!containerRef.current)return;
 
         const observer=new ResizeObserver(
             ([{contentRect}])=>{
                 const {width,height}=contentRect;
 
                 if(width&&height)
-                    setContainerSize({
-                        width,
-                        height
-                    });
+                    setContainerSize({width,height});
             }
         );
 
@@ -123,37 +212,33 @@ const BendingPreview=({
         return()=>observer.disconnect();
     },[]);
 
-    const MACHINA=MACHINES.MACHINE_LINE_1;
-    const MATERIAL=MATERIALS[profile.materialKey];
-
-    const dataSimulate = useMemo(()=>{
+    const dataSimulate=useMemo(()=>{
         if(
             !profile?.thickness||
-            !profile?.materialKey
+            !profile?.materialKey||
+            !machine
         ){
             return null;
         }
 
         return simulate1DHeating({
-            thicknessMm: profile.thickness,
-            material: MATERIAL,
-            machine: MACHINA,
-            thermalConditions: {
-                initialTemperatureC: 20,
-                ambientTemperatureC: 20,
-                ambientRadiationTemperatureC: 20
+            thicknessMm:profile.thickness,
+            material:MATERIALS[profile.materialKey],
+            machine,
+            thermalConditions:{
+                initialTemperatureC:20,
+                ambientTemperatureC:20,
+                ambientRadiationTemperatureC:20
             },
-            sides: "both",
-            target: target,
-            maxTimeSeconds: 1200,
-            cooldownTimeSeconds: 10
+            sides:"both",
+            target,
+            maxTimeSeconds:1200,
+            cooldownTimeSeconds:10
         });
-
     },[
-        profile.thickness,
+        profile?.thickness,
         profile?.materialKey,
-        MATERIAL,
-        MACHINA,
+        machine,
         target
     ]);
 
@@ -206,7 +291,7 @@ const BendingPreview=({
     }),[theme]);
 
     const svgData=useMemo(()=>{
-        if(!profile||validationError) return null;
+        if(!profile||validationError)return null;
 
         return prepareSvgLayers(
             profile,
@@ -224,9 +309,7 @@ const BendingPreview=({
         Number(view?.rotation??0);
 
     const visualRotation=
-        Number(
-            rotationPreview??committedRotation
-        )-
+        Number(rotationPreview??committedRotation)-
         committedRotation;
 
     const viewBoxValues=svgData?.viewBox
@@ -329,14 +412,16 @@ const BendingPreview=({
                 )}
             </Box>
 
-            <Box sx={{
-                display:"flex",
-                flexWrap:"wrap",
-                alignItems:"stretch",
-                width:"100%",
-                flexShrink:0,
-                gap:1
-            }}>
+            <Box
+                sx={{
+                    display:"flex",
+                    flexWrap:"wrap",
+                    alignItems:"stretch",
+                    width:"100%",
+                    flexShrink:0,
+                    gap:1
+                }}
+            >
                 <Box sx={{flex:"1 1 18rem"}}>
                     <Parameters
                         profile={profile}
@@ -346,11 +431,16 @@ const BendingPreview=({
                     />
                 </Box>
 
-                <Box sx={{flex:"0 1 auto",maxWidth:"100%",mx:"auto"}}>
+                <Box
+                    sx={{
+                        flex:"0 1 auto",
+                        maxWidth:"100%",
+                        mx:"auto"
+                    }}
+                >
                     <TemperatureProfileChart data={dataSimulate}/>
                 </Box>
             </Box>
-
         </Box>
     );
 };

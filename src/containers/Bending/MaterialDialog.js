@@ -5,15 +5,24 @@ import {
 } from "@mui/material";
 
 const physicalProps=[
-    {key:"lambda",label:"Thermal conductivity",unit:"W/(m·K)",color:"#0288d1"},
     {key:"density",label:"Density",unit:"kg/m³",color:"#7b1fa2"},
+    {key:"thermalConductivity",label:"Thermal conductivity",unit:"W/(m·K)",color:"#0288d1"},
     {key:"specificHeat",label:"Specific heat",unit:"J/(kg·K)",color:"#2e7d32"}
 ];
 
+const surfaceProps=[
+    {key:"emissivity",label:"Emissivity",unit:"",color:"#f57c00"},
+    {key:"surfaceReflectance",label:"Surface reflectance",unit:"",color:"#757575"}
+];
+
 const tempProps=[
-    {key:"decompositionTemp",label:"Decomposition temp.",unit:"°C",color:"#d32f2f"},
     {key:"defaultTSurf",label:"Surface temp.",unit:"°C",color:"#f57c00"},
-    {key:"defaultTCenter",label:"Center temp.",unit:"°C",color:"#0288d1"}
+    {key:"defaultTCenter",label:"Center temp.",unit:"°C",color:"#0288d1"},
+    {key:"decompositionTemp",label:"Decomposition temp.",unit:"°C",color:"#d32f2f"}
+];
+
+const bendingProps=[
+    {key:"kFactor",label:"K-factor",unit:"",color:"#6a1b9a"}
 ];
 
 const Transition=forwardRef(function Transition(props,ref){
@@ -39,27 +48,37 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                 onSelect(selectedKey);
             }else if(event.key==="ArrowDown"){
                 event.preventDefault();
-                const nextIndex=currentIndex<materialKeys.length-1?currentIndex+1:0;
+
+                const nextIndex=
+                    currentIndex<materialKeys.length-1?currentIndex+1:0;
+
                 const nextKey=materialKeys[nextIndex];
 
                 if(nextKey){
                     setSelectedKey(nextKey);
-                    document.getElementById(`mat-card-${nextKey}`)?.scrollIntoView({
-                        block:"nearest",
-                        behavior:"smooth"
-                    });
+                    document
+                        .getElementById(`mat-card-${nextKey}`)
+                        ?.scrollIntoView({
+                            block:"nearest",
+                            behavior:"smooth"
+                        });
                 }
             }else if(event.key==="ArrowUp"){
                 event.preventDefault();
-                const prevIndex=currentIndex>0?currentIndex-1:materialKeys.length-1;
+
+                const prevIndex=
+                    currentIndex>0?currentIndex-1:materialKeys.length-1;
+
                 const prevKey=materialKeys[prevIndex];
 
                 if(prevKey){
                     setSelectedKey(prevKey);
-                    document.getElementById(`mat-card-${prevKey}`)?.scrollIntoView({
-                        block:"nearest",
-                        behavior:"smooth"
-                    });
+                    document
+                        .getElementById(`mat-card-${prevKey}`)
+                        ?.scrollIntoView({
+                            block:"nearest",
+                            behavior:"smooth"
+                        });
                 }
             }
         };
@@ -70,31 +89,40 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
 
     const current=materials[selectedKey];
 
-    const renderPropRow=p=>(
-        <Box
-            key={p.key}
-            sx={{
-                display:"flex",
-                justifyContent:"space-between",
-                alignItems:"center",
-                borderBottom:"1px dashed",
-                borderColor:"divider",
-                pb:.5
-            }}
-        >
-            <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{display:"flex",alignItems:"center",gap:1}}
-            >
-                <span style={{color:p.color}}>●</span>{p.label}
-            </Typography>
+    const renderPropRow=p=>{
+        if(current?.[p.key]===undefined||current?.[p.key]===null)return null;
 
-            <Typography variant="body2" fontWeight={600}>
-                {current[p.key]} {p.unit}
-            </Typography>
-        </Box>
-    );
+        return(
+            <Box
+                key={p.key}
+                sx={{
+                    display:"flex",
+                    justifyContent:"space-between",
+                    alignItems:"center",
+                    borderBottom:"1px dashed",
+                    borderColor:"divider",
+                    pb:.5
+                }}
+            >
+                <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{
+                        display:"flex",
+                        alignItems:"center",
+                        gap:1
+                    }}
+                >
+                    <span style={{color:p.color}}>●</span>
+                    {p.label}
+                </Typography>
+
+                <Typography variant="body2" fontWeight={600}>
+                    {current[p.key]} {p.unit}
+                </Typography>
+            </Box>
+        );
+    };
 
     return(
         <Dialog
@@ -164,9 +192,15 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                                         alignItems:"center",
                                         cursor:"pointer",
                                         borderRadius:1.5,
-                                        borderColor:isSel?"primary.main":"divider",
-                                        bgcolor:isSel?"action.selected":"background.paper",
-                                        "&:hover":{bgcolor:"action.hover"}
+                                        borderColor:isSel
+                                            ?"primary.main"
+                                            :"divider",
+                                        bgcolor:isSel
+                                            ?"action.selected"
+                                            :"background.paper",
+                                        "&:hover":{
+                                            bgcolor:"action.hover"
+                                        }
                                     }}
                                 >
                                     <Radio
@@ -196,7 +230,7 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                         display:"flex",
                         flexDirection:"column",
                         justifyContent:current?"flex-start":"center",
-                        overflow:"hidden"
+                        overflow:"auto"
                     }}
                 >
                     {current?(
@@ -213,16 +247,37 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                                 sx={{
                                     display:"flex",
                                     flexDirection:"column",
-                                    gap:1.5
+                                    gap:1
                                 }}
                             >
                                 {physicalProps.map(renderPropRow)}
 
                                 <Divider
-                                    sx={{my:1,borderStyle:"dashed"}}
+                                    sx={{
+                                        my:.75,
+                                        borderStyle:"dashed"
+                                    }}
+                                />
+
+                                {surfaceProps.map(renderPropRow)}
+
+                                <Divider
+                                    sx={{
+                                        my:.75,
+                                        borderStyle:"dashed"
+                                    }}
                                 />
 
                                 {tempProps.map(renderPropRow)}
+
+                                <Divider
+                                    sx={{
+                                        my:.75,
+                                        borderStyle:"dashed"
+                                    }}
+                                />
+
+                                {bendingProps.map(renderPropRow)}
                             </Box>
                         </>
                     ):(
@@ -243,7 +298,10 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                     bgcolor:"background.paper"
                 }}
             >
-                <Button onClick={onClose} color="inherit">
+                <Button
+                    onClick={onClose}
+                    color="inherit"
+                >
                     Cancel
                 </Button>
 
