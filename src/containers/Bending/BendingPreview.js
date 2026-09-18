@@ -127,9 +127,13 @@ const TemperatureProfileChart = memo(({ data }) => {
             const y0 = ys(t0), y1 = ys(t1), y2 = ys(t2), y3 = ys(t3);
             const c1x = x1 + (x2 - x0) / 6, c1y = y1 + (y2 - y0) / 6;
             const c2x = x2 - (x3 - x1) / 6, c2y = y2 - (y3 - y1) / 6;
+
             for (let s = 0; s < steps; s++) {
                 const u = s / steps, v = 1 - u;
-                points.push({ x: v * v * v * x1 + 3 * v * v * u * c1x + 3 * v * u * u * c2x + u * u * u * x2, y: v * v * v * y1 + 3 * v * v * u * c1y + 3 * v * u * u * c2y + u * u * u * y2 });
+                points.push({
+                    x: v * v * v * x1 + 3 * v * v * u * c1x + 3 * v * u * u * c2x + u * u * u * x2,
+                    y: v * v * v * y1 + 3 * v * v * u * c1y + 3 * v * u * u * c2y + u * u * u * y2
+                });
             }
         }
         points.push({ x: xs((len - 1) * dxMm), y: ys(values[len - 1]) });
@@ -141,15 +145,26 @@ const TemperatureProfileChart = memo(({ data }) => {
     const mainCurvePoints = makeCurvePoints(temps);
     const cooldownCurvePoints = hasCooldown ? makeCurvePoints(cooldownTemps) : [];
 
-    const chartColor = status?.type === "error" ? theme.palette.error.main : status?.type === "warning" ? theme.palette.warning.main : theme.palette.text.primary;
+    const chartColor = status?.type === "error"
+        ? theme.palette.error.main
+        : status?.type === "warning"
+            ? theme.palette.warning.main
+            : theme.palette.text.primary;
+
     const cooldownColor = theme.palette.text.secondary;
     const minColor = theme.palette.info.main;
     const maxColor = theme.palette.error.main;
 
     const makeLabels = (values, minI, minVal, maxI, maxVal, type) => {
         const color = type === "cooldown" ? cooldownColor : chartColor;
-        const raw = [{ id: maxI, val: maxVal, priority: 4 }, { id: minI, val: minVal, priority: 4 }, { id: 0, val: values[0], priority: 2 }, { id: len - 1, val: values[len - 1], priority: 2 }];
+        const raw = [
+            { id: maxI, val: maxVal, priority: 4 },
+            { id: minI, val: minVal, priority: 4 },
+            { id: 0, val: values[0], priority: 2 },
+            { id: len - 1, val: values[len - 1], priority: 2 }
+        ];
         const result = [], seen = new Set();
+
         for (const p of raw.sort((a, b) => b.priority - a.priority)) {
             if (!seen.has(p.id)) {
                 seen.add(p.id);
@@ -159,10 +174,14 @@ const TemperatureProfileChart = memo(({ data }) => {
         return result;
     };
 
-    const labels = [...makeLabels(temps, minIdx, minV, maxIdx, maxV, "main"), ...(hasCooldown ? makeLabels(cooldownTemps, minCoolIdx, minCoolV, maxCoolIdx, maxCoolV, "cooldown") : [])];
+    const labels = [
+        ...makeLabels(temps, minIdx, minV, maxIdx, maxV, "main"),
+        ...(hasCooldown ? makeLabels(cooldownTemps, minCoolIdx, minCoolV, maxCoolIdx, maxCoolV, "cooldown") : [])
+    ];
 
     const rectPointDistance = (px, py, r) => {
-        const dx = Math.max(r.left - px, 0, px - r.right), dy = Math.max(r.top - py, 0, py - r.bottom);
+        const dx = Math.max(r.left - px, 0, px - r.right);
+        const dy = Math.max(r.top - py, 0, py - r.bottom);
         return Math.hypot(dx, dy);
     };
 
@@ -174,67 +193,99 @@ const TemperatureProfileChart = memo(({ data }) => {
         return false;
     };
 
-    const candidates = [{ dx: 0, dy: -9 }, { dx: 0, dy: 14 }, { dx: -8, dy: -9 }, { dx: 8, dy: -9 }, { dx: -8, dy: 14 }, { dx: 8, dy: 14 }, { dx: -12, dy: -9 }, { dx: 12, dy: -9 }, { dx: -12, dy: 14 }, { dx: 12, dy: 14 }, { dx: 0, dy: -16 }, { dx: 0, dy: 21 }];
+    const candidates = [
+        { dx: 0, dy: -9 }, { dx: 0, dy: 14 },
+        { dx: -8, dy: -9 }, { dx: 8, dy: -9 },
+        { dx: -8, dy: 14 }, { dx: 8, dy: 14 },
+        { dx: -12, dy: -9 }, { dx: 12, dy: -9 },
+        { dx: -12, dy: 14 }, { dx: 12, dy: 14 },
+        { dx: 0, dy: -16 }, { dx: 0, dy: 21 }
+    ];
+
     const placed = [];
 
     for (const p of [...labels].sort((a, b) => b.priority - a.priority)) {
-        const textWidth = `${p.val.toFixed(1)}°`.length * 5.2 * scale, anchor = { x: p.x, y: p.y };
+        const textWidth = `${p.val.toFixed(1)}°`.length * 5.2 * scale;
+        const anchor = { x: p.x, y: p.y };
         let best = null;
+
         for (const c of candidates) {
-            const dx = c.dx * scale, dy = c.dy * scale, x = p.x + dx, y = p.y + dy;
+            const dx = c.dx * scale, dy = c.dy * scale;
+            const x = p.x + dx, y = p.y + dy;
             const textAnchor = p.id === 0 ? "start" : p.id === len - 1 ? "end" : "middle";
             const left = textAnchor === "start" ? x : textAnchor === "end" ? x - textWidth : x - textWidth / 2;
             const right = textAnchor === "start" ? x + textWidth : textAnchor === "end" ? x : x + textWidth / 2;
             const top = y - 8 * scale, bottom = y + 3 * scale;
             const rect = { left: left - 1.5 * scale, right: right + 1.5 * scale, top: top - 1.5 * scale, bottom: bottom + 1.5 * scale };
             let score = 0;
+
             if (left < pad.left) score += 10000 + (pad.left - left) * 100;
             if (right > width - pad.right) score += 10000 + (right - (width - pad.right)) * 100;
             if (top < pad.top) score += 10000 + (pad.top - top) * 100;
             if (bottom > height - pad.bottom) score += 10000 + (bottom - (height - pad.bottom)) * 100;
+
             for (const q of placed) {
                 if (rect.left < q.right && rect.right > q.left && rect.top < q.bottom && rect.bottom > q.top) score += 100000;
                 else {
-                    const gapX = Math.max(q.left - rect.right, rect.left - q.right, 0), gapY = Math.max(q.top - rect.bottom, rect.top - q.bottom, 0);
+                    const gapX = Math.max(q.left - rect.right, rect.left - q.right, 0);
+                    const gapY = Math.max(q.top - rect.bottom, rect.top - q.bottom, 0);
                     if (gapX < 5 * scale && gapY < 5 * scale) score += 1000;
                 }
             }
+
             if (curveHitsLabel(mainCurvePoints, rect, anchor) || (hasCooldown && curveHitsLabel(cooldownCurvePoints, rect, anchor))) score += 50000;
             score += Math.abs(dx) * 2 + Math.abs(dy) * .5;
             if (p.id === 0 && dx < 0) score += 500;
             if (p.id === len - 1 && dx > 0) score += 500;
+
             if (!best || score < best.score) best = { dx, dy, score, left, right, top, bottom };
         }
+
         placed.push({ ...p, ...best });
     }
 
     return (
         <Box ref={containerRef} sx={{ width: 300, maxWidth: "100%", height: 150, flex: "0 1 300px", flexShrink: 0, display: "flex", alignItems: "center", border: "1px solid", borderColor: status?.type === "ok" ? theme.palette.divider : chartColor, borderRadius: "6px", p: .5, boxSizing: "border-box", fontFamily: '"Roboto Mono","SF Mono",monospace', backgroundColor: theme.palette.background.paper, overflow: "hidden" }}>
             <svg width={size.width} height={size.height} style={{ display: "block", overflow: "visible" }} shapeRendering="geometricPrecision">
-                {[tMax, tCenter].map((_, i) => <line key={i} x1={pad.left} y1={pad.top + i * hPlot / 2} x2={width - pad.right} y2={pad.top + i * hPlot / 2} stroke={theme.palette.divider} strokeWidth={scale} strokeDasharray={`${2 * scale} ${2 * scale}`} />)}
+                {[tMax, tCenter].map((_, i) => (
+                    <line key={i} x1={pad.left} y1={pad.top + i * hPlot / 2} x2={width - pad.right} y2={pad.top + i * hPlot / 2} stroke={theme.palette.divider} strokeWidth={scale} strokeDasharray={`${2 * scale} ${2 * scale}`} />
+                ))}
+
                 <line x1={xCenter} y1={pad.top} x2={xCenter} y2={height - pad.bottom} stroke={theme.palette.divider} strokeWidth={scale} strokeDasharray={`${2 * scale} ${2 * scale}`} />
                 <line x1={width - pad.right} y1={pad.top} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.divider} strokeWidth={scale} strokeDasharray={`${2 * scale} ${2 * scale}`} />
                 <line x1={pad.left} y1={pad.top} x2={pad.left} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={scale} opacity=".55" />
                 <line x1={pad.left} y1={height - pad.bottom} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={scale} opacity=".55" />
-                {hasCooldown && <path d={cooldownPath} fill="none" stroke={cooldownColor} strokeWidth={scale} strokeDasharray={`${3 * scale} ${scale}`} opacity=".5" strokeLinecap="round" strokeLinejoin="round" />}
+
+                {hasCooldown && (
+                    <path d={cooldownPath} fill="none" stroke={cooldownColor} strokeWidth={scale} strokeDasharray={`${3 * scale} ${scale}`} opacity=".5" strokeLinecap="round" strokeLinejoin="round" />
+                )}
+
                 <path d={dPath} fill="none" stroke={chartColor} strokeWidth={2 * scale} strokeLinecap="round" strokeLinejoin="round" />
+
                 {placed.map(p => {
                     const isMin = p.id === (p.type === "cooldown" ? minCoolIdx : minIdx);
                     const isMax = p.id === (p.type === "cooldown" ? maxCoolIdx : maxIdx);
                     const pointColor = isMin ? minColor : isMax ? maxColor : p.color;
+
                     return (
                         <g key={`${p.type}-${p.id}`}>
-                            <circle cx={p.x} cy={p.y} r={(p.type === "cooldown" ? 2.5 : 3) * scale} fill={pointColor} stroke={theme.palette.background.paper} strokeWidth={scale} opacity={p.type === "cooldown" ? 0.5 : 1}/>
-                            <text x={p.x} y={p.y + p.dy} textAnchor={p.id === 0 ? "start" : p.id === len - 1 ? "end" : "middle"} fontSize={(p.type === "cooldown" ? 8.5 : 9) * scale} fontWeight={600} fill={p.color}>{p.val.toFixed(1)}°</text>
+                            <circle cx={p.x} cy={p.y} r={(p.type === "cooldown" ? 2.5 : 3) * scale} fill={pointColor} stroke={theme.palette.background.paper} strokeWidth={scale} opacity={p.type === "cooldown" ? .5 : 1} />
+                            <text x={p.x} y={p.y + p.dy} textAnchor={p.id === 0 ? "start" : p.id === len - 1 ? "end" : "middle"} fontSize={(p.type === "cooldown" ? 8.5 : 9) * scale} fontWeight="bold" fill={p.color}>{p.val.toFixed(1)}°</text>
                         </g>
                     );
                 })}
+
                 <text x={xCenter} y={14 * scale} textAnchor="middle" fontSize={9.5 * scale} fontWeight="bold" fill={chartColor}>Heating: {heatingSec} (ΔT = {(maxV - minV).toFixed(1)}°C)</text>
                 <text x={pad.left - 5 * scale} y={pad.top + 3 * scale} textAnchor="end" fontSize={8.5 * scale} fill={theme.palette.text.secondary}>{tMax}°</text>
                 <text x={pad.left - 5 * scale} y={height - pad.bottom + 3 * scale} textAnchor="end" fontSize={8.5 * scale} fill={theme.palette.text.secondary}>{tMin}°</text>
                 <text x={pad.left} y={height - 22 * scale} textAnchor="middle" fontSize={8.5 * scale} fill={theme.palette.text.secondary}>0 mm</text>
                 <text x={width - pad.right} y={height - 22 * scale} textAnchor="end" fontSize={8.5 * scale} fill={theme.palette.text.secondary}>{xMax.toFixed(0)} mm</text>
-                {typeof cooldownSec === "number" && <text x={xCenter} y={height - 6 * scale} textAnchor="middle" fontSize={8.5 * scale} fontWeight="500" fill={theme.palette.text.secondary}>Cooling: {cooldownSec}s{hasCooldown && ` (ΔT = ${(maxCoolV - minCoolV).toFixed(1)}°C)`}</text>}
+
+                {typeof cooldownSec === "number" && (
+                    <text x={xCenter} y={height - 6 * scale} textAnchor="middle" fontSize={8.5 * scale} fontWeight="500" fill={theme.palette.text.secondary}>
+                        Cooling: {cooldownSec}s{hasCooldown && ` (ΔT = ${(maxCoolV - minCoolV).toFixed(1)}°C)`}
+                    </text>
+                )}
             </svg>
         </Box>
     );
