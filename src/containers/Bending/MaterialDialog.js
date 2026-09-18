@@ -140,10 +140,16 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
             maxWidth="md"
             slots={{transition:Transition}}
             sx={{
+                "& .MuiDialog-container":{
+                    overflowY:"auto",
+                    alignItems:{xs:"flex-start",sm:"center"},
+                    py:{xs:0,sm:2}
+                },
+
                 "& .MuiDialog-paper":{
                     width:"100%",
                     m:{xs:0,sm:2},
-                    maxHeight:{xs:"100%",sm:"calc(100% - 64px)"},
+                    maxHeight:{xs:"none",sm:"calc(100% - 32px)"},
                     borderRadius:{xs:0,sm:2}
                 }
             }}
@@ -160,20 +166,20 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                     flexDirection:{xs:"column",md:"row"},
                     height:{xs:"auto",md:"400px"},
                     minHeight:{md:"400px"},
-                    overflow:"hidden"
+                    overflow:{xs:"visible",md:"hidden"}
                 }}
             >
                 <Box
                     sx={{
                         flex:1,
-                        minHeight:"20rem",
+                        minHeight:{xs:"auto",md:"20rem"},
                         display:"flex",
                         flexDirection:"column",
                         borderRight:{md:"1px solid"},
                         borderBottom:{xs:"1px solid",md:"none"},
                         borderColor:"divider",
                         p:2,
-                        overflow:"hidden"
+                        overflow:"visible"
                     }}
                 >
                     <Box
@@ -181,7 +187,7 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                             display:"flex",
                             flexDirection:"column",
                             gap:1,
-                            overflowY:"auto",
+                            overflowY:{xs:"visible",md:"auto"},
                             minHeight:0
                         }}
                     >
@@ -232,13 +238,13 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                 <Box
                     sx={{
                         flex:1,
-                        minHeight:"20rem",
+                        minHeight:{xs:"auto",md:"20rem"},
                         bgcolor:"background.default",
                         p:2,
                         display:"flex",
                         flexDirection:"column",
                         justifyContent:current?"flex-start":"center",
-                        overflow:"auto"
+                        overflow:"visible"
                     }}
                 >
                     {current?(

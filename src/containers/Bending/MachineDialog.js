@@ -81,7 +81,7 @@ const MachineDialog=({
 
         window.addEventListener("keydown",handleKeyDown);
         return()=>window.removeEventListener("keydown",handleKeyDown);
-    },[open,selectedKey,machineKeys,onSelect]);
+    },[open, selectedKey, onSelect, machineKeys]);
 
     const current=machines[selectedKey];
 
@@ -184,10 +184,16 @@ const MachineDialog=({
             maxWidth="md"
             slots={{transition:Transition}}
             sx={{
+                "& .MuiDialog-container":{
+                    overflowY:"auto",
+                    alignItems:{xs:"flex-start",sm:"center"},
+                    py:{xs:0,sm:2}
+                },
+
                 "& .MuiDialog-paper":{
                     width:"100%",
                     m:{xs:0,sm:2},
-                    maxHeight:{xs:"100%",sm:"calc(100% - 64px)"},
+                    maxHeight:{xs:"none",sm:"calc(100% - 32px)"},
                     borderRadius:{xs:0,sm:2}
                 }
             }}
@@ -204,20 +210,20 @@ const MachineDialog=({
                     flexDirection:{xs:"column",md:"row"},
                     height:{xs:"auto",md:"400px"},
                     minHeight:{md:"400px"},
-                    overflow:"hidden"
+                    overflow:{xs:"visible",md:"hidden"}
                 }}
             >
                 <Box
                     sx={{
                         flex:1,
-                        minHeight:"20rem",
+                        minHeight:{xs:"auto",md:"20rem"},
                         display:"flex",
                         flexDirection:"column",
                         borderRight:{md:"1px solid"},
                         borderBottom:{xs:"1px solid",md:"none"},
                         borderColor:"divider",
                         p:2,
-                        overflow:"hidden"
+                        overflow:"visible"
                     }}
                 >
                     <Box
@@ -225,7 +231,7 @@ const MachineDialog=({
                             display:"flex",
                             flexDirection:"column",
                             gap:1,
-                            overflowY:"auto",
+                            overflowY:{xs:"visible",md:"auto"},
                             minHeight:0
                         }}
                     >
@@ -276,12 +282,12 @@ const MachineDialog=({
                 <Box
                     sx={{
                         flex:1,
-                        minHeight:"20rem",
+                        minHeight:{xs:"auto",md:"20rem"},
                         bgcolor:"background.default",
                         p:2,
                         display:"flex",
                         flexDirection:"column",
-                        overflow:"auto"
+                        overflow:{xs:"visible",md:"auto"}
                     }}
                 >
                     {current?(
