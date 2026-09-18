@@ -199,177 +199,318 @@ function solveTridiagonal(lower, diagonal, upper, rhs, result) {
 }
 
 
+function isTargetReached(T,target,timeSeconds){
+    if(target.type==="minTemperature")
+        return T.every(t=>t>=target.value);
+
+    if(target.type==="surfaceTemperature")
+        return T[0]>=target.value&&T[T.length-1]>=target.value;
+
+    if(target.type==="time")
+        return timeSeconds>=target.value;
+
+    return false;
+}
+
+
 export function simulateHeating({
-                                    nodeCount, dx, dt, matModel, topSide, botSide, ambT, ambRadT, epsS,
-                                    targetMinCenterK, decompTempK, maxTimeSeconds = 1800, sampleEverySeconds = 1,
-                                    storeHistory = false, initialTemperatureC = 20,
-                                    // Передаем буферы памяти снаружи для переиспользования во всех фазах (нагрев + остывание)
-                                    buffers = null
-                                }) {
-    let status = null, time = 0;
+                                    nodeCount,dx,dt,matModel,topSide,botSide,ambT,ambRadT,epsS,
+                                    targetType,targetValue,targetK,decompTempK,
+                                    maxTimeSeconds=1800,sampleEverySeconds=1,
+                                    storeHistory=false,initialTemperatureC=20,buffers=null
+                                }){
+    let status=null,time=0;
 
-    // Инициализируем буферы локально, если они не были переданы снаружи
-    const bufs = buffers || {
-        lower: new Float64Array(nodeCount),
-        diagonal: new Float64Array(nodeCount),
-        upper: new Float64Array(nodeCount),
-        rhs: new Float64Array(nodeCount),
-        Tnext: new Float64Array(nodeCount),
-        oldT: new Float64Array(nodeCount)
+    const simulationMaxTime=targetType==="time"&&Number.isFinite(targetValue)
+        ?Math.min(maxTimeSeconds,targetValue)
+        :maxTimeSeconds;
+
+    const bufs=buffers||{
+        lower:new Float64Array(nodeCount),
+        diagonal:new Float64Array(nodeCount),
+        upper:new Float64Array(nodeCount),
+        rhs:new Float64Array(nodeCount),
+        Tnext:new Float64Array(nodeCount),
+        oldT:new Float64Array(nodeCount)
     };
 
-    const lower = bufs.lower;
-    const diagonal = bufs.diagonal;
-    const upper = bufs.upper;
-    const rhs = bufs.rhs;
-    const Tnext = bufs.Tnext;
-    const oldT = bufs.oldT;
+    const lower=bufs.lower;
+    const diagonal=bufs.diagonal;
+    const upper=bufs.upper;
+    const rhs=bufs.rhs;
+    const Tnext=bufs.Tnext;
+    const oldT=bufs.oldT;
 
-    const T = new Float64Array(nodeCount).fill(initialTemperatureC + 273.15); // in-place toKelvin
-    const history = storeHistory ? [] : null;
-    const centerIndex = (nodeCount - 1) >> 1; // Быстрое деление пополам битовым сдвигом
-    const last = nodeCount - 1;
+    const T=new Float64Array(nodeCount).fill(initialTemperatureC+273.15);
+    const history=storeHistory?[]:null;
+    const centerIndex=(nodeCount-1)>>1;
+    const last=nodeCount-1;
 
-    const getBoundary = (side, tVal) => getLinearizedFluxParams(side, tVal, ambT, ambRadT, epsS);
+    const getBoundary=(side,tVal)=>
+        getLinearizedFluxParams(side,tVal,ambT,ambRadT,epsS);
 
-    const getMinC = values => {
-        let min = Infinity;
-        for (let i = 0; i < values.length; i++) { if (values[i] < min) min = values[i]; }
-        return min - 273.15; // in-place toCelsius
+    const getMinC=values=>{
+        let min=Infinity;
+        for(let i=0;i<values.length;i++)
+            if(values[i]<min) min=values[i];
+        return min-273.15;
     };
 
-    if (storeHistory) {
-        history.push({
-            timeSeconds: 0,
-            frontSurfaceC: T[0] - 273.15,
-            centerC: T[centerIndex] - 273.15,
-            backSurfaceC: T[last] - 273.15,
-            minTemperatureC: getMinC(T)
+    const pushHistory=()=>{
+        if(storeHistory) history.push({
+            timeSeconds:time,
+            frontSurfaceC:T[0]-273.15,
+            centerC:T[centerIndex]-273.15,
+            backSurfaceC:T[last]-273.15,
+            minTemperatureC:getMinC(T)
         });
-    }
+    };
 
-    const dt_div_dx = dt / dx;
-    const dt_div_dx2 = dt / (dx * dx);
+    if(storeHistory) pushHistory();
 
-    while (time < maxTimeSeconds) {
-        // Ранний выход
-        if (targetMinCenterK != null && T[0] >= targetMinCenterK) {
-            let reached = true;
-            for (let i = 1; i < nodeCount; i++) {
-                if (T[i] < targetMinCenterK) { reached = false; break; }
-            }
-            if (reached) break;
-        }
+    const dt_div_dx=dt/dx;
+    const dt_div_dx2=dt/(dx*dx);
 
+    while(time<simulationMaxTime){
         oldT.set(T);
-        let converged = false;
+        let converged=false;
 
-        for (let iter = 0; iter < MAX_NONLINEAR_ITERATIONS; iter++) {
-            // Внутренние узлы (Оптимизировано арифметикой без вызова toCelsius)
-            for (let i = 1; i < last; i++) {
-                const props = matModel.get(T[i] - 273.15);
-                const r = dt_div_dx2 * props.k / (props.density * props.cp);
-                lower[i] = upper[i] = -r;
-                diagonal[i] = 1.0 + 2.0 * r;
-                rhs[i] = oldT[i];
+        for(let iter=0;iter<MAX_NONLINEAR_ITERATIONS;iter++){
+            for(let i=1;i<last;i++){
+                const props=matModel.get(T[i]-273.15);
+                const r=dt_div_dx2*props.k/(props.density*props.cp);
+
+                lower[i]=upper[i]=-r;
+                diagonal[i]=1+2*r;
+                rhs[i]=oldT[i];
             }
 
-            // Граничные условия: ВЕРХ (Узел 0)
-            const propsTop = matModel.get(T[0] - 273.15);
-            const fluxTop = getBoundary(topSide, T[0]);
-            const invVolTop = 1.0 / (propsTop.density * propsTop.cp);
-            const factorTop = 2.0 * dt_div_dx * invVolTop;
-            const condTop = 2.0 * propsTop.k * dt_div_dx2 * invVolTop;
+            const propsTop=matModel.get(T[0]-273.15);
+            const fluxTop=getBoundary(topSide,T[0]);
+            const invVolTop=1/(propsTop.density*propsTop.cp);
+            const factorTop=2*dt_div_dx*invVolTop;
+            const condTop=2*propsTop.k*dt_div_dx2*invVolTop;
 
-            diagonal[0] = 1.0 + condTop - factorTop * fluxTop.g1;
-            rhs[0] = oldT[0] + factorTop * fluxTop.g0;
-            upper[0] = -condTop;
+            diagonal[0]=1+condTop-factorTop*fluxTop.g1;
+            rhs[0]=oldT[0]+factorTop*fluxTop.g0;
+            upper[0]=-condTop;
 
-            // Граничные условия: НИЗ (Узел last)
-            const propsBot = matModel.get(T[last] - 273.15);
-            const fluxBot = getBoundary(botSide, T[last]);
-            const invVolBot = 1.0 / (propsBot.density * propsBot.cp);
-            const factorBot = 2.0 * dt_div_dx * invVolBot;
-            const condBot = 2.0 * propsBot.k * dt_div_dx2 * invVolBot;
+            const propsBot=matModel.get(T[last]-273.15);
+            const fluxBot=getBoundary(botSide,T[last]);
+            const invVolBot=1/(propsBot.density*propsBot.cp);
+            const factorBot=2*dt_div_dx*invVolBot;
+            const condBot=2*propsBot.k*dt_div_dx2*invVolBot;
 
-            diagonal[last] = 1.0 + condBot - factorBot * fluxBot.g1;
-            rhs[last] = oldT[last] + factorBot * fluxBot.g0;
-            lower[last] = -condBot;
+            diagonal[last]=1+condBot-factorBot*fluxBot.g1;
+            rhs[last]=oldT[last]+factorBot*fluxBot.g0;
+            lower[last]=-condBot;
 
-            if (!solveTridiagonal(lower, diagonal, upper, rhs, Tnext)) break;
+            if(!solveTridiagonal(
+                lower,diagonal,upper,rhs,Tnext
+            )) break;
 
-            converged = true;
-            for (let i = 0; i < nodeCount; i++) {
-                if (Math.abs(Tnext[i] - T[i]) > NONLINEAR_TOLERANCE_K) { converged = false; break; }
-            }
-            T.set(Tnext);
-            if (converged) break;
-        }
+            converged=true;
 
-        if (!converged) {
-            status = { type: "error", message: `Diverged at ${time.toFixed(2)}s.` };
-            break;
-        }
-
-        // Интерполяция перегрева
-        if (decompTempK && (T[0] >= decompTempK || T[last] >= decompTempK)) {
-            let fraction = 1.0;
-            if (T[0] >= decompTempK && T[0] !== oldT[0]) {
-                const f = (decompTempK - oldT[0]) / (T[0] - oldT[0]);
-                if (f >= 0 && f < fraction) fraction = f;
-            }
-            if (T[last] >= decompTempK && T[last] !== oldT[last]) {
-                const f = (decompTempK - oldT[last]) / (T[last] - oldT[last]);
-                if (f >= 0 && f < fraction) fraction = f;
-            }
-            time += fraction * dt;
-            for (let i = 0; i < nodeCount; i++) T[i] = oldT[i] + fraction * (T[i] - oldT[i]);
-
-            if (storeHistory) {
-                history.push({ timeSeconds: time, frontSurfaceC: T[0] - 273.15, centerC: T[centerIndex] - 273.15, backSurfaceC: T[last] - 273.15, minTemperatureC: getMinC(T) });
-            }
-            status = { type: "error", message: `Degradation! Surface > ${(decompTempK - 273.15).toFixed(0)}°C.` };
-            break;
-        }
-
-        // Интерполяция целевой температуры
-        if (targetMinCenterK != null) {
-            let fraction = 0, canReach = true;
-            for (let i = 0; i < nodeCount; i++) {
-                if (oldT[i] >= targetMinCenterK) continue;
-                if (T[i] < targetMinCenterK) { canReach = false; break; }
-                const dT = T[i] - oldT[i];
-                if (dT <= 0) { canReach = false; break; }
-                fraction = Math.max(fraction, (targetMinCenterK - oldT[i]) / dT);
-            }
-            if (canReach && fraction <= 1.0) {
-                time += fraction * dt;
-                for (let i = 0; i < nodeCount; i++) T[i] = oldT[i] + fraction * (T[i] - oldT[i]);
-                if (storeHistory) {
-                    history.push({ timeSeconds: time, frontSurfaceC: T[0] - 273.15, centerC: T[centerIndex] - 273.15, backSurfaceC: T[last] - 273.15, minTemperatureC: getMinC(T) });
+            for(let i=0;i<nodeCount;i++){
+                if(Math.abs(Tnext[i]-T[i])>NONLINEAR_TOLERANCE_K){
+                    converged=false;
+                    break;
                 }
-                break;
+            }
+
+            T.set(Tnext);
+
+            if(converged) break;
+        }
+
+        if(!converged){
+            status={
+                type:"error",
+                message:`Diverged at ${time.toFixed(2)}s.`
+            };
+            break;
+        }
+
+        // Degradation
+        if(
+            decompTempK&&
+            (T[0]>=decompTempK||T[last]>=decompTempK)
+        ){
+            let fraction=1;
+
+            if(T[0]>=decompTempK&&T[0]!==oldT[0]){
+                const f=(decompTempK-oldT[0])/(T[0]-oldT[0]);
+                if(f>=0&&f<fraction) fraction=f;
+            }
+
+            if(T[last]>=decompTempK&&T[last]!==oldT[last]){
+                const f=(decompTempK-oldT[last])/(T[last]-oldT[last]);
+                if(f>=0&&f<fraction) fraction=f;
+            }
+
+            time+=fraction*dt;
+
+            for(let i=0;i<nodeCount;i++)
+                T[i]=oldT[i]+fraction*(T[i]-oldT[i]);
+
+            pushHistory();
+
+            status={
+                type:"error",
+                message:`Degradation! Surface > ${(decompTempK-273.15).toFixed(0)}°C.`
+            };
+
+            break;
+        }
+
+        // Temperature target
+        if(targetK!=null&&targetType!=="time"){
+            let fraction=0;
+
+            // Все точки должны достичь температуры
+            if(targetType==="minTemperature"){
+                let canReach=true;
+
+                for(let i=0;i<nodeCount;i++){
+                    if(oldT[i]>=targetK) continue;
+
+                    if(T[i]<targetK){
+                        canReach=false;
+                        break;
+                    }
+
+                    const dT=T[i]-oldT[i];
+
+                    if(dT<=0){
+                        canReach=false;
+                        break;
+                    }
+
+                    fraction=Math.max(
+                        fraction,
+                        (targetK-oldT[i])/dT
+                    );
+                }
+
+                if(canReach&&fraction<=1){
+                    time+=fraction*dt;
+
+                    for(let i=0;i<nodeCount;i++)
+                        T[i]=oldT[i]+fraction*(T[i]-oldT[i]);
+
+                    pushHistory();
+                    break;
+                }
+            }
+
+            // Хотя бы одна точка достигла температуры
+            if(targetType==="maxTemperature"){
+                for(let i=0;i<nodeCount;i++){
+                    if(oldT[i]<targetK&&T[i]>=targetK){
+                        const dT=T[i]-oldT[i];
+
+                        if(dT>0){
+                            fraction=Math.min(
+                                fraction||1,
+                                (targetK-oldT[i])/dT
+                            );
+                        }
+                    }
+                }
+
+                if(fraction>0&&fraction<=1){
+                    time+=fraction*dt;
+
+                    for(let i=0;i<nodeCount;i++)
+                        T[i]=oldT[i]+fraction*(T[i]-oldT[i]);
+
+                    pushHistory();
+                    break;
+                }
+            }
+
+            // Хотя бы одна поверхность достигла температуры
+            if(targetType==="surfaceTemperature"){
+                const surfaces=[0,last];
+
+                for(const i of surfaces){
+                    if(oldT[i]<targetK&&T[i]>=targetK){
+                        const dT=T[i]-oldT[i];
+
+                        if(dT>0){
+                            const f=(targetK-oldT[i])/dT;
+
+                            if(fraction===0||f<fraction)
+                                fraction=f;
+                        }
+                    }
+                }
+
+                // Если поверхность уже была выше target
+                if(oldT[0]>=targetK||oldT[last]>=targetK)
+                    fraction=0;
+
+                if(
+                    fraction>=0&&
+                    fraction<=1&&
+                    (oldT[0]>=targetK||
+                        oldT[last]>=targetK||
+                        T[0]>=targetK||
+                        T[last]>=targetK)
+                ){
+                    time+=fraction*dt;
+
+                    for(let i=0;i<nodeCount;i++)
+                        T[i]=oldT[i]+fraction*(T[i]-oldT[i]);
+
+                    pushHistory();
+                    break;
+                }
             }
         }
 
-        time += dt;
-        if (storeHistory && (Math.abs(time % sampleEverySeconds) < dt / 2.0 || time >= maxTimeSeconds)) {
-            history.push({ timeSeconds: time, frontSurfaceC: T[0] - 273.15, centerC: T[centerIndex] - 273.15, backSurfaceC: T[last] - 273.15, minTemperatureC: getMinC(T) });
+        time+=dt;
+
+        if(
+            storeHistory&&
+            (
+                Math.abs(time%sampleEverySeconds)<dt/2||
+                time>=simulationMaxTime
+            )
+        ){
+            pushHistory();
         }
     }
 
-    const minTemperatureC = getMinC(T);
-    const reachedTarget = targetMinCenterK == null || minTemperatureC >= (targetMinCenterK - 273.15);
+    const reachedTarget=targetType==="time"
+        ?time>=targetValue
+        :targetK==null||isTargetReached(T,targetType,targetK);
 
-    if (!status) status = { type: "ok", message: "Compiled successfully." };
-    if (!reachedTarget && time >= maxTimeSeconds) {
-        status = { type: "error", message: `Timeout: Minimum sheet temperature ${(targetMinCenterK - 273.15).toFixed(0)}°C not reached.` };
+    if(!status)
+        status={
+            type:"ok",
+            message:"Compiled successfully."
+        };
+
+    if(
+        !reachedTarget&&
+        time>=simulationMaxTime&&
+        targetType!=="time"
+    ){
+        status={
+            type:"error",
+            message:`Timeout: Target ${targetValue}°C not reached.`
+        };
     }
 
-    // Создаем копии выходных профилей
-    const temperatureProfileK = new Float64Array(T);
-
-    return { temperatureProfileK,  heatingTimeSeconds: time, reachedTarget, status, history, buffers: bufs };
+    return {
+        temperatureProfileK:new Float64Array(T),
+        heatingTimeSeconds:time,
+        reachedTarget,
+        status,
+        history,
+        buffers:bufs
+    };
 }
 
 /**
@@ -470,21 +611,20 @@ export function simulateCooldown({
 }
 
 
-
-
 export function simulate1DHeating({
-                                      thicknessMm, material, machine, thermalConditions, sides = "both", dxMm, dtSeconds,
-                                      maxTimeSeconds = 1800, cooldownTimeSeconds = 10,
-                                      target = { minCenterC: null, maxSurfaceC: null },
-                                      sampleEverySeconds = 1, storeHistory = false, includeBreakdown = false
-                                  }) {
+    thicknessMm, material, machine, thermalConditions, sides = "both", dxMm, dtSeconds,
+    maxTimeSeconds = 1800, cooldownTimeSeconds = 10,
+    target = { type: null, value: null },
+    sampleEverySeconds = 1, storeHistory = false, includeBreakdown = false
+}) {
+
+
     let status = null;
     const dt = dtSeconds > 0 ? dtSeconds : DEFAULT_DT_SECONDS;
     const { initialTemperatureC: initT = 20, ambientTemperatureC: ambT = 20, ambientRadiationTemperatureC: ambRadT = 20 } = thermalConditions || {};
 
-    if (!validPositive(thicknessMm) || !validPositive(maxTimeSeconds)) {
+    if (!validPositive(thicknessMm) || !validPositive(maxTimeSeconds))
         status = { type: "error", message: "Invalid geometry/limits." };
-    }
 
     const mach = normalizeMachine(machine);
     if (!status && !mach) status = { type: "error", message: "Invalid machine." };
@@ -495,7 +635,6 @@ export function simulate1DHeating({
     const dx = (Number.isFinite(dxMm) && dxMm > 0 ? dxMm : calculateDxMm(status ? 2 : thicknessMm)) / 1000;
     const { nodeCount } = createGrid((status ? 2 : thicknessMm) / 1000, dx);
 
-    // --- ВЫСОКОСКОРОСТНАЯ АЛЛОКАЦИЯ ПАМЯТИ (ОДИН РАЗ НА ВЕСЬ ПРОЦЕСС) ---
     const buffers = {
         lower: new Float64Array(nodeCount),
         diagonal: new Float64Array(nodeCount),
@@ -506,34 +645,34 @@ export function simulate1DHeating({
     };
 
     const decompTemp = Number(material?.decompositionTemp);
-    const decompTempK = decompTemp ? toKelvin(decompTemp) : null;
-    const targetMinCenterK = target.minCenterC != null ? toKelvin(target.minCenterC) : null;
+    const decompTempK = Number.isFinite(decompTemp) ? toKelvin(decompTemp) : null;
+
+    const targetType = target?.type ?? null;
+    const targetValue = Number.isFinite(target?.value) ? target.value : null;
+    const targetK = targetType === "minTemperature" || targetType === "surfaceTemperature"
+        ? toKelvin(targetValue) : null;
 
     const useTop = sides === "both" || sides === "top" || sides === "one-sided-top";
     const useBot = sides === "both" || sides === "bottom" || sides === "one-sided-bottom";
 
-    // Прокидываем position маркеры для корректного выбора дефолтных boxEfficiency в ядре
     const topSide = mach ? { ...(mach.top || {}), enabled: useTop && !!mach.top, position: "top" } : { enabled: false };
     const botSide = mach ? { ...(mach.bottom || {}), enabled: useBot && !!mach.bottom, position: "bottom" } : { enabled: false };
     const epsS = clamp(material?.emissivity ?? 0.93, 0, 1);
 
-    // 1. ЗАПУСК ОПТИМИЗИРОВАННОГО НАГРЕВА (Пробрасываем наши общие буферы)
     const heating = simulateHeating({
         nodeCount, dx, dt, matModel, topSide, botSide, ambT, ambRadT, epsS,
-        targetMinCenterK, decompTempK, maxTimeSeconds, sampleEverySeconds, storeHistory,
+        targetType, targetValue, targetK, decompTempK,
+        maxTimeSeconds, sampleEverySeconds, storeHistory,
         initialTemperatureC: initT, buffers
     });
 
     status = heating.status;
 
-    // Если на этапе инициализации или геометрии возникла фатальная ошибка, прерываемся без фазы остывания
-    if (status && status.type === "error" && heating.heatingTimeSeconds === 0) {
+    if (status?.type === "error" && heating.heatingTimeSeconds === 0)
         return makeError(status.message);
-    }
 
     const heatingProfileK = heating.temperatureProfileK;
 
-    // 2. ЗАПУСК ОПТИМИЗИРОВАННОГО ОСТЫВАНИЯ (Переиспользуем те же самые буферы повторно!)
     const cooldownProfileK = simulateCooldown({
         initialProfileK: heatingProfileK,
         nodeCount, dx, dt, matModel, epsS, ambT, ambRadT, cooldownTimeSeconds,
@@ -542,7 +681,6 @@ export function simulate1DHeating({
         buffers
     });
 
-    // ТОЧКА КОНВЕРТАЦИИ В ГРАДУСЫ ЦЕЛЬСИЯ (in-place) ---
     const heatingProfileC = new Float64Array(nodeCount);
     const cooldownProfileC = new Float64Array(nodeCount);
 
@@ -555,41 +693,28 @@ export function simulate1DHeating({
     const centerC = heatingProfileC[centerIndex];
     const frontC = heatingProfileC[0];
     const backC = heatingProfileC[nodeCount - 1];
-    const surfC = Math.max(frontC, backC);
 
-    // Оптимизированный in-place поиск минимума без создания функций в цикле
     let minTemperatureC = Infinity;
-    for (let i = 0; i < nodeCount; i++) {
+    for (let i = 0; i < nodeCount; i++)
         if (heatingProfileC[i] < minTemperatureC) minTemperatureC = heatingProfileC[i];
-    }
 
-    if (heating.reachedTarget && target.maxSurfaceC != null && surfC > target.maxSurfaceC) {
-        status = { type: "warning", message: `Warning: Surface (${surfC.toFixed(1)}°C) > limit (${target.maxSurfaceC}°C).` };
-    }
-
-    // Сохраняем структуру возвращаемого объекта, передавая массив остывания
     const res = {
         heatingTimeSeconds: heating.heatingTimeSeconds,
         cooldownSec: cooldownTimeSeconds,
-
         heaterTemperaturesC: {
-            top: machine.heaters[0].regulatorTemperatureC,
-            bottom: machine.heaters[1].regulatorTemperatureC
+            top: mach.top?.regulatorTemperatureC ?? null,
+            bottom: mach.bottom?.regulatorTemperatureC ?? null
         },
-
         reachedTarget: heating.reachedTarget,
         status,
-
         temperatureProfile: {
             temperaturesC: heatingProfileC,
-            cooldownProfileC: cooldownProfileC, // Профиль после 10 секунд переноса (°C)
-
+            cooldownProfileC: cooldownProfileC,
             dxMm: dx * 1000
         },
         history: heating.history
     };
 
-    // Блок расширенной диагностики
     if (includeBreakdown) {
         const { density = 1400, k = 0.16, cp = 1000 } = matModel?.get(centerC) || {};
         const diff = k / (density * cp);
@@ -611,8 +736,8 @@ export function simulate1DHeating({
                 fourierNumber: diff * dt / (dx * dx)
             },
             target: {
-                centerC: target.minCenterC,
-                surfaceC: target.maxSurfaceC,
+                type: targetType,
+                value: targetValue,
                 actualCenterC: centerC,
                 actualMinTemperatureC: minTemperatureC,
                 actualFrontSurfaceC: frontC,
@@ -620,16 +745,23 @@ export function simulate1DHeating({
                 decompositionC: decompTemp
             },
             heatBalance: {
-                top: topSide.enabled ? calculateEffectiveIncidentFlux({ side: topSide, material, surfaceTemperatureC: frontC, ambientTemperatureC: ambT }) : zeroF,
-                bottom: botSide.enabled ? calculateEffectiveIncidentFlux({ side: botSide, material, surfaceTemperatureC: backC, ambientTemperatureC: ambT }) : zeroF,
+                top: topSide.enabled
+                    ? calculateEffectiveIncidentFlux({ side: topSide, material, surfaceTemperatureC: frontC, ambientTemperatureC: ambT })
+                    : zeroF,
+                bottom: botSide.enabled
+                    ? calculateEffectiveIncidentFlux({ side: botSide, material, surfaceTemperatureC: backC, ambientTemperatureC: ambT })
+                    : zeroF,
                 topRegulatorTemperatureC: topSide.regulatorTemperatureC ?? null,
                 bottomRegulatorTemperatureC: botSide.regulatorTemperatureC ?? null,
-                topHeaterTemperatureC: topSide.enabled ? getHeaterTemperatureC({ side: topSide, ambientTemperatureC: ambT }) : null,
-                bottomHeaterTemperatureC: botSide.enabled ? getHeaterTemperatureC({ side: botSide, ambientTemperatureC: ambT }) : null,
-                convectionCoefficient: mach ? Math.max(0, Number(mach.heatTransferCoefficient) || 0) : 0
+                topHeaterTemperatureC: topSide.enabled
+                    ? getHeaterTemperatureC({ side: topSide, ambientTemperatureC: ambT }) : null,
+                bottomHeaterTemperatureC: botSide.enabled
+                    ? getHeaterTemperatureC({ side: botSide, ambientTemperatureC: ambT }) : null,
+                convectionCoefficient: Math.max(0, Number(mach.heatTransferCoefficient) || 0)
             }
         };
     }
+
     return res;
 }
 

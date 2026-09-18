@@ -1,112 +1,93 @@
-import React, { useEffect, useState, forwardRef } from "react";
+import React,{useEffect,useState,forwardRef} from "react";
 import {
-    Box,
-    Button,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    Paper,
-    Typography,
-    Radio,
-    Divider,
-    Slide
+    Box,Button,Dialog,DialogActions,DialogContent,DialogTitle,
+    Paper,Typography,Radio,Divider,Slide
 } from "@mui/material";
 
-const physicalProps = [
+const physicalProps=[
     {key:"lambda",label:"Thermal conductivity",unit:"W/(m·K)",color:"#0288d1"},
     {key:"density",label:"Density",unit:"kg/m³",color:"#7b1fa2"},
     {key:"specificHeat",label:"Specific heat",unit:"J/(kg·K)",color:"#2e7d32"}
 ];
 
-const tempProps = [
+const tempProps=[
     {key:"decompositionTemp",label:"Decomposition temp.",unit:"°C",color:"#d32f2f"},
     {key:"defaultTSurf",label:"Surface temp.",unit:"°C",color:"#f57c00"},
-    {key:"defaultTCenter",label:"Center temp.",unit:"°C",color:"#0288d1"},
+    {key:"defaultTCenter",label:"Center temp.",unit:"°C",color:"#0288d1"}
 ];
 
-const Transition = forwardRef(function Transition(props, ref) {
+const Transition=forwardRef(function Transition(props,ref){
     return <Slide direction="up" ref={ref} {...props}>{props.children}</Slide>;
 });
 
-const MaterialDialog = ({ open, materialKey, materials = {}, onSelect, onClose }) => {
-    const [selectedKey, setSelectedKey] = useState(materialKey);
-    const materialKeys = Object.keys(materials);
+const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
+    const [selectedKey,setSelectedKey]=useState(materialKey);
+    const materialKeys=Object.keys(materials);
 
-    useEffect(() => {
-        if (open) setSelectedKey(materialKey);
-    }, [open, materialKey]);
+    useEffect(()=>{
+        if(open)setSelectedKey(materialKey);
+    },[open,materialKey]);
 
-    useEffect(() => {
-        if (!open) return;
+    useEffect(()=>{
+        if(!open)return;
 
-        const handleKeyDown = (event) => {
-            const currentIndex = materialKeys.indexOf(selectedKey);
+        const handleKeyDown=event=>{
+            const currentIndex=materialKeys.indexOf(selectedKey);
 
-            if (event.key === "Enter" && selectedKey) {
+            if(event.key==="Enter"&&selectedKey){
                 event.preventDefault();
                 onSelect(selectedKey);
-            }
-            else if (event.key === "ArrowDown") {
+            }else if(event.key==="ArrowDown"){
                 event.preventDefault();
-                const nextIndex = currentIndex < materialKeys.length - 1 ? currentIndex + 1 : 0;
-                const nextKey = materialKeys[nextIndex];
+                const nextIndex=currentIndex<materialKeys.length-1?currentIndex+1:0;
+                const nextKey=materialKeys[nextIndex];
 
-                if (nextKey) {
+                if(nextKey){
                     setSelectedKey(nextKey);
-                    document
-                        .getElementById(`mat-card-${nextKey}`)
-                        ?.scrollIntoView({
-                            block: "nearest",
-                            behavior: "smooth"
-                        });
+                    document.getElementById(`mat-card-${nextKey}`)?.scrollIntoView({
+                        block:"nearest",
+                        behavior:"smooth"
+                    });
                 }
-            }
-            else if (event.key === "ArrowUp") {
+            }else if(event.key==="ArrowUp"){
                 event.preventDefault();
-                const prevIndex = currentIndex > 0 ? currentIndex - 1 : materialKeys.length - 1;
-                const prevKey = materialKeys[prevIndex];
+                const prevIndex=currentIndex>0?currentIndex-1:materialKeys.length-1;
+                const prevKey=materialKeys[prevIndex];
 
-                if (prevKey) {
+                if(prevKey){
                     setSelectedKey(prevKey);
-                    document
-                        .getElementById(`mat-card-${prevKey}`)
-                        ?.scrollIntoView({
-                            block: "nearest",
-                            behavior: "smooth"
-                        });
+                    document.getElementById(`mat-card-${prevKey}`)?.scrollIntoView({
+                        block:"nearest",
+                        behavior:"smooth"
+                    });
                 }
             }
         };
 
-        window.addEventListener("keydown", handleKeyDown);
-        return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [open, selectedKey, materialKeys, onSelect]);
+        window.addEventListener("keydown",handleKeyDown);
+        return()=>window.removeEventListener("keydown",handleKeyDown);
+    },[open,selectedKey,materialKeys,onSelect]);
 
-    const current = materials[selectedKey];
+    const current=materials[selectedKey];
 
-    const renderPropRow = (p) => (
+    const renderPropRow=p=>(
         <Box
             key={p.key}
             sx={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                borderBottom: "1px dashed",
-                borderColor: "divider",
-                pb: 0.5
+                display:"flex",
+                justifyContent:"space-between",
+                alignItems:"center",
+                borderBottom:"1px dashed",
+                borderColor:"divider",
+                pb:.5
             }}
         >
             <Typography
                 variant="body2"
                 color="text.secondary"
-                sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 1
-                }}
+                sx={{display:"flex",alignItems:"center",gap:1}}
             >
-                <span style={{ color: p.color }}>●</span> {p.label}
+                <span style={{color:p.color}}>●</span>{p.label}
             </Typography>
 
             <Typography variant="body2" fontWeight={600}>
@@ -115,86 +96,88 @@ const MaterialDialog = ({ open, materialKey, materials = {}, onSelect, onClose }
         </Box>
     );
 
-    return (
+    return(
         <Dialog
             open={open}
             onClose={onClose}
             fullWidth
             maxWidth="md"
-            slots={{ transition: Transition }}
+            slots={{transition:Transition}}
             sx={{
-                '& .MuiDialog-paper': {
-                    width: '100%',
-                    m: { xs: 0, sm: 2 },
-                    maxHeight: { xs: '100%', sm: 'calc(100% - 64px)' },
-                    borderRadius: { xs: 0, sm: 2 }
+                "& .MuiDialog-paper":{
+                    width:"100%",
+                    m:{xs:0,sm:2},
+                    maxHeight:{xs:"100%",sm:"calc(100% - 64px)"},
+                    borderRadius:{xs:0,sm:2}
                 }
             }}
         >
-            <DialogTitle sx={{ fontWeight: 600, pb: 1.5 }}>
+            <DialogTitle sx={{fontWeight:600,pb:1.5}}>
                 Select Material
             </DialogTitle>
 
             <DialogContent
                 dividers
                 sx={{
-                    p: 0,
-                    display: "flex",
-                    flexDirection: { xs: "column", md: "row" },
-                    height: { xs: "auto", md: 400 }
+                    p:0,
+                    display:"flex",
+                    flexDirection:{xs:"column",md:"row"},
+                    height:{xs:"auto",md:"400px"},
+                    minHeight:{md:"400px"},
+                    overflow:"hidden"
                 }}
             >
-                {/* Left Column */}
                 <Box
                     sx={{
-                        flex: 1,
-                        display: "flex",
-                        flexDirection: "column",
-                        borderRight: { md: "1px solid" },
-                        borderBottom: { xs: "1px solid", md: "none" },
-                        borderColor: "divider",
-                        p: 2,
-                        overflowY: "auto"
+                        flex:1,
+                        minHeight:"20rem",
+                        display:"flex",
+                        flexDirection:"column",
+                        borderRight:{md:"1px solid"},
+                        borderBottom:{xs:"1px solid",md:"none"},
+                        borderColor:"divider",
+                        p:2,
+                        overflow:"hidden"
                     }}
                 >
                     <Box
                         sx={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 1
+                            display:"flex",
+                            flexDirection:"column",
+                            gap:1,
+                            overflowY:"auto",
+                            minHeight:0
                         }}
                     >
-                        {Object.entries(materials).map(([key, item]) => {
-                            const isSel = key === selectedKey;
+                        {Object.entries(materials).map(([key,item])=>{
+                            const isSel=key===selectedKey;
 
-                            return (
+                            return(
                                 <Paper
                                     key={key}
                                     id={`mat-card-${key}`}
                                     variant="outlined"
-                                    onClick={() => setSelectedKey(key)}
+                                    onClick={()=>setSelectedKey(key)}
                                     sx={{
-                                        p: 1.5,
-                                        display: "flex",
-                                        alignItems: "center",
-                                        cursor: "pointer",
-                                        borderRadius: 1.5,
-                                        borderColor: isSel ? "primary.main" : "divider",
-                                        bgcolor: isSel ? "action.selected" : "background.paper",
-                                        "&:hover": {
-                                            bgcolor: "action.hover"
-                                        }
+                                        p:1.5,
+                                        display:"flex",
+                                        alignItems:"center",
+                                        cursor:"pointer",
+                                        borderRadius:1.5,
+                                        borderColor:isSel?"primary.main":"divider",
+                                        bgcolor:isSel?"action.selected":"background.paper",
+                                        "&:hover":{bgcolor:"action.hover"}
                                     }}
                                 >
                                     <Radio
                                         checked={isSel}
                                         size="small"
-                                        sx={{ p: 0, mr: 1 }}
+                                        sx={{p:0,mr:1}}
                                     />
 
                                     <Typography
                                         variant="body2"
-                                        fontWeight={isSel ? 600 : 400}
+                                        fontWeight={isSel?600:400}
                                     >
                                         {item.name}
                                     </Typography>
@@ -204,48 +187,45 @@ const MaterialDialog = ({ open, materialKey, materials = {}, onSelect, onClose }
                     </Box>
                 </Box>
 
-                {/* Right Column */}
                 <Box
                     sx={{
-                        flex: 1,
-                        bgcolor: "background.default",
-                        p: 3,
-                        display: "flex",
-                        flexDirection: "column",
-                        justifyContent: current ? "flex-start" : "center",
-                        overflowY: "auto"
+                        flex:1,
+                        minHeight:"20rem",
+                        bgcolor:"background.default",
+                        p:3,
+                        display:"flex",
+                        flexDirection:"column",
+                        justifyContent:current?"flex-start":"center",
+                        overflow:"hidden"
                     }}
                 >
-                    {current ? (
+                    {current?(
                         <>
                             <Typography
                                 variant="subtitle1"
                                 fontWeight={700}
-                                sx={{ mb: 2 }}
+                                sx={{mb:2}}
                             >
                                 {current.name}
                             </Typography>
 
                             <Box
                                 sx={{
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    gap: 1.5
+                                    display:"flex",
+                                    flexDirection:"column",
+                                    gap:1.5
                                 }}
                             >
                                 {physicalProps.map(renderPropRow)}
 
                                 <Divider
-                                    sx={{
-                                        my: 1,
-                                        borderStyle: "dashed"
-                                    }}
+                                    sx={{my:1,borderStyle:"dashed"}}
                                 />
 
                                 {tempProps.map(renderPropRow)}
                             </Box>
                         </>
-                    ) : (
+                    ):(
                         <Typography
                             variant="body2"
                             color="text.secondary"
@@ -259,8 +239,8 @@ const MaterialDialog = ({ open, materialKey, materials = {}, onSelect, onClose }
 
             <DialogActions
                 sx={{
-                    p: 2,
-                    bgcolor: "background.paper"
+                    p:2,
+                    bgcolor:"background.paper"
                 }}
             >
                 <Button onClick={onClose} color="inherit">
@@ -270,9 +250,9 @@ const MaterialDialog = ({ open, materialKey, materials = {}, onSelect, onClose }
                 <Button
                     variant="contained"
                     disabled={!selectedKey}
-                    onClick={() => onSelect(selectedKey)}
+                    onClick={()=>onSelect(selectedKey)}
                     disableElevation
-                    sx={{ borderRadius: 1.5 }}
+                    sx={{borderRadius:1.5}}
                 >
                     Select
                 </Button>

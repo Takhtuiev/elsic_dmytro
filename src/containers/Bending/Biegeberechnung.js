@@ -33,6 +33,11 @@ const INITIAL_STATE={
     kFactor:0.40,
     rTool:1.2,
 
+    target:{
+        type:"minTemperature",
+        value:MATERIALS["PVC_CAW_RED"]?.defaultTCenter??115
+    },
+
     shelves:[
         {length:50,side:"right"},
         {length:100,side:"right"},
@@ -51,6 +56,7 @@ const INITIAL_STATE={
         bendSide:"toEnd"
     }
 };
+
 
 
 const getShelfVector=(geometry,index,fromEnd=false)=>{
@@ -292,6 +298,7 @@ export default function Biegeberechnung(){
         width,
         kFactor,
         rTool,
+        target,
         shelves,
         bends,
         view
@@ -657,6 +664,7 @@ export default function Biegeberechnung(){
                         profile={state}
                         blankLength={blankLength}
                         machineParams={machineParams}
+                        target={target}
                         rotationPreview={rotationPreview}
                     />
                 </Box>
@@ -709,7 +717,7 @@ export default function Biegeberechnung(){
                 </Box>
 
 
-                <Box sx={{p:1}}>
+                <Box sx={{p:1,display:"flex",flexDirection:"column",gap:1}}>
                     <Typography
                         variant="subtitle2"
                         sx={{mb:1}}
@@ -758,14 +766,14 @@ export default function Biegeberechnung(){
                         />
                     </Box>
 
+
                     {/* Thickness + Part length */}
                     <Box
                         sx={{
                             display:"grid",
                             gridTemplateColumns:"1fr 1fr",
                             gap:1,
-                            mb:1,
-                        }}
+                         }}
                     >
                         <ParamField
                             label="Thickness"
@@ -860,6 +868,50 @@ export default function Biegeberechnung(){
                             }
                         />
                     </Box>
+
+                    {/* Target */}
+                    <Box sx={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:1}}>
+                        <TextField
+                            select
+                            label="Target"
+                            size="small"
+                            value={target.type}
+                            onChange={e=>
+                                updateField("target",{
+                                    ...target,
+                                    type:e.target.value
+                                })
+                            }
+                        >
+                            <MenuItem value="minTemperature">
+                                Minimum temperature
+                            </MenuItem>
+                            <MenuItem value="surfaceTemperature">
+                                Surface temperature
+                            </MenuItem>
+                            <MenuItem value="time">
+                                Time
+                            </MenuItem>
+                        </TextField>
+
+                        <ParamField
+                            label={target.type==="time"?"Time":"Temperature"}
+                            value={target.value}
+                            step={target.type==="time"?1:.1}
+                            onChange={value=>
+                                updateField("target",{
+                                    ...target,
+                                    value:value===""?"":Number(value)
+                                })
+                            }
+                            endAdornment={
+                                <Box sx={{fontSize:"0.8rem"}}>
+                                    {target.type==="time"?"s":"°C"}
+                                </Box>
+                            }
+                        />
+                    </Box>
+
                 </Box>
 
                 <Menu
@@ -880,6 +932,7 @@ export default function Biegeberechnung(){
                         </MenuItem>
                     ))}
                 </Menu>
+
 
                 <MaterialDialog
                     open={materialDialogOpen}
