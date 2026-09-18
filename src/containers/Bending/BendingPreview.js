@@ -55,49 +55,56 @@ const PartHeader=({profile})=>(
 );
 
 
-const TemperatureProfileChart = memo(({ temperatureProfile: data, status }) => {
+const TemperatureProfileChart = memo(({ data }) => {
     const theme = useTheme();
-    const temps = data?.temperaturesC;
-    const cooldownTemps = data?.cooldownProfileC;
-    const dxMm = data?.dxMm;
+    const containerRef = useRef(null);
+    const [size, setSize] = useState({ width: 300, height: 150 });
+
+    const temps = data?.temperatureProfile?.temperaturesC;
+    const cooldownTemps = data?.temperatureProfile?.cooldownProfileC;
+    const dxMm = data?.temperatureProfile?.dxMm;
     const cooldownSec = data?.cooldownSec;
+    const heatingSec = formatTime(data?.heatingTimeSeconds);
+    const status = data?.status;
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+        const observer = new ResizeObserver(([entry]) => {
+            const width = Math.max(1, entry.contentRect.width);
+            const height = Math.max(1, entry.contentRect.height);
+            setSize({ width, height });
+        });
+        observer.observe(containerRef.current);
+        return () => observer.disconnect();
+    }, []);
 
     if (!temps?.length || temps.length < 2 || typeof dxMm !== "number") return null;
 
-    const len = temps.length;
-    const hasCooldown = cooldownTemps?.length === len;
-    const width = 300, height = 150;
-    const pad = { left: 36, right: 16, top: 27, bottom: 39 };
-    const wPlot = width - pad.left - pad.right;
-    const hPlot = height - pad.top - pad.bottom;
-
-    const xMin = 0;
-    const xMax = (len - 1) * dxMm;
-    const xDelta = xMax || 1;
+    const baseWidth = 300, baseHeight = 150;
+    const scale = Math.min(size.width / baseWidth, size.height / baseHeight);
+    const width = size.width, height = size.height;
+    const pad = { left: 36 * scale, right: 16 * scale, top: 27 * scale, bottom: 39 * scale };
+    const len = temps.length, hasCooldown = cooldownTemps?.length === len;
+    const wPlot = width - pad.left - pad.right, hPlot = height - pad.top - pad.bottom;
+    const xMax = (len - 1) * dxMm, xDelta = xMax || 1;
     const xs = x => pad.left + (x / xDelta) * wPlot;
 
     let minIdx = 0, maxIdx = 0, minV = Infinity, maxV = -Infinity;
+    let minCoolIdx = 0, maxCoolIdx = 0, minCoolV = Infinity, maxCoolV = -Infinity;
+
     for (let i = 0; i < len; i++) {
         if (temps[i] < minV) { minV = temps[i]; minIdx = i; }
         if (temps[i] > maxV) { maxV = temps[i]; maxIdx = i; }
+        if (hasCooldown && cooldownTemps[i] < minCoolV) { minCoolV = cooldownTemps[i]; minCoolIdx = i; }
+        if (hasCooldown && cooldownTemps[i] > maxCoolV) { maxCoolV = cooldownTemps[i]; maxCoolIdx = i; }
     }
 
-    let cooldownDelta = 0;
-    if (hasCooldown) {
-        const cMin = Math.min(...cooldownTemps);
-        const cMax = Math.max(...cooldownTemps);
-        cooldownDelta = cMax - cMin;
-    }
-
-    const allTemps = hasCooldown ? [...temps, ...cooldownTemps] : [...temps];
-    const dataMin = Math.min(...allTemps);
-    const dataMax = Math.max(...allTemps);
-    let tMin = Math.floor(dataMin / 10) * 10;
-    let tMax = Math.ceil(dataMax / 10) * 10;
+    const allTemps = hasCooldown ? [...temps, ...cooldownTemps] : temps;
+    const dataMin = Math.min(...allTemps), dataMax = Math.max(...allTemps);
+    let tMin = Math.floor(dataMin / 10) * 10, tMax = Math.ceil(dataMax / 10) * 10;
     if (tMax === tMin) { tMin -= 10; tMax += 10; }
 
-    const tDelta = tMax - tMin;
-    const tCenter = (tMax + tMin) / 2;
+    const tDelta = tMax - tMin, tCenter = (tMax + tMin) / 2;
     const ys = t => pad.top + ((tMax - t) / tDelta) * hPlot;
     const xCenter = xs(xMax / 2);
 
@@ -112,278 +119,169 @@ const TemperatureProfileChart = memo(({ temperatureProfile: data, status }) => {
         return d;
     };
 
+    const makeCurvePoints = values => {
+        const points = [], steps = 10;
+        for (let i = 0; i < values.length - 1; i++) {
+            const t0 = values[i > 0 ? i - 1 : 0], t1 = values[i], t2 = values[i + 1], t3 = values[Math.min(i + 2, values.length - 1)];
+            const x0 = xs((i > 0 ? i - 1 : 0) * dxMm), x1 = xs(i * dxMm), x2 = xs((i + 1) * dxMm), x3 = xs(Math.min(i + 2, values.length - 1) * dxMm);
+            const y0 = ys(t0), y1 = ys(t1), y2 = ys(t2), y3 = ys(t3);
+            const c1x = x1 + (x2 - x0) / 6, c1y = y1 + (y2 - y0) / 6;
+            const c2x = x2 - (x3 - x1) / 6, c2y = y2 - (y3 - y1) / 6;
+            for (let s = 0; s < steps; s++) {
+                const u = s / steps, v = 1 - u;
+                points.push({ x: v * v * v * x1 + 3 * v * v * u * c1x + 3 * v * u * u * c2x + u * u * u * x2, y: v * v * v * y1 + 3 * v * v * u * c1y + 3 * v * u * u * c2y + u * u * u * y2 });
+            }
+        }
+        points.push({ x: xs((len - 1) * dxMm), y: ys(values[len - 1]) });
+        return points;
+    };
+
     const dPath = makePath(temps);
     const cooldownPath = hasCooldown ? makePath(cooldownTemps) : null;
+    const mainCurvePoints = makeCurvePoints(temps);
+    const cooldownCurvePoints = hasCooldown ? makeCurvePoints(cooldownTemps) : [];
+
     const chartColor = status?.type === "error" ? theme.palette.error.main : status?.type === "warning" ? theme.palette.warning.main : theme.palette.text.primary;
+    const cooldownColor = theme.palette.text.secondary;
+    const minColor = theme.palette.info.main;
+    const maxColor = theme.palette.error.main;
 
-    const rawPoints = [
-        { id: maxIdx, val: maxV, isExtremum: true, color: theme.palette.error.main, forceDy: -8, priority: 1 },
-        { id: minIdx, val: minV, isExtremum: true, color: theme.palette.primary.main, forceDy: 14, priority: 2 },
-        { id: 0, val: temps[0], isExtremum: false, color: theme.palette.text.secondary, forceDy: -8, priority: 3 },
-        { id: len - 1, val: temps[len - 1], isExtremum: false, color: theme.palette.text.secondary, forceDy: -8, priority: 4 }
-    ];
-
-    const uniquePoints = [];
-    const seenIds = new Set();
-
-    for (const p of [...rawPoints].sort((a, b) => a.priority - b.priority)) {
-        if (!seenIds.has(p.id)) {
-            seenIds.add(p.id);
-            uniquePoints.push({
-                id: p.id,
-                x: xs(p.id * dxMm),
-                y: ys(p.val),
-                val: p.val,
-                color: p.color,
-                isBold: p.isExtremum,
-                dy: p.forceDy,
-                anchor: p.id === 0 ? "start" : p.id === len - 1 ? "end" : "middle",
-                dx: p.id === 0 ? 6 : p.id === len - 1 ? -6 : 0
-            });
+    const makeLabels = (values, minI, minVal, maxI, maxVal, type) => {
+        const color = type === "cooldown" ? cooldownColor : chartColor;
+        const raw = [{ id: maxI, val: maxVal, priority: 4 }, { id: minI, val: minVal, priority: 4 }, { id: 0, val: values[0], priority: 2 }, { id: len - 1, val: values[len - 1], priority: 2 }];
+        const result = [], seen = new Set();
+        for (const p of raw.sort((a, b) => b.priority - a.priority)) {
+            if (!seen.has(p.id)) {
+                seen.add(p.id);
+                result.push({ ...p, type, color, x: xs(p.id * dxMm), y: ys(p.val) });
+            }
         }
-    }
+        return result;
+    };
 
-    uniquePoints.sort((a, b) => a.x - b.x);
+    const labels = [...makeLabels(temps, minIdx, minV, maxIdx, maxV, "main"), ...(hasCooldown ? makeLabels(cooldownTemps, minCoolIdx, minCoolV, maxCoolIdx, maxCoolV, "cooldown") : [])];
 
-    for (let i = 0; i < uniquePoints.length - 1; i++) {
-        const a = uniquePoints[i], b = uniquePoints[i + 1];
-        if (Math.abs(a.x - b.x) < 34 && Math.abs(a.y - b.y) < 18 && a.dy === b.dy) {
-            a.dy = -9;
-            b.dy = 14;
-            if (a.anchor === "middle") a.dx = -5;
-            if (b.anchor === "middle") b.dx = 5;
+    const rectPointDistance = (px, py, r) => {
+        const dx = Math.max(r.left - px, 0, px - r.right), dy = Math.max(r.top - py, 0, py - r.bottom);
+        return Math.hypot(dx, dy);
+    };
+
+    const curveHitsLabel = (points, rect, anchor) => {
+        for (const point of points) {
+            if (Math.hypot(point.x - anchor.x, point.y - anchor.y) < 5 * scale) continue;
+            if (rectPointDistance(point.x, point.y, rect) < 2.5 * scale) return true;
         }
+        return false;
+    };
+
+    const candidates = [{ dx: 0, dy: -9 }, { dx: 0, dy: 14 }, { dx: -8, dy: -9 }, { dx: 8, dy: -9 }, { dx: -8, dy: 14 }, { dx: 8, dy: 14 }, { dx: -12, dy: -9 }, { dx: 12, dy: -9 }, { dx: -12, dy: 14 }, { dx: 12, dy: 14 }, { dx: 0, dy: -16 }, { dx: 0, dy: 21 }];
+    const placed = [];
+
+    for (const p of [...labels].sort((a, b) => b.priority - a.priority)) {
+        const textWidth = `${p.val.toFixed(1)}°`.length * 5.2 * scale, anchor = { x: p.x, y: p.y };
+        let best = null;
+        for (const c of candidates) {
+            const dx = c.dx * scale, dy = c.dy * scale, x = p.x + dx, y = p.y + dy;
+            const textAnchor = p.id === 0 ? "start" : p.id === len - 1 ? "end" : "middle";
+            const left = textAnchor === "start" ? x : textAnchor === "end" ? x - textWidth : x - textWidth / 2;
+            const right = textAnchor === "start" ? x + textWidth : textAnchor === "end" ? x : x + textWidth / 2;
+            const top = y - 8 * scale, bottom = y + 3 * scale;
+            const rect = { left: left - 1.5 * scale, right: right + 1.5 * scale, top: top - 1.5 * scale, bottom: bottom + 1.5 * scale };
+            let score = 0;
+            if (left < pad.left) score += 10000 + (pad.left - left) * 100;
+            if (right > width - pad.right) score += 10000 + (right - (width - pad.right)) * 100;
+            if (top < pad.top) score += 10000 + (pad.top - top) * 100;
+            if (bottom > height - pad.bottom) score += 10000 + (bottom - (height - pad.bottom)) * 100;
+            for (const q of placed) {
+                if (rect.left < q.right && rect.right > q.left && rect.top < q.bottom && rect.bottom > q.top) score += 100000;
+                else {
+                    const gapX = Math.max(q.left - rect.right, rect.left - q.right, 0), gapY = Math.max(q.top - rect.bottom, rect.top - q.bottom, 0);
+                    if (gapX < 5 * scale && gapY < 5 * scale) score += 1000;
+                }
+            }
+            if (curveHitsLabel(mainCurvePoints, rect, anchor) || (hasCooldown && curveHitsLabel(cooldownCurvePoints, rect, anchor))) score += 50000;
+            score += Math.abs(dx) * 2 + Math.abs(dy) * .5;
+            if (p.id === 0 && dx < 0) score += 500;
+            if (p.id === len - 1 && dx > 0) score += 500;
+            if (!best || score < best.score) best = { dx, dy, score, left, right, top, bottom };
+        }
+        placed.push({ ...p, ...best });
     }
 
     return (
-        <Box sx={{ width: 300, maxWidth: "100%", height, flex: "0 1 300px", flexShrink: 0, display: "flex", alignItems: "center", border: "1px solid", borderColor: status?.type === "ok" ? theme.palette.divider : chartColor, borderRadius: "6px", p: .5, boxSizing: "border-box", fontFamily: '"Roboto Mono","SF Mono",monospace', backgroundColor: theme.palette.background.paper }}>
-            <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" style={{ overflow: "visible" }} shapeRendering="geometricPrecision">
-                {[tMax, tCenter].map((_, i) => <line key={i} x1={pad.left} y1={pad.top + i * hPlot / 2} x2={width - pad.right} y2={pad.top + i * hPlot / 2} stroke={theme.palette.divider} strokeWidth="1" strokeDasharray="2 2" shapeRendering="crispEdges" />)}
-                <line x1={xCenter} y1={pad.top} x2={xCenter} y2={height - pad.bottom} stroke={theme.palette.divider} strokeWidth="1" strokeDasharray="2 2" shapeRendering="crispEdges" />
-                <line x1={width - pad.right} y1={pad.top} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.divider} strokeWidth="1" strokeDasharray="2 2" shapeRendering="crispEdges" />
-                <line x1={pad.left} y1={pad.top} x2={pad.left} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth="1,7" opacity=".45" shapeRendering="crispEdges" />
-                <line x1={pad.left} y1={height - pad.bottom} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth="1,7" opacity=".45" shapeRendering="crispEdges" />
-
-                {hasCooldown && <path d={cooldownPath} fill="none" stroke={theme.palette.text.secondary} strokeWidth="1" strokeDasharray="3 1" opacity=".5" strokeLinecap="round" strokeLinejoin="round" />}
-                <path d={dPath} fill="none" stroke={chartColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-
-                {hasCooldown && [0, len - 1].map(i => <circle key={`c-pt-${i}`} cx={xs(i * dxMm)} cy={ys(cooldownTemps[i])} r="2" fill={theme.palette.text.secondary} opacity=".6" />)}
-
-                {uniquePoints.map(p => (
-                    <g key={`kp-${p.id}`}>
-                        <circle cx={p.x} cy={p.y} r="3" fill={p.color} stroke={theme.palette.background.paper} strokeWidth="1" />
-                        <text x={p.x} y={p.y + p.dy} dx={p.dx} textAnchor={p.anchor} fontSize="9" fontWeight={p.isBold ? "bold" : "normal"} fill={theme.palette.text.primary}>{p.val.toFixed(1)}°</text>
-                    </g>
-                ))}
-
-                {hasCooldown && [0, len - 1].map(i => {
-                    const isNearMain = Math.abs(cooldownTemps[i] - temps[i]) < 8;
-                    const coolingDy = isNearMain ? 14 : i === 0 ? 12 : -6;
-                    return <text key={`c-txt-${i}`} x={xs(i * dxMm)} y={ys(cooldownTemps[i]) + coolingDy} dx={i === 0 ? 6 : -6} textAnchor={i === 0 ? "start" : "end"} fontSize="8.5" fontWeight="bold" fill={theme.palette.text.primary}>{cooldownTemps[i].toFixed(1)}°</text>;
+        <Box ref={containerRef} sx={{ width: 300, maxWidth: "100%", height: 150, flex: "0 1 300px", flexShrink: 0, display: "flex", alignItems: "center", border: "1px solid", borderColor: status?.type === "ok" ? theme.palette.divider : chartColor, borderRadius: "6px", p: .5, boxSizing: "border-box", fontFamily: '"Roboto Mono","SF Mono",monospace', backgroundColor: theme.palette.background.paper, overflow: "hidden" }}>
+            <svg width={size.width} height={size.height} style={{ display: "block", overflow: "visible" }} shapeRendering="geometricPrecision">
+                {[tMax, tCenter].map((_, i) => <line key={i} x1={pad.left} y1={pad.top + i * hPlot / 2} x2={width - pad.right} y2={pad.top + i * hPlot / 2} stroke={theme.palette.divider} strokeWidth={scale} strokeDasharray={`${2 * scale} ${2 * scale}`} />)}
+                <line x1={xCenter} y1={pad.top} x2={xCenter} y2={height - pad.bottom} stroke={theme.palette.divider} strokeWidth={scale} strokeDasharray={`${2 * scale} ${2 * scale}`} />
+                <line x1={width - pad.right} y1={pad.top} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.divider} strokeWidth={scale} strokeDasharray={`${2 * scale} ${2 * scale}`} />
+                <line x1={pad.left} y1={pad.top} x2={pad.left} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={scale} opacity=".55" />
+                <line x1={pad.left} y1={height - pad.bottom} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={scale} opacity=".55" />
+                {hasCooldown && <path d={cooldownPath} fill="none" stroke={cooldownColor} strokeWidth={scale} strokeDasharray={`${3 * scale} ${scale}`} opacity=".5" strokeLinecap="round" strokeLinejoin="round" />}
+                <path d={dPath} fill="none" stroke={chartColor} strokeWidth={2 * scale} strokeLinecap="round" strokeLinejoin="round" />
+                {placed.map(p => {
+                    const isMin = p.id === (p.type === "cooldown" ? minCoolIdx : minIdx);
+                    const isMax = p.id === (p.type === "cooldown" ? maxCoolIdx : maxIdx);
+                    const pointColor = isMin ? minColor : isMax ? maxColor : p.color;
+                    return (
+                        <g key={`${p.type}-${p.id}`}>
+                            <circle cx={p.x} cy={p.y} r={(p.type === "cooldown" ? 2.5 : 3) * scale} fill={pointColor} stroke={theme.palette.background.paper} strokeWidth={scale} opacity={p.type === "cooldown" ? 0.5 : 1}/>
+                            <text x={p.x} y={p.y + p.dy} textAnchor={p.id === 0 ? "start" : p.id === len - 1 ? "end" : "middle"} fontSize={(p.type === "cooldown" ? 8.5 : 9) * scale} fontWeight={600} fill={p.color}>{p.val.toFixed(1)}°</text>
+                        </g>
+                    );
                 })}
-
-                <text x={xCenter} y={14} textAnchor="middle" fontSize="9.5" fontWeight="bold" fill={chartColor}>ΔT = {(maxV - minV).toFixed(1)}°C</text>
-                <text x={pad.left - 5} y={pad.top + 3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMax}°</text>
-                <text x={pad.left - 5} y={height - pad.bottom + 3} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{tMin}°</text>
-                <text x={pad.left} y={height - 22} textAnchor="middle" fontSize="8.5" fill={theme.palette.text.secondary}>{xMin} mm</text>
-                <text x={width - pad.right} y={height - 22} textAnchor="end" fontSize="8.5" fill={theme.palette.text.secondary}>{xMax.toFixed(0)} mm</text>
-
-                {typeof cooldownSec === "number" && (
-                    <text x={xCenter} y={height - 6} textAnchor="middle" fontSize="8.5" fontWeight="500" fill={theme.palette.text.secondary}>
-                        Cooling: {cooldownSec}s{hasCooldown && ` (ΔT = ${cooldownDelta.toFixed(1)}°C)`}
-                    </text>
-                )}
+                <text x={xCenter} y={14 * scale} textAnchor="middle" fontSize={9.5 * scale} fontWeight="bold" fill={chartColor}>Heating: {heatingSec} (ΔT = {(maxV - minV).toFixed(1)}°C)</text>
+                <text x={pad.left - 5 * scale} y={pad.top + 3 * scale} textAnchor="end" fontSize={8.5 * scale} fill={theme.palette.text.secondary}>{tMax}°</text>
+                <text x={pad.left - 5 * scale} y={height - pad.bottom + 3 * scale} textAnchor="end" fontSize={8.5 * scale} fill={theme.palette.text.secondary}>{tMin}°</text>
+                <text x={pad.left} y={height - 22 * scale} textAnchor="middle" fontSize={8.5 * scale} fill={theme.palette.text.secondary}>0 mm</text>
+                <text x={width - pad.right} y={height - 22 * scale} textAnchor="end" fontSize={8.5 * scale} fill={theme.palette.text.secondary}>{xMax.toFixed(0)} mm</text>
+                {typeof cooldownSec === "number" && <text x={xCenter} y={height - 6 * scale} textAnchor="middle" fontSize={8.5 * scale} fontWeight="500" fill={theme.palette.text.secondary}>Cooling: {cooldownSec}s{hasCooldown && ` (ΔT = ${(maxCoolV - minCoolV).toFixed(1)}°C)`}</text>}
             </svg>
         </Box>
     );
 });
 
-
-const Parameters=({
-                      profile,
-                      part,
-                      machineParams,
-                      heatingParams
-                  })=>{
+const Parameters=({profile,part,machineParams,data})=>{
     const material=MATERIALS[profile?.materialKey];
-
-    const blankLength=Number(part?.blankLength);
-    const width=Number(profile?.width);
-    const thickness=Number(profile?.thickness);
-    const density=Number(material?.density);
-
-    const mass=
-        Number.isFinite(blankLength)&&
-        Number.isFinite(width)&&
-        Number.isFinite(thickness)&&
-        Number.isFinite(density)
-            ?blankLength*width*thickness*density/1e9
-            :null;
-
-    const status=heatingParams?.status;
-
-    const statusColor=
-        status?.type==="error"
-            ?"error"
-            :status?.type==="warning"
-                ?"warning"
-                :"text.secondary";
+    const blankLength=Number(part?.blankLength),width=Number(profile?.width),thickness=Number(profile?.thickness),density=Number(material?.density);
+    const mass=Number.isFinite(blankLength)&&Number.isFinite(width)&&Number.isFinite(thickness)&&Number.isFinite(density)?blankLength*width*thickness*density/1e9:null;
+    const status=data?.status;
+    const statusColor=status?.type==="error"?"error":status?.type==="warning"?"warning":"text.secondary";
 
     return(
-        <Box
-            className="bend-preview-parameters"
-            sx={{
-                p:1,
-                flexShrink:0,
-                display:"flex",
-                flexWrap:"wrap",
-                alignItems:"center",
-                gap:2
-            }}
-        >
-            <Box
-                sx={{
-                    flex:"1 1 280px",
-                    minWidth:280
-                }}
-            >
-                <Box
-                    sx={{
-                        display:"flex",
-                        flexWrap:"wrap",
-                        gap:2
-                    }}
-                >
-                    <Typography
-                        variant="body2"
-                        color={PARAMETER_TEXT_COLOR}
-                        fontSize={PARAMETER_TEXT_SIZE}
-                    >
-                        Blank length:{" "}
-                        <strong>
-                            {Number.isFinite(blankLength)?blankLength.toFixed(2):"—"} mm
-                        </strong>
-                    </Typography>
-
-                    <Typography
-                        variant="body2"
-                        color={PARAMETER_TEXT_COLOR}
-                        fontSize={PARAMETER_TEXT_SIZE}
-                    >
-                        Width:{" "}
-                        <strong>
-                            {Number.isFinite(width)?width:"—"} mm
-                        </strong>
-                    </Typography>
-
-                    <Typography
-                        variant="body2"
-                        color={PARAMETER_TEXT_COLOR}
-                        fontSize={PARAMETER_TEXT_SIZE}
-                    >
-                        Mass:{" "}
-                        <strong>
-                            {mass!==null?mass.toFixed(3):"—"} kg
-                        </strong>
-                    </Typography>
+        <Box className="bend-preview-parameters" sx={{p:1,flexShrink:0,display:"flex",flexWrap:"wrap",alignItems:"center",gap:2}}>
+            <Box sx={{flex:"1 1 280px",minWidth:280}}>
+                <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+                    <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Blank length: <strong>{Number.isFinite(blankLength)?blankLength.toFixed(2):"—"} mm</strong></Typography>
+                    <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Width: <strong>{Number.isFinite(width)?width:"—"} mm</strong></Typography>
+                    <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Mass: <strong>{mass!==null?mass.toFixed(3):"—"} kg</strong></Typography>
                 </Box>
 
                 {machineParams&&(
-                    <>
-                        <Box
-                            sx={{
-                                display:"flex",
-                                flexWrap:"wrap",
-                                gap:2
-                            }}
-                        >
-                            <Typography
-                                variant="body2"
-                                color={PARAMETER_TEXT_COLOR}
-                                fontSize={PARAMETER_TEXT_SIZE}
-                            >
-                                Stop pos:{" "}
-                                <strong>
-                                    {machineParams.stopPosition} mm
-                                </strong>
-                            </Typography>
-
-                            <Typography
-                                variant="body2"
-                                color={PARAMETER_TEXT_COLOR}
-                                fontSize={PARAMETER_TEXT_SIZE}
-                            >
-                                Bar low:{" "}
-                                <strong>
-                                    {machineParams.barLowering} mm
-                                </strong>
-                            </Typography>
-
-                            <Typography
-                                variant="body2"
-                                color={PARAMETER_TEXT_COLOR}
-                                fontSize={PARAMETER_TEXT_SIZE}
-                            >
-                                Angle:{" "}
-                                <strong>
-                                    {machineParams.bendAngle}°
-                                </strong>
-                            </Typography>
-                        </Box>
-
-                    </>
+                    <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+                        <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Stop pos: <strong>{machineParams.stopPosition} mm</strong></Typography>
+                        <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Bar low: <strong>{machineParams.barLowering} mm</strong></Typography>
+                        <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>Angle: <strong>{machineParams.bendAngle}°</strong></Typography>
+                    </Box>
                 )}
 
+                <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+                    <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
+                        Heat temp: <strong>top: {data?.heaterTemperaturesC?.top??"—"}°C, bottom: {data?.heaterTemperaturesC?.bottom??"—"}°C</strong>
+                    </Typography>
+                    <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
+                        Heating time: <strong>{formatTime(data?.heatingTimeSeconds)}</strong>
+                    </Typography>
+                </Box>
 
-                <Box
-                            sx={{
-                                display:"flex",
-                                flexWrap:"wrap",
-                                gap:2
-                            }}
-                        >
-                            <Typography
-                                variant="body2"
-                                color={PARAMETER_TEXT_COLOR}
-                                fontSize={PARAMETER_TEXT_SIZE}
-                            >
-                                Heat temp:{" "}
-                                <strong>
-                                    top: {heatingParams?.temperatureProfile.heaterTemperaturesC.top}°C,
-                                    bottom: {heatingParams?.temperatureProfile.heaterTemperaturesC.bottom}°C
-                                </strong>
-                            </Typography>
-
-                            <Typography
-                                variant="body2"
-                                color={PARAMETER_TEXT_COLOR}
-                                fontSize={PARAMETER_TEXT_SIZE}
-                            >
-                                Heating time:{" "}
-                                <strong>
-                                    {formatTime(heatingParams?.heatingTimeSeconds)}
-                                </strong>
-                            </Typography>
-                        </Box>
-
-                        {status?.type !== "ok" && status?.message && (
-                            <Typography
-                                variant="body2"
-                                color={statusColor}
-                                fontSize={PARAMETER_TEXT_SIZE}
-                                fontWeight={500}
-                                sx={{mt:.5}}
-                            >
-                                {status.message}
-                            </Typography>
-                        )}
+                {status?.type!=="ok"&&status?.message&&(
+                    <Typography variant="body2" color={statusColor} fontSize={PARAMETER_TEXT_SIZE} fontWeight={500} sx={{mt:.5}}>
+                        {status.message}
+                    </Typography>
+                )}
             </Box>
 
             <Box sx={{flex:"0 0 280px",mx:"auto"}}>
-                <TemperatureProfileChart
-                    temperatureProfile={heatingParams?.temperatureProfile}
-                    status={heatingParams?.status}
-                />
+                <TemperatureProfileChart data={data}/>
             </Box>
         </Box>
     );
@@ -428,7 +326,7 @@ const BendingPreview=({
     const MACHINA=MACHINES.MACHINE_LINE_1;
     const MATERIAL=MATERIALS[profile.materialKey];
 
-    const heatingParams=useMemo(()=>{
+    const dataSimulate = useMemo(()=>{
         if(
             !profile?.thickness||
             !profile?.materialKey
@@ -645,7 +543,7 @@ const BendingPreview=({
                 profile={profile}
                 part={{blankLength}}
                 machineParams={machineParams}
-                heatingParams={heatingParams}
+                data={dataSimulate}
             />
         </Box>
     );

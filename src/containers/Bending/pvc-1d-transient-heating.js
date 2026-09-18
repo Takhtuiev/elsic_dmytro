@@ -570,16 +570,20 @@ export function simulate1DHeating({
     // Сохраняем структуру возвращаемого объекта, передавая массив остывания
     const res = {
         heatingTimeSeconds: heating.heatingTimeSeconds,
-       reachedTarget: heating.reachedTarget,
+        cooldownSec: cooldownTimeSeconds,
+
+        heaterTemperaturesC: {
+            top: machine.heaters[0].regulatorTemperatureC,
+            bottom: machine.heaters[1].regulatorTemperatureC
+        },
+
+        reachedTarget: heating.reachedTarget,
         status,
+
         temperatureProfile: {
             temperaturesC: heatingProfileC,
-            heaterTemperaturesC: {
-                top: machine.heaters[0].regulatorTemperatureC,
-                bottom: machine.heaters[1].regulatorTemperatureC
-            },
-            cooldownProfileC, // Профиль после 10 секунд переноса (°C)
-            cooldownSec: cooldownTimeSeconds,
+            cooldownProfileC: cooldownProfileC, // Профиль после 10 секунд переноса (°C)
+
             dxMm: dx * 1000
         },
         history: heating.history
