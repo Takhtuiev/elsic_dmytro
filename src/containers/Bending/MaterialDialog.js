@@ -100,24 +100,32 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                     justifyContent:"space-between",
                     alignItems:"center",
                     borderBottom:"1px dashed",
-                    borderColor:"divider",
-                    pb:.5
+                    borderColor:"divider"
                 }}
             >
                 <Typography
-                    variant="body2"
+                    variant="caption"
                     color="text.secondary"
                     sx={{
                         display:"flex",
                         alignItems:"center",
-                        gap:1
+                        gap:.75,
+                        p:.25,
+                        lineHeight:1.15
                     }}
                 >
                     <span style={{color:p.color}}>●</span>
                     {p.label}
                 </Typography>
 
-                <Typography variant="body2" fontWeight={600}>
+                <Typography
+                    variant="caption"
+                    fontWeight={600}
+                    sx={{
+                        p:.25,
+                        lineHeight:1.15
+                    }}
+                >
                     {current[p.key]} {p.unit}
                 </Typography>
             </Box>
@@ -226,7 +234,7 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                         flex:1,
                         minHeight:"20rem",
                         bgcolor:"background.default",
-                        p:3,
+                        p:2,
                         display:"flex",
                         flexDirection:"column",
                         justifyContent:current?"flex-start":"center",
@@ -236,9 +244,12 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                     {current?(
                         <>
                             <Typography
-                                variant="subtitle1"
+                                variant="subtitle2"
                                 fontWeight={700}
-                                sx={{mb:2}}
+                                sx={{
+                                    mb:1,
+                                    lineHeight:1.2
+                                }}
                             >
                                 {current.name}
                             </Typography>
@@ -247,14 +258,14 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                                 sx={{
                                     display:"flex",
                                     flexDirection:"column",
-                                    gap:1
+                                    gap:.5
                                 }}
                             >
                                 {physicalProps.map(renderPropRow)}
 
                                 <Divider
                                     sx={{
-                                        my:.75,
+                                        my:.5,
                                         borderStyle:"dashed"
                                     }}
                                 />
@@ -263,7 +274,7 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
 
                                 <Divider
                                     sx={{
-                                        my:.75,
+                                        my:.5,
                                         borderStyle:"dashed"
                                     }}
                                 />
@@ -272,7 +283,7 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
 
                                 <Divider
                                     sx={{
-                                        my:.75,
+                                        my:.5,
                                         borderStyle:"dashed"
                                     }}
                                 />
@@ -282,7 +293,7 @@ const MaterialDialog=({open,materialKey,materials={},onSelect,onClose})=>{
                         </>
                     ):(
                         <Typography
-                            variant="body2"
+                            variant="caption"
                             color="text.secondary"
                             align="center"
                         >
