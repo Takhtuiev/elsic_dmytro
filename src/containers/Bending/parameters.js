@@ -68,7 +68,7 @@ export const MATERIALS = {
         glassTransitionTemp: 80,    // °C (ниже материал хрупкий)
         minFormingTemp: 110,        // °C (нижняя граница формования)
         maxFormingTemp: 140,        // °C (верхняя граница формования)
-        decompositionTemp: 150,     // °C (порог перегрева/брака поверхности)
+        decompositionTemp: 180,     // °C (порог перегрева/брака поверхности)
 
         kFactor: 0.40,
     },
@@ -86,7 +86,7 @@ export const MATERIALS = {
         glassTransitionTemp: 80,    // °C
         minFormingTemp: 110,        // °C
         maxFormingTemp: 140,        // °C
-        decompositionTemp: 150,     // °C
+        decompositionTemp: 180,     // °C
 
         kFactor: 0.40,
     },
@@ -104,7 +104,7 @@ export const MATERIALS = {
         glassTransitionTemp: 80,    // °C
         minFormingTemp: 115,        // °C (более узкий диапазон для сохранения прозрачности)
         maxFormingTemp: 135,        // °C
-        decompositionTemp: 145,     // °C (порог помутнения и образования пузырьков)
+        decompositionTemp: 180,     // °C (порог помутнения и образования пузырьков)
 
         kFactor: 0.40,
     },
