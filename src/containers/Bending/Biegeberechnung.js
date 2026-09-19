@@ -43,8 +43,21 @@ const INITIAL_STATE={
     material:MATERIALS["PVC_CAW_RED"],
     machine:MACHINES["MACHINE_LINE_2"],
 
-    thickness:4,
-    width:430,
+    geometry:{
+        thickness:4,
+        width:430,
+
+        shelves:[
+            {length:50,side:"right"},
+            {length:100,side:"right"},
+            {length:150,side:"left"}
+        ],
+
+        bends:[
+            {angle:90,direction:"right"},
+            {angle:135,direction:"left"}
+        ]
+    },
 
     simulation:{
         target:{
@@ -57,17 +70,6 @@ const INITIAL_STATE={
         maxTimeSeconds:1800,
         cooldownTimeSeconds:10
     },
-
-    shelves:[
-        {length:50,side:"right"},
-        {length:100,side:"right"},
-        {length:150,side:"left"}
-    ],
-
-    bends:[
-        {angle:90,direction:"right"},
-        {angle:135,direction:"left"}
-    ],
 
     view:{
         rotation:0,
@@ -397,22 +399,17 @@ export default function Biegeberechnung(){
     const {
         material,
         machine,
-        thickness,
-        width,
+        geometry,
         simulation,
-        shelves,
-        bends,
         view
     }=state;
 
-    const geometryProfile=useMemo(
-        ()=>({
-            ...state,
-            kFactor:material?.kFactor,
-            rTool:machine?.rTool
-        }),
-        [state,material,machine]
-    );
+    const {
+        thickness,
+        width,
+        shelves,
+        bends
+    }=geometry;
 
     const {
         rotation,
@@ -424,76 +421,42 @@ export default function Biegeberechnung(){
     const selectedBend=
         bends[bendIndex]??null;
 
-    const updateField=useCallback(
-        (field,value)=>{
+    const updateState=useCallback(
+        changes=>{
             setState(prev=>({
                 ...prev,
-                [field]:value
+                ...changes
             }));
         },
         []
     );
 
-    const updateItem=useCallback(
-        (
-            collection,
-            index,
-            field,
-            value
-        )=>{
-            setState(prev=>{
-                const next={
-                    ...prev,
-                    [collection]:
-                        prev[collection].map(
-                            (item,i)=>
-                                i===index
-                                    ?{
-                                        ...item,
-                                        [field]:value
-                                    }
-                                    :item
-                        )
-                };
-
-                if(
-                    collection==="bends"&&
-                    field==="direction"&&
-                    prev.view.bendIndex>=0
-                ){
-                    const nextGeometryProfile={
-                        ...next,
-                        rTool:next.machine?.rTool,
-                        kFactor:next.material?.kFactor
-                    };
-
-                    const geometry=
-                        buildProfileGeometry(
-                            nextGeometryProfile
-                        );
-
-                    const nextView=
-                        calculateBendView(
-                            geometry,
-                            prev.view.bendIndex,
-                            prev.view.bendSide,
-                            prev.view.mirrored,
-                            prev.view.rotation
-                        );
-
-                    return{
-                        ...next,
-                        view:{
-                            ...next.view,
-                            ...nextView
-                        }
-                    };
+    const updateGeometry=useCallback(
+        changes=>{
+            setState(prev=>({
+                ...prev,
+                geometry:{
+                    ...prev.geometry,
+                    ...changes
                 }
-
-                return next;
-            });
+            }));
         },
         []
+    );
+
+    const geometryProfile=useMemo(
+        ()=>({
+            ...state,
+            ...geometry,
+            kFactor:material?.kFactor,
+            rTool:machine?.rTool
+        }),
+        [
+            state,
+            geometry,
+            material,
+            machine
+        ]
     );
 
     const handleSelectBend=useCallback(
@@ -501,6 +464,7 @@ export default function Biegeberechnung(){
             setState(prev=>{
                 const geometryProfile={
                     ...prev,
+                    ...prev.geometry,
                     rTool:prev.machine?.rTool,
                     kFactor:prev.material?.kFactor
                 };
@@ -512,7 +476,7 @@ export default function Biegeberechnung(){
 
                 const preferredSide=
                     getPreferredSide(
-                        prev.shelves,
+                        prev.geometry.shelves,
                         index
                     );
 
@@ -592,6 +556,7 @@ export default function Biegeberechnung(){
             setState(prev=>{
                 const geometryProfile={
                     ...prev,
+                    ...prev.geometry,
                     rTool:prev.machine?.rTool,
                     kFactor:prev.material?.kFactor
                 };
@@ -690,54 +655,56 @@ export default function Biegeberechnung(){
     const handleProfileRotationCommitted=
         useCallback(
             value=>{
-                setState(prev=>({
-                    ...prev,
+                updateState({
                     view:{
-                        ...prev.view,
+                        ...view,
                         rotation:Number(value)
                     }
-                }));
+                });
 
                 setVerticalShelfIndex(null);
                 setRotationPreview(null);
             },
-            []
+            [updateState,view]
         );
 
     const handleProfileMirrorChange=
         useCallback(
             value=>{
-                setState(prev=>({
-                    ...prev,
+                updateState({
                     view:{
-                        ...prev.view,
+                        ...view,
                         mirrored:Boolean(value),
-                        rotation:-prev.view.rotation
+                        rotation:-view.rotation
                     }
-                }));
+                });
             },
-            []
+            [updateState,view]
         );
 
     const addBend=useCallback(()=>{
-        setState(prev=>({
-            ...prev,
-            bends:[
-                ...prev.bends,
-                {
-                    angle:180,
-                    direction:"right"
-                }
-            ],
+        updateGeometry({
             shelves:[
-                ...prev.shelves,
+                ...shelves,
                 {
                     length:50,
                     side:"right"
                 }
+            ],
+
+            bends:[
+                ...bends,
+                {
+                    angle:180,
+                    direction:"right"
+                }
             ]
-        }));
-    },[]);
+        });
+    },[
+        shelves,
+        bends,
+        updateGeometry
+    ]);
 
     const removeBend=useCallback(
         index=>{
@@ -752,12 +719,21 @@ export default function Biegeberechnung(){
 
                 return{
                     ...prev,
-                    bends:prev.bends.filter(
-                        (_,i)=>i!==index
-                    ),
-                    shelves:prev.shelves.filter(
-                        (_,i)=>i!==index+1
-                    ),
+
+                    geometry:{
+                        ...prev.geometry,
+
+                        bends:
+                            prev.geometry.bends.filter(
+                                (_,i)=>i!==index
+                            ),
+
+                        shelves:
+                            prev.geometry.shelves.filter(
+                                (_,i)=>i!==index+1
+                            )
+                    },
+
                     view:{
                         ...prev.view,
                         bendIndex:nextIndex
@@ -896,26 +872,28 @@ export default function Biegeberechnung(){
                     <ProfileRow
                         key={index}
                         shelf={shelf}
+                        shelves={shelves}
                         index={index}
                         bend={bends[index]}
+                        bends={bends}
                         bendIndex={bendIndex}
                         bendSide={bendSide}
                         isVertical={
                             verticalShelfIndex===index
                         }
-                        onUpdate={updateItem}
+                        onUpdate={updateGeometry}
                         onSelectBend={()=>
                             handleSelectBend(index)
                         }
                         onVerticalShelfChange={()=>
-                            handleVerticalShelfChange(
-                                index
-                            )
+                            handleVerticalShelfChange(index)
                         }
                         onRemoveBend={()=>
                             removeBend(index)
                         }
-                        canRemove={bends.length>1}
+                        canRemove={
+                            bends.length>1
+                        }
                     />
                 ))}
 
@@ -1052,12 +1030,12 @@ export default function Biegeberechnung(){
                             value={thickness}
                             step=".1"
                             onChange={value=>
-                                updateField(
-                                    "thickness",
-                                    value===""
-                                        ?""
-                                        :Number(value)
-                                )
+                                updateGeometry({
+                                    thickness:
+                                        value===""
+                                            ?""
+                                            :Number(value)
+                                })
                             }
                             endAdornment={
                                 <Box
@@ -1100,12 +1078,12 @@ export default function Biegeberechnung(){
                             value={width}
                             step=".1"
                             onChange={value=>
-                                updateField(
-                                    "width",
-                                    value===""
-                                        ?""
-                                        :Number(value)
-                                )
+                                updateGeometry({
+                                    width:
+                                        value===""
+                                            ?""
+                                            :Number(value)
+                                })
                             }
                             endAdornment={
                                 <Box
@@ -1181,10 +1159,9 @@ export default function Biegeberechnung(){
                                 thickness===value
                             }
                             onClick={()=>{
-                                updateField(
-                                    "thickness",
-                                    value
-                                );
+                                updateGeometry({
+                                    thickness:value
+                                });
 
                                 setThicknessMenuAnchor(
                                     null
@@ -1204,10 +1181,9 @@ export default function Biegeberechnung(){
                         setMaterialDialogOpen(false)
                     }
                     onApply={value=>{
-                        updateField(
-                            "material",
-                            value
-                        );
+                        updateState({
+                            material:value
+                        });
 
                         setMaterialDialogOpen(false);
                     }}
@@ -1225,10 +1201,9 @@ export default function Biegeberechnung(){
                         setMachineDialogOpen(false)
                     }
                     onApply={value=>{
-                        updateField(
-                            "machine",
-                            value
-                        );
+                        updateState({
+                            machine:value
+                        });
 
                         setMachineDialogOpen(false);
                     }}
@@ -1246,10 +1221,9 @@ export default function Biegeberechnung(){
                         setSimulationDialogOpen(false)
                     }
                     onApply={value=>{
-                        updateField(
-                            "simulation",
-                            value
-                        );
+                        updateState({
+                            simulation:value
+                        });
 
                         setSimulationDialogOpen(false);
                     }}

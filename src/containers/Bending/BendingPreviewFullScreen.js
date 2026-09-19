@@ -22,13 +22,35 @@ const BendingPreviewFullScreen=()=>{
         state=>state.bending.profile
     );
 
-    const view=profile?.view;
+    const machine=profile?.machine;
+    const simulation=profile?.simulation;
+    const geometry=profile?.geometry;
+
+    const geometryProfile=useMemo(
+        ()=>{
+            if(!profile||!geometry)return null;
+
+            return{
+                ...profile,
+                ...geometry,
+                kFactor:profile.material?.kFactor,
+                rTool:machine?.rTool
+            };
+        },
+        [
+            profile,
+            geometry,
+            machine
+        ]
+    );
 
     const blankLength=useMemo(()=>{
-        if(!profile)return null;
+        if(!geometryProfile)return null;
 
-        return calculateBlankLength(profile);
-    },[profile]);
+        return calculateBlankLength(
+            geometryProfile
+        );
+    },[geometryProfile]);
 
 
     const machineParams=useMemo(()=>{
@@ -36,19 +58,19 @@ const BendingPreviewFullScreen=()=>{
             profile?.view?.bendIndex??-1;
 
         if(
-            !profile||
+            !geometryProfile||
             selectedBendIndex<0||
-            !profile.bends?.[selectedBendIndex]
+            !geometryProfile.bends?.[selectedBendIndex]
         ){
             return null;
         }
 
         const selectedBend=
-            profile.bends[selectedBendIndex];
+            geometryProfile.bends[selectedBendIndex];
 
         const distanceToOuterApex=
             calculateOuterLengthToEnd(
-                profile,
+                geometryProfile,
                 selectedBendIndex,
                 profile.view.bendSide
             );
@@ -59,13 +81,17 @@ const BendingPreviewFullScreen=()=>{
                 distanceToOuterApex.toFixed(2)
             ),
             isInnerMode:false,
-            t:profile.thickness,
-            rTool:profile.rTool
+            t:geometryProfile.thickness,
+            rTool:machine?.rTool
         });
-    },[profile]);
+    },[
+        profile,
+        geometryProfile,
+        machine
+    ]);
 
 
-    if(!profile){
+    if(!profile||!geometryProfile){
         return(
             <Box
                 sx={{
@@ -168,8 +194,9 @@ const BendingPreviewFullScreen=()=>{
                 }}
             >
                 <BendingPreview
-                    profile={profile}
-                    view={view}
+                    profile={geometryProfile}
+                    machine={machine}
+                    simulation={simulation}
                     blankLength={blankLength}
                     machineParams={machineParams}
                 />
