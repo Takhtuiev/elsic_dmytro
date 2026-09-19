@@ -5,12 +5,15 @@ import {alpha} from "@mui/material/styles";
 import BendProfileRender from "./BendProfileRender";
 import {prepareSvgLayers} from "./prepareSvgLayers";
 import {MAX_BEND_ANGLE,MIN_BEND_ANGLE} from "./svgConstants";
-import {MATERIALS} from "./parameters";
 import {simulate1DHeating} from "./pvc-1d-transient-heating";
-import {formatTime,TemperatureProfileChart} from "./TemperatureProfileChart";
+import {
+    formatTime,
+    TemperatureProfileChart
+} from "./TemperatureProfileChart";
 
 const PARAMETER_TEXT_COLOR="text.primary";
 const PARAMETER_TEXT_SIZE="0.8rem";
+
 
 const PartHeader=({profile})=>(
     <Box
@@ -28,22 +31,37 @@ const PartHeader=({profile})=>(
             flexShrink:0
         }}
     >
-        <Typography variant="body2" fontWeight={600}>
-            Part: <strong>{profile?.name||"—"}</strong>
+        <Typography
+            variant="body2"
+            fontWeight={600}
+        >
+            Part: <strong>
+            {profile?.name||"—"}
+        </strong>
         </Typography>
 
         <Typography variant="body2">
-            Material: <strong>{MATERIALS[profile?.materialKey]?.name||"—"}</strong>
+            Material: <strong>
+            {profile?.material?.name||"—"}
+        </strong>
         </Typography>
 
         <Typography variant="body2">
-            Thickness: <strong>{profile?.thickness??"—"} mm</strong>
+            Thickness: <strong>
+            {profile?.thickness??"—"} mm
+        </strong>
         </Typography>
     </Box>
 );
 
-const Parameters=({profile,part,machineParams,data})=>{
-    const material=MATERIALS[profile?.materialKey];
+
+const Parameters=({
+                      profile,
+                      part,
+                      machineParams,
+                      data
+                  })=>{
+    const material=profile?.material;
 
     const blankLength=Number(part?.blankLength);
     const width=Number(profile?.width);
@@ -55,7 +73,11 @@ const Parameters=({profile,part,machineParams,data})=>{
         Number.isFinite(width)&&
         Number.isFinite(thickness)&&
         Number.isFinite(density)
-            ?blankLength*width*thickness*density/1e9
+            ?blankLength*
+            width*
+            thickness*
+            density/
+            1e9
             :null;
 
     const status=data?.status;
@@ -69,7 +91,14 @@ const Parameters=({profile,part,machineParams,data})=>{
 
     return(
         <Box className="bend-preview-parameters">
-            <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+
+            <Box
+                sx={{
+                    display:"flex",
+                    flexWrap:"wrap",
+                    gap:2
+                }}
+            >
                 <Typography
                     variant="body2"
                     color={PARAMETER_TEXT_COLOR}
@@ -88,7 +117,9 @@ const Parameters=({profile,part,machineParams,data})=>{
                     fontSize={PARAMETER_TEXT_SIZE}
                 >
                     Width: <strong>
-                    {Number.isFinite(width)?width:"—"} mm
+                    {Number.isFinite(width)
+                        ?width
+                        :"—"} mm
                 </strong>
                 </Typography>
 
@@ -106,7 +137,13 @@ const Parameters=({profile,part,machineParams,data})=>{
             </Box>
 
             {machineParams&&(
-                <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+                <Box
+                    sx={{
+                        display:"flex",
+                        flexWrap:"wrap",
+                        gap:2
+                    }}
+                >
                     <Typography
                         variant="body2"
                         color={PARAMETER_TEXT_COLOR}
@@ -139,15 +176,25 @@ const Parameters=({profile,part,machineParams,data})=>{
                 </Box>
             )}
 
-            <Box sx={{display:"flex",flexWrap:"wrap",gap:2}}>
+            <Box
+                sx={{
+                    display:"flex",
+                    flexWrap:"wrap",
+                    gap:2
+                }}
+            >
                 <Typography
                     variant="body2"
                     color={PARAMETER_TEXT_COLOR}
                     fontSize={PARAMETER_TEXT_SIZE}
                 >
                     Heat temp: <strong>
-                    top: {data?.heaterTemperaturesC?.top??"—"}°C,
-                    {" "}bottom: {data?.heaterTemperaturesC?.bottom??"—"}°C
+                    top: {
+                    data?.heaterTemperaturesC?.top??"—"
+                }°C,
+                    {" "}bottom: {
+                    data?.heaterTemperaturesC?.bottom??"—"
+                }°C
                 </strong>
                 </Typography>
 
@@ -157,7 +204,9 @@ const Parameters=({profile,part,machineParams,data})=>{
                     fontSize={PARAMETER_TEXT_SIZE}
                 >
                     Heating time: <strong>
-                    {formatTime(data?.heatingTimeSeconds)}
+                    {formatTime(
+                        data?.heatingTimeSeconds
+                    )}
                 </strong>
                 </Typography>
             </Box>
@@ -177,14 +226,15 @@ const Parameters=({profile,part,machineParams,data})=>{
     );
 };
 
+
 const BendingPreview=({
-    profile,
-    machine,
-    blankLength,
-    machineParams,
-    simulation,
-    rotationPreview
-})=>{
+                          profile,
+                          machine,
+                          blankLength,
+                          machineParams,
+                          simulation,
+                          rotationPreview
+                      })=>{
     const theme=useTheme();
     const containerRef=useRef(null);
 
@@ -202,8 +252,12 @@ const BendingPreview=({
             ([{contentRect}])=>{
                 const {width,height}=contentRect;
 
-                if(width&&height)
-                    setContainerSize({width,height});
+                if(width&&height){
+                    setContainerSize({
+                        width,
+                        height
+                    });
+                }
             }
         );
 
@@ -212,10 +266,11 @@ const BendingPreview=({
         return()=>observer.disconnect();
     },[]);
 
+
     const dataSimulate=useMemo(()=>{
         if(
             !profile?.thickness||
-            !profile?.materialKey||
+            !profile?.material||
             !machine||
             !simulation
         ){
@@ -224,17 +279,18 @@ const BendingPreview=({
 
         return simulate1DHeating({
             thicknessMm:profile.thickness,
-            material:MATERIALS[profile.materialKey],
+            material:profile.material,
             machine,
             simulation,
             sides:"both"
         });
     },[
         profile?.thickness,
-        profile?.materialKey,
+        profile?.material,
         machine,
         simulation
     ]);
+
 
     const invalidAngleIndex=
         profile?.bends?.findIndex(({angle})=>{
@@ -247,10 +303,13 @@ const BendingPreview=({
             );
         })??-1;
 
+
     const invalidShelfIndex=
         profile?.shelves?.findIndex(({length})=>{
             length=Number(length);
-            const thickness=Number(profile?.thickness);
+
+            const thickness=
+                Number(profile?.thickness);
 
             return(
                 !Number.isFinite(length)||
@@ -259,6 +318,7 @@ const BendingPreview=({
             );
         })??-1;
 
+
     const validationError=
         invalidAngleIndex>=0
             ?`Angle ${invalidAngleIndex+1}: ${profile.bends[invalidAngleIndex].angle}° — allowed range is ${MIN_BEND_ANGLE}°–${MAX_BEND_ANGLE}°`
@@ -266,26 +326,44 @@ const BendingPreview=({
                 ?`Leg ${invalidShelfIndex+1}: ${profile.shelves[invalidShelfIndex].length} mm — must be at least ${profile.thickness} mm`
                 :null;
 
+
     const colors=useMemo(()=>({
         active:{
             line:theme.palette.text.primary,
-            fill:alpha(theme.palette.text.primary,.1),
-            annotation:alpha(theme.palette.text.primary,.75)
+            fill:alpha(
+                theme.palette.text.primary,
+                .1
+            ),
+            annotation:alpha(
+                theme.palette.text.primary,
+                .75
+            )
         },
         ghost:{
             line:theme.palette.text.disabled,
-            fill:alpha(theme.palette.text.disabled,.02),
-            annotation:alpha(theme.palette.text.disabled,.4)
+            fill:alpha(
+                theme.palette.text.disabled,
+                .02
+            ),
+            annotation:alpha(
+                theme.palette.text.disabled,
+                .4
+            )
         },
         blue:{
             line:theme.palette.primary.main,
-            fill:alpha(theme.palette.primary.main,.08),
+            fill:alpha(
+                theme.palette.primary.main,
+                .08
+            ),
             annotation:theme.palette.primary.main
         }
     }),[theme]);
 
+
     const svgData=useMemo(()=>{
-        if(!profile||validationError)return null;
+        if(!profile||validationError)
+            return null;
 
         return prepareSvgLayers(
             profile,
@@ -299,27 +377,37 @@ const BendingPreview=({
         validationError
     ]);
 
+
     const committedRotation=
         Number(view?.rotation??0);
 
     const visualRotation=
-        Number(rotationPreview??committedRotation)-
+        Number(
+            rotationPreview??committedRotation
+        )-
         committedRotation;
+
 
     const viewBoxValues=svgData?.viewBox
         ?.split(/\s+/)
         .map(Number);
 
+
     const rotationCenter=
         viewBoxValues?.length===4
             ?{
-                x:viewBoxValues[0]+viewBoxValues[2]/2,
-                y:viewBoxValues[1]+viewBoxValues[3]/2
+                x:
+                    viewBoxValues[0]+
+                    viewBoxValues[2]/2,
+                y:
+                    viewBoxValues[1]+
+                    viewBoxValues[3]/2
             }
             :{
                 x:0,
                 y:0
             };
+
 
     return(
         <Box
@@ -331,7 +419,9 @@ const BendingPreview=({
                 minHeight:0
             }}
         >
-            <PartHeader profile={profile}/>
+            <PartHeader
+                profile={profile}
+            />
 
             <Box
                 ref={containerRef}
@@ -382,24 +472,42 @@ const BendingPreview=({
                         >
                             <BendProfileRender
                                 data={svgData.activeData}
-                                strokeColor={colors.active.line}
-                                fillColor={colors.active.fill}
-                                annotationColor={colors.active.annotation}
+                                strokeColor={
+                                    colors.active.line
+                                }
+                                fillColor={
+                                    colors.active.fill
+                                }
+                                annotationColor={
+                                    colors.active.annotation
+                                }
                             />
 
                             <BendProfileRender
                                 data={svgData.ghostData}
-                                strokeColor={colors.ghost.line}
-                                fillColor={colors.ghost.fill}
-                                annotationColor={colors.ghost.annotation}
+                                strokeColor={
+                                    colors.ghost.line
+                                }
+                                fillColor={
+                                    colors.ghost.fill
+                                }
+                                annotationColor={
+                                    colors.ghost.annotation
+                                }
                                 isGhost
                             />
 
                             <BendProfileRender
                                 data={svgData.blueData}
-                                strokeColor={colors.blue.line}
-                                fillColor={colors.blue.fill}
-                                annotationColor={colors.blue.annotation}
+                                strokeColor={
+                                    colors.blue.line
+                                }
+                                fillColor={
+                                    colors.blue.fill
+                                }
+                                annotationColor={
+                                    colors.blue.annotation
+                                }
                             />
                         </g>
                     </svg>
@@ -416,7 +524,11 @@ const BendingPreview=({
                     gap:1
                 }}
             >
-                <Box sx={{flex:"1 1 18rem"}}>
+                <Box
+                    sx={{
+                        flex:"1 1 18rem"
+                    }}
+                >
                     <Parameters
                         profile={profile}
                         part={{blankLength}}
@@ -432,11 +544,14 @@ const BendingPreview=({
                         mx:"auto"
                     }}
                 >
-                    <TemperatureProfileChart data={dataSimulate}/>
+                    <TemperatureProfileChart
+                        data={dataSimulate}
+                    />
                 </Box>
             </Box>
         </Box>
     );
 };
+
 
 export default BendingPreview;

@@ -8,8 +8,8 @@ export const MACHINES = {
         heaters: [
             {
                 // top
-                regulatorTemperatureC: 270,
-                heaterTemperatureFactor: 1,
+                regulatorTemperatureC: 200,
+                heaterTemperatureFactor: 1.3,
                 heaterEmissivity: 0.90,
                 boxEmissivity: 0.55,
                 viewFactor: 0.8,
@@ -19,7 +19,7 @@ export const MACHINES = {
            },
             {
                 // bottom
-                regulatorTemperatureC: 280,
+                regulatorTemperatureC: 200,
                 convectiveHeatTransferCoefficient: 16,
                 boxEfficiency: 0.6
             }
@@ -34,8 +34,8 @@ export const MACHINES = {
 
         heaters: [
             {
-                regulatorTemperatureC: 200,
-                heaterTemperatureFactor: 1.3,
+                regulatorTemperatureC: 270,
+                heaterTemperatureFactor: 1,
                 heaterEmissivity: 0.90,
                 boxEmissivity: 0.55,
                 viewFactor: 0.8,
@@ -45,7 +45,7 @@ export const MACHINES = {
             },
             {
                 // bottom
-                regulatorTemperatureC: 200,
+                regulatorTemperatureC: 280,
                 convectiveHeatTransferCoefficient: 16,
                 boxEfficiency: 0.6
             }

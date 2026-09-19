@@ -6,9 +6,9 @@ import BendingPreview from "./BendingPreview";
 const BendingPreviewPage=({
                               profile,
                               machine,
+                              simulation,
                               blankLength,
                               machineParams,
-                              simulation,
                               rotationPreview
                           })=>(
     <Box
