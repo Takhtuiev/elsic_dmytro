@@ -48,16 +48,22 @@ const surfaceProps=[
 
 const tempProps=[
     {
-        key:"defaultTSurf",
-        label:"Surface temp.",
-        unit:"°C",
-        color:"#f57c00"
-    },
-    {
-        key:"defaultTCenter",
-        label:"Center temp.",
+        key:"glassTransitionTemp",
+        label:"Glass transition temp.",
         unit:"°C",
         color:"#0288d1"
+    },
+    {
+        key:"minFormingTemp",
+        label:"Min. forming temp.",
+        unit:"°C",
+        color:"#2e7d32"
+    },
+    {
+        key:"maxFormingTemp",
+        label:"Max. forming temp.",
+        unit:"°C",
+        color:"#2e7d32"
     },
     {
         key:"decompositionTemp",
@@ -88,6 +94,7 @@ const MaterialContent=({
         ()=>Object.entries(materials),
         [materials]
     );
+
 
     const selectedIndex=useMemo(
         ()=>materialEntries.findIndex(
@@ -149,10 +156,12 @@ const MaterialContent=({
             });
         };
 
+
         window.addEventListener(
             "keydown",
             handleKeyDown
         );
+
 
         return()=>{
             window.removeEventListener(
@@ -187,6 +196,7 @@ const MaterialContent=({
                     borderColor:"divider"
                 }}
             >
+
                 <Typography
                     variant="caption"
                     color="text.secondary"
@@ -205,6 +215,7 @@ const MaterialContent=({
                     {p.label}
                 </Typography>
 
+
                 <Typography
                     variant="caption"
                     fontWeight={600}
@@ -215,6 +226,7 @@ const MaterialContent=({
                 >
                     {value[p.key]} {p.unit}
                 </Typography>
+
             </Box>
         );
     };
@@ -242,6 +254,8 @@ const MaterialContent=({
                 }
             }}
         >
+
+            {/* MATERIAL LIST */}
 
             <Box
                 sx={{
@@ -343,6 +357,8 @@ const MaterialContent=({
             </Box>
 
 
+            {/* PROPERTIES */}
+
             <Box
                 sx={{
                     flex:1,
@@ -376,6 +392,7 @@ const MaterialContent=({
                             {value.name}
                         </Typography>
 
+
                         <Box
                             sx={{
                                 display:"flex",
@@ -388,34 +405,40 @@ const MaterialContent=({
                                 renderPropRow
                             )}
 
+
                             <Divider
                                 sx={{
                                     my:.5,
                                     borderStyle:"dashed"
                                 }}
                             />
+
 
                             {surfaceProps.map(
                                 renderPropRow
                             )}
 
+
                             <Divider
                                 sx={{
                                     my:.5,
                                     borderStyle:"dashed"
                                 }}
                             />
+
 
                             {tempProps.map(
                                 renderPropRow
                             )}
 
+
                             <Divider
                                 sx={{
                                     my:.5,
                                     borderStyle:"dashed"
                                 }}
                             />
+
 
                             {bendingProps.map(
                                 renderPropRow

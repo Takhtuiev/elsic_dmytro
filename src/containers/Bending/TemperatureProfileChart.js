@@ -1,21 +1,23 @@
-import React, {memo} from "react";
-import {Paper, useTheme} from "@mui/material";
+import React,{memo} from "react";
+import {Paper,useTheme} from "@mui/material";
 
 export const formatTime=seconds=>{
     if(!seconds||seconds<0) return "0m 00s";
+
     const totalSeconds=Math.round(seconds);
     const minutes=Math.floor(totalSeconds/60);
     const secs=totalSeconds%60;
+
     return `${minutes}m ${String(secs).padStart(2,"0")}s`;
 };
 
-export const TemperatureProfileChart=memo(({data})=>{
+export const TemperatureProfileChart=memo(({data,material})=>{
     const theme=useTheme();
 
     const temps=data?.temperatureProfile?.temperaturesC;
     const cooldownTemps=data?.temperatureProfile?.cooldownProfileC;
     const dxMm=data?.temperatureProfile?.dxMm;
-    const cooldownSec=data?.cooldownSec;
+    const cooldownSec=data?.cooldownTimeSec;
     const heatingSec=formatTime(data?.heatingTimeSeconds);
     const status=data?.status;
 
@@ -23,36 +25,125 @@ export const TemperatureProfileChart=memo(({data})=>{
 
     const width=300,height=150;
     const pad={left:36,right:16,top:27,bottom:39};
+
     const len=temps.length;
     const hasCooldown=cooldownTemps?.length===len;
+
     const wPlot=width-pad.left-pad.right;
     const hPlot=height-pad.top-pad.bottom;
+
     const xMax=(len-1)*dxMm;
     const xDelta=xMax||1;
-    const xs=x=>pad.left+(x/xDelta)*wPlot;
 
-    let minIdx=0,maxIdx=0,minV=Infinity,maxV=-Infinity;
-    let minCoolIdx=0,maxCoolIdx=0,minCoolV=Infinity,maxCoolV=-Infinity;
+    const xs=x=>
+        pad.left+(x/xDelta)*wPlot;
+
+    let minIdx=0,maxIdx=0;
+    let minV=Infinity,maxV=-Infinity;
+
+    let minCoolIdx=0,maxCoolIdx=0;
+    let minCoolV=Infinity,maxCoolV=-Infinity;
 
     for(let i=0;i<len;i++){
-        if(temps[i]<minV){minV=temps[i];minIdx=i;}
-        if(temps[i]>maxV){maxV=temps[i];maxIdx=i;}
-        if(hasCooldown&&cooldownTemps[i]<minCoolV){minCoolV=cooldownTemps[i];minCoolIdx=i;}
-        if(hasCooldown&&cooldownTemps[i]>maxCoolV){maxCoolV=cooldownTemps[i];maxCoolIdx=i;}
+        if(temps[i]<minV){
+            minV=temps[i];
+            minIdx=i;
+        }
+
+        if(temps[i]>maxV){
+            maxV=temps[i];
+            maxIdx=i;
+        }
+
+        if(hasCooldown&&cooldownTemps[i]<minCoolV){
+            minCoolV=cooldownTemps[i];
+            minCoolIdx=i;
+        }
+
+        if(hasCooldown&&cooldownTemps[i]>maxCoolV){
+            maxCoolV=cooldownTemps[i];
+            maxCoolIdx=i;
+        }
     }
 
-    const allTemps=hasCooldown?[...temps,...cooldownTemps]:temps;
-    const dataMin=Math.min(...allTemps);
-    const dataMax=Math.max(...allTemps);
+    const allTemps=[
+        ...temps,
+        ...(hasCooldown?cooldownTemps:[])
+    ];
+
+    const minFormingTemp=material?.minFormingTemp;
+    const maxFormingTemp=material?.maxFormingTemp;
+    const decompositionTemp=material?.decompositionTemp;
+
+    const hasFormingRange=
+        typeof minFormingTemp==="number"&&
+        typeof maxFormingTemp==="number"&&
+        maxFormingTemp>minFormingTemp;
+
+    const rangeTemps=[
+        ...allTemps,
+        ...(typeof minFormingTemp==="number"
+            ?[minFormingTemp]
+            :[]),
+        ...(typeof maxFormingTemp==="number"
+            ?[maxFormingTemp]
+            :[]),
+        ...(typeof decompositionTemp==="number"
+            ?[decompositionTemp]
+            :[])
+    ];
+
+    const dataMin=Math.min(...rangeTemps);
+    const dataMax=Math.max(...rangeTemps);
 
     let tMin=Math.floor(dataMin/10)*10;
     let tMax=Math.ceil(dataMax/10)*10;
 
-    if(tMax===tMin){tMin-=10;tMax+=10;}
+    if(tMax===tMin){
+        tMin-=10;
+        tMax+=10;
+    }
 
     const tDelta=tMax-tMin;
-    const ys=t=>pad.top+((tMax-t)/tDelta)*hPlot;
+
+    const ys=t=>
+        pad.top+((tMax-t)/tDelta)*hPlot;
+
     const xCenter=xs(xMax/2);
+
+    const formingTop=hasFormingRange
+        ?Math.max(
+            pad.top,
+            Math.min(
+                pad.top+hPlot,
+                ys(maxFormingTemp)
+            )
+        )
+        :null;
+
+    const formingBottom=hasFormingRange
+        ?Math.max(
+            pad.top,
+            Math.min(
+                pad.top+hPlot,
+                ys(minFormingTemp)
+            )
+        )
+        :null;
+
+    const isSameTemperature=(a,b)=>
+        typeof a==="number"&&
+        typeof b==="number"&&
+        Math.abs(a-b)<0.1;
+
+    const isSpecialTemperature=t=>
+        [
+            minFormingTemp,
+            maxFormingTemp,
+            decompositionTemp
+        ].some(boundary=>
+            isSameTemperature(boundary,t)
+        );
 
     const makePath=values=>{
         let d=`M ${xs(0)} ${ys(values[0])}`;
@@ -66,18 +157,36 @@ export const TemperatureProfileChart=memo(({data})=>{
             const x0=xs((i>0?i-1:0)*dxMm);
             const x1=xs(i*dxMm);
             const x2=xs((i+1)*dxMm);
-            const x3=xs(Math.min(i+2,values.length-1)*dxMm);
+            const x3=xs(
+                Math.min(i+2,values.length-1)*dxMm
+            );
 
-            const y0=ys(t0),y1=ys(t1),y2=ys(t2),y3=ys(t3);
+            const y0=ys(t0);
+            const y1=ys(t1);
+            const y2=ys(t2);
+            const y3=ys(t3);
 
-            d+=` C ${x1+(x2-x0)/6},${y1+(y2-y0)/6} ${x2-(x3-x1)/6},${y2-(y3-y1)/6} ${x2},${y2}`;
+            d+=` C ${
+                x1+(x2-x0)/6
+            },${
+                y1+(y2-y0)/6
+            } ${
+                x2-(x3-x1)/6
+            },${
+                y2-(y3-y1)/6
+            } ${
+                x2
+            },${
+                y2
+            }`;
         }
 
         return d;
     };
 
     const makeCurvePoints=values=>{
-        const points=[],steps=10;
+        const points=[];
+        const steps=10;
 
         for(let i=0;i<values.length-1;i++){
             const t0=values[i>0?i-1:0];
@@ -88,60 +197,125 @@ export const TemperatureProfileChart=memo(({data})=>{
             const x0=xs((i>0?i-1:0)*dxMm);
             const x1=xs(i*dxMm);
             const x2=xs((i+1)*dxMm);
-            const x3=xs(Math.min(i+2,values.length-1)*dxMm);
+            const x3=xs(
+                Math.min(i+2,values.length-1)*dxMm
+            );
 
-            const y0=ys(t0),y1=ys(t1),y2=ys(t2),y3=ys(t3);
-            const c1x=x1+(x2-x0)/6,c1y=y1+(y2-y0)/6;
-            const c2x=x2-(x3-x1)/6,c2y=y2-(y3-y1)/6;
+            const y0=ys(t0);
+            const y1=ys(t1);
+            const y2=ys(t2);
+            const y3=ys(t3);
+
+            const c1x=x1+(x2-x0)/6;
+            const c1y=y1+(y2-y0)/6;
+
+            const c2x=x2-(x3-x1)/6;
+            const c2y=y2-(y3-y1)/6;
 
             for(let s=0;s<steps;s++){
-                const u=s/steps,v=1-u;
+                const u=s/steps;
+                const v=1-u;
 
                 points.push({
-                    x:v*v*v*x1+3*v*v*u*c1x+3*v*u*u*c2x+u*u*u*x2,
-                    y:v*v*v*y1+3*v*v*u*c1y+3*v*u*u*c2y+u*u*u*y2
+                    x:
+                        v*v*v*x1+
+                        3*v*v*u*c1x+
+                        3*v*u*u*c2x+
+                        u*u*u*x2,
+
+                    y:
+                        v*v*v*y1+
+                        3*v*v*u*c1y+
+                        3*v*u*u*c2y+
+                        u*u*u*y2,
+
+                    temperature:
+                        v*v*v*t1+
+                        3*v*v*u*t1+
+                        3*v*u*u*t2+
+                        u*u*u*t2
                 });
             }
         }
 
         points.push({
             x:xs((len-1)*dxMm),
-            y:ys(values[len-1])
+            y:ys(values[len-1]),
+            temperature:values[len-1]
         });
 
         return points;
     };
 
     const dPath=makePath(temps);
-    const cooldownPath=hasCooldown?makePath(cooldownTemps):null;
+
+    const cooldownPath=hasCooldown
+        ?makePath(cooldownTemps)
+        :null;
+
     const mainCurvePoints=makeCurvePoints(temps);
-    const cooldownCurvePoints=hasCooldown?makeCurvePoints(cooldownTemps):[];
 
-    const chartColor=status?.type==="error"
-        ?theme.palette.error.main
-        :status?.type==="warning"
-            ?theme.palette.warning.main
-            :theme.palette.text.primary;
+    const cooldownCurvePoints=hasCooldown
+        ?makeCurvePoints(cooldownTemps)
+        :[];
 
+    const chartColor=theme.palette.text.primary;
     const cooldownColor=theme.palette.text.secondary;
     const minColor=theme.palette.info.main;
     const maxColor=theme.palette.error.main;
 
-    const makeLabels=(values,minI,minVal,maxI,maxVal,type)=>{
-        const color=type==="cooldown"?cooldownColor:chartColor;
+    const borderColor=
+        status?.type==="error"
+            ?theme.palette.error.main
+            :status?.type==="warning"
+                ?theme.palette.warning.main
+                :theme.palette.divider;
+
+    const makeLabels=(
+        values,
+        minI,
+        minVal,
+        maxI,
+        maxVal,
+        type
+    )=>{
+        const color=
+            type==="cooldown"
+                ?cooldownColor
+                :chartColor;
 
         const raw=[
-            {id:maxI,val:maxVal,priority:4},
-            {id:minI,val:minVal,priority:4},
-            {id:0,val:values[0],priority:2},
-            {id:len-1,val:values[len-1],priority:2}
+            {
+                id:maxI,
+                val:maxVal,
+                priority:4
+            },
+            {
+                id:minI,
+                val:minVal,
+                priority:4
+            },
+            {
+                id:0,
+                val:values[0],
+                priority:2
+            },
+            {
+                id:len-1,
+                val:values[len-1],
+                priority:2
+            }
         ];
 
-        const result=[],seen=new Set();
+        const result=[];
+        const seen=new Set();
 
-        for(const p of raw.sort((a,b)=>b.priority-a.priority)){
+        for(const p of raw.sort(
+            (a,b)=>b.priority-a.priority
+        )){
             if(!seen.has(p.id)){
                 seen.add(p.id);
+
                 result.push({
                     ...p,
                     type,
@@ -156,48 +330,130 @@ export const TemperatureProfileChart=memo(({data})=>{
     };
 
     const labels=[
-        ...makeLabels(temps,minIdx,minV,maxIdx,maxV,"main"),
-        ...(hasCooldown?makeLabels(cooldownTemps,minCoolIdx,minCoolV,maxCoolIdx,maxCoolV,"cooldown"):[])
+        ...makeLabels(
+            temps,
+            minIdx,
+            minV,
+            maxIdx,
+            maxV,
+            "main"
+        ),
+
+        ...(hasCooldown
+            ?makeLabels(
+                cooldownTemps,
+                minCoolIdx,
+                minCoolV,
+                maxCoolIdx,
+                maxCoolV,
+                "cooldown"
+            )
+            :[])
     ];
 
     const rectPointDistance=(px,py,r)=>{
-        const dx=Math.max(r.left-px,0,px-r.right);
-        const dy=Math.max(r.top-py,0,py-r.bottom);
+        const dx=Math.max(
+            r.left-px,
+            0,
+            px-r.right
+        );
+
+        const dy=Math.max(
+            r.top-py,
+            0,
+            py-r.bottom
+        );
+
         return Math.hypot(dx,dy);
     };
 
     const curveHitsLabel=(points,rect,anchor)=>{
         for(const point of points){
-            if(Math.hypot(point.x-anchor.x,point.y-anchor.y)<5) continue;
-            if(rectPointDistance(point.x,point.y,rect)<2.5) return true;
+            if(
+                Math.hypot(
+                    point.x-anchor.x,
+                    point.y-anchor.y
+                )<5
+            ){
+                continue;
+            }
+
+            if(
+                rectPointDistance(
+                    point.x,
+                    point.y,
+                    rect
+                )<2.5
+            ){
+                return true;
+            }
         }
+
         return false;
     };
 
     const candidates=[
-        {dx:0,dy:-9},{dx:0,dy:14},
-        {dx:-8,dy:-9},{dx:8,dy:-9},
-        {dx:-8,dy:14},{dx:8,dy:14},
-        {dx:-12,dy:-9},{dx:12,dy:-9},
-        {dx:-12,dy:14},{dx:12,dy:14},
-        {dx:0,dy:-16},{dx:0,dy:21}
+        {dx:0,dy:-9},
+        {dx:0,dy:14},
+        {dx:-8,dy:-9},
+        {dx:8,dy:-9},
+        {dx:-8,dy:14},
+        {dx:8,dy:14},
+        {dx:-12,dy:-9},
+        {dx:12,dy:-9},
+        {dx:-12,dy:14},
+        {dx:12,dy:14},
+        {dx:0,dy:-16},
+        {dx:0,dy:21}
     ];
 
     const placed=[];
 
-    for(const p of [...labels].sort((a,b)=>b.priority-a.priority)){
-        const textWidth=`${Math.round(p.val)}°`.length*5.2;
-        const anchor={x:p.x,y:p.y};
+    for(
+        const p of [...labels].sort(
+        (a,b)=>b.priority-a.priority
+    )
+        ){
+        const textWidth=
+            `${Math.round(p.val)}°`.length*5.2;
+
+        const anchor={
+            x:p.x,
+            y:p.y
+        };
+
         let best=null;
 
         for(const c of candidates){
-            const dx=c.dx,dy=c.dy;
-            const x=p.x+dx,y=p.y+dy;
-            const textAnchor=p.id===0?"start":p.id===len-1?"end":"middle";
+            const dx=c.dx;
+            const dy=c.dy;
 
-            const left=textAnchor==="start"?x:textAnchor==="end"?x-textWidth:x-textWidth/2;
-            const right=textAnchor==="start"?x+textWidth:textAnchor==="end"?x:x+textWidth/2;
-            const top=y-8,bottom=y+3;
+            const x=p.x+dx;
+            const y=p.y+dy;
+
+            const textAnchor=
+                p.id===0
+                    ?"start"
+                    :p.id===len-1
+                        ?"end"
+                        :"middle";
+
+            const left=
+                textAnchor==="start"
+                    ?x
+                    :textAnchor==="end"
+                        ?x-textWidth
+                        :x-textWidth/2;
+
+            const right=
+                textAnchor==="start"
+                    ?x+textWidth
+                    :textAnchor==="end"
+                        ?x
+                        :x+textWidth/2;
+
+            const top=y-8;
+            const bottom=y+3;
 
             const rect={
                 left:left-1.5,
@@ -208,42 +464,106 @@ export const TemperatureProfileChart=memo(({data})=>{
 
             let score=0;
 
-            if(left<pad.left) score+=10000+(pad.left-left)*100;
-            if(right>width-pad.right) score+=10000+(right-(width-pad.right))*100;
-            if(top<pad.top) score+=10000+(pad.top-top)*100;
-            if(bottom>height-pad.bottom) score+=10000+(bottom-(height-pad.bottom))*100;
+            if(left<pad.left){
+                score+=10000+
+                    (pad.left-left)*100;
+            }
+
+            if(right>width-pad.right){
+                score+=10000+
+                    (right-(width-pad.right))*100;
+            }
+
+            if(top<pad.top){
+                score+=10000+
+                    (pad.top-top)*100;
+            }
+
+            if(bottom>height-pad.bottom){
+                score+=10000+
+                    (bottom-(height-pad.bottom))*100;
+            }
 
             for(const q of placed){
-                if(rect.left<q.right&&rect.right>q.left&&rect.top<q.bottom&&rect.bottom>q.top) score+=100000;
-                else{
-                    const gapX=Math.max(q.left-rect.right,rect.left-q.right,0);
-                    const gapY=Math.max(q.top-rect.bottom,rect.top-q.bottom,0);
+                if(
+                    rect.left<q.right&&
+                    rect.right>q.left&&
+                    rect.top<q.bottom&&
+                    rect.bottom>q.top
+                ){
+                    score+=100000;
+                }else{
+                    const gapX=Math.max(
+                        q.left-rect.right,
+                        rect.left-q.right,
+                        0
+                    );
 
-                    if(gapX<5&&gapY<5) score+=1000;
+                    const gapY=Math.max(
+                        q.top-rect.bottom,
+                        rect.top-q.bottom,
+                        0
+                    );
+
+                    if(gapX<5&&gapY<5){
+                        score+=1000;
+                    }
                 }
             }
 
-            if(curveHitsLabel(mainCurvePoints,rect,anchor)||(hasCooldown&&curveHitsLabel(cooldownCurvePoints,rect,anchor))) score+=50000;
+            if(
+                curveHitsLabel(
+                    mainCurvePoints,
+                    rect,
+                    anchor
+                )||
+                (
+                    hasCooldown&&
+                    curveHitsLabel(
+                        cooldownCurvePoints,
+                        rect,
+                        anchor
+                    )
+                )
+            ){
+                score+=50000;
+            }
 
-            score+=Math.abs(dx)*2+Math.abs(dy)*.5;
+            score+=
+                Math.abs(dx)*2+
+                Math.abs(dy)*.5;
 
             if(p.id===0&&dx<0) score+=500;
             if(p.id===len-1&&dx>0) score+=500;
 
-            if(!best||score<best.score) best={dx,dy,score,left,right,top,bottom};
+            if(!best||score<best.score){
+                best={
+                    dx,
+                    dy,
+                    score,
+                    left,
+                    right,
+                    top,
+                    bottom
+                };
+            }
         }
 
-        placed.push({...p,...best});
+        placed.push({
+            ...p,
+            ...best
+        });
     }
 
     return(
         <Paper
             sx={{
                 border:"1px solid",
-                borderColor:status?.type==="ok"?theme.palette.divider:chartColor,
+                borderColor,
                 p:.5,
-                fontFamily:'"Roboto Mono","SF Mono",monospace"',
-                boxShadow:"none",
+                fontFamily:
+                    '"Roboto Mono","SF Mono",monospace',
+                boxShadow:"none"
             }}
         >
             <svg
@@ -252,18 +572,75 @@ export const TemperatureProfileChart=memo(({data})=>{
                 style={{display:"block"}}
                 shapeRendering="geometricPrecision"
             >
-                {Array.from({length:Math.floor((tMax-tMin)/10)+1},(_,i)=>tMin+i*10).map((t,i)=>i>0&&(
-                    <line
-                        key={t}
-                        x1={pad.left}
-                        y1={ys(t)}
-                        x2={width-pad.right}
-                        y2={ys(t)}
-                        stroke={theme.palette.divider}
-                        strokeWidth={1}
-                        strokeDasharray="4 2"
-                    />
-                ))}
+                {/* Рабочий диапазон материала */}
+                {hasFormingRange&&(
+                    <>
+                        <rect
+                            x={pad.left}
+                            y={formingTop}
+                            width={wPlot}
+                            height={
+                                formingBottom-formingTop
+                            }
+                            fill={
+                                theme.palette.success.main
+                            }
+                            opacity=".05"
+                        />
+
+                        <line
+                            x1={pad.left}
+                            y1={formingTop}
+                            x2={width-pad.right}
+                            y2={formingTop}
+                            stroke={
+                                theme.palette.success.main
+                            }
+                            strokeWidth={1}
+                            strokeDasharray="4 2"
+                            opacity="0.4"
+                        />
+
+                        <line
+                            x1={pad.left}
+                            y1={formingBottom}
+                            x2={width-pad.right}
+                            y2={formingBottom}
+                            stroke={
+                                theme.palette.success.main
+                            }
+                            strokeWidth={1}
+                            strokeDasharray="4 2"
+                            opacity="0.4"
+                        />
+                    </>
+                )}
+
+                {/* Сетка */}
+                {Array.from(
+                    {
+                        length:
+                            Math.floor(
+                                (tMax-tMin)/10
+                            )+1
+                    },
+                    (_,i)=>tMin+i*10
+                ).map((t,i)=>
+                        i>0&&
+                        !isSpecialTemperature(t)&&(
+                            <line
+                                key={t}
+                                x1={pad.left}
+                                y1={ys(t)}
+                                x2={width-pad.right}
+                                y2={ys(t)}
+                                stroke={theme.palette.divider}
+                                strokeWidth={1}
+                                strokeDasharray="4 2"
+                            />
+                        )
+                )}
+
                 <line
                     x1={xCenter}
                     y1={pad.top}
@@ -304,18 +681,88 @@ export const TemperatureProfileChart=memo(({data})=>{
                     opacity=".55"
                 />
 
+                {/* Граница разложения */}
+                {typeof decompositionTemp==="number"&&
+                    decompositionTemp>=tMin&&
+                    decompositionTemp<=tMax&&(
+                        <line
+                            x1={pad.left}
+                            y1={ys(decompositionTemp)}
+                            x2={width-pad.right}
+                            y2={ys(decompositionTemp)}
+                            stroke={
+                                theme.palette.error.main
+                            }
+                            strokeWidth={1}
+                            strokeDasharray="4 2"
+                            opacity=".5"
+                        />
+                    )
+                }
+
+                {/* Значение температуры разложения на Y axis */}
+                {typeof decompositionTemp==="number"&&
+                    decompositionTemp>=tMin&&
+                    decompositionTemp<=tMax&&(
+                        <text
+                            x={pad.left-5}
+                            y={ys(decompositionTemp)+3}
+                            textAnchor="end"
+                            fontSize={8}
+                            fontWeight="bold"
+                            fill={
+                                theme.palette.error.main
+                            }
+                        >
+                            {decompositionTemp}°
+                        </text>
+                    )
+                }
+
+                {/* Значения рабочего диапазона на Y axis */}
+                {hasFormingRange&&(
+                    <>
+                        <text
+                            x={pad.left-5}
+                            y={ys(maxFormingTemp)+3}
+                            textAnchor="end"
+                            fontSize={8}
+                            fontWeight="bold"
+                            fill={
+                                theme.palette.success.main
+                            }
+                        >
+                            {maxFormingTemp}°
+                        </text>
+
+                        <text
+                            x={pad.left-5}
+                            y={ys(minFormingTemp)+3}
+                            textAnchor="end"
+                            fontSize={8}
+                            fontWeight="bold"
+                            fill={
+                                theme.palette.success.main
+                            }
+                        >
+                            {minFormingTemp}°
+                        </text>
+                    </>
+                )}
+
+                {/* Cooling */}
                 {hasCooldown&&(
                     <path
                         d={cooldownPath}
                         fill="none"
                         stroke={cooldownColor}
                         strokeWidth={1}
-                        opacity=".5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                     />
                 )}
 
+                {/* Heating — основная линия */}
                 <path
                     d={dPath}
                     fill="none"
@@ -325,28 +772,69 @@ export const TemperatureProfileChart=memo(({data})=>{
                     strokeLinejoin="round"
                 />
 
+                {/* Точки и значения */}
                 {placed.map(p=>{
-                    const isMin=p.id===(p.type==="cooldown"?minCoolIdx:minIdx);
-                    const isMax=p.id===(p.type==="cooldown"?maxCoolIdx:maxIdx);
-                    const pointColor=isMin?minColor:isMax?maxColor:p.color;
+                    const isMin=
+                        p.id===(
+                            p.type==="cooldown"
+                                ?minCoolIdx
+                                :minIdx
+                        );
+
+                    const isMax=
+                        p.id===(
+                            p.type==="cooldown"
+                                ?maxCoolIdx
+                                :maxIdx
+                        );
+
+                    const pointColor=
+                        isMin
+                            ?minColor
+                            :isMax
+                                ?maxColor
+                                :p.color;
 
                     return(
-                        <g key={`${p.type}-${p.id}`}>
+                        <g
+                            key={`${p.type}-${p.id}`}
+                        >
                             <circle
                                 cx={p.x}
                                 cy={p.y}
-                                r={p.type==="cooldown"?2.5:3}
+                                r={
+                                    p.type==="cooldown"
+                                        ?2.5
+                                        :3
+                                }
                                 fill={pointColor}
-                                stroke={theme.palette.background.paper}
+                                stroke={
+                                    theme.palette
+                                        .background.paper
+                                }
                                 strokeWidth={1}
-                                opacity={p.type==="cooldown"?.5:1}
+                                opacity={
+                                    p.type==="cooldown"
+                                        ?.5
+                                        :1
+                                }
                             />
 
                             <text
                                 x={p.x}
                                 y={p.y+p.dy}
-                                textAnchor={p.id===0?"start":p.id===len-1?"end":"middle"}
-                                fontSize={p.type==="cooldown"?8.5:9}
+                                textAnchor={
+                                    p.id===0
+                                        ?"start"
+                                        :p.id===len-1
+                                            ?"end"
+                                            :"middle"
+                                }
+                                fontSize={
+                                    p.type==="cooldown"
+                                        ?8.5
+                                        :9
+                                }
                                 fontWeight="bold"
                                 fill={p.color}
                             >
@@ -356,6 +844,7 @@ export const TemperatureProfileChart=memo(({data})=>{
                     );
                 })}
 
+                {/* Заголовок */}
                 <text
                     x={xCenter}
                     y={14}
@@ -364,29 +853,49 @@ export const TemperatureProfileChart=memo(({data})=>{
                     fontWeight="bold"
                     fill={chartColor}
                 >
-                    Heating: {heatingSec} (ΔT = {(maxV-minV).toFixed(1)}°C)
+                    Heating: {heatingSec} (ΔT = {
+                    (maxV-minV).toFixed(1)
+                }°C)
                 </text>
 
-                <text
-                    x={pad.left-5}
-                    y={pad.top+3}
-                    textAnchor="end"
-                    fontSize={8.5}
-                    fill={theme.palette.text.secondary}
-                >
-                    {tMax}°
-                </text>
+                {/* Y axis */}
+                {![
+                    minFormingTemp,
+                    maxFormingTemp,
+                    decompositionTemp
+                ].some(t=>
+                    isSameTemperature(t,tMax)
+                )&&(
+                    <text
+                        x={pad.left-5}
+                        y={pad.top+3}
+                        textAnchor="end"
+                        fontSize={8.5}
+                        fill={theme.palette.text.secondary}
+                    >
+                        {tMax}°
+                    </text>
+                )}
 
-                <text
-                    x={pad.left-5}
-                    y={height-pad.bottom+3}
-                    textAnchor="end"
-                    fontSize={8.5}
-                    fill={theme.palette.text.secondary}
-                >
-                    {tMin}°
-                </text>
+                {![
+                    minFormingTemp,
+                    maxFormingTemp,
+                    decompositionTemp
+                ].some(t=>
+                    isSameTemperature(t,tMin)
+                )&&(
+                    <text
+                        x={pad.left-5}
+                        y={height-pad.bottom+3}
+                        textAnchor="end"
+                        fontSize={8.5}
+                        fill={theme.palette.text.secondary}
+                    >
+                        {tMin}°
+                    </text>
+                )}
 
+                {/* X axis */}
                 <text
                     x={pad.left}
                     y={height-22}
@@ -407,6 +916,7 @@ export const TemperatureProfileChart=memo(({data})=>{
                     {xMax.toFixed(0)} mm
                 </text>
 
+                {/* Cooling time */}
                 {typeof cooldownSec==="number"&&(
                     <text
                         x={xCenter}
@@ -416,7 +926,13 @@ export const TemperatureProfileChart=memo(({data})=>{
                         fontWeight="500"
                         fill={theme.palette.text.secondary}
                     >
-                        Cooling: {cooldownSec}s{hasCooldown&&` (ΔT = ${(maxCoolV-minCoolV).toFixed(1)}°C)`}
+                        Pause: {cooldownSec}s
+                        {hasCooldown&&
+                            ` (ΔT = ${
+                                (maxCoolV-minCoolV)
+                                    .toFixed(1)
+                            }°C)`
+                        }
                     </text>
                 )}
             </svg>

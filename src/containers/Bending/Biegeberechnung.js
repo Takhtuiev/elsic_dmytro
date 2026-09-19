@@ -62,11 +62,14 @@ const INITIAL_STATE={
     simulation:{
         target:{
             type:"minTemperature",
-            value:MATERIALS["PVC_CAW_RED"]?.defaultTCenter??115
+            value:(MATERIALS["PVC_CAW_RED"]?.minFormingTemp + MATERIALS["PVC_CAW_RED"]?.maxFormingTemp)/2
         },
         ambientTemperatureC:20,
         ambientRadiationTemperatureC:20,
         initialTemperatureC:20,
+
+        stopAtMaxTemperature:false,
+
         maxTimeSeconds:1800,
         cooldownTimeSeconds:10
     },

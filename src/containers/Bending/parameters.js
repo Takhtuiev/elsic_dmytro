@@ -55,56 +55,58 @@ export const MACHINES = {
 
 
 export const MATERIALS = {
-
     PVC_CAW_RED: {
-        name: "PVC-CAW Red",
+        name: "SIMONA® PVC-CAW Red",
 
-        density: 1380,
-        thermalConductivity: 0.15,
-        specificHeat: 1000,
+        density: 1380,              // кг/м³
+        thermalConductivity: 0.15,  // Вт/(м·К)
+        specificHeat: 1000,         // Дж/(кг·К)
 
         emissivity: 0.93,
-        surfaceReflectance: 0,
+        surfaceReflectance: 0.07,
 
-        defaultTSurf: 160,
-        defaultTCenter: 130,
-        decompositionTemp: 180,
+        glassTransitionTemp: 80,    // °C (ниже материал хрупкий)
+        minFormingTemp: 110,        // °C (нижняя граница формования)
+        maxFormingTemp: 140,        // °C (верхняя граница формования)
+        decompositionTemp: 150,     // °C (порог перегрева/брака поверхности)
 
-        kFactor:0.40,
+        kFactor: 0.40,
     },
 
     PVC_CAW_DARK_GREY: {
-        name: "PVC-CAW Grey",
+        name: "SIMONA® PVC-CAW Dark Grey",
 
-        density: 1380,
-        thermalConductivity: 0.15,
-        specificHeat: 1000,
+        density: 1380,              // кг/м³
+        thermalConductivity: 0.15,  // Вт/(м·К)
+        specificHeat: 1000,         // Дж/(кг·К)
 
         emissivity: 0.93,
-        surfaceReflectance: 0,
+        surfaceReflectance: 0.07,
 
-        defaultTSurf: 160,
-        defaultTCenter: 130,
-        decompositionTemp: 180,
+        glassTransitionTemp: 80,    // °C
+        minFormingTemp: 110,        // °C
+        maxFormingTemp: 140,        // °C
+        decompositionTemp: 150,     // °C
 
-        kFactor:0.40,
+        kFactor: 0.40,
     },
 
-    PVC_CAW_TRANSPARENT: {
-        name: "PVC Transparent",
+    PVC_GLAS: {
+        name: "SIMONA® PVC-GLAS",
 
-        density: 1390,
-        thermalConductivity: 0.15,
-        specificHeat: 1000,
+        density: 1370,              // кг/м³
+        thermalConductivity: 0.15,  // Вт/(м·К)
+        specificHeat: 1000,         // Дж/(кг·К)
 
-        emissivity: 0.89,
-        surfaceReflectance: 0,
+        emissivity: 0.92,
+        surfaceReflectance: 0.08,
 
-        defaultTSurf: 165,
-        defaultTCenter: 130,
-        decompositionTemp: 180,
+        glassTransitionTemp: 80,    // °C
+        minFormingTemp: 115,        // °C (более узкий диапазон для сохранения прозрачности)
+        maxFormingTemp: 135,        // °C
+        decompositionTemp: 145,     // °C (порог помутнения и образования пузырьков)
 
-        kFactor:0.40,
+        kFactor: 0.40,
     },
 
     POLYCARBONATE_STANDARD: {

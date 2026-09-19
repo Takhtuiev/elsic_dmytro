@@ -59,6 +59,7 @@ const makeError=(message,extra={})=>({
     status:{type:"error",message},
     heatingTimeSeconds:0,
     reachedTarget:false,
+    stoppedByMaxTemperature:false,
     temperatureProfile:[],
     ...extra
 });
@@ -120,9 +121,9 @@ function createGrid(thicknessM,requestedDxM){
  * THERMAL PHYSICS MODEL
  * ========================= */
 export function getHeaterTemperatureC({
-    side,
-    ambientTemperatureC
-}){
+                                          side,
+                                          ambientTemperatureC
+                                      }){
     const regulatorTemperatureC=
         Number.isFinite(side.regulatorTemperatureC)
             ?side.regulatorTemperatureC
@@ -137,10 +138,10 @@ export function getHeaterTemperatureC({
 }
 
 export function calculateIncidentHeaterFlux({
-    side,
-    surfaceTemperatureC,
-    ambientTemperatureC=20
-}){
+                                                side,
+                                                surfaceTemperatureC,
+                                                ambientTemperatureC=20
+                                            }){
     if(!side.enabled)
         return 0;
 
@@ -191,11 +192,11 @@ export function calculateIncidentHeaterFlux({
 }
 
 export function calculateEffectiveIncidentFlux({
-    side,
-    material,
-    surfaceTemperatureC,
-    ambientTemperatureC=20
-}){
+                                                   side,
+                                                   material,
+                                                   surfaceTemperatureC,
+                                                   ambientTemperatureC=20
+                                               }){
     const incidentWm2=calculateIncidentHeaterFlux({
         side,
         surfaceTemperatureC,
@@ -309,10 +310,20 @@ const getLinearizedFluxParams=(
             :1
     );
 
+    const denomH=
+        epsH+
+        sheetEmissivity-
+        epsH*
+        sheetEmissivity;
+
+    const epsEffH=
+        denomH>0
+            ?(epsH*sheetEmissivity)/denomH
+            :0;
+
     const radA=
         gain*
-        epsH*
-        sheetEmissivity*
+        epsEffH*
         fH*
         SIGMA;
 
@@ -465,27 +476,31 @@ function isTargetReached(
  * HEATING
  * ========================= */
 export function simulateHeating({
-    nodeCount,
-    dx,
-    dt,
-    matModel,
-    topSide,
-    botSide,
-    ambT,
-    ambRadT,
-    epsS,
-    targetType,
-    targetValue,
-    targetK,
-    decompTempK,
-    maxTimeSeconds=1800,
-    sampleEverySeconds=1,
-    storeHistory=false,
-    initialTemperatureC=20,
-    buffers=null
-}){
+                                    nodeCount,
+                                    dx,
+                                    dt,
+                                    matModel,
+                                    topSide,
+                                    botSide,
+                                    ambT,
+                                    ambRadT,
+                                    epsS,
+                                    targetType,
+                                    targetValue,
+                                    targetK,
+                                    decompTempK,
+                                    maxFormingTempK,
+                                    stopAtMaxTemperature=false,
+                                    maxTimeSeconds=1800,
+                                    sampleEverySeconds=1,
+                                    storeHistory=false,
+                                    initialTemperatureC=20,
+                                    buffers=null
+                                }){
     let status=null;
     let time=0;
+    let stoppedByMaxTemperature=false;
+    let decompositionReached=false;
 
     const simulationMaxTime=
         targetType==="time"&&
@@ -610,7 +625,7 @@ export function simulateHeating({
             const invVolTop=
                 1/
                 (propsTop.density*
-                 propsTop.cp);
+                    propsTop.cp);
 
             const factorTop=
                 2*
@@ -650,7 +665,7 @@ export function simulateHeating({
             const invVolBot=
                 1/
                 (propsBot.density*
-                 propsBot.cp);
+                    propsBot.cp);
 
             const factorBot=
                 2*
@@ -715,59 +730,128 @@ export function simulateHeating({
         }
 
         /* =========================
-         * DEGRADATION
+         * MAXIMUM FORMING TEMPERATURE
          * ========================= */
         if(
-            decompTempK&&
-            (
-                T[0]>=decompTempK||
-                T[last]>=decompTempK
-            )
+            stopAtMaxTemperature===true&&
+            maxFormingTempK!=null
         ){
             let fraction=1;
-
-            if(
-                T[0]>=decompTempK&&
-                T[0]!==oldT[0]
-            ){
-                const f=
-                    (decompTempK-oldT[0])/
-                    (T[0]-oldT[0]);
-
-                if(f>=0&&f<fraction)
-                    fraction=f;
-            }
-
-            if(
-                T[last]>=decompTempK&&
-                T[last]!==oldT[last]
-            ){
-                const f=
-                    (decompTempK-oldT[last])/
-                    (T[last]-oldT[last]);
-
-                if(f>=0&&f<fraction)
-                    fraction=f;
-            }
-
-            time+=fraction*dt;
+            let reached=false;
 
             for(let i=0;i<nodeCount;i++){
-                T[i]=
-                    oldT[i]+
-                    fraction*
-                    (T[i]-oldT[i]);
+                if(
+                    oldT[i]<maxFormingTempK&&
+                    T[i]>=maxFormingTempK
+                ){
+                    const dT=
+                        T[i]-oldT[i];
+
+                    if(dT>0){
+                        const f=
+                            (maxFormingTempK-oldT[i])/
+                            dT;
+
+                        if(
+                            f>=0&&
+                            f<fraction
+                        ){
+                            fraction=f;
+                        }
+
+                        reached=true;
+                    }
+                }
             }
 
-            pushHistory();
+            if(reached){
+                time+=fraction*dt;
 
-            status={
-                type:"error",
-                message:
-                    `Degradation! Surface > ${(decompTempK-273.15).toFixed(0)}°C.`
-            };
+                for(let i=0;i<nodeCount;i++){
+                    T[i]=
+                        oldT[i]+
+                        fraction*
+                        (T[i]-oldT[i]);
+                }
 
-            break;
+                pushHistory();
+
+                stoppedByMaxTemperature=true;
+
+                status={
+                    type:"ok",
+                    message:
+                        `Maximum forming temperature ${(maxFormingTempK-273.15).toFixed(0)}°C reached.`
+                };
+
+                break;
+            }
+        }
+
+        /* =========================
+         * DECOMPOSITION
+         * ========================= */
+        if(
+            decompTempK!=null&&
+            !decompositionReached
+        ){
+            let fraction=1;
+            let reached=false;
+
+            for(let i=0;i<nodeCount;i++){
+                if(
+                    oldT[i]<decompTempK&&
+                    T[i]>=decompTempK
+                ){
+                    const dT=
+                        T[i]-oldT[i];
+
+                    if(dT>0){
+                        const f=
+                            (decompTempK-oldT[i])/
+                            dT;
+
+                        if(
+                            f>=0&&
+                            f<fraction
+                        ){
+                            fraction=f;
+                        }
+
+                        reached=true;
+                    }
+                }
+
+                if(oldT[i]>=decompTempK){
+                    fraction=0;
+                    reached=true;
+                }
+            }
+
+            if(reached){
+                decompositionReached=true;
+
+                status={
+                    type:"error",
+                    message:
+                        `Degradation! Surface > ${(decompTempK-273.15).toFixed(0)}°C.`
+                };
+
+                if(stopAtMaxTemperature===true){
+                    time+=fraction*dt;
+
+                    for(let i=0;i<nodeCount;i++){
+                        T[i]=
+                            oldT[i]+
+                            fraction*
+                            (T[i]-oldT[i]);
+                    }
+
+                    pushHistory();
+
+                    break;
+                }
+            }
         }
 
         /* =========================
@@ -920,6 +1004,7 @@ export function simulateHeating({
     }
 
     if(
+        !stoppedByMaxTemperature&&
         !reachedTarget&&
         time>=simulationMaxTime
     ){
@@ -942,6 +1027,7 @@ export function simulateHeating({
         temperatureProfileK:new Float64Array(T),
         heatingTimeSeconds:time,
         reachedTarget,
+        stoppedByMaxTemperature,
         status,
         history,
         buffers:bufs
@@ -952,19 +1038,19 @@ export function simulateHeating({
  * COOLDOWN
  * ========================= */
 export function simulateCooldown({
-    initialProfileK,
-    nodeCount,
-    dx,
-    dt,
-    matModel,
-    epsS,
-    ambT,
-    ambRadT,
-    cooldownTimeSeconds=10,
-    maxNonlinearIterations=3,
-    nonlinearToleranceK=0.1,
-    buffers
-}){
+                                     initialProfileK,
+                                     nodeCount,
+                                     dx,
+                                     dt,
+                                     matModel,
+                                     epsS,
+                                     ambT,
+                                     ambRadT,
+                                     cooldownTimeSeconds=10,
+                                     maxNonlinearIterations=3,
+                                     nonlinearToleranceK=0.1,
+                                     buffers
+                                 }){
     let cooldownTime=0;
 
     const lower=buffers.lower;
@@ -1022,7 +1108,7 @@ export function simulateCooldown({
     while(
         cooldownTime<
         cooldownTimeSeconds
-    ){
+        ){
         oldT_cool.set(T_cool);
 
         let converged=false;
@@ -1175,7 +1261,7 @@ export function simulateCooldown({
         temperatureProfileK:
             new Float64Array(T_cool),
         cooldownTimeSeconds:
-            cooldownTime
+        cooldownTime
     };
 }
 
@@ -1183,17 +1269,17 @@ export function simulateCooldown({
  * MAIN SIMULATION
  * ========================= */
 export function simulate1DHeating({
-    thicknessMm,
-    material,
-    machine,
-    simulation,
-    sides="both",
-    dxMm,
-    dtSeconds,
-    sampleEverySeconds=1,
-    storeHistory=false,
-    includeBreakdown=false
-}){
+                                      thicknessMm,
+                                      material,
+                                      machine,
+                                      simulation,
+                                      sides="both",
+                                      dxMm,
+                                      dtSeconds,
+                                      sampleEverySeconds=1,
+                                      storeHistory=false,
+                                      includeBreakdown=false
+                                  }){
     let status=null;
 
     if(!simulation){
@@ -1249,6 +1335,17 @@ export function simulate1DHeating({
         )
             ?Number(simulation.cooldownTimeSeconds)
             :10;
+
+    const stopAtMaxTemperature=
+        simulation.stopAtMaxTemperature===true;
+
+    const maxFormingTemp=
+        Number(material?.maxFormingTemp);
+
+    const maxFormingTempK=
+        Number.isFinite(maxFormingTemp)
+            ?toKelvin(maxFormingTemp)
+            :null;
 
     const dt=
         Number.isFinite(Number(dtSeconds))&&
@@ -1307,6 +1404,17 @@ export function simulate1DHeating({
             type:"error",
             message:
                 "Target time must be greater than 0."
+        };
+    }
+
+    if(
+        stopAtMaxTemperature&&
+        maxFormingTempK===null
+    ){
+        status={
+            type:"error",
+            message:
+                "Maximum forming temperature is not defined for the material."
         };
     }
 
@@ -1442,6 +1550,9 @@ export function simulate1DHeating({
         targetK,
         decompTempK,
 
+        maxFormingTempK,
+        stopAtMaxTemperature,
+
         maxTimeSeconds,
         sampleEverySeconds,
         storeHistory,
@@ -1481,10 +1592,10 @@ export function simulate1DHeating({
         cooldownTimeSeconds,
 
         maxNonlinearIterations:
-            MAX_NONLINEAR_ITERATIONS,
+        MAX_NONLINEAR_ITERATIONS,
 
         nonlinearToleranceK:
-            NONLINEAR_TOLERANCE_K,
+        NONLINEAR_TOLERANCE_K,
 
         buffers
     });
@@ -1531,15 +1642,9 @@ export function simulate1DHeating({
     }
 
     const res={
-        simulation,
+        heatingTimeSeconds: heating.heatingTimeSeconds,
 
-        heatingTimeSeconds:
-            heating.heatingTimeSeconds,
-
-        cooldownSec:
-            cooldownTimeSeconds,
-
-        cooldownTimeSeconds,
+        cooldownTimeSec: cooldownTimeSeconds,
 
         heaterTemperaturesC:{
             top:
@@ -1551,24 +1656,26 @@ export function simulate1DHeating({
                 null
         },
 
-        reachedTarget:
-            heating.reachedTarget,
+        reachedTarget: heating.reachedTarget,
+
+        stoppedByMaxTemperature:
+        heating.stoppedByMaxTemperature,
 
         status,
 
         temperatureProfile:{
             temperaturesC:
-                heatingProfileC,
+            heatingProfileC,
 
             cooldownProfileC:
-                cooldownProfileC,
+            cooldownProfileC,
 
             dxMm:
                 dx*1000
         },
 
         history:
-            heating.history
+        heating.history
     };
 
     if(includeBreakdown){
@@ -1577,8 +1684,8 @@ export function simulate1DHeating({
             k=0.16,
             cp=1000
         }=
-            matModel?.get(centerC)||
-            {};
+        matModel?.get(centerC)||
+        {};
 
         const diff=
             k/(density*cp);
@@ -1606,23 +1713,23 @@ export function simulate1DHeating({
                 diff,
 
             thermalDiffusivityM2s:
-                diff,
+            diff,
 
             numericalControl:{
                 gridCellsPerThickness:
-                    GRID_CELLS_PER_THICKNESS,
+                GRID_CELLS_PER_THICKNESS,
 
                 minDxMm:
-                    MIN_DX_MM,
+                MIN_DX_MM,
 
                 maxDxMm:
-                    MAX_DX_MM,
+                MAX_DX_MM,
 
                 nonlinearIterations:
-                    MAX_NONLINEAR_ITERATIONS,
+                MAX_NONLINEAR_ITERATIONS,
 
                 nonlinearToleranceK:
-                    NONLINEAR_TOLERANCE_K,
+                NONLINEAR_TOLERANCE_K,
 
                 fourierNumber:
                     diff*
@@ -1637,13 +1744,18 @@ export function simulate1DHeating({
                 },
 
                 ambientTemperatureC:
-                    ambT,
+                ambT,
 
                 ambientRadiationTemperatureC:
-                    ambRadT,
+                ambRadT,
 
                 initialTemperatureC:
-                    initT,
+                initT,
+
+                stopAtMaxTemperature,
+
+                maxFormingTemperatureC:
+                maxFormingTemp,
 
                 maxTimeSeconds,
 
@@ -1655,19 +1767,22 @@ export function simulate1DHeating({
                 value:targetValue,
 
                 actualCenterC:
-                    centerC,
+                centerC,
 
                 actualMinTemperatureC:
-                    minTemperatureC,
+                minTemperatureC,
 
                 actualFrontSurfaceC:
-                    frontC,
+                frontC,
 
                 actualBackSurfaceC:
-                    backC,
+                backC,
+
+                maxFormingTemperatureC:
+                maxFormingTemp,
 
                 decompositionC:
-                    decompTemp
+                decompTemp
             },
 
             heatBalance:{
@@ -1733,13 +1848,13 @@ export function simulate1DHeating({
  * ERROR ANALYSIS
  * ========================= */
 export function calculateFitError({
-    simulation,
-    measurements,
-    weights={
-        surface:1,
-        center:1
-    }
-}){
+                                      simulation,
+                                      measurements,
+                                      weights={
+                                          surface:1,
+                                          center:1
+                                      }
+                                  }){
     if(
         !measurements?.length||
         !simulation?.history?.length
@@ -1863,23 +1978,23 @@ export function calculateFitError({
  * CALIBRATION
  * ========================= */
 export function fitHeatingParameters({
-    thicknessMm,
-    material,
-    machine,
-    simulation,
-    sides="both",
-    measurements,
+                                         thicknessMm,
+                                         material,
+                                         machine,
+                                         simulation,
+                                         sides="both",
+                                         measurements,
 
-    initial={
-        radiationGain:1,
-        heatTransferCoefficient:10
-    },
+                                         initial={
+                                             radiationGain:1,
+                                             heatTransferCoefficient:10
+                                         },
 
-    bounds={
-        radiationGain:[0.05,5],
-        heatTransferCoefficient:[2,40]
-    }
-}){
+                                         bounds={
+                                             radiationGain:[0.05,5],
+                                             heatTransferCoefficient:[2,40]
+                                         }
+                                     }){
     const validTimes=
         measurements
             .map(
@@ -1900,10 +2015,14 @@ export function fitHeatingParameters({
 
     const baseSimulation={
         ...(simulation||{}),
+
+        stopAtMaxTemperature:false,
+
         target:{
             type:"time",
             value:maxMTime
         },
+
         maxTimeSeconds:
             Math.max(
                 Number(
@@ -1918,7 +2037,7 @@ export function fitHeatingParameters({
             ...machine,
 
             heatTransferCoefficient:
-                htc,
+            htc,
 
             heaters:
                 machine.heaters.map(
@@ -1971,7 +2090,7 @@ export function fitHeatingParameters({
     while(
         stepRg>eps||
         stepHtc>eps
-    ){
+        ){
         let improved=false;
 
         const dirs=[
@@ -1986,7 +2105,7 @@ export function fitHeatingParameters({
         for(
             const [dRg,dHtc]
             of dirs
-        ){
+            ){
             const nRg=clamp(
                 bestRg+dRg,
                 bounds.radiationGain[0],

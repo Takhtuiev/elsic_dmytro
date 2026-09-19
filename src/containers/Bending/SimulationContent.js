@@ -1,10 +1,8 @@
 import React,{useEffect,useState} from "react";
 import {
     Box,
-    Paper,
     Typography,
     Radio,
-    Divider,
     TextField,
     InputAdornment,
     FormControlLabel,
@@ -46,25 +44,16 @@ const environmentProps=[
         key:"initialTemperatureC",
         label:"Initial temperature",
         unit:"°C"
-    },
-    {
-        key:"maxTimeSeconds",
-        label:"Maximum simulation time",
-        unit:"s"
-    },
-    {
-        key:"cooldownTimeSeconds",
-        label:"Cooldown time",
-        unit:"s"
     }
 ];
 
 
 const SimulationContent=({
-                             value={},
-                             onChange
-                         })=>{
+    value={},
+    onChange
+})=>{
     const [linkTemperatures,setLinkTemperatures]=useState(true);
+
 
     useEffect(()=>{
         const ambient=
@@ -95,6 +84,17 @@ const SimulationContent=({
         )||targetTypes[0];
 
 
+    const stopAtMaxTemperature=
+        value?.stopAtMaxTemperature??true;
+
+
+    const maxTimeSeconds=
+        value?.maxTimeSeconds??600;
+
+    const cooldownTimeSeconds=
+        value?.cooldownTimeSeconds??0;
+
+
     const handleTargetTypeChange=type=>{
         onChange?.({
             ...value,
@@ -119,6 +119,14 @@ const SimulationContent=({
                 type:targetType,
                 value:nextValue
             }
+        });
+    };
+
+
+    const handleStopAtMaxTemperatureChange=event=>{
+        onChange?.({
+            ...value,
+            stopAtMaxTemperature:event.target.checked
         });
     };
 
@@ -150,7 +158,7 @@ const SimulationContent=({
     };
 
 
-    const handleNumberChange=key=>event=>{
+    const handleMaxTimeChange=event=>{
         const nextValue=
             event.target.value===""
                 ?""
@@ -158,7 +166,20 @@ const SimulationContent=({
 
         onChange?.({
             ...value,
-            [key]:nextValue
+            maxTimeSeconds:nextValue
+        });
+    };
+
+
+    const handleCooldownTimeChange=event=>{
+        const nextValue=
+            event.target.value===""
+                ?""
+                :Number(event.target.value);
+
+        onChange?.({
+            ...value,
+            cooldownTimeSeconds:nextValue
         });
     };
 
@@ -184,115 +205,288 @@ const SimulationContent=({
     return(
         <Box
             sx={{
-                p:0,
+                p:2,
                 display:"flex",
                 flexDirection:{xs:"column",md:"row"},
-                minHeight:{md:"400px"}
+                gap:2
             }}
         >
+
+            {/* LEFT */}
 
             <Box
                 sx={{
                     flex:1,
-                    minHeight:{xs:"auto",md:"20rem"},
                     display:"flex",
                     flexDirection:"column",
-                    borderRight:{md:"1px solid"},
-                    borderBottom:{
-                        xs:"1px solid",
-                        md:"none"
-                    },
-                    borderColor:"divider",
-                    p:2
+                    gap:1.5
                 }}
             >
 
-                <Typography
-                    variant="subtitle1"
-                    fontWeight={700}
-                    sx={{mb:1}}
-                >
-                    Target
-                </Typography>
+                {/* TARGET */}
 
                 <Box
                     sx={{
+                        border:1,
+                        borderColor:"divider",
+                        borderRadius:2,
+                        p:2,
                         display:"flex",
                         flexDirection:"column",
-                        gap:.5
+                        gap:2
                     }}
                 >
 
-                    {targetTypes.map(item=>{
+                    <Box
+                        sx={{
+                            display:"flex",
+                            alignItems:"center",
+                            justifyContent:"space-between",
+                            gap:2
+                        }}
+                    >
 
-                        const isSel=
-                            targetType===item.key;
+                        <Typography
+                            variant="subtitle1"
+                            fontWeight={700}
+                        >
+                            Target
+                        </Typography>
 
-                        return(
-                            <Paper
-                                key={item.key}
-                                variant="outlined"
-                                onClick={()=>
-                                    handleTargetTypeChange(
-                                        item.key
+                        <TextField
+                            label="Value"
+                            value={targetValue}
+                            onChange={handleTargetValueChange}
+                            type="number"
+                            size="small"
+                            sx={{
+                                width:140
+                            }}
+                            slotProps={{
+                                htmlInput:{
+                                    min:0
+                                },
+                                input:{
+                                    endAdornment:(
+                                        <InputAdornment position="end">
+                                            {target.unit}
+                                        </InputAdornment>
                                     )
                                 }
-                                sx={{
-                                    p:1,
-                                    display:"flex",
-                                    alignItems:"center",
-                                    cursor:"pointer",
-                                    borderRadius:1.5,
-                                    borderColor:isSel
-                                        ?"primary.main"
-                                        :"divider",
-                                    bgcolor:isSel
-                                        ?"action.selected"
-                                        :"background.paper",
-                                    "&:hover":{
-                                        bgcolor:
-                                            "action.hover"
-                                    }
-                                }}
-                            >
+                            }}
+                        />
 
-                                <Radio
-                                    checked={isSel}
-                                    size="small"
+                    </Box>
+
+
+                    <Box
+                        sx={{
+                            display:"flex",
+                            flexDirection:"column",
+                            gap:.75
+                        }}
+                    >
+
+                        {targetTypes.map(item=>{
+
+                            const isSel=
+                                targetType===item.key;
+
+                            return(
+                                <Box
+                                    key={item.key}
+                                    onClick={()=>
+                                        handleTargetTypeChange(
+                                            item.key
+                                        )
+                                    }
                                     sx={{
-                                        p:0,
-                                        mr:1
+                                        p:1,
+                                        display:"flex",
+                                        alignItems:"center",
+                                        cursor:"pointer",
+                                        border:1,
+                                        borderRadius:1.5,
+                                        borderColor:isSel
+                                            ?"primary.main"
+                                            :"divider",
+                                        bgcolor:isSel
+                                            ?"action.selected"
+                                            :"transparent",
+                                        "&:hover":{
+                                            bgcolor:"action.hover"
+                                        }
                                     }}
-                                />
-
-                                <Typography
-                                    variant="body2"
-                                    fontWeight={
-                                        isSel?600:400
-                                    }
                                 >
-                                    {item.label}
-                                </Typography>
 
-                            </Paper>
-                        );
-                    })}
+                                    <Radio
+                                        checked={isSel}
+                                        size="small"
+                                        sx={{
+                                            p:0,
+                                            mr:1
+                                        }}
+                                    />
+
+                                    <Typography
+                                        variant="body2"
+                                        fontWeight={
+                                            isSel?600:400
+                                        }
+                                    >
+                                        {item.label}
+                                    </Typography>
+
+                                </Box>
+                            );
+                        })}
+
+                    </Box>
 
                 </Box>
 
-                <Divider
+
+                {/* STOP CONDITION */}
+
+                <FormControlLabel
+                    control={
+                        <Switch
+                            size="small"
+                            checked={stopAtMaxTemperature}
+                            onChange={
+                                handleStopAtMaxTemperatureChange
+                            }
+                        />
+                    }
+                    label="Stop at maximum temperature"
                     sx={{
-                        my:2,
-                        borderStyle:"dashed"
+                        mx:1,
+                        my:0
                     }}
                 />
 
+            </Box>
+
+
+            {/* RIGHT */}
+
+            <Box
+                sx={{
+                    flex:1,
+                    display:"flex",
+                    flexDirection:"column",
+                    gap:2
+                }}
+            >
+
+                {/* TEMPERATURES */}
+
+                <Box
+                    sx={{
+                        border:1,
+                        borderColor:"divider",
+                        borderRadius:2,
+                        p:2
+                    }}
+                >
+
+                    <Box
+                        sx={{
+                            display:"flex",
+                            alignItems:"center",
+                            justifyContent:"space-between",
+                            mb:1.5
+                        }}
+                    >
+
+                        <Typography
+                            variant="body2"
+                            fontWeight={600}
+                        >
+                            Temperatures
+                        </Typography>
+
+                        <FormControlLabel
+                            control={
+                                <Switch
+                                    size="small"
+                                    checked={linkTemperatures}
+                                    onChange={
+                                        handleLinkChange
+                                    }
+                                />
+                            }
+                            label="Link"
+                            sx={{
+                                m:0,
+                                "& .MuiFormControlLabel-label":{
+                                    fontSize:"0.8rem"
+                                }
+                            }}
+                        />
+
+                    </Box>
+
+
+                    <Box
+                        sx={{
+                            display:"flex",
+                            flexDirection:"column",
+                            gap:1.5
+                        }}
+                    >
+
+                        {environmentProps.map(item=>(
+                            <TextField
+                                key={item.key}
+                                label={item.label}
+                                value={
+                                    value?.[item.key]??""
+                                }
+                                onChange={
+                                    handleTemperatureChange(
+                                        item.key
+                                    )
+                                }
+                                type="number"
+                                size="small"
+                                fullWidth
+                                disabled={
+                                    linkTemperatures &&
+                                    (
+                                        item.key===
+                                        "ambientRadiationTemperatureC" ||
+                                        item.key===
+                                        "initialTemperatureC"
+                                    )
+                                }
+                                slotProps={{
+                                    htmlInput:{
+                                        min:0
+                                    },
+                                    input:{
+                                        endAdornment:(
+                                            <InputAdornment
+                                                position="end"
+                                            >
+                                                {item.unit}
+                                            </InputAdornment>
+                                        )
+                                    }
+                                }}
+                            />
+                        ))}
+
+                    </Box>
+
+                </Box>
+
+                {/* COOLDOWN TIME */}
+
                 <TextField
-                    label="Target value"
-                    value={targetValue}
-                    onChange={
-                        handleTargetValueChange
-                    }
+                    label="Cooldown time"
+                    value={cooldownTimeSeconds}
+                    onChange={handleCooldownTimeChange}
                     type="number"
                     size="small"
                     fullWidth
@@ -303,109 +497,36 @@ const SimulationContent=({
                         input:{
                             endAdornment:(
                                 <InputAdornment position="end">
-                                    {target.unit}
+                                    s
                                 </InputAdornment>
                             )
                         }
                     }}
                 />
 
-            </Box>
 
+                {/* MAXIMUM SIMULATION TIME */}
 
-            <Box
-                sx={{
-                    flex:1,
-                    minHeight:{xs:"auto",md:"20rem"},
-                    bgcolor:"background.default",
-                    p:2,
-                    display:"flex",
-                    flexDirection:"column",
-                    overflow:{
-                        xs:"visible",
-                        md:"auto"
-                    }
-                }}
-            >
-
-                <Typography
-                    variant="subtitle1"
-                    fontWeight={700}
-                    sx={{mb:1}}
-                >
-                    Environment
-                </Typography>
-
-                <FormControlLabel
-                    control={
-                        <Switch
-                            size="small"
-                            checked={linkTemperatures}
-                            onChange={
-                                handleLinkChange
-                            }
-                        />
-                    }
-                    label="Link temperatures"
-                    sx={{mb:2}}
-                />
-
-                <Box
-                    sx={{
-                        display:"flex",
-                        flexDirection:"column",
-                        gap:2
+                <TextField
+                    label="Maximum simulation time"
+                    value={maxTimeSeconds}
+                    onChange={handleMaxTimeChange}
+                    type="number"
+                    size="small"
+                    fullWidth
+                    slotProps={{
+                        htmlInput:{
+                            min:0
+                        },
+                        input:{
+                            endAdornment:(
+                                <InputAdornment position="end">
+                                    s
+                                </InputAdornment>
+                            )
+                        }
                     }}
-                >
-
-                    {environmentProps.map(item=>(
-                        <TextField
-                            key={item.key}
-                            label={item.label}
-                            value={
-                                value?.[item.key]??""
-                            }
-                            onChange={
-                                item.key==="ambientTemperatureC" ||
-                                item.key==="ambientRadiationTemperatureC" ||
-                                item.key==="initialTemperatureC"
-                                    ?handleTemperatureChange(
-                                        item.key
-                                    )
-                                    :handleNumberChange(
-                                        item.key
-                                    )
-                            }
-                            type="number"
-                            size="small"
-                            fullWidth
-                            disabled={
-                                linkTemperatures &&
-                                (
-                                    item.key===
-                                    "ambientRadiationTemperatureC" ||
-                                    item.key===
-                                    "initialTemperatureC"
-                                )
-                            }
-                            slotProps={{
-                                htmlInput:{
-                                    min:0
-                                },
-                                input:{
-                                    endAdornment:(
-                                        <InputAdornment
-                                            position="end"
-                                        >
-                                            {item.unit}
-                                        </InputAdornment>
-                                    )
-                                }
-                            }}
-                        />
-                    ))}
-
-                </Box>
+                />
 
             </Box>
 

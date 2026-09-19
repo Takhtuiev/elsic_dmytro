@@ -229,10 +229,8 @@ const Parameters=({
 
 const BendingPreview=({
                           profile,
-                          machine,
                           blankLength,
                           machineParams,
-                          simulation,
                           rotationPreview
                       })=>{
     const theme=useTheme();
@@ -240,6 +238,7 @@ const BendingPreview=({
 
     const view=profile?.view;
 
+    console.log(profile);
     const [containerSize,setContainerSize]=useState({
         width:800,
         height:500
@@ -271,8 +270,8 @@ const BendingPreview=({
         if(
             !profile?.thickness||
             !profile?.material||
-            !machine||
-            !simulation
+            !profile?.machine||
+            !profile.simulation
         ){
             return null;
         }
@@ -280,15 +279,14 @@ const BendingPreview=({
         return simulate1DHeating({
             thicknessMm:profile.thickness,
             material:profile.material,
-            machine,
-            simulation,
-            sides:"both"
+            machine:profile.machine,
+            simulation:profile.simulation,
         });
     },[
         profile?.thickness,
         profile?.material,
-        machine,
-        simulation
+        profile?.machine,
+        profile?.simulation
     ]);
 
 
@@ -546,6 +544,7 @@ const BendingPreview=({
                 >
                     <TemperatureProfileChart
                         data={dataSimulate}
+                        material={profile.material}
                     />
                 </Box>
             </Box>
