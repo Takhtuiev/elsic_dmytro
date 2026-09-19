@@ -15,6 +15,7 @@ import ProfileRow from "./ProfileRow";
 import BendingPreviewPage from "./BendingPreviewPage";
 import MaterialDialog from "./MaterialDialog";
 import MachineDialog from "./MachineDialog";
+import SimulationParametersDialog from "./SimulationParametersDialog";
 
 import {
     calculateBlankLength,
@@ -33,9 +34,16 @@ const INITIAL_STATE={
     thickness:4,
     width:430,
 
-    target:{
-        type:"minTemperature",
-        value:MATERIALS["PVC_CAW_RED"]?.defaultTCenter??115
+    simulation:{
+        target:{
+            type:"minTemperature",
+            value:MATERIALS["PVC_CAW_RED"]?.defaultTCenter??115
+        },
+        ambientTemperatureC:20,
+        ambientRadiationTemperatureC:20,
+        initialTemperatureC:20,
+        maxTimeSeconds:1800,
+        cooldownTimeSeconds:10
     },
 
     shelves:[
@@ -77,6 +85,7 @@ const getPreferredSide=(shelves,index)=>{
     const beforeLength=before.reduce(
         (sum,s)=>sum+Number(s.length||0),0
     );
+
     const afterLength=after.reduce(
         (sum,s)=>sum+Number(s.length||0),0
     );
@@ -93,18 +102,27 @@ const getPreferredSide=(shelves,index)=>{
 const getViewRotation=(
     geometry,index,side,mirrored,currentRotation
 )=>{
-    const shelfIndex=side==="fromStart"?index:index+1;
+    const shelfIndex=side==="fromStart"
+        ?index
+        :index+1;
 
-    let vector=getShelfVector(geometry,shelfIndex);
+    let vector=getShelfVector(
+        geometry,
+        shelfIndex
+    );
 
     if(!vector)return currentRotation;
 
     if(mirrored)
         vector={x:-vector.x,y:vector.y};
 
-    let angle=Math.atan2(vector.y,vector.x)*180/Math.PI;
+    let angle=Math.atan2(
+        vector.y,
+        vector.x
+    )*180/Math.PI;
 
-    if(side==="fromStart")angle+=180;
+    if(side==="fromStart")
+        angle+=180;
 
     return-angle;
 };
@@ -113,7 +131,9 @@ const getViewRotation=(
 const isOppositeShelfDown=(
     geometry,index,side,mirrored,rotation
 )=>{
-    const oppositeIndex=side==="fromStart"?index+1:index;
+    const oppositeIndex=side==="fromStart"
+        ?index+1
+        :index;
 
     let vector=getShelfVector(
         geometry,
@@ -140,26 +160,45 @@ const calculateBendView=(
     geometry,index,side,mirrored,currentRotation
 )=>{
     let rotation=getViewRotation(
-        geometry,index,side,mirrored,currentRotation
+        geometry,
+        index,
+        side,
+        mirrored,
+        currentRotation
     );
 
     if(isOppositeShelfDown(
-        geometry,index,side,mirrored,rotation
+        geometry,
+        index,
+        side,
+        mirrored,
+        rotation
     )){
         mirrored=!mirrored;
 
         rotation=getViewRotation(
-            geometry,index,side,mirrored,currentRotation
+            geometry,
+            index,
+            side,
+            mirrored,
+            currentRotation
         );
     }
 
-    return{rotation,mirrored};
+    return{
+        rotation,
+        mirrored
+    };
 };
 
 
 const ParamField=({
-                      label,value,onChange,step=1,endAdornment
-                  })=>(
+    label,
+    value,
+    onChange,
+    step=1,
+    endAdornment
+})=>(
     <TextField
         label={label}
         size="small"
@@ -190,14 +229,14 @@ const ParamField=({
 
 
 const PreviewToolbar=({
-                          rotation,
-                          bendIndex,
-                          mirrored,
-                          onRotationChange,
-                          onRotationCommitted,
-                          onMirror,
-                          onFullscreen
-                      })=>(
+    rotation,
+    bendIndex,
+    mirrored,
+    onRotationChange,
+    onRotationCommitted,
+    onMirror,
+    onFullscreen
+})=>(
     <Box
         sx={{
             px:1,
@@ -215,7 +254,9 @@ const PreviewToolbar=({
             step={1}
             size="small"
             disabled={bendIndex>=0}
-            onChange={(_,value)=>onRotationChange(value)}
+            onChange={(_,value)=>
+                onRotationChange(value)
+            }
             onChangeCommitted={(_,value)=>
                 onRotationCommitted(value)
             }
@@ -286,6 +327,7 @@ export default function Biegeberechnung(){
     const [thicknessMenuAnchor,setThicknessMenuAnchor]=useState(null);
     const [materialDialogOpen,setMaterialDialogOpen]=useState(false);
     const [machineDialogOpen,setMachineDialogOpen]=useState(false);
+    const [simulationDialogOpen,setSimulationDialogOpen]=useState(false);
 
     useEffect(()=>{
         dispatch(setProfile(state));
@@ -296,7 +338,7 @@ export default function Biegeberechnung(){
         machineKey,
         thickness,
         width,
-        target,
+        simulation,
         shelves,
         bends,
         view
@@ -335,10 +377,11 @@ export default function Biegeberechnung(){
             setState(prev=>{
                 const next={
                     ...prev,
-                    [collection]:prev[collection].map((item,i)=>
-                        i===index
-                            ?{...item,[field]:value}
-                            :item
+                    [collection]:prev[collection].map(
+                        (item,i)=>
+                            i===index
+                                ?{...item,[field]:value}
+                                :item
                     )
                 };
 
@@ -347,8 +390,11 @@ export default function Biegeberechnung(){
                     field==="direction" &&
                     prev.view.bendIndex>=0
                 ){
-                    const nextMachine=MACHINES[next.machineKey];
-                    const nextMaterial=MATERIALS[next.materialKey];
+                    const nextMachine=
+                        MACHINES[next.machineKey];
+
+                    const nextMaterial=
+                        MATERIALS[next.materialKey];
 
                     const nextGeometryProfile={
                         ...next,
@@ -397,7 +443,9 @@ export default function Biegeberechnung(){
             };
 
             const geometry=
-                buildProfileGeometry(geometryProfile);
+                buildProfileGeometry(
+                    geometryProfile
+                );
 
             const preferredSide=getPreferredSide(
                 prev.shelves,
@@ -480,7 +528,9 @@ export default function Biegeberechnung(){
             };
 
             const geometry=
-                buildProfileGeometry(geometryProfile);
+                buildProfileGeometry(
+                    geometryProfile
+                );
 
             const vector=getShelfVector(
                 geometry,
@@ -494,7 +544,9 @@ export default function Biegeberechnung(){
                 :vector.x;
 
             const baseRotation=
-                (-Math.PI/2-Math.atan2(vector.y,dx))*180/Math.PI;
+                (-Math.PI/2-
+                    Math.atan2(vector.y,dx)
+                )*180/Math.PI;
 
             const normalize=a=>
                 ((a+180)%360+360)%360-180;
@@ -514,7 +566,8 @@ export default function Biegeberechnung(){
                 ?distance(current,rotation0)<1
                     ?rotation180
                     :rotation0
-                :distance(current,rotation0)<=distance(current,rotation180)
+                :distance(current,rotation0)<=
+                    distance(current,rotation180)
                     ?rotation0
                     :rotation180;
 
@@ -535,40 +588,52 @@ export default function Biegeberechnung(){
         []
     );
 
-    const handleProfileRotationCommitted=useCallback(value=>{
-        setState(prev=>({
-            ...prev,
-            view:{
-                ...prev.view,
-                rotation:Number(value)
-            }
-        }));
+    const handleProfileRotationCommitted=useCallback(
+        value=>{
+            setState(prev=>({
+                ...prev,
+                view:{
+                    ...prev.view,
+                    rotation:Number(value)
+                }
+            }));
 
-        setVerticalShelfIndex(null);
-        setRotationPreview(null);
-    },[]);
+            setVerticalShelfIndex(null);
+            setRotationPreview(null);
+        },
+        []
+    );
 
-    const handleProfileMirrorChange=useCallback(value=>{
-        setState(prev=>({
-            ...prev,
-            view:{
-                ...prev.view,
-                mirrored:Boolean(value),
-                rotation:-prev.view.rotation
-            }
-        }));
-    },[]);
+    const handleProfileMirrorChange=useCallback(
+        value=>{
+            setState(prev=>({
+                ...prev,
+                view:{
+                    ...prev.view,
+                    mirrored:Boolean(value),
+                    rotation:-prev.view.rotation
+                }
+            }));
+        },
+        []
+    );
 
     const addBend=useCallback(()=>{
         setState(prev=>({
             ...prev,
             bends:[
                 ...prev.bends,
-                {angle:180,direction:"right"}
+                {
+                    angle:180,
+                    direction:"right"
+                }
             ],
             shelves:[
                 ...prev.shelves,
-                {length:50,side:"right"}
+                {
+                    length:50,
+                    side:"right"
+                }
             ]
         }));
     },[]);
@@ -585,8 +650,12 @@ export default function Biegeberechnung(){
 
             return{
                 ...prev,
-                bends:prev.bends.filter((_,i)=>i!==index),
-                shelves:prev.shelves.filter((_,i)=>i!==index+1),
+                bends:prev.bends.filter(
+                    (_,i)=>i!==index
+                ),
+                shelves:prev.shelves.filter(
+                    (_,i)=>i!==index+1
+                ),
                 view:{
                     ...prev.view,
                     bendIndex:nextIndex
@@ -605,7 +674,11 @@ export default function Biegeberechnung(){
                     bendSide
                 ).toFixed(2)
             ),
-        [geometryProfile,bendIndex,bendSide]
+        [
+            geometryProfile,
+            bendIndex,
+            bendSide
+        ]
     );
 
     const machineParams=useMemo(
@@ -627,18 +700,23 @@ export default function Biegeberechnung(){
     );
 
     const blankLength=useMemo(
-        ()=>calculateBlankLength(geometryProfile),
+        ()=>calculateBlankLength(
+            geometryProfile
+        ),
         [geometryProfile]
     );
 
-    const sliderRotation=rotationPreview??rotation;
+    const sliderRotation=
+        rotationPreview??rotation;
 
     return(
         <Box
             sx={{
                 display:"grid",
-                gridTemplateColumns:"22rem minmax(22rem,1fr)",
-                gridTemplateAreas:`"editor preview"`,
+                gridTemplateColumns:
+                    "22rem minmax(22rem,1fr)",
+                gridTemplateAreas:
+                    `"editor preview"`,
                 gap:2,
                 m:1,
 
@@ -647,7 +725,7 @@ export default function Biegeberechnung(){
                     gridTemplateAreas:`
 "preview"
 "editor"
-                    `,
+    `,
                     mx:0
                 }
             }}
@@ -666,13 +744,21 @@ export default function Biegeberechnung(){
                     rotation={sliderRotation}
                     bendIndex={bendIndex}
                     mirrored={mirrored}
-                    onRotationChange={handleProfileRotationChange}
-                    onRotationCommitted={handleProfileRotationCommitted}
+                    onRotationChange={
+                        handleProfileRotationChange
+                    }
+                    onRotationCommitted={
+                        handleProfileRotationCommitted
+                    }
                     onMirror={()=>
-                        handleProfileMirrorChange(!mirrored)
+                        handleProfileMirrorChange(
+                            !mirrored
+                        )
                     }
                     onFullscreen={()=>
-                        navigate("/biegeberechnung/preview")
+                        navigate(
+                            "/biegeberechnung/preview"
+                        )
                     }
                 />
 
@@ -690,7 +776,7 @@ export default function Biegeberechnung(){
                         machine={machine}
                         blankLength={blankLength}
                         machineParams={machineParams}
-                        target={target}
+                        simulation={simulation}
                         rotationPreview={rotationPreview}
                     />
                 </Box>
@@ -718,7 +804,9 @@ export default function Biegeberechnung(){
                             handleSelectBend(index)
                         }
                         onVerticalShelfChange={()=>
-                            handleVerticalShelfChange(index)
+                            handleVerticalShelfChange(
+                                index
+                            )
                         }
                         onRemoveBend={()=>
                             removeBend(index)
@@ -757,7 +845,9 @@ export default function Biegeberechnung(){
                         <TextField
                             label="Machine"
                             value={machine?.name||""}
-                            onClick={()=>setMachineDialogOpen(true)}
+                            onClick={()=>
+                                setMachineDialogOpen(true)
+                            }
                             size="small"
                             fullWidth
                             slotProps={{
@@ -767,15 +857,21 @@ export default function Biegeberechnung(){
                                 },
                                 input:{
                                     endAdornment:(
-                                        <InputAdornment position="end">
+                                        <InputAdornment
+                                            position="end"
+                                        >
                                             <IconButton
                                                 size="small"
                                                 onClick={e=>{
                                                     e.stopPropagation();
-                                                    setMachineDialogOpen(true);
+                                                    setMachineDialogOpen(
+                                                        true
+                                                    );
                                                 }}
                                             >
-                                                <DatabaseIcon fontSize="small"/>
+                                                <DatabaseIcon
+                                                    fontSize="small"
+                                                />
                                             </IconButton>
                                         </InputAdornment>
                                     )
@@ -797,7 +893,9 @@ export default function Biegeberechnung(){
                         <TextField
                             label="Material"
                             value={material?.name||""}
-                            onClick={()=>setMaterialDialogOpen(true)}
+                            onClick={()=>
+                                setMaterialDialogOpen(true)
+                            }
                             size="small"
                             fullWidth
                             slotProps={{
@@ -807,15 +905,21 @@ export default function Biegeberechnung(){
                                 },
                                 input:{
                                     endAdornment:(
-                                        <InputAdornment position="end">
+                                        <InputAdornment
+                                            position="end"
+                                        >
                                             <IconButton
                                                 size="small"
                                                 onClick={e=>{
                                                     e.stopPropagation();
-                                                    setMaterialDialogOpen(true);
+                                                    setMaterialDialogOpen(
+                                                        true
+                                                    );
                                                 }}
                                             >
-                                                <DatabaseIcon fontSize="small"/>
+                                                <DatabaseIcon
+                                                    fontSize="small"
+                                                />
                                             </IconButton>
                                         </InputAdornment>
                                     )
@@ -836,7 +940,8 @@ export default function Biegeberechnung(){
                     <Box
                         sx={{
                             display:"grid",
-                            gridTemplateColumns:"1fr 1fr",
+                            gridTemplateColumns:
+                                "1fr 1fr",
                             gap:1
                         }}
                     >
@@ -847,7 +952,9 @@ export default function Biegeberechnung(){
                             onChange={value=>
                                 updateField(
                                     "thickness",
-                                    value===""?"":Number(value)
+                                    value===""
+                                        ?""
+                                        :Number(value)
                                 )
                             }
                             endAdornment={
@@ -857,7 +964,11 @@ export default function Biegeberechnung(){
                                         alignItems:"center"
                                     }}
                                 >
-                                    <Box sx={{fontSize:"0.8rem"}}>
+                                    <Box
+                                        sx={{
+                                            fontSize:"0.8rem"
+                                        }}
+                                    >
                                         mm
                                     </Box>
 
@@ -870,7 +981,8 @@ export default function Biegeberechnung(){
                                         }
                                         sx={{
                                             p:.25,
-                                            color:"text.secondary"
+                                            color:
+                                                "text.secondary"
                                         }}
                                     >
                                         <KeyboardArrowDownIcon
@@ -888,76 +1000,68 @@ export default function Biegeberechnung(){
                             onChange={value=>
                                 updateField(
                                     "width",
-                                    value===""?"":Number(value)
+                                    value===""
+                                        ?""
+                                        :Number(value)
                                 )
                             }
                             endAdornment={
-                                <Box sx={{fontSize:"0.8rem"}}>
+                                <Box
+                                    sx={{
+                                        fontSize:"0.8rem"
+                                    }}
+                                >
                                     mm
                                 </Box>
                             }
                         />
                     </Box>
 
-                    <Box
-                        sx={{
-                            display:"grid",
-                            gridTemplateColumns:"1fr 1fr",
-                            gap:1
-                        }}
-                    >
+                    <Box sx={{mb:1}}>
                         <TextField
-                            select
-                            label="Target"
+                            label="Simulation parameters"
+                            value="Simulation settings"
+                            onClick={()=>
+                                setSimulationDialogOpen(true)
+                            }
                             size="small"
-                            value={target.type}
-                            onChange={e=>
-                                updateField("target",{
-                                    ...target,
-                                    type:e.target.value
-                                })
-                            }
-                        >
-                            <MenuItem value="minTemperature">
-                                Minimum temperature
-                            </MenuItem>
-
-                            <MenuItem value="surfaceTemperature">
-                                Surface temperature
-                            </MenuItem>
-
-                            <MenuItem value="time">
-                                Time
-                            </MenuItem>
-                        </TextField>
-
-                        <ParamField
-                            label={
-                                target.type==="time"
-                                    ?"Time"
-                                    :"Temperature"
-                            }
-                            value={target.value}
-                            step={
-                                target.type==="time"
-                                    ?1
-                                    :.1
-                            }
-                            onChange={value=>
-                                updateField("target",{
-                                    ...target,
-                                    value:value===""
-                                        ?""
-                                        :Number(value)
-                                })
-                            }
-                            endAdornment={
-                                <Box sx={{fontSize:"0.8rem"}}>
-                                    {target.type==="time"
-                                        ?"s"
-                                        :"°C"}
-                                </Box>
-                            }
+                            fullWidth
+                            slotProps={{
+                                htmlInput:{
+                                    readOnly:true,
+                                    tabIndex:-1
+                                },
+                                input:{
+                                    endAdornment:(
+                                        <InputAdornment
+                                            position="end"
+                                        >
+                                            <IconButton
+                                                size="small"
+                                                onClick={e=>{
+                                                    e.stopPropagation();
+                                                    setSimulationDialogOpen(
+                                                        true
+                                                    );
+                                                }}
+                                            >
+                                                <DatabaseIcon
+                                                    fontSize="small"
+                                                />
+                                            </IconButton>
+                                        </InputAdornment>
+                                    )
+                                }
+                            }}
+                            sx={{
+                                "& .MuiInputBase-root":{
+                                    cursor:"pointer"
+                                },
+                                "& .MuiInputBase-input":{
+                                    cursor:"pointer",
+                                    userSelect:"none"
+                                }
+                            }}
                         />
                     </Box>
                 </Box>
@@ -965,15 +1069,22 @@ export default function Biegeberechnung(){
                 <Menu
                     anchorEl={thicknessMenuAnchor}
                     open={Boolean(thicknessMenuAnchor)}
-                    onClose={()=>setThicknessMenuAnchor(null)}
+                    onClose={()=>
+                        setThicknessMenuAnchor(null)
+                    }
                 >
                     {[4,5,6,8,10].map(value=>(
                         <MenuItem
                             key={value}
                             selected={thickness===value}
                             onClick={()=>{
-                                updateField("thickness",value);
-                                setThicknessMenuAnchor(null);
+                                updateField(
+                                    "thickness",
+                                    value
+                                );
+                                setThicknessMenuAnchor(
+                                    null
+                                );
                             }}
                         >
                             {value} mm
@@ -986,7 +1097,10 @@ export default function Biegeberechnung(){
                     materialKey={materialKey}
                     materials={MATERIALS}
                     onSelect={key=>{
-                        updateField("materialKey",key);
+                        updateField(
+                            "materialKey",
+                            key
+                        );
                         setMaterialDialogOpen(false);
                     }}
                     onClose={()=>
@@ -1007,6 +1121,35 @@ export default function Biegeberechnung(){
                     }}
                     onClose={()=>
                         setMachineDialogOpen(false)
+                    }
+                />
+
+                <SimulationParametersDialog
+                    open={simulationDialogOpen}
+                    value={simulation}
+                    onApply={params=>{
+                        setState(prev=>({
+                            ...prev,
+                            simulation:{
+                                target:{
+                                    type:params.targetType,
+                                    value:params.targetValue
+                                },
+                                ambientTemperatureC:
+                                    params.ambientTemperatureC,
+                                ambientRadiationTemperatureC:
+                                    params.ambientRadiationTemperatureC,
+                                initialTemperatureC:
+                                    params.initialTemperatureC,
+                                maxTimeSeconds:
+                                    params.maxTimeSeconds,
+                                cooldownTimeSeconds:
+                                    params.cooldownTimeSeconds
+                            }
+                        }));
+                    }}
+                    onClose={()=>
+                        setSimulationDialogOpen(false)
                     }
                 />
             </Paper>

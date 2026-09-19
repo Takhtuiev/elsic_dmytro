@@ -178,13 +178,13 @@ const Parameters=({profile,part,machineParams,data})=>{
 };
 
 const BendingPreview=({
-                          profile,
-                          machine,
-                          blankLength,
-                          machineParams,
-                          target,
-                          rotationPreview
-                      })=>{
+    profile,
+    machine,
+    blankLength,
+    machineParams,
+    simulation,
+    rotationPreview
+})=>{
     const theme=useTheme();
     const containerRef=useRef(null);
 
@@ -216,7 +216,8 @@ const BendingPreview=({
         if(
             !profile?.thickness||
             !profile?.materialKey||
-            !machine
+            !machine||
+            !simulation
         ){
             return null;
         }
@@ -225,21 +226,14 @@ const BendingPreview=({
             thicknessMm:profile.thickness,
             material:MATERIALS[profile.materialKey],
             machine,
-            thermalConditions:{
-                initialTemperatureC:20,
-                ambientTemperatureC:20,
-                ambientRadiationTemperatureC:20
-            },
-            sides:"both",
-            target,
-            maxTimeSeconds:1200,
-            cooldownTimeSeconds:10
+            simulation,
+            sides:"both"
         });
     },[
         profile?.thickness,
         profile?.materialKey,
         machine,
-        target
+        simulation
     ]);
 
     const invalidAngleIndex=

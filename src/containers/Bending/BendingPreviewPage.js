@@ -8,7 +8,7 @@ const BendingPreviewPage=({
                               machine,
                               blankLength,
                               machineParams,
-                              target,
+                              simulation,
                               rotationPreview
                           })=>(
     <Box
@@ -25,7 +25,7 @@ const BendingPreviewPage=({
             machine={machine}
             blankLength={blankLength}
             machineParams={machineParams}
-            target={target}
+            simulation={simulation}
             rotationPreview={rotationPreview}
         />
     </Box>
