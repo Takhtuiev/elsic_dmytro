@@ -226,7 +226,7 @@ const sections = [
                 <List component="ul" sx={{ mt: 1.5, p: 0 }}>
                     <StyledListItem>
                         Beidseitige Erwärmung des Werkstücks durch die
-                        betrachtete TÉN-Heizvorrichtung.
+                        betrachtete Heizanlage mit Rohrheizelementen.
                     </StyledListItem>
 
                     <StyledListItem>
@@ -267,7 +267,7 @@ const sections = [
 
     {
         number: "2",
-        title: "Wissenschaftliche Grundlage und Anpassung an die TÉN-Heizung",
+        title: "Wissenschaftliche Grundlage und Anpassung an Rohrheizelemente",
         content: (
             <>
                 <Typography sx={bodySx}>
@@ -283,10 +283,10 @@ const sections = [
                     Finite-Differenzen-Modell zur Berechnung der
                     zeitabhängigen Temperaturverteilung über die Dicke
                     einer thermoplastischen Platte. In der Untersuchung
-                    wurden unter anderem halogen- und keramische
-                    Heizelemente betrachtet. Die Autoren zeigen dabei,
-                    dass sich die Temperaturverteilung über die Dicke
-                    während der Erwärmung deutlich verändern kann.
+                    wurden unter anderem Halogen- und Keramikheizelemente
+                    betrachtet. Die Autoren zeigen dabei, dass sich die
+                    Temperaturverteilung über die Dicke während der
+                    Erwärmung deutlich verändern kann.
                 </Typography>
 
                 <Typography
@@ -309,32 +309,32 @@ const sections = [
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Ein wichtiger Punkt für die vorliegende Anwendung ist
-                    die unterschiedliche spektrale Wirkung verschiedener
-                    Heizertypen. Buffel et al. berichten für die
-                    untersuchten Heizelemente einen Unterschied zwischen
-                    Halogen- und Keramikheizung und führen die größere
-                    Temperaturhomogenität bei der Halogenheizung unter
-                    anderem auf die tiefere Wirkung der kürzerwelligen
-                    Strahlung zurück.
+                    Für die vorliegende Anwendung ist insbesondere die
+                    unterschiedliche spektrale Wirkung verschiedener
+                    Heizertypen relevant. Buffel et al. beschreiben
+                    Unterschiede zwischen Halogen- und Keramikheizungen
+                    und diskutieren den Einfluss der spektralen Eigenschaften
+                    der Wärmestrahlung auf die Temperaturverteilung über
+                    die Materialdicke.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
                     Gleichzeitig ist zu beachten, dass die in der Arbeit
                     von Buffel et al. (2015) beschriebene
                     Finite-Differenzen-Berechnung selbst keine explizite
-                    Durchdringung der Strahlungsenergie in die Materialtiefe
-                    enthält. Die Autoren weisen ausdrücklich darauf hin,
-                    dass eine solche Modellierung zu diesem Zeitpunkt noch
-                    nicht implementiert war.
+                    Modellierung der Durchdringung der Strahlungsenergie
+                    in die Materialtiefe enthält. Die Wärmeübertragung
+                    wird über die Randbedingungen an den Oberflächen
+                    beschrieben.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
                     Für die vorliegende Anwendung wird daher nicht das
-                    Strahlungsmodell eines IR-Systems unverändert übernommen.
-                    Stattdessen wird die grundlegende numerische
-                    Vorgehensweise an die tatsächlich betrachtete
-                    TÉN-Heizvorrichtung angepasst.
+                    Wärmemodell eines bestimmten IR-Heizertyps unverändert
+                    übernommen. Stattdessen wird die grundlegende
+                    numerische Vorgehensweise an die tatsächlich
+                    verwendeten Rohrheizelemente und die konkrete
+                    Heizanlage angepasst.
                 </Typography>
 
                 <Paper
@@ -353,7 +353,8 @@ const sections = [
                             mb: 1
                         }}
                     >
-                        Anpassung an die TÉN-Heizung
+                        Anpassung des Modells an die verwendeten
+                        Rohrheizelemente
                     </Typography>
 
                     <Typography
@@ -362,24 +363,26 @@ const sections = [
                             color: "text.secondary"
                         }}
                     >
-                        Die Wärmeübertragung durch die TÉN wird in diesem
-                        Modell als thermische Einwirkung an der
-                        Werkstückoberfläche beschrieben. Eine separate
-                        volumetrische Absorption der Strahlung innerhalb
-                        der Werkstückdicke wird nicht modelliert. Die
-                        anschließend entstehende Erwärmung des Werkstoffs
-                        über die Dicke wird durch die Wärmeleitungsgleichung
+                        Die Rohrheizelemente werden in diesem Modell
+                        als thermische Strahlungsquellen betrachtet.
+                        Eine separate volumetrische Modellierung der
+                        Strahlungsabsorption innerhalb der Werkstückdicke
+                        wird nicht verwendet. Der Wärmeeintrag wird
+                        stattdessen über eine thermische Randbedingung
+                        an der Werkstückoberfläche beschrieben. Die
+                        anschließende Erwärmung des Werkstoffs über die
+                        Dicke wird durch die Wärmeleitungsgleichung
                         berechnet.
                     </Typography>
                 </Paper>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
                     Diese Anpassung ist eine bewusste Modellierungsentscheidung
-                    für die betrachtete Heizkonfiguration. Sie bedeutet,
-                    dass die aus den Buffel-Arbeiten übernommene
-                    numerische Grundidee mit einer an die konkrete
-                    TÉN-Geometrie und deren Wärmeübertragung angepassten
-                    Randbedingung verwendet wird.
+                    für die betrachtete Heizkonfiguration. Die aus den
+                    Arbeiten von Buffel übernommene numerische Grundidee
+                    wird dabei mit einer an die Rohrheizelemente, deren
+                    Anordnung und die konkrete Geometrie der Heizzone
+                    angepassten Oberflächenrandbedingung verwendet.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
@@ -387,10 +390,9 @@ const sections = [
                     Ansatz durch eine kombinierte experimentelle und
                     modellbasierte Methodik zur Charakterisierung von
                     Heizanlagen und zur Bestimmung geeigneter
-                    Heizstrategien. Die dort beschriebene Vorgehensweise
-                    berücksichtigt unterschiedliche Typen von
-                    IR-Heizelementen sowie Maschinen- und
-                    Umgebungsparameter.
+                    Heizstrategien. Dabei werden Parameter der
+                    Heizanlage und der Umgebung berücksichtigt und
+                    mit experimentellen Untersuchungen kombiniert.
                 </Typography>
 
                 <Typography
@@ -418,10 +420,20 @@ const sections = [
                     wissenschaftlichen Grundlagen nicht als fertiges
                     Rechenmodell übernommen. Sie dienen als Ausgangspunkt
                     für eine eigene technische Implementierung, die auf
-                    die konkrete TÉN-Heizung, deren Geometrie,
-                    Wärmeeintrag, Abstände, Konvektion, den beidseitigen
-                    Heizbetrieb sowie die anschließende Transport- und
-                    Abkühlphase zugeschnitten ist.
+                    die verwendeten Rohrheizelemente, deren Geometrie,
+                    den Wärmeeintrag, die Abstände, die Konvektion, den
+                    beidseitigen Heizbetrieb sowie die anschließende
+                    Transport- und Abkühlphase zugeschnitten ist.
+                </Typography>
+
+                <Typography sx={{ ...bodySx, mt: 2 }}>
+                    Die wissenschaftlichen Veröffentlichungen bilden somit
+                    die Grundlage des methodischen Ansatzes. Die konkrete
+                    Anpassung an die Rohrheizelemente, die Geometrie der
+                    Heizzone, die numerische Implementierung, die
+                    Berechnungsparameter, die Abfolge der Prozessphasen
+                    und die Abbruchkriterien sind Bestandteil des für
+                    diese Anwendung entwickelten Berechnungsmodells.
                 </Typography>
             </>
         )
@@ -435,9 +447,9 @@ const sections = [
                 <Typography sx={bodySx}>
                     Die Berechnung bestimmt die zeitliche Entwicklung
                     der Werkstücktemperatur während der beidseitigen
-                    Erwärmung durch die betrachtete TÉN-Heizzone und
-                    während der anschließenden Abkühlung beim Transport
-                    zur Biegestation.
+                    Erwärmung durch die betrachtete Heizanlage mit
+                    Rohrheizelementen und während der anschließenden
+                    Abkühlung beim Transport zur Biegestation.
                 </Typography>
 
                 <List component="ul" sx={{ mt: 1.5, p: 0 }}>
@@ -446,7 +458,8 @@ const sections = [
                     </StyledListItem>
 
                     <StyledListItem>
-                        Temperatur und thermische Parameter der TÉN-Heizer.
+                        Temperatur und thermische Parameter der
+                        Rohrheizelemente.
                     </StyledListItem>
 
                     <StyledListItem>
@@ -494,61 +507,58 @@ const sections = [
 
     {
         number: "4",
-        title: "Physikalisches Modell von PVC bei TÉN-Erwärmung",
+        title: "Physikalisches Modell von PVC bei Erwärmung mit Rohrheizelementen",
         content: (
             <>
                 <Typography sx={bodySx}>
                     Das Werkstück wird als opake thermoplastische Platte
                     betrachtet. Für die vorliegende Modellierung wird
-                    angenommen, dass die durch die TÉN-Heizzone eingebrachte
-                    Strahlungswärme nicht in einer für den Berechnungsansatz
-                    relevanten Tiefe volumetrisch im Material verteilt
-                    berücksichtigt werden muss.
+                    angenommen, dass die durch die Rohrheizelemente
+                    eingebrachte Strahlungsenergie nicht als separater
+                    volumetrischer Wärmeeintrag innerhalb der
+                    Werkstückdicke berücksichtigt werden muss.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die TÉN sind thermische Strahlungsquellen. Dabei
-                    besitzen sie keine einzelne, fest definierte
+                    Rohrheizelemente sind thermische Strahlungsquellen.
+                    Sie besitzen keine einzelne, fest definierte
                     Strahlungswellenlänge. Das Emissionsspektrum hängt
                     insbesondere von der Temperatur und den
                     Oberflächeneigenschaften des Heizelements ab.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Im Gegensatz zu Heizsystemen, bei denen die
-                    wellenlängenabhängige Eindringung der Strahlung in
-                    das Material ausdrücklich modelliert wird, wird in
-                    dieser Anwendung deshalb keine separate
-                    Strahlungsabsorption über die Werkstücktiefe
-                    berechnet.
+                    In dieser Anwendung wird deshalb keine
+                    spektralabhängige Absorption der Strahlung über
+                    verschiedene Tiefen des Werkstücks berechnet.
+                    Stattdessen wird der Wärmeeintrag als thermische
+                    Randbedingung an der Werkstückoberfläche formuliert.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Der Wärmeeintrag der TÉN wird stattdessen als
-                    thermische Randbedingung an den Werkstückoberflächen
-                    formuliert. Von dort wird die Wärme im Material
-                    durch Wärmeleitung über die Plattendicke weitergeleitet.
+                    Von der Oberfläche aus wird die Wärme innerhalb
+                    des Materials durch Wärmeleitung über die
+                    Werkstückdicke weitergeleitet.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Diese Vereinfachung ist Bestandteil des
-                    entwickelten Modells für die betrachtete
-                    Heizkonfiguration. Sie ist nicht als allgemeines
-                    physikalisches Gesetz für sämtliche thermoplastische
-                    Werkstoffe und sämtliche Arten von Infrarotheizungen
-                    zu verstehen.
+                    Diese Vereinfachung ist Bestandteil des für die
+                    betrachtete Heizkonfiguration entwickelten Modells.
+                    Sie stellt kein allgemeines physikalisches Gesetz
+                    für alle thermoplastischen Werkstoffe oder alle
+                    Arten von Infrarotstrahlern dar.
+                </Typography>
+
+                <Typography sx={{ ...bodySx, mt: 2 }}>
+                    Die räumliche Betrachtung wird auf die Werkstückdicke
+                    reduziert. Ein Wärmetransport innerhalb der
+                    Plattenebene wird in diesem Modell nicht berücksichtigt.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
                     Das zentrale Ergebnis der inneren thermischen
                     Berechnung ist die zeitabhängige Temperaturverteilung
                     über die gesamte Werkstückdicke.
-                </Typography>
-
-                <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die räumliche Betrachtung wird auf die Dicke des
-                    Werkstücks reduziert. Ein Wärmetransport innerhalb
-                    der Plattenebene wird im Modell nicht berücksichtigt.
                 </Typography>
             </>
         )
@@ -643,8 +653,7 @@ const sections = [
                 <Typography sx={{ ...bodySx, mt: 2 }}>
                     In der aktuellen Implementierung werden ungefähr
                     20–22 Rechenzellen über die Werkstückdicke verwendet.
-                    Der zeitliche Berechnungsschritt beträgt
-                    0,2 Sekunden.
+                    Der zeitliche Berechnungsschritt beträgt 0,2 Sekunden.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
@@ -688,9 +697,9 @@ const sections = [
         content: (
             <>
                 <Typography sx={bodySx}>
-                    In der vorliegenden TÉN-Heizzone wird der
-                    Wärmeeintrag an die Werkstückoberflächen über
-                    Strahlungs- und Konvektionswärmeübertragung
+                    In der vorliegenden Heizzone mit Rohrheizelementen
+                    wird der Wärmeeintrag an die Werkstückoberflächen
+                    über Strahlungs- und Konvektionswärmeübertragung
                     beschrieben.
                 </Typography>
 
@@ -710,22 +719,22 @@ const sections = [
 
                 <Typography sx={bodySx}>
                     Der Strahlungsanteil beschreibt den Wärmeeintrag
-                    von der TÉN-Heizzone auf die Werkstückoberfläche.
-                    Dabei werden die thermische Temperatur des
-                    Heizsystems und die geometrische Anordnung
-                    zwischen Heizer und Werkstück berücksichtigt.
+                    von den Rohrheizelementen auf die Werkstückoberfläche.
+                    Dabei werden die Temperatur der Heizelemente und
+                    die geometrische Anordnung zwischen Heizelementen
+                    und Werkstück berücksichtigt.
                 </Typography>
 
                 <Formula
                     title="Strahlungswärmestrom"
                     source={
                         <>
-                            Stefan-Boltzmann-basierte Randbedingung
-                            für den Strahlungsaustausch. Die effektive
-                            Beschreibung des Strahlungsaustauschs mit
-                            Geometriefaktor und Emissionsparametern
-                            gehört zur vorliegenden technischen
-                            Implementierung.
+                            Auf dem Stefan-Boltzmann-Gesetz basierende
+                            Randbedingung für den Strahlungsaustausch.
+                            Die effektive Beschreibung des
+                            Strahlungsaustauschs mit Emissionsgrad und
+                            geometrischem Sichtfaktor ist Bestandteil
+                            der vorliegenden technischen Implementierung.
                         </>
                     }
                 >
@@ -738,8 +747,7 @@ const sections = [
 
                 <List component="ul" sx={{ mt: 1.5, p: 0 }}>
                     <StyledListItem>
-                        <b>ε<sub>eff</sub></b> — effektiver
-                        Emissionsparameter;
+                        <b>ε<sub>eff</sub></b> — effektiver Emissionsgrad;
                     </StyledListItem>
 
                     <StyledListItem>
@@ -752,7 +760,7 @@ const sections = [
 
                     <StyledListItem>
                         <b>T<sub>h</sub></b> — absolute Temperatur
-                        der TÉN-Heizzone;
+                        der Heizelemente;
                     </StyledListItem>
 
                     <StyledListItem>
@@ -762,20 +770,20 @@ const sections = [
                 </List>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die geometrische Beschreibung der Heizzone ist dabei
+                    Die geometrische Beschreibung der Heizzone wird dabei
                     nicht als abstrakte Standardgeometrie des
                     Literaturmodells übernommen. Sie wird an die konkrete
-                    Konstruktion der betrachteten TÉN-Heizung angepasst,
-                    einschließlich der Anordnung der Heizelemente,
-                    Abstände und der umgebenden Flächen.
+                    Konstruktion der verwendeten Heizanlage angepasst,
+                    einschließlich der Anordnung der Rohrheizelemente,
+                    der Abstände und der umgebenden Flächen.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
                     Eine separate volumetrische Absorption der von den
-                    TÉN abgegebenen Strahlung innerhalb des Werkstücks
-                    wird in dieser Randbedingung nicht angesetzt.
-                    Die Temperaturausbreitung in die Materialtiefe
-                    erfolgt im Modell über die Wärmeleitungsgleichung.
+                    Rohrheizelementen abgegebenen Strahlung innerhalb
+                    des Werkstücks wird nicht angesetzt. Die
+                    Temperaturausbreitung in die Materialtiefe erfolgt
+                    im Modell über die Wärmeleitungsgleichung.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
@@ -841,7 +849,7 @@ const sections = [
                 >
                     <Grid item xs={12} sm={3}>
                         <FlowBox>
-                            TÉN-Heizzone
+                            Heizzone mit Rohrheizelementen
                         </FlowBox>
                     </Grid>
 
@@ -866,8 +874,8 @@ const sections = [
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
                     Während sich das Werkstück in der Heizzone befindet,
-                    wirken die Wärmeübertragungsbedingungen der TÉN-Heizer
-                    auf beide Oberflächen.
+                    wirken die Wärmeübertragungsbedingungen der
+                    Rohrheizelemente auf beide Oberflächen.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
@@ -888,7 +896,7 @@ const sections = [
                 <Typography sx={{ ...bodySx, mt: 2 }}>
                     Der thermische Zustand zu Beginn des Biegevorgangs
                     hängt daher sowohl von der Aufheizzeit in der
-                    TÉN-Heizzone als auch von der anschließenden
+                    Heizzone als auch von der anschließenden
                     Transport- und Abkühlzeit ab.
                 </Typography>
             </>
@@ -1027,8 +1035,8 @@ const sections = [
             <>
                 <Typography sx={bodySx}>
                     Das numerische Modell kann durch experimentelle
-                    Temperaturmessungen an der realen TÉN-Heizzone
-                    überprüft werden.
+                    Temperaturmessungen an der realen Heizanlage mit
+                    Rohrheizelementen überprüft werden.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
@@ -1044,8 +1052,9 @@ const sections = [
                     wie gut die angesetzten Wärmeübertragungsbedingungen
                     die reale Heizzone beschreiben. Abweichungen können
                     beispielsweise auf die tatsächliche thermische
-                    Leistungsabgabe der TÉN, die Wärmeübergangsbedingungen,
-                    die Geometrie oder Materialparameter zurückzuführen sein.
+                    Leistungsabgabe der Rohrheizelemente, die
+                    Wärmeübergangsbedingungen, die Geometrie oder
+                    Materialparameter zurückzuführen sein.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
@@ -1123,8 +1132,8 @@ export default function HeatingMethodologyPage() {
                     >
                         Wissenschaftliche Grundlage nach Buffel et al.
                         (2015, 2017) und deren technische Anpassung an
-                        eine TÉN-basierte Heizzone zur Berechnung der
-                        Temperaturverteilung über die Werkstückdicke
+                        eine Heizanlage mit Rohrheizelementen zur Berechnung
+                        der Temperaturverteilung über die Werkstückdicke
                         sowie der anschließenden Abkühlung während des
                         Transports zur Biegestation.
                     </Typography>
@@ -1210,15 +1219,16 @@ export default function HeatingMethodologyPage() {
                         Werkstücken. Als wissenschaftliche Ausgangsbasis
                         dienen insbesondere die Arbeiten von Buffel et al.
                         zur experimentellen und numerischen Untersuchung
-                        der Erwärmung thermoplastischer Platten.
-                        Für die vorliegende Anwendung wird diese
-                        methodische Grundlage jedoch nicht unverändert
-                        übernommen, sondern an die konkrete TÉN-Heizzone
-                        angepasst. Der Wärmeeintrag der TÉN wird über
-                        thermische Oberflächenrandbedingungen beschrieben,
-                        während die weitere Temperaturausbreitung durch
-                        Wärmeleitung über die Werkstückdicke berechnet wird.
-                        Zusätzlich werden die konkrete Heizgeometrie,
+                        der Erwärmung thermoplastischer Platten. Für die
+                        vorliegende Anwendung wird diese methodische
+                        Grundlage jedoch nicht unverändert übernommen,
+                        sondern an die konkrete Heizanlage mit
+                        Rohrheizelementen angepasst. Der Wärmeeintrag
+                        der Heizelemente wird über thermische
+                        Oberflächenrandbedingungen beschrieben, während
+                        die weitere Temperaturausbreitung durch
+                        Wärmeleitung über die Werkstückdicke berechnet
+                        wird. Zusätzlich werden die konkrete Heizgeometrie,
                         temperaturabhängige Materialeigenschaften, die
                         Abkühlung beim Transport und die definierten
                         thermischen Abschluss- und Schutzkriterien
@@ -1312,12 +1322,12 @@ export default function HeatingMethodologyPage() {
                             lineHeight: 1.6
                         }}
                     >
-                        Die Veröffentlichungen von Buffel et al. bilden die
-                        wissenschaftliche Grundlage für die numerische
+                        Die Veröffentlichungen von Buffel et al. bilden
+                        die wissenschaftliche Grundlage für die numerische
                         Beschreibung der Erwärmung thermoplastischer Platten.
-                        Die konkrete Anwendung auf die betrachtete
-                        TÉN-Heizzone, die technische Beschreibung der
-                        Heizgeometrie, die Oberflächenrandbedingungen,
+                        Die konkrete Anwendung auf die betrachtete Heizanlage
+                        mit Rohrheizelementen, die technische Beschreibung
+                        der Heizgeometrie, die Oberflächenrandbedingungen,
                         die numerische Implementierung, die
                         temperaturabhängigen Materialparameter, die
                         Transport- und Abkühlphase sowie die definierten
