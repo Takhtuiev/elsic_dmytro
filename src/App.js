@@ -28,6 +28,8 @@ import MyAccount from "./components/Navigation/MyAccount";
 import AccessDenied from "./components/Auth/AccessDenied";
 import OrganizationAdmin from "./components/Admin/OrganizationAdmin";
 import Datenschutz from "./containers/Datenschutz";
+import HeatingMethodologyPage from "./containers/Bending/information/HeatingMethodologyPage";
+import HeatingMethodologyPage_de from "./containers/Bending/information/HeatingMethodologyPage_de";
 
 const Home = lazy(() => import("./containers/Home"));
 const Contacts = lazy(() => import("./containers/Contacts"));
@@ -134,6 +136,16 @@ function AppLayout() {
                                 </Protect>
                             }
                         />
+
+                        <Route
+                            path="/heating-methodology"
+                            element={<HeatingMethodologyPage />}
+                        />
+                        <Route
+                            path="/heating-methodology_de"
+                            element={<HeatingMethodologyPage_de />}
+                        />
+
 
                         <Route
                             path="/administration"

@@ -35,7 +35,7 @@ export const MACHINES = {
         heaters: [
             {
                 regulatorTemperatureC: 270,
-                heaterTemperatureFactor: 1,
+                heaterTemperatureFactor: 1.05,
                 heaterEmissivity: 0.90,
                 boxEmissivity: 0.55,
                 viewFactor: 0.8,
@@ -60,7 +60,10 @@ export const MATERIALS = {
 
         density: 1380,              // кг/м³
         thermalConductivity: 0.15,  // Вт/(м·К)
-        specificHeat: 1000,         // Дж/(кг·К)
+
+        specificHeat: 1000,          // Базовая теплоемкость (число из паспорта)
+        tgSpecificHeatJumpFactor: 1.40, // Коэффициент скачка (1.40 = +40%)
+        tgTransitionWidthC: 10.0,    // Ширина зоны перехода в градусах (обычно 10)
 
         emissivity: 0.93,
         surfaceReflectance: 0.07,
@@ -78,7 +81,10 @@ export const MATERIALS = {
 
         density: 1380,              // кг/м³
         thermalConductivity: 0.15,  // Вт/(м·К)
-        specificHeat: 1000,         // Дж/(кг·К)
+
+        specificHeat: 1000,          // Базовая теплоемкость (число из паспорта)
+        tgSpecificHeatJumpFactor: 1.40, // Коэффициент скачка (1.40 = +40%)
+        tgTransitionWidthC: 10.0,    // Ширина зоны перехода в градусах (обычно 10)
 
         emissivity: 0.93,
         surfaceReflectance: 0.07,
@@ -96,7 +102,10 @@ export const MATERIALS = {
 
         density: 1370,              // кг/м³
         thermalConductivity: 0.15,  // Вт/(м·К)
-        specificHeat: 1000,         // Дж/(кг·К)
+
+        specificHeat: 1000,          // Базовая теплоемкость (число из паспорта)
+        tgSpecificHeatJumpFactor: 1.40, // Коэффициент скачка (1.40 = +40%)
+        tgTransitionWidthC: 10.0,    // Ширина зоны перехода в градусах (обычно 10)
 
         emissivity: 0.92,
         surfaceReflectance: 0.08,
@@ -114,14 +123,19 @@ export const MATERIALS = {
 
         density: 1200,
         thermalConductivity: 0.20,
-        specificHeat: 1200,
+
+        specificHeat: 1200,          // Базовая теплоемкость (число из паспорта)
+        tgSpecificHeatJumpFactor: 1.35, // Коэффициент скачка (1.40 = +40%)
+        tgTransitionWidthC: 12.0,    // Ширина зоны перехода в градусах (обычно 10)
+
 
         emissivity: 0.93,
         surfaceReflectance: 0,
 
-        defaultTSurf: 180,
-        defaultTCenter: 150,
-        decompositionTemp: 300,
+        glassTransitionTemp: 147,    // °C
+        minFormingTemp: 180,        // °C (более узкий диапазон для сохранения прозрачности)
+        maxFormingTemp: 210,        // °C
+        decompositionTemp: 280,     // °C (порог помутнения и образования пузырьков)
 
         kFactor:0.40,
     }

@@ -4,7 +4,7 @@
  * rho*Cp*dT/dt = d/dx(k*dT/dx)
  */
 
-export const GRID_CELLS_PER_THICKNESS = 22;
+export const GRID_CELLS_PER_THICKNESS = 20;
 export const MIN_DX_MM = 0.25;
 export const MAX_DX_MM = 1.5;
 export const DEFAULT_DT_SECONDS = 0.25;
@@ -25,10 +25,30 @@ const getProperty=(property,temperatureC)=>
         :property;
 
 function getMaterialProperties(material,temperatureC){
+    // Получаем базовую паспортную теплоемкость
+    let cp = getProperty(material.specificHeat,temperatureC);
+
+    const tg = material.glassTransitionTemp;
+    const jumpFactor = material.tgSpecificHeatJumpFactor;
+    const width = material.tgTransitionWidthC;
+
+    const halfWidth = width / 2;
+    const tStart = tg - halfWidth; // Начало зоны размягчения
+    const tEnd = tg + halfWidth;   // Конец зоны стеклования
+    const maxCp = cp * jumpFactor; // Верхнее плато теплоемкости после Tg
+
+    if (temperatureC > tStart && temperatureC <= tEnd) {
+        // Линейная интерполяция приращения теплоемкости внутри зоны перехода
+        cp = cp + ((maxCp - cp) / width) * (temperatureC - tStart);
+    } else if (temperatureC > tEnd) {
+        // Температура выше зоны стеклования — фиксируем Cp на верхнем плато
+        cp = maxCp;
+    }
+
     return {
-        density:getProperty(material?.density,temperatureC),
-        k:getProperty(material?.thermalConductivity,temperatureC),
-        cp:getProperty(material?.specificHeat,temperatureC)
+        density:getProperty(material.density,temperatureC),
+        k:getProperty(material.thermalConductivity,temperatureC),
+        cp:cp
     };
 }
 
@@ -36,22 +56,11 @@ function createMaterialModel(material){
     if(!material||typeof material!=="object")
         return null;
 
-    const constant=
-        typeof material.density!=="function"&&
-        typeof material.thermalConductivity!=="function"&&
-        typeof material.specificHeat!=="function";
-
-    const properties=constant
-        ?getMaterialProperties(material,20)
-        :null;
-
+    // Модель ВСЕГДА динамическая (нелинейная) для корректного расчета стеклования
     return {
-        constant,
-        properties,
-        get:temperatureC=>
-            constant
-                ?properties
-                :getMaterialProperties(material,temperatureC)
+        constant:false,
+        properties:null,
+        get:temperatureC=>getMaterialProperties(material,temperatureC)
     };
 }
 
@@ -134,8 +143,11 @@ export function getHeaterTemperatureC({
             ?side.heaterTemperatureFactor
             :1;
 
-    return regulatorTemperatureC*heaterTemperatureFactor;
+    // Физически корректный расчет с учетом теплопотерь относительно окружающей среды
+    return ambientTemperatureC +
+        heaterTemperatureFactor * (regulatorTemperatureC - ambientTemperatureC);
 }
+
 
 export function calculateIncidentHeaterFlux({
                                                 side,
@@ -729,64 +741,6 @@ export function simulateHeating({
             break;
         }
 
-        /* =========================
-         * MAXIMUM FORMING TEMPERATURE
-         * ========================= */
-        if(
-            stopAtMaxTemperature===true&&
-            maxFormingTempK!=null
-        ){
-            let fraction=1;
-            let reached=false;
-
-            for(let i=0;i<nodeCount;i++){
-                if(
-                    oldT[i]<maxFormingTempK&&
-                    T[i]>=maxFormingTempK
-                ){
-                    const dT=
-                        T[i]-oldT[i];
-
-                    if(dT>0){
-                        const f=
-                            (maxFormingTempK-oldT[i])/
-                            dT;
-
-                        if(
-                            f>=0&&
-                            f<fraction
-                        ){
-                            fraction=f;
-                        }
-
-                        reached=true;
-                    }
-                }
-            }
-
-            if(reached){
-                time+=fraction*dt;
-
-                for(let i=0;i<nodeCount;i++){
-                    T[i]=
-                        oldT[i]+
-                        fraction*
-                        (T[i]-oldT[i]);
-                }
-
-                pushHistory();
-
-                stoppedByMaxTemperature=true;
-
-                status={
-                    type:"ok",
-                    message:
-                        `Maximum forming temperature ${(maxFormingTempK-273.15).toFixed(0)}°C reached.`
-                };
-
-                break;
-            }
-        }
 
         /* =========================
          * DECOMPOSITION
@@ -1047,6 +1001,7 @@ export function simulateCooldown({
                                      ambT,
                                      ambRadT,
                                      cooldownTimeSeconds=10,
+                                     convectiveHeatTransferCoefficient=7.5,
                                      maxNonlinearIterations=3,
                                      nonlinearToleranceK=0.1,
                                      buffers
@@ -1073,7 +1028,6 @@ export function simulateCooldown({
         T_rad_room_K*
         T_rad_room_K;
 
-    const h_cool=7.5;
     const last=nodeCount-1;
 
     const dt_div_dx=dt/dx;
@@ -1093,11 +1047,11 @@ export function simulateCooldown({
             );
 
         const g0=
-            h_cool*T_room_K+
+            convectiveHeatTransferCoefficient*T_room_K+
             h_rad*T_rad_room_K;
 
         const g1=
-            -(h_cool+h_rad);
+            -(convectiveHeatTransferCoefficient+h_rad);
 
         return {
             g0,
@@ -1301,40 +1255,45 @@ export function simulate1DHeating({
             ?targetValueRaw
             :null;
 
+    const temperatures=simulation.temperatures||{};
+
     const initT=
         Number.isFinite(
-            Number(simulation.initialTemperatureC)
+            Number(temperatures.initialC)
         )
-            ?Number(simulation.initialTemperatureC)
+            ?Number(temperatures.initialC)
             :20;
 
     const ambT=
         Number.isFinite(
-            Number(simulation.ambientTemperatureC)
+            Number(temperatures.ambientC)
         )
-            ?Number(simulation.ambientTemperatureC)
+            ?Number(temperatures.ambientC)
             :20;
 
     const ambRadT=
         Number.isFinite(
-            Number(simulation.ambientRadiationTemperatureC)
+            Number(temperatures.ambientRadiationC)
         )
-            ?Number(simulation.ambientRadiationTemperatureC)
+            ?Number(temperatures.ambientRadiationC)
             :ambT;
 
     const maxTimeSeconds=
-        Number.isFinite(
-            Number(simulation.maxTimeSeconds)
-        )
+        Number.isFinite(Number(simulation.maxTimeSeconds))
             ?Number(simulation.maxTimeSeconds)
             :1800;
 
+    const cooling=simulation.cooling||{};
+
     const cooldownTimeSeconds=
-        Number.isFinite(
-            Number(simulation.cooldownTimeSeconds)
-        )
-            ?Number(simulation.cooldownTimeSeconds)
+        Number.isFinite(Number(cooling.timeSeconds))
+            ?Number(cooling.timeSeconds)
             :10;
+
+    const coolingH=
+        Number.isFinite(Number(cooling.convectiveHeatTransferCoefficient))
+            ?Number(cooling.convectiveHeatTransferCoefficient)
+            :7.5;
 
     const stopAtMaxTemperature=
         simulation.stopAtMaxTemperature===true;
@@ -1345,6 +1304,14 @@ export function simulate1DHeating({
     const maxFormingTempK=
         Number.isFinite(maxFormingTemp)
             ?toKelvin(maxFormingTemp)
+            :null;
+
+    const decompTemp=
+        Number(material?.decompositionTemp);
+
+    const decompTempK=
+        Number.isFinite(decompTemp)
+            ?toKelvin(decompTemp)
             :null;
 
     const dt=
@@ -1409,12 +1376,12 @@ export function simulate1DHeating({
 
     if(
         stopAtMaxTemperature&&
-        maxFormingTempK===null
+        decompTempK===null
     ){
         status={
             type:"error",
             message:
-                "Maximum forming temperature is not defined for the material."
+                "Decomposition temperature is not defined for the material."
         };
     }
 
@@ -1467,13 +1434,6 @@ export function simulate1DHeating({
         oldT:new Float64Array(nodeCount)
     };
 
-    const decompTemp=
-        Number(material?.decompositionTemp);
-
-    const decompTempK=
-        Number.isFinite(decompTemp)
-            ?toKelvin(decompTemp)
-            :null;
 
     const targetK=
         (
@@ -1590,6 +1550,7 @@ export function simulate1DHeating({
         ambRadT,
 
         cooldownTimeSeconds,
+        convectiveHeatTransferCoefficient:coolingH,
 
         maxNonlinearIterations:
         MAX_NONLINEAR_ITERATIONS,

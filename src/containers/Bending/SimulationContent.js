@@ -1,5 +1,5 @@
-import React,{useEffect,useState} from "react";
-import {
+import React,{useEffect,useState}from"react";
+import{
     Box,
     Typography,
     Radio,
@@ -7,8 +7,7 @@ import {
     InputAdornment,
     FormControlLabel,
     Switch
-} from "@mui/material";
-
+}from"@mui/material";
 
 const targetTypes=[
     {
@@ -28,25 +27,23 @@ const targetTypes=[
     }
 ];
 
-
 const environmentProps=[
     {
-        key:"ambientTemperatureC",
+        key:"ambientC",
         label:"Ambient temperature",
         unit:"°C"
     },
     {
-        key:"ambientRadiationTemperatureC",
+        key:"ambientRadiationC",
         label:"Ambient radiation temperature",
         unit:"°C"
     },
     {
-        key:"initialTemperatureC",
+        key:"initialC",
         label:"Initial temperature",
         unit:"°C"
     }
 ];
-
 
 const SimulationContent=({
     value={},
@@ -54,23 +51,23 @@ const SimulationContent=({
 })=>{
     const [linkTemperatures,setLinkTemperatures]=useState(true);
 
+    const temperatures=value?.temperatures||{};
+    const cooling=value?.cooling||{};
 
     useEffect(()=>{
-        const ambient=
-            value?.ambientTemperatureC??20;
-
-        const radiation=
-            value?.ambientRadiationTemperatureC??20;
-
-        const initial=
-            value?.initialTemperatureC??20;
+        const ambient=temperatures.ambientC??20;
+        const radiation=temperatures.ambientRadiationC??20;
+        const initial=temperatures.initialC??20;
 
         setLinkTemperatures(
-            ambient===radiation &&
+            ambient===radiation&&
             ambient===initial
         );
-    },[value]);
-
+    },[
+        temperatures.ambientC,
+        temperatures.ambientRadiationC,
+        temperatures.initialC
+    ]);
 
     const targetType=
         value?.target?.type??"minTemperature";
@@ -83,17 +80,17 @@ const SimulationContent=({
             item=>item.key===targetType
         )||targetTypes[0];
 
-
     const stopAtMaxTemperature=
         value?.stopAtMaxTemperature??true;
-
 
     const maxTimeSeconds=
         value?.maxTimeSeconds??600;
 
     const cooldownTimeSeconds=
-        value?.cooldownTimeSeconds??0;
+        cooling.timeSeconds??0;
 
+    const coolingH=
+        cooling.convectiveHeatTransferCoefficient??8;
 
     const handleTargetTypeChange=type=>{
         onChange?.({
@@ -104,7 +101,6 @@ const SimulationContent=({
             }
         });
     };
-
 
     const handleTargetValueChange=event=>{
         const nextValue=
@@ -122,14 +118,12 @@ const SimulationContent=({
         });
     };
 
-
     const handleStopAtMaxTemperatureChange=event=>{
         onChange?.({
             ...value,
             stopAtMaxTemperature:event.target.checked
         });
     };
-
 
     const handleTemperatureChange=key=>event=>{
         const nextValue=
@@ -138,14 +132,17 @@ const SimulationContent=({
                 :Number(event.target.value);
 
         if(
-            linkTemperatures &&
-            key==="ambientTemperatureC"
+            linkTemperatures&&
+            key==="ambientC"
         ){
             onChange?.({
                 ...value,
-                ambientTemperatureC:nextValue,
-                ambientRadiationTemperatureC:nextValue,
-                initialTemperatureC:nextValue
+                temperatures:{
+                    ...temperatures,
+                    ambientC:nextValue,
+                    ambientRadiationC:nextValue,
+                    initialC:nextValue
+                }
             });
 
             return;
@@ -153,10 +150,12 @@ const SimulationContent=({
 
         onChange?.({
             ...value,
-            [key]:nextValue
+            temperatures:{
+                ...temperatures,
+                [key]:nextValue
+            }
         });
     };
-
 
     const handleMaxTimeChange=event=>{
         const nextValue=
@@ -170,7 +169,6 @@ const SimulationContent=({
         });
     };
 
-
     const handleCooldownTimeChange=event=>{
         const nextValue=
             event.target.value===""
@@ -179,10 +177,27 @@ const SimulationContent=({
 
         onChange?.({
             ...value,
-            cooldownTimeSeconds:nextValue
+            cooling:{
+                ...cooling,
+                timeSeconds:nextValue
+            }
         });
     };
 
+    const handleCoolingHChange=event=>{
+        const nextValue=
+            event.target.value===""
+                ?""
+                :Number(event.target.value);
+
+        onChange?.({
+            ...value,
+            cooling:{
+                ...cooling,
+                convectiveHeatTransferCoefficient:nextValue
+            }
+        });
+    };
 
     const handleLinkChange=event=>{
         const checked=event.target.checked;
@@ -191,16 +206,19 @@ const SimulationContent=({
 
         if(checked){
             const ambient=
-                value?.ambientTemperatureC??20;
+                temperatures.ambientC??20;
 
             onChange?.({
                 ...value,
-                ambientRadiationTemperatureC:ambient,
-                initialTemperatureC:ambient
+                temperatures:{
+                    ...temperatures,
+                    ambientC:ambient,
+                    ambientRadiationC:ambient,
+                    initialC:ambient
+                }
             });
         }
     };
-
 
     return(
         <Box
@@ -259,13 +277,9 @@ const SimulationContent=({
                             onChange={handleTargetValueChange}
                             type="number"
                             size="small"
-                            sx={{
-                                width:140
-                            }}
+                            sx={{width:140}}
                             slotProps={{
-                                htmlInput:{
-                                    min:0
-                                },
+                                htmlInput:{min:0},
                                 input:{
                                     endAdornment:(
                                         <InputAdornment position="end">
@@ -277,7 +291,6 @@ const SimulationContent=({
                         />
 
                     </Box>
-
 
                     <Box
                         sx={{
@@ -345,7 +358,6 @@ const SimulationContent=({
 
                 </Box>
 
-
                 {/* STOP CONDITION */}
 
                 <FormControlLabel
@@ -366,7 +378,6 @@ const SimulationContent=({
                 />
 
             </Box>
-
 
             {/* RIGHT */}
 
@@ -427,7 +438,6 @@ const SimulationContent=({
 
                     </Box>
 
-
                     <Box
                         sx={{
                             display:"flex",
@@ -441,7 +451,7 @@ const SimulationContent=({
                                 key={item.key}
                                 label={item.label}
                                 value={
-                                    value?.[item.key]??""
+                                    temperatures[item.key]??""
                                 }
                                 onChange={
                                     handleTemperatureChange(
@@ -452,18 +462,16 @@ const SimulationContent=({
                                 size="small"
                                 fullWidth
                                 disabled={
-                                    linkTemperatures &&
+                                    linkTemperatures&&
                                     (
                                         item.key===
-                                        "ambientRadiationTemperatureC" ||
+                                        "ambientRadiationC"||
                                         item.key===
-                                        "initialTemperatureC"
+                                        "initialC"
                                     )
                                 }
                                 slotProps={{
-                                    htmlInput:{
-                                        min:0
-                                    },
+                                    htmlInput:{min:0},
                                     input:{
                                         endAdornment:(
                                             <InputAdornment
@@ -481,29 +489,66 @@ const SimulationContent=({
 
                 </Box>
 
-                {/* COOLDOWN TIME */}
+                {/* COOLING */}
 
-                <TextField
-                    label="Cooldown time"
-                    value={cooldownTimeSeconds}
-                    onChange={handleCooldownTimeChange}
-                    type="number"
-                    size="small"
-                    fullWidth
-                    slotProps={{
-                        htmlInput:{
-                            min:0
-                        },
-                        input:{
-                            endAdornment:(
-                                <InputAdornment position="end">
-                                    s
-                                </InputAdornment>
-                            )
-                        }
+                <Box
+                    sx={{
+                        border:1,
+                        borderColor:"divider",
+                        borderRadius:2,
+                        p:2,
+                        display:"flex",
+                        flexDirection:"column",
+                        gap:1.5
                     }}
-                />
+                >
 
+                    <Typography
+                        variant="body2"
+                        fontWeight={600}
+                    >
+                        Cooling
+                    </Typography>
+
+                    <TextField
+                        label="Cooling time"
+                        value={cooldownTimeSeconds}
+                        onChange={handleCooldownTimeChange}
+                        type="number"
+                        size="small"
+                        fullWidth
+                        slotProps={{
+                            htmlInput:{min:0},
+                            input:{
+                                endAdornment:(
+                                    <InputAdornment position="end">
+                                        s
+                                    </InputAdornment>
+                                )
+                            }
+                        }}
+                    />
+
+                    <TextField
+                        label="Air convection coefficient"
+                        value={coolingH}
+                        onChange={handleCoolingHChange}
+                        type="number"
+                        size="small"
+                        fullWidth
+                        slotProps={{
+                            htmlInput:{min:0},
+                            input:{
+                                endAdornment:(
+                                    <InputAdornment position="end">
+                                        W/m²K
+                                    </InputAdornment>
+                                )
+                            }
+                        }}
+                    />
+
+                </Box>
 
                 {/* MAXIMUM SIMULATION TIME */}
 
@@ -515,9 +560,7 @@ const SimulationContent=({
                     size="small"
                     fullWidth
                     slotProps={{
-                        htmlInput:{
-                            min:0
-                        },
+                        htmlInput:{min:0},
                         input:{
                             endAdornment:(
                                 <InputAdornment position="end">
@@ -533,6 +576,5 @@ const SimulationContent=({
         </Box>
     );
 };
-
 
 export default SimulationContent;

@@ -238,7 +238,6 @@ const BendingPreview=({
 
     const view=profile?.view;
 
-    console.log(profile);
     const [containerSize,setContainerSize]=useState({
         width:800,
         height:500

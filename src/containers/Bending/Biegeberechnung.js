@@ -10,7 +10,8 @@ import {
     Slider,
     TextField,
     Tooltip,
-    Typography
+    Typography,
+    Link
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
@@ -62,16 +63,22 @@ const INITIAL_STATE={
     simulation:{
         target:{
             type:"minTemperature",
-            value:(MATERIALS["PVC_CAW_RED"]?.minFormingTemp + MATERIALS["PVC_CAW_RED"]?.maxFormingTemp)/2
+            value:(MATERIALS["PVC_CAW_RED"]?.minFormingTemp+MATERIALS["PVC_CAW_RED"]?.maxFormingTemp)/2
         },
-        ambientTemperatureC:20,
-        ambientRadiationTemperatureC:20,
-        initialTemperatureC:20,
 
-        stopAtMaxTemperature:false,
+        temperatures:{
+            ambientC:20,
+            ambientRadiationC:20,
+            initialC:20
+        },
 
-        maxTimeSeconds:1800,
-        cooldownTimeSeconds:10
+        cooling:{
+            timeSeconds:10,
+            convectiveHeatTransferCoefficient:8
+        },
+
+        stopAtMaxTemperature:true,
+        maxTimeSeconds:1800
     },
 
     view:{
@@ -1233,6 +1240,30 @@ export default function Biegeberechnung(){
                 >
                     <SimulationContent/>
                 </BendingDialog>
+
+                <Box
+                    sx={{
+                        px:1,
+                        pb:1,
+                        pt:.5,
+                        textAlign:"center"
+                    }}
+                >
+                    <Link
+                        component="button"
+                        type="button"
+                        underline="hover"
+                        onClick={()=>
+                            navigate("/heating-methodology_de")
+                        }
+                        sx={{
+                            fontSize:"0.8rem",
+                            cursor:"pointer"
+                        }}
+                    >
+                        Heating methodology
+                    </Link>
+                </Box>
             </Paper>
         </Box>
     );

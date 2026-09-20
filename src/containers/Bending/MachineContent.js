@@ -245,7 +245,7 @@ const MachineContent=({
                                 }}
                             >
                                 {formatValue(
-                                    bottom?.[p.key],
+                                    bottom?.[p.key] ?? top?.[p.key],
                                     p.unit
                                 )}
                             </Typography>
