@@ -152,18 +152,18 @@ const sections = [
         content: (
             <>
                 <Typography sx={bodySx}>
-                    Für die Abschätzung der Aufheizzeit eines Werkstücks
-                    stehen verschiedene Ebenen der mathematischen Beschreibung
-                    zur Verfügung – von einfachen empirischen Zusammenhängen
-                    bis hin zur instationären numerischen Modellierung
-                    des Temperaturfeldes.
+                    Für die Abschätzung der Aufheizzeit thermoplastischer
+                    Werkstücke können unterschiedliche mathematische Ansätze
+                    verwendet werden – von einfachen empirischen Beziehungen
+                    bis hin zur instationären numerischen Berechnung des
+                    Temperaturfeldes über die Werkstückdicke.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
                     <b>1. Empirischer Ansatz – Potenzabhängigkeit</b><br />
-                    Die einfachste Möglichkeit besteht darin, die Aufheizzeit
-                    über einen ingenieurmäßigen Zusammenhang mit der
-                    Materialdicke zu beschreiben:
+                    Eine einfache Möglichkeit besteht darin, die Aufheizzeit
+                    über einen empirischen Zusammenhang mit der Materialdicke
+                    zu beschreiben:
                 </Typography>
 
                 <Formula
@@ -184,81 +184,82 @@ const sections = [
                 </Formula>
 
                 <Typography sx={{ ...bodySx, mt: 1 }}>
-                    <i>Einschränkung:</i> Dieser Ansatz eignet sich für eine
-                    schnelle technische Abschätzung, beschreibt jedoch nicht
-                    den inneren Temperaturzustand des Materials. Bei Änderungen
-                    der Materialdicke, des Werkstoffs, der Heizparameter oder
-                    der Prozessbedingungen ist eine entsprechende
-                    experimentelle Überprüfung und gegebenenfalls eine
-                    erneute Anpassung erforderlich.
+                    <i>Einschränkung:</i> Dieser Ansatz liefert lediglich
+                    eine schnelle technische Abschätzung. Er beschreibt weder
+                    das Temperaturfeld im Inneren des Werkstücks noch die
+                    konkreten Wärmeübertragungsbedingungen der Heizzone.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    <b>2. Analytischer Ansatz – klassische Lösungen
-                    der Wärmeleitungsgleichung</b><br />
-                    Zur Berechnung der Temperaturverteilung über die Dicke
-                    können analytische Lösungen der instationären
-                    Wärmeleitungsgleichung verwendet werden, beispielsweise
-                    Lösungen in Form von Fourier-Reihen.
+                    <b>
+                        2. Analytischer Ansatz – klassische Lösungen
+                        der Wärmeleitungsgleichung
+                    </b><br />
+                    Für einfache Geometrien können analytische Lösungen der
+                    instationären Wärmeleitungsgleichung, beispielsweise in
+                    Form von Fourier-Reihen, zur Berechnung der
+                    Temperaturverteilung verwendet werden.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 1 }}>
-                    <i>Einschränkung:</i> Solche Lösungen setzen eine deutlich
-                    vereinfachte Beschreibung des Prozesses voraus. Geometrie,
-                    Randbedingungen und häufig auch die thermophysikalischen
-                    Eigenschaften müssen vorgegeben bzw. vereinfacht werden.
-                    Bei gleichzeitiger Berücksichtigung temperaturabhängiger
-                    Materialeigenschaften, Strahlungs- und Konvektionswärme-
-                    übertragung, beidseitiger Erwärmung und anschließender
-                    Abkühlung wird eine analytische Lösung wesentlich
-                    komplexer.
+                    <i>Einschränkung:</i> Solche Lösungen setzen stark
+                    vereinfachte Geometrien, Randbedingungen und
+                    thermophysikalische Eigenschaften voraus. Bei einer
+                    konkreten Heizzone mit beidseitiger Erwärmung,
+                    Strahlung, Konvektion, temperaturabhängigen
+                    Materialeigenschaften und anschließender Abkühlung
+                    wird die analytische Beschreibung deutlich komplexer.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    <b>3. Gewählter Ansatz – instationäre numerische
-                    Modellierung</b><br />
-                    Daher wird in der Anwendung eine numerische Berechnung
-                    des zeitabhängigen Temperaturfeldes eingesetzt.
-                    Dieser Ansatz ermöglicht es, die Eigenschaften der
-                    betrachteten Heizvorrichtung und die zeitliche Entwicklung
-                    der Temperatur über die Materialdicke direkt zu
-                    berücksichtigen.
+                    <b>
+                        3. Gewählter Ansatz – instationäre numerische
+                        Modellierung
+                    </b><br />
+                    Für die vorliegende Anwendung wird daher ein
+                    instationäres numerisches Modell des Temperaturfeldes
+                    verwendet. Dieser Ansatz ermöglicht die Berücksichtigung
+                    der konkreten Heizkonfiguration sowie der zeitlichen
+                    Entwicklung der Temperatur über die Werkstückdicke.
                 </Typography>
 
                 <List component="ul" sx={{ mt: 1.5, p: 0 }}>
                     <StyledListItem>
-                        Beidseitige Erwärmung unter Berücksichtigung von
-                        Strahlungs- und Konvektionswärmeübertragung.
+                        Beidseitige Erwärmung des Werkstücks durch die
+                        betrachtete TÉN-Heizvorrichtung.
                     </StyledListItem>
 
                     <StyledListItem>
-                        Temperaturabhängige thermophysikalische Eigenschaften
-                        des Werkstoffs.
+                        Strahlungs- und Konvektionswärmeübertragung
+                        an den Werkstückoberflächen.
                     </StyledListItem>
 
                     <StyledListItem>
-                        Zeitabhängige Temperaturverteilung über die Dicke
-                        des Blechs.
+                        Temperaturabhängige thermophysikalische
+                        Eigenschaften des Werkstoffs.
                     </StyledListItem>
 
                     <StyledListItem>
-                        Transportphase nach dem Verlassen der Heizzone,
-                        in der die äußere Wärmezufuhr endet und die Abkühlung
-                        beginnt.
+                        Zeitabhängige Temperaturverteilung über die
+                        gesamte Werkstückdicke.
                     </StyledListItem>
 
                     <StyledListItem>
-                        Überwachung der Formungstemperatur und der Temperatur
-                        des beginnenden thermischen Abbaus.
+                        Übergang von der Heizzone in die Transport- und
+                        Abkühlphase.
+                    </StyledListItem>
+
+                    <StyledListItem>
+                        Überwachung des Formungstemperaturbereichs und
+                        der Temperatur des beginnenden thermischen Abbaus.
                     </StyledListItem>
                 </List>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Der gewählte numerische Ansatz ermöglicht damit nicht nur
-                    die Berechnung der Aufheizzeit, sondern auch die Analyse
-                    des thermischen Zustands des Werkstücks einschließlich
-                    der Temperaturverteilung über die Dicke und deren Änderung
-                    während des Transports zur Biegestation.
+                    Der numerische Ansatz ermöglicht damit nicht nur die
+                    Bestimmung der Aufheizzeit, sondern auch die Berechnung
+                    des thermischen Zustands des Werkstücks und der
+                    Temperaturverteilung über seine Dicke.
                 </Typography>
             </>
         )
@@ -266,24 +267,26 @@ const sections = [
 
     {
         number: "2",
-        title: "Wissenschaftliche und theoretische Grundlage",
+        title: "Wissenschaftliche Grundlage und Anpassung an die TÉN-Heizung",
         content: (
             <>
                 <Typography sx={bodySx}>
-                    Die wissenschaftliche Grundlage des Berechnungsansatzes
-                    bilden Arbeiten von Buffel und seinen Mitautoren zur
-                    experimentellen und numerischen Untersuchung der
-                    Aufheizphase von Thermoplastplatten beim Thermoformen.
+                    Die wissenschaftliche Grundlage der vorliegenden
+                    Berechnung bilden Arbeiten von Buffel und seinen
+                    Mitautoren zur experimentellen und numerischen
+                    Untersuchung der Erwärmung thermoplastischer Platten
+                    beim Thermoformen.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    In der Arbeit von Buffel et al. (2015) wird eine
-                    experimentelle und rechnerische Untersuchung der
-                    Aufheizphase thermoplastischer Platten vorgestellt.
-                    Unter anderem wird ein Finite-Differenzen-Modell
-                    verwendet, mit dem die zeitliche Entwicklung der
-                    Temperaturverteilung über die Plattendicke berechnet
-                    werden kann.
+                    Buffel et al. (2015) entwickelten ein
+                    Finite-Differenzen-Modell zur Berechnung der
+                    zeitabhängigen Temperaturverteilung über die Dicke
+                    einer thermoplastischen Platte. In der Untersuchung
+                    wurden unter anderem halogen- und keramische
+                    Heizelemente betrachtet. Die Autoren zeigen dabei,
+                    dass sich die Temperaturverteilung über die Dicke
+                    während der Erwärmung deutlich verändern kann.
                 </Typography>
 
                 <Typography
@@ -306,14 +309,88 @@ const sections = [
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    In der Arbeit von Buffel et al. (2017) wird ein
-                    kombinierter experimentell-modellbasierter Ansatz
-                    zur Untersuchung von Infrarotheizanlagen und zur
-                    Bestimmung einer geeigneten Heizstrategie für
-                    thermoplastische Platten beschrieben. Dabei werden
-                    Parameter der Heizvorrichtung und der Umgebung
-                    berücksichtigt und mit experimentellen Untersuchungen
-                    kombiniert.
+                    Ein wichtiger Punkt für die vorliegende Anwendung ist
+                    die unterschiedliche spektrale Wirkung verschiedener
+                    Heizertypen. Buffel et al. berichten für die
+                    untersuchten Heizelemente einen Unterschied zwischen
+                    Halogen- und Keramikheizung und führen die größere
+                    Temperaturhomogenität bei der Halogenheizung unter
+                    anderem auf die tiefere Wirkung der kürzerwelligen
+                    Strahlung zurück.
+                </Typography>
+
+                <Typography sx={{ ...bodySx, mt: 2 }}>
+                    Gleichzeitig ist zu beachten, dass die in der Arbeit
+                    von Buffel et al. (2015) beschriebene
+                    Finite-Differenzen-Berechnung selbst keine explizite
+                    Durchdringung der Strahlungsenergie in die Materialtiefe
+                    enthält. Die Autoren weisen ausdrücklich darauf hin,
+                    dass eine solche Modellierung zu diesem Zeitpunkt noch
+                    nicht implementiert war.
+                </Typography>
+
+                <Typography sx={{ ...bodySx, mt: 2 }}>
+                    Für die vorliegende Anwendung wird daher nicht das
+                    Strahlungsmodell eines IR-Systems unverändert übernommen.
+                    Stattdessen wird die grundlegende numerische
+                    Vorgehensweise an die tatsächlich betrachtete
+                    TÉN-Heizvorrichtung angepasst.
+                </Typography>
+
+                <Paper
+                    variant="outlined"
+                    sx={{
+                        mt: 2.5,
+                        p: 2.5,
+                        borderRadius: 2,
+                        bgcolor: "grey.50"
+                    }}
+                >
+                    <Typography
+                        sx={{
+                            fontWeight: 700,
+                            color: "text.primary",
+                            mb: 1
+                        }}
+                    >
+                        Anpassung an die TÉN-Heizung
+                    </Typography>
+
+                    <Typography
+                        sx={{
+                            ...bodySx,
+                            color: "text.secondary"
+                        }}
+                    >
+                        Die Wärmeübertragung durch die TÉN wird in diesem
+                        Modell als thermische Einwirkung an der
+                        Werkstückoberfläche beschrieben. Eine separate
+                        volumetrische Absorption der Strahlung innerhalb
+                        der Werkstückdicke wird nicht modelliert. Die
+                        anschließend entstehende Erwärmung des Werkstoffs
+                        über die Dicke wird durch die Wärmeleitungsgleichung
+                        berechnet.
+                    </Typography>
+                </Paper>
+
+                <Typography sx={{ ...bodySx, mt: 2 }}>
+                    Diese Anpassung ist eine bewusste Modellierungsentscheidung
+                    für die betrachtete Heizkonfiguration. Sie bedeutet,
+                    dass die aus den Buffel-Arbeiten übernommene
+                    numerische Grundidee mit einer an die konkrete
+                    TÉN-Geometrie und deren Wärmeübertragung angepassten
+                    Randbedingung verwendet wird.
+                </Typography>
+
+                <Typography sx={{ ...bodySx, mt: 2 }}>
+                    Die Arbeit von Buffel et al. (2017) ergänzt diesen
+                    Ansatz durch eine kombinierte experimentelle und
+                    modellbasierte Methodik zur Charakterisierung von
+                    Heizanlagen und zur Bestimmung geeigneter
+                    Heizstrategien. Die dort beschriebene Vorgehensweise
+                    berücksichtigt unterschiedliche Typen von
+                    IR-Heizelementen sowie Maschinen- und
+                    Umgebungsparameter.
                 </Typography>
 
                 <Typography
@@ -327,45 +404,24 @@ const sections = [
                     Buffel, B.; Van Mieghem, B.; Van Bael, A.;
                     Desplentere, F. (2017).{" "}
                     <i>
-                        A Combined Experimental and Modelling Approach towards
-                        an Optimized Heating Strategy in Thermoforming of
-                        Thermoplastics Sheets.
+                        A Combined Experimental and Modelling Approach
+                        towards an Optimized Heating Strategy in Thermoforming
+                        of Thermoplastics Sheets.
                     </i>{" "}
-                    <i>International Polymer Processing</i>, 32(3), 378–386.
-                    Hanser Publishers.
+                    <i>International Polymer Processing</i>,
+                    32(3), 378–386. Hanser Publishers.
                     DOI: 10.3139/217.3370
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Im Rahmen der Entwicklung dieser Anwendung wurden diese
-                    wissenschaftlichen und numerischen Grundlagen an die
-                    betrachtete Heizvorrichtung mit beidseitiger Erwärmung
-                    angepasst. Insbesondere wurde eine Berechnung des
-                    Temperaturfeldes über die Materialdicke mit
-                    temperaturabhängigen Werkstoffeigenschaften sowie unter
-                    Berücksichtigung von Strahlungs- und Konvektionswärme-
-                    übertragung und der anschließenden Abkühlung während
-                    des Transports zur Biegestation umgesetzt.
-                </Typography>
-
-                <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die Literaturquellen bilden somit die physikalisch-
-                    mathematische Grundlage des Ansatzes. Die konkrete
-                    Softwareimplementierung, die Anpassung des Modells
-                    an die Geometrie der betrachteten Heizzone, die
-                    numerischen Parameter, die Abfolge der Berechnungsschritte
-                    sowie die Abbruchkriterien wurden im Rahmen dieser
-                    Anwendung entwickelt.
-                </Typography>
-
-                <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die veröffentlichten Arbeiten werden dabei als
-                    wissenschaftliche Grundlage verwendet und nicht als
-                    fertiges Rechenmodell unmittelbar in den Programmcode
-                    übernommen. Die Entwicklung der Anwendung umfasst
-                    die eigene technische Anpassung dieser Prinzipien
-                    an die konkrete Aufgabenstellung und die vorhandene
-                    Heizkonfiguration.
+                    Für die vorliegende Anwendung werden diese
+                    wissenschaftlichen Grundlagen nicht als fertiges
+                    Rechenmodell übernommen. Sie dienen als Ausgangspunkt
+                    für eine eigene technische Implementierung, die auf
+                    die konkrete TÉN-Heizung, deren Geometrie,
+                    Wärmeeintrag, Abstände, Konvektion, den beidseitigen
+                    Heizbetrieb sowie die anschließende Transport- und
+                    Abkühlphase zugeschnitten ist.
                 </Typography>
             </>
         )
@@ -378,24 +434,23 @@ const sections = [
             <>
                 <Typography sx={bodySx}>
                     Die Berechnung bestimmt die zeitliche Entwicklung
-                    der Werkstücktemperatur bei beidseitiger Erwärmung
-                    mit anschließender Abkühlung während des Transports
+                    der Werkstücktemperatur während der beidseitigen
+                    Erwärmung durch die betrachtete TÉN-Heizzone und
+                    während der anschließenden Abkühlung beim Transport
                     zur Biegestation.
                 </Typography>
 
-                <List
-                    component="ul"
-                    sx={{
-                        mt: 1.5,
-                        p: 0
-                    }}
-                >
+                <List component="ul" sx={{ mt: 1.5, p: 0 }}>
                     <StyledListItem>
                         Geometrie und thermische Wirksamkeit der Heizzone.
                     </StyledListItem>
 
                     <StyledListItem>
-                        Temperatur und Parameter der Heizelemente.
+                        Temperatur und thermische Parameter der TÉN-Heizer.
+                    </StyledListItem>
+
+                    <StyledListItem>
+                        Abstand zwischen Heizelementen und Werkstück.
                     </StyledListItem>
 
                     <StyledListItem>
@@ -403,32 +458,34 @@ const sections = [
                     </StyledListItem>
 
                     <StyledListItem>
-                        Strahlungswärmeübertragung zwischen Heizelementen,
-                        Oberflächen der Heizzone und Werkstück.
+                        Strahlungswärmeübertragung von der Heizzone
+                        auf die Werkstückoberflächen.
                     </StyledListItem>
 
                     <StyledListItem>
-                        Konvektive Wärmeübertragung zwischen Heizsystem,
-                        Umgebung und Werkstückoberfläche.
+                        Konvektive Wärmeübertragung an den
+                        Werkstückoberflächen.
                     </StyledListItem>
 
                     <StyledListItem>
-                        Temperaturabhängige Änderung der thermophysikalischen
-                        Eigenschaften.
+                        Temperaturabhängige Materialeigenschaften.
                     </StyledListItem>
 
                     <StyledListItem>
-                        Abkühlung des Werkstücks nach dem Verlassen
-                        der Heizzone.
+                        Wärmeleitung innerhalb des Werkstücks.
                     </StyledListItem>
 
                     <StyledListItem>
-                        Transportzeit des Werkstücks zur Biegestation.
+                        Abkühlung nach dem Verlassen der Heizzone.
                     </StyledListItem>
 
                     <StyledListItem>
-                        Zielbereich der Formungstemperatur und Temperatur
-                        des beginnenden thermischen Abbaus.
+                        Transportzeit zur Biegestation.
+                    </StyledListItem>
+
+                    <StyledListItem>
+                        Zielbereich der Formungstemperatur und
+                        Schutzgrenze gegen thermischen Abbau.
                     </StyledListItem>
                 </List>
             </>
@@ -437,35 +494,61 @@ const sections = [
 
     {
         number: "4",
-        title: "Physikalisches Modell von PVC",
+        title: "Physikalisches Modell von PVC bei TÉN-Erwärmung",
         content: (
             <>
                 <Typography sx={bodySx}>
-                    Für opake thermoplastische Platten, insbesondere PVC,
-                    wird im verwendeten Modell angenommen, dass die
-                    Wärmestrahlung überwiegend in einem oberflächennahen
-                    Bereich des Materials absorbiert wird.
+                    Das Werkstück wird als opake thermoplastische Platte
+                    betrachtet. Für die vorliegende Modellierung wird
+                    angenommen, dass die durch die TÉN-Heizzone eingebrachte
+                    Strahlungswärme nicht in einer für den Berechnungsansatz
+                    relevanten Tiefe volumetrisch im Material verteilt
+                    berücksichtigt werden muss.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Eine separate Modellierung des Eindringens der
-                    Infrarotstrahlung in die Tiefe der Platte wird in dieser
-                    Implementierung nicht verwendet. Die Energieübertragung
-                    wird über eine thermische Randbedingung an der Oberfläche
-                    beschrieben. Anschließend breitet sich die Wärme im
-                    Material überwiegend durch Wärmeleitung aus.
+                    Die TÉN sind thermische Strahlungsquellen. Dabei
+                    besitzen sie keine einzelne, fest definierte
+                    Strahlungswellenlänge. Das Emissionsspektrum hängt
+                    insbesondere von der Temperatur und den
+                    Oberflächeneigenschaften des Heizelements ab.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Das zentrale Ergebnis der inneren thermischen Berechnung
-                    ist daher die zeitabhängige Temperaturverteilung
-                    über die Plattendicke.
+                    Im Gegensatz zu Heizsystemen, bei denen die
+                    wellenlängenabhängige Eindringung der Strahlung in
+                    das Material ausdrücklich modelliert wird, wird in
+                    dieser Anwendung deshalb keine separate
+                    Strahlungsabsorption über die Werkstücktiefe
+                    berechnet.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die Berechnung wird als eindimensionale instationäre
-                    Wärmeleitung über die Dicke des Werkstücks mit
-                    beidseitiger Erwärmung durchgeführt.
+                    Der Wärmeeintrag der TÉN wird stattdessen als
+                    thermische Randbedingung an den Werkstückoberflächen
+                    formuliert. Von dort wird die Wärme im Material
+                    durch Wärmeleitung über die Plattendicke weitergeleitet.
+                </Typography>
+
+                <Typography sx={{ ...bodySx, mt: 2 }}>
+                    Diese Vereinfachung ist Bestandteil des
+                    entwickelten Modells für die betrachtete
+                    Heizkonfiguration. Sie ist nicht als allgemeines
+                    physikalisches Gesetz für sämtliche thermoplastische
+                    Werkstoffe und sämtliche Arten von Infrarotheizungen
+                    zu verstehen.
+                </Typography>
+
+                <Typography sx={{ ...bodySx, mt: 2 }}>
+                    Das zentrale Ergebnis der inneren thermischen
+                    Berechnung ist die zeitabhängige Temperaturverteilung
+                    über die gesamte Werkstückdicke.
+                </Typography>
+
+                <Typography sx={{ ...bodySx, mt: 2 }}>
+                    Die räumliche Betrachtung wird auf die Dicke des
+                    Werkstücks reduziert. Ein Wärmetransport innerhalb
+                    der Plattenebene wird im Modell nicht berücksichtigt.
                 </Typography>
             </>
         )
@@ -477,7 +560,7 @@ const sections = [
         content: (
             <>
                 <Typography sx={bodySx}>
-                    Die Temperaturänderung innerhalb des Materials wird
+                    Die Temperaturänderung innerhalb des Werkstoffs wird
                     durch die instationäre Wärmeleitungsgleichung mit
                     temperaturabhängigen thermophysikalischen Eigenschaften
                     beschrieben.
@@ -487,12 +570,11 @@ const sections = [
                     title="Instationäre Wärmeleitungsgleichung"
                     source={
                         <>
-                            Grundlegende Gleichung der instationären
-                            Wärmeleitung. Die eindimensionale Anwendung
-                            dieser Gleichung zur Berechnung des
-                            Temperaturfeldes einer thermoplastischen
-                            Plattengeometrie bildet die physikalisch-
-                            mathematische Grundlage des numerischen Ansatzes.
+                            Allgemeine Gleichung der instationären
+                            Wärmeleitung. Ihre eindimensionale Anwendung
+                            über die Werkstückdicke bildet die physikalisch-
+                            mathematische Grundlage des verwendeten
+                            numerischen Modells.
                         </>
                     }
                 >
@@ -503,13 +585,7 @@ const sections = [
                     Dabei gilt:
                 </Typography>
 
-                <List
-                    component="ul"
-                    sx={{
-                        mt: 1.5,
-                        p: 0
-                    }}
-                >
+                <List component="ul" sx={{ mt: 1.5, p: 0 }}>
                     <StyledListItem>
                         <b>ρ(T)</b> — Dichte des Materials;
                     </StyledListItem>
@@ -527,7 +603,7 @@ const sections = [
                     </StyledListItem>
 
                     <StyledListItem>
-                        <b>x</b> — Koordinate über die Materialdicke;
+                        <b>x</b> — Koordinate über die Werkstückdicke;
                     </StyledListItem>
 
                     <StyledListItem>
@@ -536,10 +612,11 @@ const sections = [
                 </List>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    In der vorliegenden Implementierung werden die
-                    temperaturabhängigen Materialeigenschaften während
-                    der zeitlichen Berechnung des Temperaturfeldes
-                    aktualisiert.
+                    Die konkrete Berechnung verwendet die aktuellen
+                    temperaturabhängigen Materialeigenschaften der
+                    jeweiligen Rechenschicht. Dadurch wird berücksichtigt,
+                    dass sich die thermische Reaktion des Werkstoffs
+                    während des Aufheizens verändert.
                 </Typography>
             </>
         )
@@ -551,61 +628,55 @@ const sections = [
         content: (
             <>
                 <Typography sx={bodySx}>
-                    Zur numerischen Lösung der Wärmeleitungsgleichung
-                    wird eine implizite Finite-Differenzen-Methode verwendet.
+                    Zur Lösung der Wärmeleitungsgleichung wird eine
+                    implizite Finite-Differenzen-Methode verwendet.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Das Material wird über die Dicke in ein Rechengitter
-                    mit ungefähr 20–22 Zellen unterteilt. Die räumliche
-                    Schrittweite wird automatisch aus der Materialdicke
-                    bestimmt und innerhalb des vorgegebenen Bereichs
-                    der Rechengitterauflösung gehalten.
+                    Das Werkstück wird über seine Dicke in ein
+                    eindimensionales Rechengitter aufgeteilt. Die
+                    räumliche Auflösung wird aus der Materialdicke
+                    abgeleitet und innerhalb des vorgegebenen Bereichs
+                    gehalten.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Der zeitliche Berechnungsschritt beträgt 0,2 Sekunden.
-                    Das implizite Verfahren ermöglicht dabei eine hohe
-                    numerische Stabilität bei der schrittweisen Berechnung
-                    des Temperaturfeldes.
+                    In der aktuellen Implementierung werden ungefähr
+                    20–22 Rechenzellen über die Werkstückdicke verwendet.
+                    Der zeitliche Berechnungsschritt beträgt
+                    0,2 Sekunden.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die Berechnung erfolgt schrittweise über die Zeit.
-                    Für jeden Zeitschritt wird der neue Temperaturzustand
-                    aller Berechnungspunkte über die Materialdicke unter
-                    Berücksichtigung der thermischen Einwirkung an den
-                    Oberflächen und des Wärmeaustauschs zwischen benachbarten
-                    Schichten bestimmt.
+                    Das implizite Verfahren berechnet den neuen
+                    Temperaturzustand aus dem vorhergehenden Zustand.
+                    Dadurch kann die zeitliche Entwicklung des
+                    Temperaturfeldes schrittweise und numerisch stabil
+                    verfolgt werden.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Das berechnete Temperaturfeld bildet den Ausgangszustand
-                    für den nächsten Zeitschritt. Dadurch beeinflusst die
-                    bereits im Material gespeicherte Wärme unmittelbar
-                    die weitere Wärmeausbreitung über die Dicke.
+                    Für jeden Zeitschritt werden die thermischen
+                    Randbedingungen an den beiden Oberflächen sowie der
+                    Wärmeaustausch zwischen den benachbarten
+                    Materialschichten berücksichtigt.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Bei der iterativen Lösung innerhalb eines Zeitschritts
-                    werden Temperatur und thermophysikalische Eigenschaften
-                    bis zum Erreichen der vorgegebenen Konvergenzbedingung
-                    aktualisiert. Dadurch kann die Temperaturabhängigkeit
-                    der Materialeigenschaften direkt in der instationären
-                    Berechnung berücksichtigt werden.
+                    Da die Materialeigenschaften von der Temperatur
+                    abhängen, werden Temperatur und Materialparameter
+                    innerhalb eines Zeitschritts iterativ aktualisiert.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Nach der Diskretisierung entsteht ein
-                    dreidiagonales Gleichungssystem, das mit dem
-                    Thomas-Algorithmus gelöst wird.
+                    Nach der räumlichen Diskretisierung entsteht ein
+                    dreidiagonales Gleichungssystem. Dieses wird mit dem
+                    Thomas-Algorithmus gelöst.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Auf diese Weise bildet der numerische Algorithmus
-                    die zeitliche Entwicklung des Temperaturfeldes
-                    vom Ausgangszustand bis zum Erreichen des definierten
-                    Heizkriteriums oder einer thermischen Schutzgrenze ab.
+                    Das berechnete Temperaturfeld dient anschließend als
+                    Ausgangszustand für den nächsten Zeitschritt.
                 </Typography>
             </>
         )
@@ -613,26 +684,24 @@ const sections = [
 
     {
         number: "7",
-        title: "Wärmebilanz an der Oberfläche",
+        title: "Wärmeübertragung an den Werkstückoberflächen",
         content: (
             <>
                 <Typography sx={bodySx}>
-                    In der vorliegenden Modellierung wird der Wärmeeintrag
-                    an die Werkstückoberfläche als Summe aus Strahlungs-
-                    und Konvektionswärmestrom betrachtet.
+                    In der vorliegenden TÉN-Heizzone wird der
+                    Wärmeeintrag an die Werkstückoberflächen über
+                    Strahlungs- und Konvektionswärmeübertragung
+                    beschrieben.
                 </Typography>
 
                 <Formula
-                    title="Wärmebilanz an der Oberfläche"
+                    title="Gesamter Wärmestrom an der Oberfläche"
                     source={
                         <>
-                            Allgemeine Form der Energiebilanz an der
-                            Werkstückoberfläche. Die Aufteilung in
-                            Strahlungs- und Konvektionsanteil entspricht
-                            den im Modell berücksichtigten
-                            Wärmeübertragungsmechanismen. Die konkrete
-                            Summendarstellung ist Bestandteil der
-                            vorliegenden Berechnungsimplementierung.
+                            Energiebilanz der verwendeten
+                            Oberflächenrandbedingung. Die Aufteilung in
+                            Strahlungs- und Konvektionsanteil ist Bestandteil
+                            der vorliegenden Modellimplementierung.
                         </>
                     }
                 >
@@ -640,22 +709,23 @@ const sections = [
                 </Formula>
 
                 <Typography sx={bodySx}>
-                    Der Strahlungsanteil wird über das thermische
-                    Strahlungsgesetz unter Berücksichtigung der effektiven
-                    geometrischen Anordnung von Heizsystem und Werkstück
-                    bestimmt.
+                    Der Strahlungsanteil beschreibt den Wärmeeintrag
+                    von der TÉN-Heizzone auf die Werkstückoberfläche.
+                    Dabei werden die thermische Temperatur des
+                    Heizsystems und die geometrische Anordnung
+                    zwischen Heizer und Werkstück berücksichtigt.
                 </Typography>
 
                 <Formula
                     title="Strahlungswärmestrom"
                     source={
                         <>
-                            Stefan-Boltzmann-Gesetz für den Strahlungs-
-                            wärmeaustausch unter Berücksichtigung einer
-                            effektiven Emissionsfähigkeit und eines
-                            geometrischen Sichtfaktors. Die verwendete
-                            Form stellt die Randbedingung der vorliegenden
-                            Berechnungsimplementierung dar.
+                            Stefan-Boltzmann-basierte Randbedingung
+                            für den Strahlungsaustausch. Die effektive
+                            Beschreibung des Strahlungsaustauschs mit
+                            Geometriefaktor und Emissionsparametern
+                            gehört zur vorliegenden technischen
+                            Implementierung.
                         </>
                     }
                 >
@@ -666,15 +736,10 @@ const sections = [
                     Dabei gilt:
                 </Typography>
 
-                <List
-                    component="ul"
-                    sx={{
-                        mt: 1.5,
-                        p: 0
-                    }}
-                >
+                <List component="ul" sx={{ mt: 1.5, p: 0 }}>
                     <StyledListItem>
-                        <b>ε<sub>eff</sub></b> — effektive Emissionsfähigkeit;
+                        <b>ε<sub>eff</sub></b> — effektiver
+                        Emissionsparameter;
                     </StyledListItem>
 
                     <StyledListItem>
@@ -687,7 +752,7 @@ const sections = [
 
                     <StyledListItem>
                         <b>T<sub>h</sub></b> — absolute Temperatur
-                        des Heizsystems;
+                        der TÉN-Heizzone;
                     </StyledListItem>
 
                     <StyledListItem>
@@ -697,18 +762,26 @@ const sections = [
                 </List>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    In der betrachteten Geometrie werden sowohl die direkte
-                    Strahlung der Heizelemente als auch der Beitrag
-                    der umgebenden Flächen der Heizzone über eine
-                    effektive Beschreibung des Strahlungsaustauschs
-                    berücksichtigt.
+                    Die geometrische Beschreibung der Heizzone ist dabei
+                    nicht als abstrakte Standardgeometrie des
+                    Literaturmodells übernommen. Sie wird an die konkrete
+                    Konstruktion der betrachteten TÉN-Heizung angepasst,
+                    einschließlich der Anordnung der Heizelemente,
+                    Abstände und der umgebenden Flächen.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die konvektive Wärmeübertragung wird separat über
-                    den entsprechenden Wärmeübergangskoeffizienten und
-                    die Temperaturdifferenz zwischen Werkstückoberfläche
-                    und Umgebung berücksichtigt.
+                    Eine separate volumetrische Absorption der von den
+                    TÉN abgegebenen Strahlung innerhalb des Werkstücks
+                    wird in dieser Randbedingung nicht angesetzt.
+                    Die Temperaturausbreitung in die Materialtiefe
+                    erfolgt im Modell über die Wärmeleitungsgleichung.
+                </Typography>
+
+                <Typography sx={{ ...bodySx, mt: 2 }}>
+                    Die Konvektion wird unabhängig davon über den
+                    Wärmeübergangskoeffizienten und die Temperaturdifferenz
+                    zwischen Werkstückoberfläche und Umgebung beschrieben.
                 </Typography>
             </>
         )
@@ -720,33 +793,32 @@ const sections = [
         content: (
             <>
                 <Typography sx={bodySx}>
-                    Die thermophysikalischen Eigenschaften von PVC verändern
-                    sich mit der Temperatur. Deshalb werden in der Berechnung
-                    temperaturabhängige Werte der relevanten Material-
-                    eigenschaften verwendet.
+                    Die thermophysikalischen Eigenschaften von PVC
+                    verändern sich mit der Temperatur. Deshalb werden
+                    im Berechnungsmodell temperaturabhängige Werte
+                    verwendet.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Insbesondere wird die Änderung der spezifischen
-                    Wärmekapazität im Bereich des Glasübergangs berücksichtigt.
-                    Dadurch kann die für eine weitere Temperaturerhöhung
-                    erforderliche Energiemenge temperaturabhängig beschrieben
-                    werden.
+                    Insbesondere wird die Veränderung der spezifischen
+                    Wärmekapazität im Bereich des Glasübergangs
+                    berücksichtigt. Dadurch wird die Energiemenge,
+                    die für eine weitere Temperaturerhöhung erforderlich
+                    ist, temperaturabhängig beschrieben.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die Glasübergangstemperatur wird dabei als Kennwert
-                    eines Übergangsbereichs des Polymerwerkstoffs betrachtet.
-                    In diesem Bereich können sich thermophysikalische und
-                    mechanische Eigenschaften des Materials deutlich verändern.
+                    Die Glasübergangstemperatur wird als Kennwert eines
+                    Übergangsbereichs des Polymerwerkstoffs betrachtet.
+                    In diesem Bereich können sich thermophysikalische
+                    und mechanische Eigenschaften des Materials verändern.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    In der Berechnung werden die Materialeigenschaften
-                    entsprechend der aktuellen Temperatur der jeweiligen
+                    Die Materialeigenschaften werden deshalb während der
+                    Berechnung aus der aktuellen Temperatur der jeweiligen
                     Rechenschicht bestimmt und nicht als ein einziger
-                    konstanter Wert für den gesamten Aufheizprozess
-                    angenommen.
+                    konstanter Wert für den gesamten Prozess angenommen.
                 </Typography>
             </>
         )
@@ -758,8 +830,8 @@ const sections = [
         content: (
             <>
                 <Typography sx={bodySx}>
-                    Der Prozess wird nacheinander in mehrere physikalische
-                    Phasen unterteilt:
+                    Der Berechnungsprozess wird entsprechend dem realen
+                    Ablauf in mehrere aufeinanderfolgende Phasen unterteilt:
                 </Typography>
 
                 <Grid
@@ -769,13 +841,13 @@ const sections = [
                 >
                     <Grid item xs={12} sm={3}>
                         <FlowBox>
-                            Heizzone
+                            TÉN-Heizzone
                         </FlowBox>
                     </Grid>
 
                     <Grid item xs={12} sm={3}>
                         <FlowBox>
-                            Entnahme des Werkstücks
+                            Entnahme
                         </FlowBox>
                     </Grid>
 
@@ -793,31 +865,31 @@ const sections = [
                 </Grid>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Solange sich das Werkstück in der Heizzone befindet,
-                    wirken die vorgegebenen Wärmeströme des Heizsystems
-                    auf seine Oberflächen.
+                    Während sich das Werkstück in der Heizzone befindet,
+                    wirken die Wärmeübertragungsbedingungen der TÉN-Heizer
+                    auf beide Oberflächen.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Nach der Entnahme aus der Heizzone endet die direkte
-                    Wärmezufuhr durch die Heizelemente. Während des Transports
-                    beginnt die Oberflächentemperatur zu sinken, während sich
-                    die Temperaturverteilung über die Dicke aufgrund der
-                    inneren Wärmeleitung und des Wärmeaustauschs mit der
-                    Umgebung weiter verändert.
+                    Nach dem Verlassen der Heizzone entfällt der direkte
+                    Wärmeeintrag der Heizelemente. Während des Transports
+                    verändert sich das Temperaturfeld weiter: Wärme wird
+                    aus den wärmeren inneren Bereichen zu den Oberflächen
+                    geleitet und gleichzeitig an die Umgebung abgegeben.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die Temperatur zu Beginn des Biegevorgangs hängt daher
-                    nicht nur von der Aufenthaltszeit in der Heizzone,
-                    sondern auch von der anschließenden Transport- und
-                    Abkühlzeit ab.
+                    Dadurch kann die Oberflächentemperatur während des
+                    Transports sinken, während sich die
+                    Temperaturverteilung über die Werkstückdicke weiter
+                    ausgleicht.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die während der Erwärmung entstandene Temperaturverteilung
-                    wird dabei als Ausgangszustand für die anschließende
-                    Abkühlphase übernommen.
+                    Der thermische Zustand zu Beginn des Biegevorgangs
+                    hängt daher sowohl von der Aufheizzeit in der
+                    TÉN-Heizzone als auch von der anschließenden
+                    Transport- und Abkühlzeit ab.
                 </Typography>
             </>
         )
@@ -829,10 +901,10 @@ const sections = [
         content: (
             <>
                 <Typography sx={bodySx}>
-                    In der vorliegenden Implementierung gilt die Heizphase
-                    als abgeschlossen, wenn die minimale Temperatur über
-                    die gesamte Werkstückdicke die vorgegebene Zieltemperatur
-                    erreicht.
+                    In der vorliegenden Implementierung gilt die
+                    Aufheizphase als abgeschlossen, wenn die minimale
+                    Temperatur über die gesamte Werkstückdicke die
+                    vorgegebene Zieltemperatur erreicht.
                 </Typography>
 
                 <Formula
@@ -840,12 +912,9 @@ const sections = [
                     source={
                         <>
                             Berechnungskriterium der vorliegenden
-                            Implementierung. Es basiert auf der Forderung,
-                            dass die vorgegebene Temperatur über die gesamte
-                            Werkstückdicke erreicht wird. Die konkrete
-                            Formulierung über den Minimalwert ist ein
-                            Kriterium dieses Modells und kein eigenständiges
-                            physikalisches Gesetz.
+                            Implementierung. Die Formulierung über die
+                            Minimaltemperatur stellt ein definiertes
+                            Abschlusskriterium des Modells dar.
                         </>
                     }
                 >
@@ -853,21 +922,21 @@ const sections = [
                 </Formula>
 
                 <Typography sx={bodySx}>
-                    Dadurch wird verhindert, dass die Oberfläche bereits
-                    die erforderliche Temperatur erreicht hat, während
-                    der zentrale Bereich der Platte noch deutlich kälter ist.
+                    Dadurch wird verhindert, dass lediglich die
+                    Oberflächentemperatur als Maß für den thermischen
+                    Zustand des gesamten Werkstücks verwendet wird,
+                    während der Kern noch deutlich kälter ist.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Das Ende der Erwärmung wird somit nicht ausschließlich
-                    über die Oberflächentemperatur bestimmt, sondern über
-                    den thermischen Zustand des gesamten Materialquerschnitts.
+                    Das Ende der Aufheizung wird somit anhand des
+                    Temperaturzustands über die gesamte Materialdicke
+                    bestimmt.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Nach Erfüllung dieses Kriteriums kann die Berechnung,
-                    abhängig von den Prozessparametern, in die Transport-
-                    und Abkühlphase übergehen.
+                    Nach Erfüllung dieses Kriteriums kann die Berechnung
+                    in die Transport- und Abkühlphase übergehen.
                 </Typography>
             </>
         )
@@ -879,22 +948,17 @@ const sections = [
         content: (
             <>
                 <Typography sx={bodySx}>
-                    Das zentrale Ergebnis der Berechnung ist die zeitliche
-                    Entwicklung der Temperatur an verschiedenen Positionen
-                    über die Werkstückdicke.
+                    Das zentrale Ergebnis der Berechnung ist die
+                    zeitabhängige Temperaturverteilung an verschiedenen
+                    Positionen über die Werkstückdicke.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die berechneten Diagramme ermöglichen die Analyse von:
+                    Die berechneten Temperaturverläufe ermöglichen die
+                    Analyse von:
                 </Typography>
 
-                <List
-                    component="ul"
-                    sx={{
-                        mt: 1.5,
-                        p: 0
-                    }}
-                >
+                <List component="ul" sx={{ mt: 1.5, p: 0 }}>
                     <StyledListItem>
                         Oberflächentemperatur des Werkstücks.
                     </StyledListItem>
@@ -908,8 +972,7 @@ const sections = [
                     </StyledListItem>
 
                     <StyledListItem>
-                        Zeit bis zum Erreichen der vorgegebenen
-                        Zieltemperatur.
+                        Zeit bis zum Erreichen der Zieltemperatur.
                     </StyledListItem>
 
                     <StyledListItem>
@@ -917,7 +980,7 @@ const sections = [
                     </StyledListItem>
 
                     <StyledListItem>
-                        Änderung der Temperatur während des Transports
+                        Temperaturänderung während des Transports
                         zur Biegestation.
                     </StyledListItem>
                 </List>
@@ -931,29 +994,27 @@ const sections = [
         content: (
             <>
                 <Typography sx={bodySx}>
-                    Zur Vermeidung einer Überhitzung wird während der
-                    Berechnung die für den jeweiligen Werkstoff definierte
-                    Temperatur des beginnenden thermischen Abbaus überwacht.
+                    Während der Berechnung wird die für den jeweiligen
+                    Werkstoff definierte Temperatur des beginnenden
+                    thermischen Abbaus überwacht.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
                     Erreicht die Temperatur an einem beliebigen
                     Berechnungspunkt diese Grenze, wird die weitere
-                    Aufheizberechnung beendet. Das Ergebnis wird mit einem
-                    entsprechenden Status zurückgegeben, der das Erreichen
-                    der Zersetzungstemperatur anzeigt.
+                    Aufheizberechnung beendet.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Die Zersetzungstemperatur stellt dabei eine
-                    Schutzgrenze der Berechnung dar und wird nicht als
-                    Zieltemperatur für den Formgebungsprozess verwendet.
+                    Das Ergebnis wird mit einem entsprechenden Status
+                    zurückgegeben, der anzeigt, dass die
+                    Schutzgrenze für den thermischen Abbau erreicht wurde.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Das Erreichen dieser Grenze wird somit als unzulässiger
-                    thermischer Zustand des Berechnungsprozesses betrachtet
-                    und nicht als normales Abschlusskriterium der Erwärmung.
+                    Die Zersetzungstemperatur ist damit eine
+                    Schutzgrenze des Berechnungsmodells und keine
+                    Zieltemperatur für den Formgebungsprozess.
                 </Typography>
             </>
         )
@@ -966,40 +1027,42 @@ const sections = [
             <>
                 <Typography sx={bodySx}>
                     Das numerische Modell kann durch experimentelle
-                    Temperaturmessungen überprüft werden. Dazu können
-                    insbesondere Messungen der Oberflächentemperatur und,
-                    soweit messtechnisch möglich, der Temperatur im Inneren
-                    des Werkstücks herangezogen werden.
+                    Temperaturmessungen an der realen TÉN-Heizzone
+                    überprüft werden.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Der Vergleich zwischen berechneten und gemessenen
-                    Temperaturen ermöglicht eine Beurteilung der
-                    Übereinstimmung des Modells mit der realen Heizvorrichtung
-                    und kann Hinweise auf die Notwendigkeit einer
-                    Anpassung einzelner Wärmeübertragungsparameter liefern.
+                    Besonders relevant ist dabei der Vergleich zwischen
+                    der berechneten und der gemessenen
+                    Oberflächentemperatur. Soweit messtechnisch möglich,
+                    können zusätzlich Temperaturen in unterschiedlichen
+                    Tiefen des Werkstücks gemessen werden.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Eine experimentelle Kalibrierung ist kein zwingender
-                    Bestandteil der grundlegenden Berechnung dieser Anwendung
-                    und wird als separate Vorgehensweise zur Verifikation
-                    und gegebenenfalls zur weiteren Modellanpassung betrachtet.
+                    Der Vergleich mit Messdaten ermöglicht die Beurteilung,
+                    wie gut die angesetzten Wärmeübertragungsbedingungen
+                    die reale Heizzone beschreiben. Abweichungen können
+                    beispielsweise auf die tatsächliche thermische
+                    Leistungsabgabe der TÉN, die Wärmeübergangsbedingungen,
+                    die Geometrie oder Materialparameter zurückzuführen sein.
                 </Typography>
 
                 <Typography sx={{ ...bodySx, mt: 2 }}>
-                    Bei vorhandenen Messdaten kann der Vergleich sowohl
-                    anhand der Oberflächentemperatur als auch anhand der
-                    Temperaturverteilung über die Dicke und der Zeit bis
-                    zum Erreichen des definierten thermischen Zustands
-                    durchgeführt werden.
+                    Eine experimentelle Anpassung beziehungsweise Kalibrierung
+                    ist dabei von der grundlegenden physikalisch-numerischen
+                    Berechnung zu unterscheiden. Die vorliegende Methode
+                    beschreibt zunächst ein eigenständiges Rechenmodell;
+                    experimentelle Daten können anschließend zu dessen
+                    Überprüfung und gegebenenfalls zur Anpassung einzelner
+                    Modellparameter verwendet werden.
                 </Typography>
             </>
         )
     }
 ];
 
-export default function HeatingMethodologyPage_de() {
+export default function HeatingMethodologyPage() {
     return (
         <Container
             maxWidth="lg"
@@ -1059,11 +1122,11 @@ export default function HeatingMethodologyPage_de() {
                         }}
                     >
                         Wissenschaftliche Grundlage nach Buffel et al.
-                        (2015, 2017) und deren Anwendung in einem
-                        Berechnungsmodell für eine Heizzone unter
-                        Berücksichtigung der Temperaturverteilung
-                        über die Werkstückdicke und der Abkühlung
-                        während des Transports zur Biegestation.
+                        (2015, 2017) und deren technische Anpassung an
+                        eine TÉN-basierte Heizzone zur Berechnung der
+                        Temperaturverteilung über die Werkstückdicke
+                        sowie der anschließenden Abkühlung während des
+                        Transports zur Biegestation.
                     </Typography>
                 </Box>
 
@@ -1140,19 +1203,26 @@ export default function HeatingMethodologyPage_de() {
                             lineHeight: 1.75
                         }}
                     >
-                        Die Methodik verwendet physikalische Grundlagen
-                        der Wärmeübertragung und numerische Verfahren
-                        zur Berechnung des Temperaturfeldes einer
-                        thermoplastischen Platte. Die wissenschaftliche
-                        Grundlage bilden veröffentlichte Untersuchungen
-                        zur experimentellen und numerischen Analyse der
-                        Erwärmung von Thermoplasten. Auf dieser Grundlage
-                        wurde für diese Anwendung ein angepasster
-                        Berechnungsansatz entwickelt, der die Erwärmung
-                        des Werkstücks in der betrachteten Heizzone,
-                        die Temperaturverteilung über die Dicke und die
-                        anschließende Temperaturänderung während des
-                        Transports zur Biegestation berücksichtigt.
+                        Die Berechnung basiert auf den physikalischen
+                        Grundlagen der Wärmeübertragung und auf der
+                        numerischen Modellierung der zeitabhängigen
+                        Temperaturverteilung in thermoplastischen
+                        Werkstücken. Als wissenschaftliche Ausgangsbasis
+                        dienen insbesondere die Arbeiten von Buffel et al.
+                        zur experimentellen und numerischen Untersuchung
+                        der Erwärmung thermoplastischer Platten.
+                        Für die vorliegende Anwendung wird diese
+                        methodische Grundlage jedoch nicht unverändert
+                        übernommen, sondern an die konkrete TÉN-Heizzone
+                        angepasst. Der Wärmeeintrag der TÉN wird über
+                        thermische Oberflächenrandbedingungen beschrieben,
+                        während die weitere Temperaturausbreitung durch
+                        Wärmeleitung über die Werkstückdicke berechnet wird.
+                        Zusätzlich werden die konkrete Heizgeometrie,
+                        temperaturabhängige Materialeigenschaften, die
+                        Abkühlung beim Transport und die definierten
+                        thermischen Abschluss- und Schutzkriterien
+                        berücksichtigt.
                     </Typography>
                 </Paper>
 
@@ -1227,9 +1297,7 @@ export default function HeatingMethodologyPage_de() {
                         <StyledListItem>
                             Holman, J. P.
                             <br />
-                            <i>
-                                Heat Transfer.
-                            </i>
+                            <i>Heat Transfer.</i>
                             <br />
                             McGraw-Hill.
                         </StyledListItem>
@@ -1245,17 +1313,16 @@ export default function HeatingMethodologyPage_de() {
                         }}
                     >
                         Die Veröffentlichungen von Buffel et al. bilden die
-                        wissenschaftliche Grundlage des Ansatzes zur
-                        numerischen und experimentellen Untersuchung der
-                        Erwärmung thermoplastischer Platten. Auf dieser
-                        Grundlage wurde in dieser Anwendung ein angepasster
-                        Berechnungsansatz für die betrachtete Heizvorrichtung
-                        implementiert. Die konkrete Geometrie der Heizzone,
-                        die Softwareimplementierung, die numerischen
-                        Einstellungen, die Abfolge der Berechnungsschritte
-                        und die Abbruchkriterien sind Bestandteil dieser
-                        Anwendung und werden den Literaturquellen nicht
-                        unmittelbar zugeschrieben.
+                        wissenschaftliche Grundlage für die numerische
+                        Beschreibung der Erwärmung thermoplastischer Platten.
+                        Die konkrete Anwendung auf die betrachtete
+                        TÉN-Heizzone, die technische Beschreibung der
+                        Heizgeometrie, die Oberflächenrandbedingungen,
+                        die numerische Implementierung, die
+                        temperaturabhängigen Materialparameter, die
+                        Transport- und Abkühlphase sowie die definierten
+                        Abbruchkriterien sind Bestandteil des hier
+                        entwickelten Berechnungsmodells.
                     </Typography>
                 </Paper>
             </Stack>
