@@ -8,18 +8,18 @@ const LABEL_ANGLE_STEP = 15;
 const LABEL_ACCEPTABLE_SCORE = 500;
 
 const LABEL_PENALTIES = {
-        edge: 10000,                // Штраф за направление к близкой границе графика
-        placedOverlap: 4000,        // Штраф за перекрытие уже размещённой подписи
-        placedNear: 500,            // Штраф за слишком близкое расположение к другой подписи
-        perPointInsideFactor: 1000,  // Штраф за каждую накрытую точку графика (умножается на их количество)
-        topOverflowBase: 50,        // Базовый штраф за выход за верхнюю границу SVG
-        topOverflowFactor: 8,       // Множитель штрафа за глубину выхода сверху
-        bottomOverflowBase: 50,     // Базовый штраф за выход за нижнюю границу SVG
-        bottomOverflowFactor: 8,    // Множитель штрафа за глубину выхода снизу
-        direction: 15,              // Штраф за порядковый номер направления (угол)
-        rayDistance: 4,             // Штраф за расстояние от точки до края подписи
-        distance: 5,                // Штраф за увеличение радиуса отступа от точки
-        nextCurveDirection: -20     // Бонус (скидка) за направление по ходу своей кривой
+    edge: 10000,                // Штраф за направление к близкой границе графика
+    placedOverlap: 4000,        // Штраф за перекрытие уже размещённой подписи
+    placedNear: 500,            // Штраф за слишком близкое расположение к другой подписи
+    perPointInsideFactor: 1000, // Штраф за каждую накрытую точку графика (умножается на их количество)
+    topOverflowBase: 50,        // Базовый штраф за выход за верхнюю границу SVG
+    topOverflowFactor: 8,       // Множитель штрафа за глубину выхода сверху
+    bottomOverflowBase: 50,     // Базовый штраф за выход за нижнюю границу SVG
+    bottomOverflowFactor: 8,    // Множитель штрафа за глубину выхода снизу
+    direction: 15,              // Штраф за порядковый номер направления (угол)
+    rayDistance: 4,             // Штраф за расстояние от точки до края подписи
+    distance: 5,                // Штраф за увеличение радиуса отступа от точки
+    nextCurveDirection: -20     // Бонус (скидка) за направление по ходу своей кривой
 };
 
 // Статический кэш тригонометрии
@@ -117,7 +117,8 @@ export const TemperatureProfileChart = memo(({ data, material }) => {
         let tMin = Math.floor(rMin / GRID_STEP_C) * GRID_STEP_C;
         let tMax = Math.ceil(rMax / GRID_STEP_C) * GRID_STEP_C;
 
-        if (typeof decompositionTemp === "number" && decompositionTemp > tMax && decompositionTemp - rMax <= GRID_STEP_C * 1.5) tMax = decompositionTemp;        if (tMax === tMin) { tMin -= GRID_STEP_C; tMax += GRID_STEP_C; }
+        if (typeof decompositionTemp === "number" && decompositionTemp > tMax && decompositionTemp - rMax <= GRID_STEP_C * 1.5) tMax = decompositionTemp;
+        if (tMax === tMin) { tMin -= GRID_STEP_C; tMax += GRID_STEP_C; }
 
         const tDelta = tMax - tMin;
         const ys = t => pad.top + ((tMax - t) / tDelta) * hPlot;
@@ -199,7 +200,6 @@ export const TemperatureProfileChart = memo(({ data, material }) => {
             else if (isRightEdge) preferredAngle = prevY < currentY ? 90 : -90;
             else preferredAngle = isPeak ? -90 : (isPit ? 90 : 0);
 
-            // Оптимизация: Маппинг и сортировка направлений
             const directionsWithScore = DIRECTION_VECTORS.map(v => {
                 let edgePenalty = 0;
                 if (distanceToTop < edgeMargin && v.y < 0) edgePenalty += LABEL_PENALTIES.edge;
@@ -254,21 +254,18 @@ export const TemperatureProfileChart = memo(({ data, material }) => {
 
                     if (p.x >= rLeft && p.x <= rRight && p.y >= rTop && p.y <= rBottom) score += LABEL_PENALTIES.perPointInsideFactor;
 
-                    // Сканирование точек графика, попадающих в диапазон X прямоугольника подписи
                     const minXPlot = rLeft - pad.left;
                     const maxXPlot = rRight - pad.left;
 
                     const startIdx = Math.max(0, Math.floor(((minXPlot / wPlot) * xMax) / dxMm));
                     const endIdx = Math.min(len - 1, Math.floor(((maxXPlot / wPlot) * xMax) / dxMm) + 1);
 
-                    // Определяем альтернативную (вторую) кривую для проверки
                     const otherCurve = isMain ? cooldownTemps : temps;
                     let pointsInsideCount = 0;
 
                     for (let tIdx = startIdx; tIdx <= endIdx; tIdx++) {
                         const ptX = xs(tIdx * dxMm);
 
-                        // 1. Сканируем свою кривую (текущую точку p.id пропускаем)
                         if (tIdx !== p.id) {
                             const ptY = ys(currentCurve[tIdx]);
                             if (ptX >= rLeft - 2 && ptX <= rRight + 2 && ptY >= rTop - 2 && ptY <= rBottom + 2) {
@@ -276,9 +273,7 @@ export const TemperatureProfileChart = memo(({ data, material }) => {
                             }
                         }
 
-                        // 2. Сканируем вторую кривую (если график охлаждения активен)
                         if (hasCooldown && otherCurve) {
-                            // Здесь проверяем все точки, включая ту, что совпадает по индексу с p.id (на чужой линии это валидный узел)
                             const ptY = ys(otherCurve[tIdx]);
                             if (ptX >= rLeft - 2 && ptX <= rRight + 2 && ptY >= rTop - 2 && ptY <= rBottom + 2) {
                                 pointsInsideCount++;
@@ -286,13 +281,10 @@ export const TemperatureProfileChart = memo(({ data, material }) => {
                         }
                     }
 
-                    // Накопительный штраф: чем больше точек накрыло, тем выше итоговый score
                     if (pointsInsideCount > 0) {
                         score += pointsInsideCount * LABEL_PENALTIES.perPointInsideFactor;
                     }
 
-
-                    // Проверка наложения на уже размещенные подписи
                     for (let qIdx = 0; qIdx < placed.length; qIdx++) {
                         const q = placed[qIdx];
                         if (rLeft < q.right && rRight > q.left && rTop < q.bottom && rBottom > q.top) {
@@ -305,7 +297,6 @@ export const TemperatureProfileChart = memo(({ data, material }) => {
                     }
 
                     if (nextY !== null && nextY < currentY - 6 && dy < 0) score += LABEL_PENALTIES.nextCurveDirection;
-                    if (nextY !== null && nextY > currentY + 6 && dy > 0) score += LABEL_PENALTIES.nextCurveDirection;
 
                     if (score < bestScore) {
                         best = { dx, dy, textAnchor, rect: { left: rLeft, right: rRight, top: rTop, bottom: rBottom } };
@@ -335,9 +326,26 @@ export const TemperatureProfileChart = memo(({ data, material }) => {
             });
         }
 
+        // Заранее рассчитываем линии сетки, чтобы разгрузить разметку от вызовов функций расчета координат
+        const gridLinesY = Array.from(
+            { length: Math.floor((tMax - tMin) / GRID_STEP_C) + 1 },
+            (_, i) => tMin + i * GRID_STEP_C
+        )
+            .filter(t => t !== tMin && t !== tMax && !isSpecialTemperature(t))
+            .map(t => ({ id: t, y: ys(t) }));
+
+        // Заранее вычисляем Y-координаты для специальных и граничных текстовых меток
+        const specialLabels = {
+            decomposition: typeof decompositionTemp === "number" && decompositionTemp >= tMin && decompositionTemp <= tMax ? ys(decompositionTemp) : null,
+            maxForming: hasFormingRange ? ys(maxFormingTemp) : null,
+            minForming: hasFormingRange ? ys(minFormingTemp) : null,
+            tMaxY: !isSpecialTemperature(tMax) ? pad.top + 3 : null,
+            tMinY: !isSpecialTemperature(tMin) ? height - pad.bottom + 3 : null
+        };
+
         return {
-            width, height, pad, wPlot, hPlot, xMax, xs, ys, xCenter,
-            formingTop, formingBottom, isSpecialTemperature, tMin, tMax,
+            width, height, pad, wPlot, xMax, xCenter,
+            formingTop, formingBottom, tMin, tMax,
             dPath: makePath(temps),
             cooldownPath: hasCooldown ? makePath(cooldownTemps) : null,
             hasCooldown, chartColor, cooldownColor,
@@ -348,19 +356,22 @@ export const TemperatureProfileChart = memo(({ data, material }) => {
             decompositionTemp, minFormingTemp, maxFormingTemp, hasFormingRange,
             heatingSec: formatTime(data?.heatingTimeSeconds),
             cooldownSec: data?.cooldownTimeSec,
-            maxV, minV, maxCoolV, minCoolV
+            maxV, minV, maxCoolV, minCoolV,
+            gridLinesY,
+            specialLabels
         };
     }, [data, material, theme]);
 
     if (!chartData) return null;
 
     const {
-        width, height, pad, wPlot, xMax, xs, ys, xCenter,
-        formingTop, formingBottom, isSpecialTemperature, tMin, tMax,
+        width, height, pad, wPlot, xMax, xCenter,
+        formingTop, formingBottom, tMin, tMax,
         dPath, cooldownPath, hasCooldown, chartColor, cooldownColor,
         minColor, maxColor, minIdx, maxIdx, minCoolIdx, maxCoolIdx,
         placed, borderColor, decompositionTemp, minFormingTemp, maxFormingTemp,
-        hasFormingRange, heatingSec, cooldownSec, maxV, minV, maxCoolV, minCoolV
+        hasFormingRange, heatingSec, cooldownSec, maxV, minV, maxCoolV, minCoolV,
+        gridLinesY, specialLabels
     } = chartData;
 
     return (
@@ -374,26 +385,27 @@ export const TemperatureProfileChart = memo(({ data, material }) => {
                     </>
                 )}
 
-                {Array.from({ length: Math.floor((tMax - tMin) / GRID_STEP_C) + 1 }, (_, i) => tMin + i * GRID_STEP_C).map((t, i) =>
-                    i > 0 && !isSpecialTemperature(t) && <line key={t} x1={pad.left} y1={ys(t)} x2={width - pad.right} y2={ys(t)} stroke={theme.palette.divider} strokeWidth={1} strokeDasharray="4 2" />
-                )}
+                {/* Рендеринг сетки по заранее рассчитанным пиксельным координатам */}
+                {gridLinesY.map(line => (
+                    <line key={line.id} x1={pad.left} y1={line.y} x2={width - pad.right} y2={line.y} stroke={theme.palette.divider} strokeWidth={1} strokeDasharray="4 2" />
+                ))}
 
                 <line x1={xCenter} y1={pad.top} x2={xCenter} y2={height - pad.bottom} stroke={theme.palette.divider} strokeWidth={1} strokeDasharray="4 2" />
                 <line x1={width - pad.right} y1={pad.top} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.divider} strokeWidth={1} strokeDasharray="4 2" />
                 <line x1={pad.left} y1={pad.top} x2={pad.left} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={1} opacity=".55" />
                 <line x1={pad.left} y1={height - pad.bottom} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={1} opacity=".55" />
 
-                {typeof decompositionTemp === "number" && decompositionTemp >= tMin && decompositionTemp <= tMax && (
+                {specialLabels.decomposition !== null && (
                     <>
-                        <line x1={pad.left} y1={ys(decompositionTemp)} x2={width - pad.right} y2={ys(decompositionTemp)} stroke={theme.palette.error.main} strokeWidth={1} strokeDasharray="4 2" opacity=".5" />
-                        <text x={pad.left - 5} y={ys(decompositionTemp) + 3} textAnchor="end" fontSize={8} fontWeight="bold" fill={theme.palette.error.main}>{decompositionTemp}°</text>
+                        <line x1={pad.left} y1={specialLabels.decomposition} x2={width - pad.right} y2={specialLabels.decomposition} stroke={theme.palette.error.main} strokeWidth={1} strokeDasharray="4 2" opacity=".5" />
+                        <text x={pad.left - 5} y={specialLabels.decomposition + 3} textAnchor="end" fontSize={8} fontWeight="bold" fill={theme.palette.error.main}>{decompositionTemp}°</text>
                     </>
                 )}
 
                 {hasFormingRange && (
                     <>
-                        <text x={pad.left - 5} y={ys(maxFormingTemp) + 3} textAnchor="end" fontSize={8} fontWeight="bold" fill={theme.palette.success.main}>{maxFormingTemp}°</text>
-                        <text x={pad.left - 5} y={ys(minFormingTemp) + 3} textAnchor="end" fontSize={8} fontWeight="bold" fill={theme.palette.success.main}>{minFormingTemp}°</text>
+                        <text x={pad.left - 5} y={specialLabels.maxForming + 3} textAnchor="end" fontSize={8} fontWeight="bold" fill={theme.palette.success.main}>{maxFormingTemp}°</text>
+                        <text x={pad.left - 5} y={specialLabels.minForming + 3} textAnchor="end" fontSize={8} fontWeight="bold" fill={theme.palette.success.main}>{minFormingTemp}°</text>
                     </>
                 )}
 
@@ -412,8 +424,8 @@ export const TemperatureProfileChart = memo(({ data, material }) => {
                 })}
 
                 <text x={xCenter} y={14} textAnchor="middle" fontSize={9.5} fontWeight="bold" fill={chartColor}>Heating: {heatingSec} (ΔT = {(maxV - minV).toFixed(1)}°C)</text>
-                {!isSpecialTemperature(tMax) && <text x={pad.left - 5} y={pad.top + 3} textAnchor="end" fontSize={8} fill={theme.palette.text.secondary}>{tMax}°</text>}
-                {!isSpecialTemperature(tMin) && <text x={pad.left - 5} y={height - pad.bottom + 3} textAnchor="end" fontSize={8} fill={theme.palette.text.secondary}>{tMin}°</text>}
+                {specialLabels.tMaxY !== null && <text x={pad.left - 5} y={specialLabels.tMaxY} textAnchor="end" fontSize={8} fill={theme.palette.text.secondary}>{tMax}°</text>}
+                {specialLabels.tMinY !== null && <text x={pad.left - 5} y={specialLabels.tMinY} textAnchor="end" fontSize={8} fill={theme.palette.text.secondary}>{tMin}°</text>}
                 <text x={pad.left} y={height - 22} textAnchor="middle" fontSize={8.5} fill={theme.palette.text.secondary}>0 mm</text>
                 <text x={width - pad.right} y={height - 22} textAnchor="end" fontSize={8.5} fill={theme.palette.text.secondary}>{xMax.toFixed(0)} mm</text>
                 {typeof cooldownSec === "number" && <text x={xCenter} y={height - 6} textAnchor="middle" fontSize={8.5} fontWeight="500" fill={theme.palette.text.secondary}>Pause: {cooldownSec}s {hasCooldown && `(ΔT = ${(maxCoolV - minCoolV).toFixed(1)}°C)`}</text>}
