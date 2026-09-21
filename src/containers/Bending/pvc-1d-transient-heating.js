@@ -36,7 +36,7 @@ function createMaterialModel(material) {
     return {
         constant: false,
         properties: null,
-        get: (temperatureC) => {
+        get: temperatureC => {
             let cp = getProperty(material.specificHeat, temperatureC);
             const maxCp = cp * jumpFactor;
 
@@ -49,7 +49,7 @@ function createMaterialModel(material) {
             return {
                 density: getProperty(material.density, temperatureC),
                 k: getProperty(material.thermalConductivity, temperatureC),
-                cp: cp
+                cp
             };
         }
     };
@@ -66,30 +66,59 @@ const makeError = (message, extra = {}) => ({
 
 export function normalizeMachine(machine) {
     if (!machine || typeof machine !== "object") return null;
-
-    if (!Array.isArray(machine.heaters) || machine.heaters.length !== 2) {
-        return null;
-    }
-
-    const top = { ...machine.heaters[0] };
-    const bottom = { ...top, ...machine.heaters[1] };
+    if (!Array.isArray(machine.heaters) || machine.heaters.length !== 2) return null;
 
     return {
         ...machine,
-        top,
-        bottom
+        heaters: [
+            { ...machine.heaters[0] },
+            { ...machine.heaters[0], ...machine.heaters[1] }
+        ]
     };
 }
 
-/**
- * Функция жесткой валидации параметров симуляции.
- * Возвращает объект { valid: true } или { valid: false, error: "Описание ошибки" }.
- */
+/* =========================
+ * VALIDATION
+ * ========================= */
 export function validateSimulationParams({ thicknessMm, material, machine, simulation, dxMm, dtSeconds }) {
     if (!validPositive(thicknessMm)) return { isValid: false, error: "Invalid thickness." };
     if (!material || typeof material !== "object") return { isValid: false, error: "Invalid material model." };
-    if (!machine) return { isValid: false, error: "Invalid machine." };
+    if (!machine || typeof machine !== "object") return { isValid: false, error: "Invalid machine." };
+    if (!Array.isArray(machine.heaters) || machine.heaters.length !== 2) return { isValid: false, error: "Exactly two heaters are required." };
     if (!simulation || typeof simulation !== "object") return { isValid: false, error: "Simulation parameters are missing." };
+
+    const validateHeater = (heater, name) => {
+        if (!heater || typeof heater !== "object") return `${name} heater is invalid.`;
+        if (!Number.isFinite(heater.regulatorTemperatureC)) return `${name} heater regulator temperature is invalid.`;
+        if (!Number.isFinite(heater.heaterTemperatureFactor)) return `${name} heater temperature factor is invalid.`;
+        if (!Number.isFinite(heater.heaterEmissivity) || heater.heaterEmissivity < 0 || heater.heaterEmissivity > 1) return `${name} heater emissivity is invalid.`;
+        if (!Number.isFinite(heater.boxEmissivity) || heater.boxEmissivity < 0 || heater.boxEmissivity > 1) return `${name} box emissivity is invalid.`;
+        if (!Number.isFinite(heater.viewFactor) || heater.viewFactor < 0 || heater.viewFactor > 1) return `${name} view factor is invalid.`;
+        if (!Number.isFinite(heater.radiationGain) || heater.radiationGain < 0) return `${name} radiation gain is invalid.`;
+        if (!Number.isFinite(heater.convectiveHeatTransferCoefficient) || heater.convectiveHeatTransferCoefficient < 0) return `${name} convective heat transfer coefficient is invalid.`;
+        if (!Number.isFinite(heater.boxEfficiency) || heater.boxEfficiency < 0 || heater.boxEfficiency > 1) return `${name} box efficiency is invalid.`;
+        if (heater.ambientViewFactor !== undefined &&
+            (!Number.isFinite(heater.ambientViewFactor) || heater.ambientViewFactor < 0 || heater.ambientViewFactor > 1)) {
+            return `${name} ambient view factor is invalid.`;
+        }
+        return null;
+    };
+
+    const topError = validateHeater(machine.heaters[0], "Top");
+    if (topError) return { isValid: false, error: topError };
+
+    const bottomError = validateHeater(machine.heaters[1], "Bottom");
+    if (bottomError) return { isValid: false, error: bottomError };
+
+    if (!Number.isFinite(material.density) && typeof material.density !== "function") return { isValid: false, error: "Invalid material density." };
+    if (!Number.isFinite(material.thermalConductivity) && typeof material.thermalConductivity !== "function") return { isValid: false, error: "Invalid material thermal conductivity." };
+    if (!Number.isFinite(material.specificHeat) && typeof material.specificHeat !== "function") return { isValid: false, error: "Invalid material specific heat." };
+    if (!Number.isFinite(material.emissivity) || material.emissivity < 0 || material.emissivity > 1) return { isValid: false, error: "Invalid material emissivity." };
+    if (!Number.isFinite(material.glassTransitionTemp)) return { isValid: false, error: "Invalid glass transition temperature." };
+    if (!Number.isFinite(material.tgSpecificHeatJumpFactor) || material.tgSpecificHeatJumpFactor <= 0) return { isValid: false, error: "Invalid Tg specific heat jump factor." };
+    if (!Number.isFinite(material.tgTransitionWidthC) || material.tgTransitionWidthC <= 0) return { isValid: false, error: "Invalid Tg transition width." };
+    if (!Number.isFinite(material.maxFormingTemp)) return { isValid: false, error: "Max forming temperature is not defined for the material." };
+    if (!Number.isFinite(material.decompositionTemp)) return { isValid: false, error: "Decomposition temperature is not defined for the material." };
 
     const target = simulation.target;
     if (!target || typeof target !== "object") return { isValid: false, error: "Invalid simulation target object." };
@@ -115,37 +144,23 @@ export function validateSimulationParams({ thicknessMm, material, machine, simul
     const cooling = simulation.cooling;
     if (!cooling || typeof cooling !== "object") return { isValid: false, error: "Cooling configuration is missing." };
     if (!Number.isFinite(cooling.timeSeconds) || cooling.timeSeconds < 0) return { isValid: false, error: "Cooldown time cannot be negative." };
-    if (!Number.isFinite(cooling.convectiveHeatTransferCoefficient)) return { isValid: false, error: "Invalid convective cooling coefficient." };
+    if (!Number.isFinite(cooling.convectiveHeatTransferCoefficient) || cooling.convectiveHeatTransferCoefficient < 0) return { isValid: false, error: "Invalid convective cooling coefficient." };
 
-    const stopAtMaxTemperature = simulation.stopAtMaxTemperature === true;
-    const maxFormingTemp = material.maxFormingTemp;
-    if (!Number.isFinite(maxFormingTemp)) return { isValid: false, error: "Max forming temperature is not defined for the material." };
-
-    const decompTemp = material.decompositionTemp;
-    if (!Number.isFinite(decompTemp)) return { isValid: false, error: "Decomposition temperature is not defined for the material." };
-    if (stopAtMaxTemperature && !Number.isFinite(decompTemp)) {
-        return { isValid: false, error: "Decomposition temperature is not defined for the material." };
-    }
-
-    // Локальные переменные для переопределения undefined значений
     let finalDt = dtSeconds;
     let finalDx = dxMm;
 
-    // Автоматический расчет dtSeconds, если он не передан
     if (finalDt === undefined) {
         finalDt = DEFAULT_DT_SECONDS;
     } else if (!Number.isFinite(finalDt) || finalDt <= 0) {
         return { isValid: false, error: "Invalid time step (dtSeconds)." };
     }
 
-    // Автоматический расчет dxMm, если он не передан
     if (finalDx === undefined) {
         finalDx = clamp(thicknessMm / GRID_CELLS_PER_THICKNESS, MIN_DX_MM, MAX_DX_MM);
     } else if (!Number.isFinite(finalDx) || finalDx <= 0) {
         return { isValid: false, error: "Invalid spatial step (dxMm)." };
     }
 
-    // Возвращаем статус успеха вместе с валидными/вычисленными шагами
     return {
         isValid: true,
         dtSeconds: finalDt,
@@ -156,55 +171,31 @@ export function validateSimulationParams({ thicknessMm, material, machine, simul
 function createGrid(thicknessM, requestedDxM) {
     const nodeCount = Math.max(5, Math.round(thicknessM / requestedDxM) + 1);
     const dx = thicknessM / (nodeCount - 1);
-    const x = new Float64Array(nodeCount);
-
-    for (let i = 0; i < nodeCount; i++) x[i] = i * dx;
-
-    return { nodeCount, dx, x };
+    return { nodeCount, dx };
 }
 
 /* =========================
  * THERMAL PHYSICS MODEL
  * ========================= */
 export function getHeaterTemperatureC({ side, ambientTemperatureC }) {
-    const regulatorTemperatureC = Number.isFinite(side.regulatorTemperatureC)
-        ? side.regulatorTemperatureC
-        : ambientTemperatureC;
-
-    const heaterTemperatureFactor = Number.isFinite(side.heaterTemperatureFactor)
-        ? side.heaterTemperatureFactor
-        : 1;
-
-    return ambientTemperatureC + heaterTemperatureFactor * (regulatorTemperatureC - ambientTemperatureC);
+    return ambientTemperatureC + side.heaterTemperatureFactor * (side.regulatorTemperatureC - ambientTemperatureC);
 }
 
 export function calculateIncidentHeaterFlux({ side, surfaceTemperatureC, ambientTemperatureC = 20 }) {
-    if (!side.enabled) return 0;
-
-    if (side.radiationMode === "heatFlux") {
-        return Math.max(0, Number(side.heatFluxWm2) || 0);
-    }
-
     const T_heater_C = getHeaterTemperatureC({ side, ambientTemperatureC });
     const Th = toKelvin(T_heater_C);
     const Ts = toKelvin(surfaceTemperatureC);
 
-    const epsilon = clamp(Number.isFinite(side.heaterEmissivity) ? side.heaterEmissivity : 0, 0, 1);
-    const F = clamp(Number.isFinite(side.viewFactor) ? side.viewFactor : 0, 0, 1);
-    const gain = Number.isFinite(side.radiationGain) ? side.radiationGain : 1;
+    const epsilon = side.heaterEmissivity;
+    const F = side.viewFactor;
+    const gain = side.radiationGain;
 
     return Math.max(0, gain * epsilon * F * SIGMA * (Th * Th * Th * Th - Ts * Ts * Ts * Ts));
 }
 
 export function calculateEffectiveIncidentFlux({ side, material, surfaceTemperatureC, ambientTemperatureC = 20 }) {
     const incidentWm2 = calculateIncidentHeaterFlux({ side, surfaceTemperatureC, ambientTemperatureC });
-    const reflectance = clamp(
-        Number.isFinite(side.surfaceReflectance)
-            ? side.surfaceReflectance
-            : Number(material?.surfaceReflectance) || 0,
-        0,
-        0.999999
-    );
+    const reflectance = material.surfaceReflectance;
 
     return {
         incidentWm2,
@@ -217,20 +208,10 @@ export function calculateEffectiveIncidentFlux({ side, material, surfaceTemperat
  * Оптимизированный расчет линеаризованных параметров потока без аллокации объектов.
  */
 function fillLinearizedFluxParams(side, TsK, ambientTemperatureC, ambRadT, sheetEmissivity, out) {
-    if (!side || !side.enabled) {
-        out.g0 = 0;
-        out.g1 = 0;
-        return;
-    }
-
     const T_heater_C = getHeaterTemperatureC({ side, ambientTemperatureC });
     const T_heater_K = T_heater_C + 273.15;
 
-    let etaBox = Number.isFinite(side.boxEfficiency) ? side.boxEfficiency : null;
-    if (etaBox == null) {
-        etaBox = (side.position === "top" || side.isTop) ? 0.45 : 0.60;
-    }
-    etaBox = clamp(etaBox, 0, 1);
+    const etaBox = side.boxEfficiency;
 
     const T_box_envC = ambientTemperatureC + etaBox * (T_heater_C - ambientTemperatureC);
     const T_box_envK = T_box_envC + 273.15;
@@ -239,10 +220,10 @@ function fillLinearizedFluxParams(side, TsK, ambientTemperatureC, ambRadT, sheet
     const q_conv = h * (T_box_envK - TsK);
     const dq_conv_dTs = -h;
 
-    const fH = clamp(Number.isFinite(side.viewFactor) ? side.viewFactor : 0.80, 0, 1);
-    const envF = clamp(side.ambientViewFactor ?? (1 - fH), 0, 1);
-    const epsH = clamp(Number.isFinite(side.heaterEmissivity) ? side.heaterEmissivity : 0.90, 0, 1);
-    const gain = Math.max(0, Number.isFinite(side.radiationGain) ? side.radiationGain : 1);
+    const fH = side.viewFactor;
+    const envF = side.ambientViewFactor ?? (1 - fH);
+    const epsH = side.heaterEmissivity;
+    const gain = side.radiationGain;
 
     const denomH = epsH + sheetEmissivity - epsH * sheetEmissivity;
     const epsEffH = denomH > 0 ? (epsH * sheetEmissivity) / denomH : 0;
@@ -254,7 +235,7 @@ function fillLinearizedFluxParams(side, TsK, ambientTemperatureC, ambRadT, sheet
     const q_rad_heater = radA * (T_heater_K * T_heater_K * T_heater_K * T_heater_K - TsK4);
     const dq_rad_heater_dTs = -4 * radA * TsK3;
 
-    const epsBox = clamp(Number.isFinite(side.boxEmissivity) ? side.boxEmissivity : 0.55, 0, 1);
+    const epsBox = side.boxEmissivity;
     const denom = epsBox + sheetEmissivity - epsBox * sheetEmissivity;
     const eps_priv = denom > 0 ? (epsBox * sheetEmissivity) / denom : 0;
 
@@ -313,7 +294,7 @@ function isTargetReached(T, target, timeSeconds) {
         return T.every(t => t >= target.value);
     }
     if (target.type === "surfaceTemperature") {
-        return (T[0] >= target.value || T[T.length - 1] >= target.value);
+        return T[0] >= target.value || T[T.length - 1] >= target.value;
     }
     if (target.type === "time") {
         return timeSeconds >= target.value;
@@ -349,7 +330,7 @@ export function simulateHeating({
     let time = 0;
     let decompositionReached = false;
 
-    const simulationMaxTime = (targetType === "time" && Number.isFinite(targetValue))
+    const simulationMaxTime = targetType === "time" && Number.isFinite(targetValue)
         ? Math.min(maxTimeSeconds, targetValue)
         : maxTimeSeconds;
 
@@ -519,10 +500,16 @@ export function simulateHeating({
                 let canReach = true;
                 for (let i = 0; i < nodeCount; i++) {
                     if (oldT[i] >= targetK) continue;
-                    if (Tnext[i] < targetK) { canReach = false; break; }
+                    if (Tnext[i] < targetK) {
+                        canReach = false;
+                        break;
+                    }
 
                     const dT = Tnext[i] - oldT[i];
-                    if (dT <= 0) { canReach = false; break; }
+                    if (dT <= 0) {
+                        canReach = false;
+                        break;
+                    }
                     fraction = Math.max(fraction, (targetK - oldT[i]) / dT);
                 }
 
@@ -547,6 +534,7 @@ export function simulateHeating({
                         }
                     }
                 }
+
                 if (oldT[0] >= targetK || oldT[last] >= targetK) fraction = 0;
 
                 if (fraction >= 0 && fraction <= 1 &&
@@ -710,43 +698,49 @@ export function simulate1DHeating({
                                       storeHistory = false,
                                       includeBreakdown = false
                                   }) {
-// 1. Нормализация станка
     const mach = normalizeMachine(machine);
 
-// 2. Валидация (передаем mach как machine)
-    const validation = validateSimulationParams({ thicknessMm, material, machine: mach, simulation, dxMm, dtSeconds });
+    if (!mach) return makeError("Invalid machine.");
+
+    const validation = validateSimulationParams({
+        thicknessMm,
+        material,
+        machine: mach,
+        simulation,
+        dxMm,
+        dtSeconds
+    });
+
     if (!validation.isValid) return makeError(validation.error);
 
-// 3. Извлекаем гарантированно существующие шаги
     const dt = validation.dtSeconds;
-    const dx = validation.dxMm / 1000; // перевод в метры
+    const dx = validation.dxMm / 1000;
 
-    // Инициализация сетки по валидному dx
     const { nodeCount } = createGrid(thicknessMm / 1000, dx);
 
-    // Извлечение параметров после успешной валидации
     const target = simulation.target;
     const targetType = target.type;
     const targetValue = target.value;
+
     const temperatures = simulation.temperatures;
     const initT = temperatures.initialC;
     const ambT = temperatures.ambientC;
     const ambRadT = temperatures.ambientRadiationC;
+
     const maxTimeSeconds = simulation.maxTimeSeconds;
+
     const cooling = simulation.cooling;
     const cooldownTimeSeconds = cooling.timeSeconds;
     const coolingH = cooling.convectiveHeatTransferCoefficient;
+
     const stopAtMaxTemperature = simulation.stopAtMaxTemperature === true;
 
     const maxFormingTemp = material.maxFormingTemp;
     const decompTemp = material.decompositionTemp;
-    const maxFormingTempK = toKelvin(maxFormingTemp);
     const decompTempK = toKelvin(decompTemp);
-
 
     const matModel = createMaterialModel(material);
     if (!matModel) return makeError("Invalid material model.");
-
 
     const buffers = {
         lower: new Float64Array(nodeCount),
@@ -759,24 +753,37 @@ export function simulate1DHeating({
         dPrime: new Float64Array(nodeCount)
     };
 
-    const targetK = (targetType === "minTemperature" || targetType === "surfaceTemperature") ? toKelvin(targetValue) : null;
-
-    const topSide = { ...mach.top, enabled: true, position: "top" };
-    const botSide = { ...mach.bottom, enabled: true, position: "bottom" };
-
-    const epsS = clamp(Number(material.emissivity), 0, 1);
+    const targetK = targetType === "minTemperature" || targetType === "surfaceTemperature"
+        ? toKelvin(targetValue)
+        : null;
 
     /* =========================
      * HEATING
      * ========================= */
     const heating = simulateHeating({
-        nodeCount, dx, dt, matModel, topSide, botSide, ambT, ambRadT, epsS,
-        targetType, targetValue, targetK, decompTempK, maxFormingTempK,
-        stopAtMaxTemperature, maxTimeSeconds, sampleEverySeconds, storeHistory,
-        initialTemperatureC: initT, buffers
+        nodeCount,
+        dx,
+        dt,
+        matModel,
+        topSide: mach.heaters[0],
+        botSide: mach.heaters[1],
+        ambT,
+        ambRadT,
+        epsS: material.emissivity,
+        targetType,
+        targetValue,
+        targetK,
+        decompTempK,
+        stopAtMaxTemperature,
+        maxTimeSeconds,
+        sampleEverySeconds,
+        storeHistory,
+        initialTemperatureC: initT,
+        buffers
     });
 
     let status = heating.status;
+
     if (status?.type === "error" && heating.heatingTimeSeconds === 0) {
         return makeError(status.message);
     }
@@ -787,9 +794,19 @@ export function simulate1DHeating({
      * COOLDOWN
      * ========================= */
     const cooldown = simulateCooldown({
-        initialProfileK: heatingProfileK, nodeCount, dx, dt, matModel, epsS, ambT, ambRadT,
-        cooldownTimeSeconds, convectiveHeatTransferCoefficient: coolingH,
-        maxNonlinearIterations: MAX_NONLINEAR_ITERATIONS, nonlinearToleranceK: NONLINEAR_TOLERANCE_K, buffers
+        initialProfileK: heatingProfileK,
+        nodeCount,
+        dx,
+        dt,
+        matModel,
+        epsS: material.emissivity,
+        ambT,
+        ambRadT,
+        cooldownTimeSeconds,
+        convectiveHeatTransferCoefficient: coolingH,
+        maxNonlinearIterations: MAX_NONLINEAR_ITERATIONS,
+        nonlinearToleranceK: NONLINEAR_TOLERANCE_K,
+        buffers
     });
 
     const cooldownProfileK = cooldown.temperatureProfileK;
@@ -815,21 +832,20 @@ export function simulate1DHeating({
         heatingTimeSeconds: heating.heatingTimeSeconds,
         cooldownTimeSec: cooldownTimeSeconds,
         heaterTemperaturesC: {
-            top: mach.top.regulatorTemperatureC,
-            bottom: mach.bottom.regulatorTemperatureC
+            top: mach.heaters[0].regulatorTemperatureC,
+            bottom: mach.heaters[1].regulatorTemperatureC
         },
         reachedTarget: heating.reachedTarget,
         status,
         temperatureProfile: {
             temperaturesC: heatingProfileC,
-            cooldownProfileC: cooldownProfileC,
+            cooldownProfileC,
             dxMm: dx * 1000
         },
         history: heating.history
     };
 
     if (includeBreakdown) {
-        // Получаем чистые теплофизические свойства материала в центре листа без тихих подстановок
         const propsCenter = matModel.get(centerC);
         const diff = propsCenter.k / (propsCenter.density * propsCenter.cp);
 
@@ -869,21 +885,36 @@ export function simulate1DHeating({
                 decompositionC: decompTemp
             },
             heatBalance: {
-                // Расчет потоков с исправленными индексами поверхностей (frontC = heatingProfileC[0])
-                top: calculateEffectiveIncidentFlux({ side: topSide, material, surfaceTemperatureC: frontC, ambientTemperatureC: ambT }),
-                bottom: calculateEffectiveIncidentFlux({ side: botSide, material, surfaceTemperatureC: backC, ambientTemperatureC: ambT }),
-                topRegulatorTemperatureC: topSide.regulatorTemperatureC,
-                bottomRegulatorTemperatureC: botSide.regulatorTemperatureC,
-                topHeaterTemperatureC: getHeaterTemperatureC({ side: topSide, ambientTemperatureC: ambT }),
-                bottomHeaterTemperatureC: getHeaterTemperatureC({ side: botSide, ambientTemperatureC: ambT }),
+                top: calculateEffectiveIncidentFlux({
+                    side: mach.heaters[0],
+                    material,
+                    surfaceTemperatureC: frontC,
+                    ambientTemperatureC: ambT
+                }),
+                bottom: calculateEffectiveIncidentFlux({
+                    side: mach.heaters[1],
+                    material,
+                    surfaceTemperatureC: backC,
+                    ambientTemperatureC: ambT
+                }),
+                topRegulatorTemperatureC: mach.heaters[0].regulatorTemperatureC,
+                bottomRegulatorTemperatureC: mach.heaters[1].regulatorTemperatureC,
+                topHeaterTemperatureC: getHeaterTemperatureC({
+                    side: mach.heaters[0],
+                    ambientTemperatureC: ambT
+                }),
+                bottomHeaterTemperatureC: getHeaterTemperatureC({
+                    side: mach.heaters[1],
+                    ambientTemperatureC: ambT
+                }),
                 convectionCoefficient: machine.heatTransferCoefficient
             }
         };
     }
 
-
     return res;
 }
+
 /* =========================
  * ERROR ANALYSIS
  * ========================= */
@@ -916,25 +947,34 @@ export function calculateFitError({ simulation, measurements, weights = { surfac
             squaredError += weights.surface * ((sim.frontSurfaceC - m.frontSurfaceC) ** 2);
             count++;
         }
+
         if (Number.isFinite(m.centerC)) {
             squaredError += weights.center * ((sim.centerC - m.centerC) ** 2);
             count++;
         }
+
         if (Number.isFinite(m.backSurfaceC)) {
             squaredError += weights.surface * ((sim.backSurfaceC - m.backSurfaceC) ** 2);
             count++;
         }
     }
 
-    return count === 0 ? { rmseC: Infinity } : { rmseC: Math.sqrt(squaredError / count), sse: squaredError, samples: count };
+    return count === 0
+        ? { rmseC: Infinity }
+        : { rmseC: Math.sqrt(squaredError / count), sse: squaredError, samples: count };
 }
 
 /* =========================
- * CALIBRATION (СОГЛАСОВАННАЯ С ВАЛИДАЦИЕЙ)
+ * CALIBRATION
  * ========================= */
 export function fitHeatingParameters({
-                                         thicknessMm, material, machine, simulation, measurements,
-                                         dxMm, dtSeconds, // ДОБАВЛЕНЫ ПАРАМЕТРЫ ШАГОВ
+                                         thicknessMm,
+                                         material,
+                                         machine,
+                                         simulation,
+                                         measurements,
+                                         dxMm,
+                                         dtSeconds,
                                          initial = { radiationGain: 1, heatTransferCoefficient: 10 },
                                          bounds = { radiationGain: [0.05, 5], heatTransferCoefficient: [2, 40] }
                                      }) {
@@ -945,6 +985,7 @@ export function fitHeatingParameters({
     }
 
     const maxMTime = Math.max(...validTimes);
+
     const baseSimulation = {
         ...(simulation || {}),
         stopAtMaxTemperature: false,
@@ -959,7 +1000,6 @@ export function fitHeatingParameters({
             heaters: machine.heaters.map(h => ({ ...h, radiationGain: rg }))
         };
 
-        // ТЕПЕРЬ ШАГИ ЯВНО ПЕРЕДАЮТСЯ И НЕ ВЫЗОВУТ ОШИБКУ ВАЛИДАЦИИ
         const sim = simulate1DHeating({
             thicknessMm,
             material,
@@ -973,7 +1013,6 @@ export function fitHeatingParameters({
         return calculateFitError({ simulation: sim, measurements }).rmseC;
     };
 
-    // ИСПРАВЛЕН СИНТАКСИС МАССИВОВ BOUNDS
     let bestRg = clamp(initial.radiationGain, bounds.radiationGain[0], bounds.radiationGain[1]);
     let bestHtc = clamp(initial.heatTransferCoefficient, bounds.heatTransferCoefficient[0], bounds.heatTransferCoefficient[1]);
     let bestErr = evaluate(bestRg, bestHtc);
@@ -984,9 +1023,14 @@ export function fitHeatingParameters({
 
     while (stepRg > eps || stepHtc > eps) {
         let improved = false;
+
         const dirs = [
-            [stepRg, 0], [-stepRg, 0], [0, stepHtc], [0, -stepHtc],
-            [stepRg, stepHtc], [-stepRg, -stepHtc]
+            [stepRg, 0],
+            [-stepRg, 0],
+            [0, stepHtc],
+            [0, -stepHtc],
+            [stepRg, stepHtc],
+            [-stepRg, -stepHtc]
         ];
 
         for (const [dRg, dHtc] of dirs) {
