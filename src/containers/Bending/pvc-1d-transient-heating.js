@@ -87,16 +87,15 @@ export function validateSimulationParams({ thicknessMm, material, machine, simul
     if (!Array.isArray(machine.heaters) || machine.heaters.length !== 2) return { isValid: false, error: "Exactly two heaters are required." };
     if (!simulation || typeof simulation !== "object") return { isValid: false, error: "Simulation parameters are missing." };
 
+
     const validateHeater = (heater, name) => {
         if (!heater || typeof heater !== "object") return `${name} heater is invalid.`;
         if (!Number.isFinite(heater.regulatorTemperatureC)) return `${name} heater regulator temperature is invalid.`;
         if (!Number.isFinite(heater.heaterTemperatureFactor)) return `${name} heater temperature factor is invalid.`;
         if (!Number.isFinite(heater.heaterEmissivity) || heater.heaterEmissivity < 0 || heater.heaterEmissivity > 1) return `${name} heater emissivity is invalid.`;
-        if (!Number.isFinite(heater.boxEmissivity) || heater.boxEmissivity < 0 || heater.boxEmissivity > 1) return `${name} box emissivity is invalid.`;
         if (!Number.isFinite(heater.viewFactor) || heater.viewFactor < 0 || heater.viewFactor > 1) return `${name} view factor is invalid.`;
         if (!Number.isFinite(heater.radiationGain) || heater.radiationGain < 0) return `${name} radiation gain is invalid.`;
         if (!Number.isFinite(heater.convectiveHeatTransferCoefficient) || heater.convectiveHeatTransferCoefficient < 0) return `${name} convective heat transfer coefficient is invalid.`;
-        if (!Number.isFinite(heater.boxEfficiency) || heater.boxEfficiency < 0 || heater.boxEfficiency > 1) return `${name} box efficiency is invalid.`;
         if (heater.ambientViewFactor !== undefined &&
             (!Number.isFinite(heater.ambientViewFactor) || heater.ambientViewFactor < 0 || heater.ambientViewFactor > 1)) {
             return `${name} ambient view factor is invalid.`;
@@ -207,26 +206,21 @@ export function calculateEffectiveIncidentFlux({ side, material, surfaceTemperat
 /**
  * Оптимизированный расчет линеаризованных параметров потока без аллокации объектов.
  */
+
 function fillLinearizedFluxParams(side, TsK, ambientTemperatureC, ambRadT, sheetEmissivity, out) {
     const T_heater_C = getHeaterTemperatureC({ side, ambientTemperatureC });
     const T_heater_K = T_heater_C + 273.15;
 
-    const etaBox = side.boxEfficiency;
-
-    const T_box_envC = ambientTemperatureC + etaBox * (T_heater_C - ambientTemperatureC);
-    const T_box_envK = T_box_envC + 273.15;
-
-    const h = side.convectiveHeatTransferCoefficient;
-    const q_conv = h * (T_box_envK - TsK);
-    const dq_conv_dTs = -h;
+    const hEff = side.convectiveHeatTransferCoefficient;
+    const q_conv = hEff * (T_heater_K - TsK);
+    const dq_conv_dTs = -hEff;
 
     const fH = side.viewFactor;
-    const envF = side.ambientViewFactor ?? (1 - fH);
     const epsH = side.heaterEmissivity;
     const gain = side.radiationGain;
 
     const denomH = epsH + sheetEmissivity - epsH * sheetEmissivity;
-    const epsEffH = denomH > 0 ? (epsH * sheetEmissivity) / denomH : 0;
+    const epsEffH = (epsH * sheetEmissivity) / denomH;
 
     const radA = gain * epsEffH * fH * SIGMA;
     const TsK3 = TsK * TsK * TsK;
@@ -235,16 +229,8 @@ function fillLinearizedFluxParams(side, TsK, ambientTemperatureC, ambRadT, sheet
     const q_rad_heater = radA * (T_heater_K * T_heater_K * T_heater_K * T_heater_K - TsK4);
     const dq_rad_heater_dTs = -4 * radA * TsK3;
 
-    const epsBox = side.boxEmissivity;
-    const denom = epsBox + sheetEmissivity - epsBox * sheetEmissivity;
-    const eps_priv = denom > 0 ? (epsBox * sheetEmissivity) / denom : 0;
-
-    const radEnv = eps_priv * envF * SIGMA;
-    const q_rad_box = radEnv * (T_box_envK * T_box_envK * T_box_envK * T_box_envK - TsK4);
-    const dq_rad_box_dTs = -4 * radEnv * TsK3;
-
-    const total_q = q_rad_heater + q_conv + q_rad_box;
-    const total_dq_dTs = dq_rad_heater_dTs + dq_conv_dTs + dq_rad_box_dTs;
+    const total_q = q_rad_heater + q_conv;
+    const total_dq_dTs = dq_rad_heater_dTs + dq_conv_dTs;
 
     out.g1 = total_dq_dTs;
     out.g0 = total_q - total_dq_dTs * TsK;

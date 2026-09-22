@@ -7,7 +7,6 @@ import {
     Divider
 } from "@mui/material";
 
-
 const heaterProps=[
     {
         key:"regulatorTemperatureC",
@@ -25,11 +24,6 @@ const heaterProps=[
         unit:""
     },
     {
-        key:"boxEmissivity",
-        label:"Box emissivity",
-        unit:""
-    },
-    {
         key:"viewFactor",
         label:"View factor",
         unit:""
@@ -43,20 +37,14 @@ const heaterProps=[
         key:"convectiveHeatTransferCoefficient",
         label:"Heat transfer coefficient",
         unit:"W/(m²·K)"
-    },
-    {
-        key:"boxEfficiency",
-        label:"Box efficiency",
-        unit:""
     }
 ];
 
-
 const MachineContent=({
-                          value,
-                          machines={},
-                          onChange
-                      })=>{
+    value,
+    machines={},
+    onChange
+})=>{
 
     const machineEntries=useMemo(
         ()=>Object.entries(machines),
@@ -69,7 +57,6 @@ const MachineContent=({
         ),
         [machineEntries,value]
     );
-
 
     useEffect(()=>{
         const handleKeyDown=event=>{
@@ -140,11 +127,9 @@ const MachineContent=({
         onChange
     ]);
 
-
     const selectMachine=item=>{
         onChange?.(item);
     };
-
 
     const formatValue=(value,unit="")=>{
         if(value===undefined||value===null)
@@ -152,7 +137,6 @@ const MachineContent=({
 
         return`${value}${unit?` ${unit}`:""}`;
     };
-
 
     const renderHeaterTable=()=>{
 
@@ -197,7 +181,6 @@ const MachineContent=({
                         </Typography>
                     ))}
 
-
                     {heaterProps.map(p=>(
                         <React.Fragment key={p.key}>
 
@@ -213,7 +196,6 @@ const MachineContent=({
                             >
                                 {p.label}
                             </Typography>
-
 
                             <Typography
                                 variant="caption"
@@ -232,7 +214,6 @@ const MachineContent=({
                                 )}
                             </Typography>
 
-
                             <Typography
                                 variant="caption"
                                 fontWeight={600}
@@ -245,7 +226,7 @@ const MachineContent=({
                                 }}
                             >
                                 {formatValue(
-                                    bottom?.[p.key] ?? top?.[p.key],
+                                    bottom?.[p.key]??top?.[p.key],
                                     p.unit
                                 )}
                             </Typography>
@@ -257,7 +238,6 @@ const MachineContent=({
             </Box>
         );
     };
-
 
     return(
         <Box
@@ -372,7 +352,6 @@ const MachineContent=({
 
             </Box>
 
-
             <Box
                 sx={{
                     flex:1,
@@ -407,7 +386,6 @@ const MachineContent=({
                             {value.name}
                         </Typography>
 
-
                         <Box
                             sx={{
                                 display:"flex",
@@ -438,7 +416,6 @@ const MachineContent=({
                             </Typography>
 
                         </Box>
-
 
                         <Divider
                             sx={{
@@ -476,6 +453,5 @@ const MachineContent=({
         </Box>
     );
 };
-
 
 export default MachineContent;
