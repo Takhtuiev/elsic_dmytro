@@ -180,28 +180,6 @@ export function getHeaterTemperatureC({ side, ambientTemperatureC }) {
     return ambientTemperatureC + side.heaterTemperatureFactor * (side.regulatorTemperatureC - ambientTemperatureC);
 }
 
-export function calculateIncidentHeaterFlux({ side, surfaceTemperatureC, ambientTemperatureC = 20 }) {
-    const T_heater_C = getHeaterTemperatureC({ side, ambientTemperatureC });
-    const Th = toKelvin(T_heater_C);
-    const Ts = toKelvin(surfaceTemperatureC);
-
-    const epsilon = side.heaterEmissivity;
-    const F = side.viewFactor;
-    const gain = side.radiationGain;
-
-    return Math.max(0, gain * epsilon * F * SIGMA * (Th * Th * Th * Th - Ts * Ts * Ts * Ts));
-}
-
-export function calculateEffectiveIncidentFlux({ side, material, surfaceTemperatureC, ambientTemperatureC = 20 }) {
-    const incidentWm2 = calculateIncidentHeaterFlux({ side, surfaceTemperatureC, ambientTemperatureC });
-    const reflectance = material.surfaceReflectance;
-
-    return {
-        incidentWm2,
-        reflectedWm2: incidentWm2 * reflectance,
-        effectiveWm2: incidentWm2 * (1 - reflectance)
-    };
-}
 
 /**
  * Оптимизированный расчет линеаризованных параметров потока без аллокации объектов.
@@ -832,69 +810,34 @@ export function simulate1DHeating({
     };
 
     if (includeBreakdown) {
-        const propsCenter = matModel.get(centerC);
-        const diff = propsCenter.k / (propsCenter.density * propsCenter.cp);
 
         res.diagnostics = {
-            nodeCount,
-            dxMm: dx * 1000,
-            requestedDxMm: validation.dxMm,
-            dtSeconds: dt,
-            maxStableDtSeconds: 0.5 * dx * dx / diff,
-            thermalDiffusivityM2s: diff,
-            numericalControl: {
-                gridCellsPerThickness: GRID_CELLS_PER_THICKNESS,
-                minDxMm: MIN_DX_MM,
-                maxDxMm: MAX_DX_MM,
+            grid: {
+                nodeCount,
+                dxMm: dx * 1000,
+                requestedDxMm: validation.dxMm,
+            },
+
+            numerical: {
+                dtSeconds: dt,
                 nonlinearIterations: MAX_NONLINEAR_ITERATIONS,
                 nonlinearToleranceK: NONLINEAR_TOLERANCE_K,
-                fourierNumber: diff * dt / (dx * dx)
             },
-            simulation: {
-                target: { type: targetType, value: targetValue },
-                ambientTemperatureC: ambT,
-                ambientRadiationTemperatureC: ambRadT,
-                initialTemperatureC: initT,
-                stopAtMaxTemperature,
-                maxFormingTemperatureC: maxFormingTemp,
-                maxTimeSeconds,
-                cooldownTimeSeconds
-            },
-            target: {
-                type: targetType,
-                value: targetValue,
-                actualCenterC: centerC,
+
+            result: {
+                heatingTimeSeconds: heating.heatingTimeSeconds,
+                reachedTarget: heating.reachedTarget,
                 actualMinTemperatureC: minTemperatureC,
+                actualCenterC: centerC,
                 actualFrontSurfaceC: frontC,
                 actualBackSurfaceC: backC,
-                maxFormingTemperatureC: maxFormingTemp,
-                decompositionC: decompTemp
             },
-            heatBalance: {
-                top: calculateEffectiveIncidentFlux({
-                    side: mach.heaters[0],
-                    material,
-                    surfaceTemperatureC: frontC,
-                    ambientTemperatureC: ambT
-                }),
-                bottom: calculateEffectiveIncidentFlux({
-                    side: mach.heaters[1],
-                    material,
-                    surfaceTemperatureC: backC,
-                    ambientTemperatureC: ambT
-                }),
-                topRegulatorTemperatureC: mach.heaters[0].regulatorTemperatureC,
-                bottomRegulatorTemperatureC: mach.heaters[1].regulatorTemperatureC,
-                topHeaterTemperatureC: getHeaterTemperatureC({
-                    side: mach.heaters[0],
-                    ambientTemperatureC: ambT
-                }),
-                bottomHeaterTemperatureC: getHeaterTemperatureC({
-                    side: mach.heaters[1],
-                    ambientTemperatureC: ambT
-                }),
-                convectionCoefficient: machine.heatTransferCoefficient
-            }
+
+            temperatures: {
+                targetC: targetValue,
+                maxFormingC: maxFormingTemp,
+                decompositionC: decompTemp,
+            },
         };
     }
 
@@ -961,13 +904,31 @@ export function fitHeatingParameters({
                                          measurements,
                                          dxMm,
                                          dtSeconds,
-                                         initial = { radiationGain: 1, heatTransferCoefficient: 10 },
-                                         bounds = { radiationGain: [0.05, 5], heatTransferCoefficient: [2, 40] }
+                                         initial = {
+                                             topRadiationGain: 1,
+                                             topHeatTransferCoefficient: 8,
+                                             bottomRadiationGain: 1,
+                                             bottomHeatTransferCoefficient: 16
+                                         },
+                                         bounds = {
+                                             topRadiationGain: [0.05, 5],
+                                             topHeatTransferCoefficient: [2, 40],
+                                             bottomRadiationGain: [0.05, 5],
+                                             bottomHeatTransferCoefficient: [2, 40]
+                                         }
                                      }) {
-    const validTimes = measurements.map(m => m?.timeSeconds).filter(Number.isFinite);
+    const validTimes = measurements
+        ?.map(m => m?.timeSeconds)
+        .filter(Number.isFinite);
 
-    if (!validTimes.length) {
+    if (!validTimes?.length) {
         return makeError("Calibration requires at least one valid experimental data check-point.");
+    }
+
+    const baseMachine = normalizeMachine(machine);
+
+    if (!baseMachine) {
+        return makeError("Invalid machine.");
     }
 
     const maxMTime = Math.max(...validTimes);
@@ -975,15 +936,36 @@ export function fitHeatingParameters({
     const baseSimulation = {
         ...(simulation || {}),
         stopAtMaxTemperature: false,
-        target: { type: "time", value: maxMTime },
-        maxTimeSeconds: Math.max(Number(simulation?.maxTimeSeconds) || 0, maxMTime + 2)
+        target: {
+            type: "time",
+            value: maxMTime
+        },
+        maxTimeSeconds: Math.max(
+            Number(simulation?.maxTimeSeconds) || 0,
+            maxMTime + 2
+        )
     };
 
-    const evaluate = (rg, htc) => {
+    const evaluate = (
+        topRg,
+        topHtc,
+        bottomRg,
+        bottomHtc
+    ) => {
         const fitMachine = {
-            ...machine,
-            heatTransferCoefficient: htc,
-            heaters: machine.heaters.map(h => ({ ...h, radiationGain: rg }))
+            ...baseMachine,
+            heaters: [
+                {
+                    ...baseMachine.heaters[0],
+                    radiationGain: topRg,
+                    convectiveHeatTransferCoefficient: topHtc
+                },
+                {
+                    ...baseMachine.heaters[1],
+                    radiationGain: bottomRg,
+                    convectiveHeatTransferCoefficient: bottomHtc
+                }
+            ]
         };
 
         const sim = simulate1DHeating({
@@ -996,51 +978,155 @@ export function fitHeatingParameters({
             storeHistory: true
         });
 
-        return calculateFitError({ simulation: sim, measurements }).rmseC;
+        return calculateFitError({
+            simulation: sim,
+            measurements
+        }).rmseC;
     };
 
-    let bestRg = clamp(initial.radiationGain, bounds.radiationGain[0], bounds.radiationGain[1]);
-    let bestHtc = clamp(initial.heatTransferCoefficient, bounds.heatTransferCoefficient[0], bounds.heatTransferCoefficient[1]);
-    let bestErr = evaluate(bestRg, bestHtc);
+    let bestTopRg = clamp(
+        initial.topRadiationGain,
+        bounds.topRadiationGain[0],
+        bounds.topRadiationGain[1]
+    );
 
-    let stepRg = 0.2;
-    let stepHtc = 2.0;
-    const eps = 0.01;
+    let bestTopHtc = clamp(
+        initial.topHeatTransferCoefficient,
+        bounds.topHeatTransferCoefficient[0],
+        bounds.topHeatTransferCoefficient[1]
+    );
 
-    while (stepRg > eps || stepHtc > eps) {
+    let bestBottomRg = clamp(
+        initial.bottomRadiationGain,
+        bounds.bottomRadiationGain[0],
+        bounds.bottomRadiationGain[1]
+    );
+
+    let bestBottomHtc = clamp(
+        initial.bottomHeatTransferCoefficient,
+        bounds.bottomHeatTransferCoefficient[0],
+        bounds.bottomHeatTransferCoefficient[1]
+    );
+
+    let bestErr = evaluate(
+        bestTopRg,
+        bestTopHtc,
+        bestBottomRg,
+        bestBottomHtc
+    );
+
+    let stepTopRg = 0.2;
+    let stepTopHtc = 2.0;
+    let stepBottomRg = 0.2;
+    let stepBottomHtc = 2.0;
+
+    const epsRg = 0.01;
+    const epsHtc = 0.1;
+
+    while (
+        stepTopRg > epsRg ||
+        stepTopHtc > epsHtc ||
+        stepBottomRg > epsRg ||
+        stepBottomHtc > epsHtc
+        ) {
         let improved = false;
 
-        const dirs = [
-            [stepRg, 0],
-            [-stepRg, 0],
-            [0, stepHtc],
-            [0, -stepHtc],
-            [stepRg, stepHtc],
-            [-stepRg, -stepHtc]
+        const candidates = [
+            [ stepTopRg, 0, 0, 0 ],
+            [-stepTopRg, 0, 0, 0 ],
+
+            [0, stepTopHtc, 0, 0],
+            [0, -stepTopHtc, 0, 0],
+
+            [0, 0, stepBottomRg, 0],
+            [0, 0, -stepBottomRg, 0],
+
+            [0, 0, 0, stepBottomHtc],
+            [0, 0, 0, -stepBottomHtc],
+
+            [ stepTopRg,  stepTopHtc, 0, 0],
+            [ stepTopRg, -stepTopHtc, 0, 0],
+            [-stepTopRg,  stepTopHtc, 0, 0],
+            [-stepTopRg, -stepTopHtc, 0, 0],
+
+            [0, 0,  stepBottomRg,  stepBottomHtc],
+            [0, 0,  stepBottomRg, -stepBottomHtc],
+            [0, 0, -stepBottomRg,  stepBottomHtc],
+            [0, 0, -stepBottomRg, -stepBottomHtc]
         ];
 
-        for (const [dRg, dHtc] of dirs) {
-            const nRg = clamp(bestRg + dRg, bounds.radiationGain[0], bounds.radiationGain[1]);
-            const nHtc = clamp(bestHtc + dHtc, bounds.heatTransferCoefficient[0], bounds.heatTransferCoefficient[1]);
-            const err = evaluate(nRg, nHtc);
+        for (const [
+            dTopRg,
+            dTopHtc,
+            dBottomRg,
+            dBottomHtc
+        ] of candidates) {
+            const nTopRg = clamp(
+                bestTopRg + dTopRg,
+                bounds.topRadiationGain[0],
+                bounds.topRadiationGain[1]
+            );
+
+            const nTopHtc = clamp(
+                bestTopHtc + dTopHtc,
+                bounds.topHeatTransferCoefficient[0],
+                bounds.topHeatTransferCoefficient[1]
+            );
+
+            const nBottomRg = clamp(
+                bestBottomRg + dBottomRg,
+                bounds.bottomRadiationGain[0],
+                bounds.bottomRadiationGain[1]
+            );
+
+            const nBottomHtc = clamp(
+                bestBottomHtc + dBottomHtc,
+                bounds.bottomHeatTransferCoefficient[0],
+                bounds.bottomHeatTransferCoefficient[1]
+            );
+
+            const err = evaluate(
+                nTopRg,
+                nTopHtc,
+                nBottomRg,
+                nBottomHtc
+            );
 
             if (err < bestErr) {
                 bestErr = err;
-                bestRg = nRg;
-                bestHtc = nHtc;
+
+                bestTopRg = nTopRg;
+                bestTopHtc = nTopHtc;
+                bestBottomRg = nBottomRg;
+                bestBottomHtc = nBottomHtc;
+
                 improved = true;
             }
         }
 
         if (!improved) {
-            stepRg *= 0.5;
-            stepHtc *= 0.5;
+            stepTopRg *= 0.5;
+            stepTopHtc *= 0.5;
+            stepBottomRg *= 0.5;
+            stepBottomHtc *= 0.5;
         }
     }
 
     return {
-        status: { type: "ok", message: "Calibration finished successfully." },
-        parameters: { radiationGain: bestRg, heatTransferCoefficient: bestHtc },
+        status: {
+            type: "ok",
+            message: "Calibration finished successfully."
+        },
+        parameters: {
+            top: {
+                radiationGain: bestTopRg,
+                heatTransferCoefficient: bestTopHtc
+            },
+            bottom: {
+                radiationGain: bestBottomRg,
+                heatTransferCoefficient: bestBottomHtc
+            }
+        },
         rmseC: bestErr
     };
 }

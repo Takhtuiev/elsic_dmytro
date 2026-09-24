@@ -288,6 +288,8 @@ const BendingPreview=({
         profile?.simulation
     ]);
 
+    console.log(dataSimulate)
+
 
     const invalidAngleIndex=
         profile?.bends?.findIndex(({angle})=>{

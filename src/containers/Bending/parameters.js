@@ -56,7 +56,7 @@ export const MATERIALS = {
         thermalConductivity: 0.15,  // Вт/(м·К)
 
         specificHeat: 1000,          // Базовая теплоемкость (число из паспорта)
-        tgSpecificHeatJumpFactor: 1.40, // Коэффициент скачка (1.40 = +40%)
+        tgSpecificHeatJumpFactor: 1.30, // Коэффициент скачка (1.30 = +30%)
         tgTransitionWidthC: 10.0,    // Ширина зоны перехода в градусах (обычно 10)
 
         emissivity: 0.93,
@@ -77,7 +77,7 @@ export const MATERIALS = {
         thermalConductivity: 0.15,  // Вт/(м·К)
 
         specificHeat: 1000,          // Базовая теплоемкость (число из паспорта)
-        tgSpecificHeatJumpFactor: 1.40, // Коэффициент скачка (1.40 = +40%)
+        tgSpecificHeatJumpFactor: 1.30, // Коэффициент скачка (1.30 = +30%)
         tgTransitionWidthC: 10.0,    // Ширина зоны перехода в градусах (обычно 10)
 
         emissivity: 0.93,
@@ -98,7 +98,7 @@ export const MATERIALS = {
         thermalConductivity: 0.15,  // Вт/(м·К)
 
         specificHeat: 1000,          // Базовая теплоемкость (число из паспорта)
-        tgSpecificHeatJumpFactor: 1.40, // Коэффициент скачка (1.40 = +40%)
+        tgSpecificHeatJumpFactor: 1.30, // Коэффициент скачка (1.30 = +30%)
         tgTransitionWidthC: 10.0,    // Ширина зоны перехода в градусах (обычно 10)
 
         emissivity: 0.92,
