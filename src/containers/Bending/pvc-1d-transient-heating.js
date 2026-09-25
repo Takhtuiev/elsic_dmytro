@@ -5,9 +5,9 @@
  * rho*Cp*dT/dt = d/dx(k*dT/dx)
  */
 
-export const GRID_CELLS_PER_THICKNESS = 20;
-export const MIN_DX_MM = 0.25;
-export const MAX_DX_MM = 1.5;
+export const GRID_CELLS_PER_THICKNESS = 30;
+export const MIN_DX_MM = 0.2;
+export const MAX_DX_MM = 1.0;
 export const DEFAULT_DT_SECONDS = 0.25;
 export const MAX_NONLINEAR_ITERATIONS = 3;
 export const NONLINEAR_TOLERANCE_K = 0.1;

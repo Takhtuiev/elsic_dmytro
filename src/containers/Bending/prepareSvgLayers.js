@@ -1,4 +1,3 @@
-import buildProfileGeometry from "./BuildProfileGeometry";
 import {calculateOuterLengthToEnd} from "./Calculations";
 import {
     ARC_RADIUS,
@@ -431,9 +430,7 @@ export const buildLayer=({
 };
 
 
-export const prepareSvgLayers=(profile,view,containerSize)=>{
-
-    const geometry=buildProfileGeometry(profile);
+export const prepareSvgLayers=(profile,view,containerSize,geometry)=>{
 
     if(!geometry.sideA?.length)
         return null;

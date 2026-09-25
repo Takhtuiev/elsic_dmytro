@@ -96,9 +96,7 @@ const sanitizeNumber=value=>{
 
 const ProfileRow=memo(({
     shelf,
-    shelves,
     bend,
-    bends,
     index,
     bendIndex,
     bendSide,
@@ -158,34 +156,16 @@ const ProfileRow=memo(({
     );
 
     const updateShelf=(field,value)=>{
-        const newShelves=shelves.map(
-            (item,i)=>
-                i===index
-                    ?{
-                        ...item,
-                        [field]:value
-                    }
-                    :item
-        );
-
         onUpdate({
-            shelves:newShelves
+            path:["shelves",index,field],
+            value
         });
     };
 
     const updateBend=(field,value)=>{
-        const newBends=bends.map(
-            (item,i)=>
-                i===index
-                    ?{
-                        ...item,
-                        [field]:value
-                    }
-                    :item
-        );
-
         onUpdate({
-            bends:newBends
+            path:["bends",index,field],
+            value
         });
     };
 

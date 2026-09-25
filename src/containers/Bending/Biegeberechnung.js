@@ -89,6 +89,27 @@ const INITIAL_STATE={
     }
 };
 
+const setByPath=(object,path,value)=>{
+    const result=Array.isArray(object)
+        ?[...object]
+        :{...object};
+
+    let current=result;
+
+    for(let i=0;i<path.length-1;i++){
+        const key=path[i];
+
+        current[key]=Array.isArray(current[key])
+            ?[...current[key]]
+            :{...current[key]};
+
+        current=current[key];
+    }
+
+    current[path[path.length-1]]=value;
+
+    return result;
+};
 
 const getShelfVector=(geometry,index,fromEnd=false)=>{
     const p1=geometry.sideA?.[index];
@@ -443,15 +464,70 @@ export default function Biegeberechnung(){
 
     const updateGeometry=useCallback(
         changes=>{
-            setState(prev=>({
-                ...prev,
-                geometry:{
-                    ...prev.geometry,
-                    ...changes
+            setState(prev=>{
+                if(changes.path){
+                    const [collection,index,field]=changes.path;
+
+                    const nextGeometry=setByPath(
+                        prev.geometry,
+                        changes.path,
+                        changes.value
+                    );
+
+                    let nextView=prev.view;
+
+                    const selectedShelfIndex=
+                        bendSide==="fromStart"
+                            ?bendIndex
+                            :bendIndex+1;
+
+                    if(
+                        collection==="bends"&&
+                        (field==="angle"||field==="direction")&&
+                        index<=selectedShelfIndex
+                    ){
+
+                        const geometryProfile={
+                            ...prev,
+                            ...nextGeometry,
+                            rTool:prev.machine?.rTool,
+                            kFactor:prev.material?.kFactor
+                        };
+
+                        const geometry=
+                            buildProfileGeometry(
+                                geometryProfile
+                            );
+
+                        nextView={
+                            ...prev.view,
+                            ...calculateBendView(
+                                geometry,
+                                bendIndex,
+                                bendSide,
+                                prev.view.mirrored,
+                                prev.view.rotation
+                            )
+                        };
+                    }
+
+                    return{
+                        ...prev,
+                        geometry:nextGeometry,
+                        view:nextView
+                    };
                 }
-            }));
+
+                return{
+                    ...prev,
+                    geometry:{
+                        ...prev.geometry,
+                        ...changes
+                    }
+                };
+            });
         },
-        []
+        [bendIndex,bendSide]
     );
 
     const geometryProfile=useMemo(
@@ -467,6 +543,11 @@ export default function Biegeberechnung(){
             material,
             machine
         ]
+    );
+
+    const builtGeometry=useMemo(
+        ()=>buildProfileGeometry(geometryProfile),
+        [geometryProfile]
     );
 
     const handleSelectBend=useCallback(
@@ -490,15 +571,19 @@ export default function Biegeberechnung(){
                         index
                     );
 
+                // Выбран другой угол
                 if(
                     prev.view.bendIndex!==index
                 ){
-                    savedView.current={
-                        rotation:
-                        prev.view.rotation,
-                        mirrored:
-                        prev.view.mirrored
-                    };
+                    // Сохраняем исходный вид только при первом выборе
+                    if(prev.view.bendIndex<0){
+                        savedView.current={
+                            rotation:
+                            prev.view.rotation,
+                            mirrored:
+                            prev.view.mirrored
+                        };
+                    }
 
                     const nextView=
                         calculateBendView(
@@ -520,6 +605,8 @@ export default function Biegeberechnung(){
                     };
                 }
 
+                // Та же позиция уже выбрана:
+                // снимаем выбор и возвращаем исходный view
                 if(
                     prev.view.bendSide!==preferredSide
                 ){
@@ -534,6 +621,7 @@ export default function Biegeberechnung(){
                     };
                 }
 
+                // Переключаем ту же деталь на противоположную сторону
                 const nextSide=
                     prev.view.bendSide==="fromStart"
                         ?"toEnd"
@@ -863,6 +951,7 @@ export default function Biegeberechnung(){
                 >
                     <BendingPreviewPage
                         profile={geometryProfile}
+                        geometry={builtGeometry}
                         machine={machine}
                         blankLength={blankLength}
                         machineParams={machineParams}

@@ -241,7 +241,7 @@ const Parameters=({
                 <Typography
                     variant="body2"
                     color={PARAMETER_TEXT_COLOR}
-                    fontSize={PARAMETER_TEXT_SIZE}
+                    sx={{fontSize:PARAMETER_TEXT_SIZE}}
                 >
                     Heat temp: <strong>
                     top: {
@@ -282,9 +282,9 @@ const Parameters=({
             <Typography
                 variant="body2"
                 color={PARAMETER_TEXT_COLOR}
-                fontSize={PARAMETER_TEXT_SIZE}
+                fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.8)`}
             >
-                calculationTime time:{" "}
+                Simulation calculation time:{" "}
                 {data?.calculationTimeMs?.toFixed(1)} ms
             </Typography>
 
@@ -295,6 +295,7 @@ const Parameters=({
 
 const BendingPreview=({
                           profile,
+                          geometry,
                           blankLength,
                           machineParams,
                           rotationPreview
@@ -399,14 +400,10 @@ const BendingPreview=({
         return prepareSvgLayers(
             profile,
             view,
-            containerSize
+            containerSize,
+            geometry
         );
-    },[
-        profile,
-        view,
-        containerSize,
-        validationError
-    ]);
+    },[profile, validationError, view, containerSize, geometry]);
 
 
     const committedRotation=
