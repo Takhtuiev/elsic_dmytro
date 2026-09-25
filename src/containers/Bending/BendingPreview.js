@@ -4,7 +4,6 @@ import {alpha} from "@mui/material/styles";
 
 import BendProfileRender from "./BendProfileRender";
 import {prepareSvgLayers} from "./prepareSvgLayers";
-import {MAX_BEND_ANGLE,MIN_BEND_ANGLE} from "./svgConstants";
 import {simulate1DHeating} from "./pvc-1d-transient-heating";
 import {
     formatTime,
@@ -14,6 +13,62 @@ import {
 const PARAMETER_TEXT_COLOR="text.primary";
 const PARAMETER_TEXT_SIZE="0.8rem";
 
+
+const validateProfile=profile=>{
+    if(!profile)
+        return "Profile is missing";
+
+    const thickness=Number(profile.thickness);
+
+    if(!Number.isFinite(thickness)||thickness<=0)
+        return "Thickness must be greater than 0 mm";
+
+    if(!Array.isArray(profile.shelves)||!profile.shelves.length)
+        return "At least one leg is required";
+
+    if(!Array.isArray(profile.bends))
+        return "Bends are missing";
+
+    if(profile.shelves.length!==profile.bends.length+1)
+        return "Invalid profile geometry";
+
+    const invalidShelfIndex=
+        profile.shelves.findIndex(({length})=>{
+            const value=Number(length);
+
+            return(
+                !Number.isFinite(value)||
+                value<thickness
+            );
+        });
+
+    if(invalidShelfIndex>=0){
+        const length=
+            profile.shelves[invalidShelfIndex]?.length;
+
+        return `Leg ${invalidShelfIndex+1}: ${length} mm — must be at least ${thickness} mm`;
+    }
+
+    const invalidAngleIndex=
+        profile.bends.findIndex(({angle})=>{
+            const value=Number(angle);
+
+            return(
+                !Number.isFinite(value)||
+                value<90||
+                value>180
+            );
+        });
+
+    if(invalidAngleIndex>=0){
+        const angle=
+            profile.bends[invalidAngleIndex]?.angle;
+
+        return `Angle ${invalidAngleIndex+1}: ${angle}° — allowed range is 90°–180°`;
+    }
+
+    return null;
+};
 
 const PartHeader=({profile})=>(
     <Box
@@ -222,6 +277,17 @@ const Parameters=({
                     {status.message}
                 </Typography>
             )}
+
+
+            <Typography
+                variant="body2"
+                color={PARAMETER_TEXT_COLOR}
+                fontSize={PARAMETER_TEXT_SIZE}
+            >
+                calculationTime time:{" "}
+                {data?.calculationTimeMs?.toFixed(1)} ms
+            </Typography>
+
         </Box>
     );
 };
@@ -235,6 +301,8 @@ const BendingPreview=({
                       })=>{
     const theme=useTheme();
     const containerRef=useRef(null);
+
+    const validationError=validateProfile(profile);
 
     const view=profile?.view;
 
@@ -288,43 +356,7 @@ const BendingPreview=({
         profile?.simulation
     ]);
 
-    console.log(dataSimulate)
-
-
-    const invalidAngleIndex=
-        profile?.bends?.findIndex(({angle})=>{
-            angle=Number(angle);
-
-            return(
-                !Number.isFinite(angle)||
-                angle<MIN_BEND_ANGLE||
-                angle>MAX_BEND_ANGLE
-            );
-        })??-1;
-
-
-    const invalidShelfIndex=
-        profile?.shelves?.findIndex(({length})=>{
-            length=Number(length);
-
-            const thickness=
-                Number(profile?.thickness);
-
-            return(
-                !Number.isFinite(length)||
-                !Number.isFinite(thickness)||
-                length<thickness
-            );
-        })??-1;
-
-
-    const validationError=
-        invalidAngleIndex>=0
-            ?`Angle ${invalidAngleIndex+1}: ${profile.bends[invalidAngleIndex].angle}° — allowed range is ${MIN_BEND_ANGLE}°–${MAX_BEND_ANGLE}°`
-            :invalidShelfIndex>=0
-                ?`Leg ${invalidShelfIndex+1}: ${profile.shelves[invalidShelfIndex].length} mm — must be at least ${profile.thickness} mm`
-                :null;
-
+    //console.log(dataSimulate)
 
     const colors=useMemo(()=>({
         active:{

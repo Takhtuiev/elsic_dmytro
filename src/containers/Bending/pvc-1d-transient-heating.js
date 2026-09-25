@@ -58,6 +58,7 @@ function createMaterialModel(material) {
 const makeError = (message, extra = {}) => ({
     status: { type: "error", message },
     heatingTimeSeconds: 0,
+    calculationTimeMs: 0,
     reachedTarget: false,
     stoppedByMaxTemperature: false,
     temperatureProfile: [],
@@ -662,6 +663,8 @@ export function simulate1DHeating({
                                       storeHistory = false,
                                       includeBreakdown = false
                                   }) {
+    const calculationStart = performance.now();
+
     const mach = normalizeMachine(machine);
 
     if (!mach) return makeError("Invalid machine.");
@@ -792,9 +795,12 @@ export function simulate1DHeating({
         if (heatingProfileC[i] < minTemperatureC) minTemperatureC = heatingProfileC[i];
     }
 
+    const calculationTimeMs = performance.now() - calculationStart;
+
     const res = {
         heatingTimeSeconds: heating.heatingTimeSeconds,
         cooldownTimeSec: cooldownTimeSeconds,
+        calculationTimeMs,
         heaterTemperaturesC: {
             top: mach.heaters[0].regulatorTemperatureC,
             bottom: mach.heaters[1].regulatorTemperatureC
