@@ -560,8 +560,12 @@ export const TemperatureProfileChart = memo(({ data, material }) => {
                 {hasFormingRange && (
                     <>
                         <rect x={pad.left} y={formingTop} width={wPlot} height={formingBottom - formingTop} fill={theme.palette.success.main} opacity=".05" />
-                        <line x1={pad.left} y1={formingTop} x2={width - pad.right} y2={formingTop} stroke={theme.palette.success.main} strokeWidth={1} strokeDasharray="4 2" opacity=".4" />
-                        <line x1={pad.left} y1={formingBottom} x2={width - pad.right} y2={formingBottom} stroke={theme.palette.success.main} strokeWidth={1} strokeDasharray="4 2" opacity=".4" />
+                        {formingTop > pad.top && (
+                            <line x1={pad.left} y1={formingTop} x2={width - pad.right} y2={formingTop} stroke={theme.palette.success.main} strokeWidth={1} strokeDasharray="4 2" opacity=".4" />
+                        )}
+                        {formingBottom < height - pad.bottom && (
+                            <line x1={pad.left} y1={formingBottom} x2={width - pad.right} y2={formingBottom} stroke={theme.palette.success.main} strokeWidth={1} strokeDasharray="4 2" opacity=".4" />
+                        )}
                     </>
                 )}
 
