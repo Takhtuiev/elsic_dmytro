@@ -489,6 +489,7 @@ const BendingPreview=({
                         className="bend-preview-svg"
                         viewBox={svgData.viewBox}
                         width="100%"
+                        height="100%"
                         preserveAspectRatio="xMidYMid meet"
                     >
                         <g

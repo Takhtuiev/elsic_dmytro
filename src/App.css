@@ -72,36 +72,24 @@
   transition: 0.5s;
 }
 
-@media print {
-  .bend-print-toolbar {
+.bending-print-page{
+  display:none;
+}
+
+@media print{
+  .biege-main-page{
     display:none !important;
   }
 
-  .bend-print-root {
-    width:100% !important;
-    height:auto !important;
-    overflow:visible !important;
-  }
-
-  .bend-print-content {
-    width:100% !important;
-    height:auto !important;
-    overflow:visible !important;
-    padding:0 !important;
-  }
-
-  .bend-preview {
-    height:auto !important;
-    min-height:0 !important;
-  }
-
-  .bend-preview-drawing {
-    overflow:visible !important;
-  }
-
-  .bend-preview-svg {
-    width:100% !important;
-    height:auto !important;
+  .bending-print-page{
     display:block !important;
+  }
+
+  @page{
+    margin:10mm;
+  }
+
+  body{
+    margin:0;
   }
 }
