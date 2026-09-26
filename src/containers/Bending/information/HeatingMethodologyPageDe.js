@@ -1071,7 +1071,7 @@ const sections = [
     }
 ];
 
-export default function HeatingMethodologyPage() {
+export default function HeatingMethodologyPageDe() {
     return (
         <Container
             maxWidth="lg"
