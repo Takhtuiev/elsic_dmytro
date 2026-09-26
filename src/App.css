@@ -78,7 +78,6 @@
     height:auto !important;
     min-height:0 !important;
     overflow:visible !important;
-    display:block !important;
   }
 
   .bend-print-toolbar {
@@ -91,6 +90,26 @@
     min-height:0 !important;
     padding:0 !important;
     overflow:visible !important;
+  }
+
+  .bend-preview {
+    width:100% !important;
+    height:auto !important;
+    min-height:0 !important;
+    display:flex !important;
+    flex-direction:column !important;
+  }
+
+  .bend-preview-drawing {
+    flex:none !important;
+    height:auto !important;
+    min-height:0 !important;
+    overflow:visible !important;
+  }
+
+  .bend-preview-svg {
+    width:100% !important;
+    height:auto !important;
     display:block !important;
   }
 }

@@ -439,6 +439,7 @@ const BendingPreview=({
 
     return(
         <Box
+            className="bend-preview"
             sx={{
                 width:"100%",
                 height:"100%",
