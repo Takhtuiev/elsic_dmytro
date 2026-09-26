@@ -16,14 +16,12 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import FlipIcon from "@mui/icons-material/Flip";
-import FullscreenIcon from "@mui/icons-material/Fullscreen";
 import DatabaseIcon from "@mui/icons-material/Storage";
 import PrintIcon from "@mui/icons-material/Print";
 import {useDispatch,useSelector} from "react-redux";
 import {useNavigate} from "react-router-dom";
 
 import ProfileRow from "./ProfileRow";
-import BendingPreviewPage from "./BendingPreviewPage";
 import BendingDialog from "./BendingDialog";
 import MaterialContent from "./MaterialContent";
 import MachineContent from "./MachineContent";
@@ -37,6 +35,7 @@ import {
 import buildProfileGeometry from "./BuildProfileGeometry";
 import {setProfile} from "../../Store/bendingSlice";
 import {MATERIALS,MACHINES} from "./parameters";
+import BendingPreview from "./BendingPreview";
 
 
 const INITIAL_STATE={
@@ -321,7 +320,6 @@ const PreviewToolbar=({
                           onRotationChange,
                           onRotationCommitted,
                           onMirror,
-                          onFullscreen
                       })=>(
     <Box
         className="bending-preview-toolbar"
@@ -377,15 +375,6 @@ const PreviewToolbar=({
                     />
                 </IconButton>
             </span>
-        </Tooltip>
-
-        <Tooltip title="Full screen">
-            <IconButton
-                size="small"
-                onClick={onFullscreen}
-            >
-                <FullscreenIcon fontSize="small"/>
-            </IconButton>
         </Tooltip>
 
         <Tooltip title="Print">
@@ -967,11 +956,6 @@ export default function Biegeberechnung(){
                             !mirrored
                         )
                     }
-                    onFullscreen={()=>
-                        navigate(
-                            "/biegeberechnung/preview"
-                        )
-                    }
                 />
 
                 <Box
@@ -984,7 +968,7 @@ export default function Biegeberechnung(){
                         p:1
                     }}
                 >
-                    <BendingPreviewPage
+                    <BendingPreview
                         profile={geometryProfile}
                         geometry={builtGeometry}
                         machine={machine}

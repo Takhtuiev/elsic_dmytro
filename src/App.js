@@ -3,7 +3,6 @@ import {
     BrowserRouter,
     Route,
     Routes,
-    useLocation
 } from "react-router-dom";
 
 import "@fontsource/roboto/300.css";
@@ -22,14 +21,13 @@ import Footer from "./containers/Footer/Footer";
 import ScrollToTop from "./components/ScrollToTop";
 
 import Biegeberechnung from "./containers/Bending/Biegeberechnung";
-import BendingPreviewFullScreen from "./containers/Bending/BendingPreviewFullScreen";
 
 import MyAccount from "./components/Navigation/MyAccount";
 import AccessDenied from "./components/Auth/AccessDenied";
 import OrganizationAdmin from "./components/Admin/OrganizationAdmin";
 import Datenschutz from "./containers/Datenschutz";
 import HeatingMethodologyPage from "./containers/Bending/information/HeatingMethodologyPage";
-import HeatingMethodologyPage_de from "./containers/Bending/information/HeatingMethodologyPage_de";
+import HeatingMethodologyPageDe from "./containers/Bending/information/HeatingMethodologyPageDe";
 
 const Home = lazy(() => import("./containers/Home"));
 const Contacts = lazy(() => import("./containers/Contacts"));
@@ -46,41 +44,6 @@ function AppContent() {
 }
 
 function AppLayout() {
-    const location = useLocation();
-
-    const isPreviewPage =
-        location.pathname === "/biegeberechnung/preview";
-
-    // =========================================================
-    // FULLSCREEN PREVIEW
-    // Без NavigationTabs и Footer
-    // =========================================================
-
-    if (isPreviewPage) {
-        return (
-            <>
-                <ScrollToTop />
-
-                <Routes>
-                    <Route
-                        path="/biegeberechnung/preview"
-                        element={
-                            <Protect
-                                permission="org:calculation:use"
-                                fallback={<AccessDenied />}
-                            >
-                                <BendingPreviewFullScreen />
-                            </Protect>
-                        }
-                    />
-                </Routes>
-            </>
-        );
-    }
-
-    // =========================================================
-    // ОБЫЧНЫЙ LAYOUT
-    // =========================================================
 
     return (
         <>
@@ -143,7 +106,7 @@ function AppLayout() {
                         />
                         <Route
                             path="/heating-methodology_de"
-                            element={<HeatingMethodologyPage_de />}
+                            element={<HeatingMethodologyPageDe />}
                         />
 
 
