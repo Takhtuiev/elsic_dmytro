@@ -72,4 +72,25 @@
   transition: 0.5s;
 }
 
+@media print {
+  .bend-print-root {
+    width:100% !important;
+    height:auto !important;
+    min-height:0 !important;
+    overflow:visible !important;
+    display:block !important;
+  }
 
+  .bend-print-toolbar {
+    display:none !important;
+  }
+
+  .bend-print-content {
+    width:100% !important;
+    height:auto !important;
+    min-height:0 !important;
+    padding:0 !important;
+    overflow:visible !important;
+    display:block !important;
+  }
+}
