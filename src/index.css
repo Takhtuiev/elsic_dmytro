@@ -16,23 +16,46 @@ code {
 
 
 @media print{
-  body *{
-    visibility:hidden !important;
+  @page{
+    margin:0;
   }
 
-  .biege-main-page,
-  .biege-main-page *{
-    visibility:visible !important;
+  html,
+  body{
+    margin:0 !important;
+    padding:0 !important;
+    width:100% !important;
+    height:100% !important;
+    overflow:hidden !important;
   }
 
-  .biege-main-page{
+  body > *{
+    display:none !important;
+  }
+
+  body > #root{
+    display:block !important;
+    width:100% !important;
+    height:100% !important;
+    margin:0 !important;
+    padding:0 !important;
+    overflow:hidden !important;
+  }
+
+  #root .biege-main-page{
     display:block !important;
     position:absolute !important;
     left:0 !important;
     top:0 !important;
     width:100% !important;
+    height:100% !important;
     margin:0 !important;
     padding:0 !important;
+    overflow:hidden !important;
+  }
+
+  #root .biege-main-page *{
+    visibility:visible !important;
   }
 
   .bending-editor-paper,
@@ -43,16 +66,52 @@ code {
   .bending-preview-paper{
     display:block !important;
     width:100% !important;
+    height:100% !important;
     max-height:none !important;
-    overflow:visible !important;
+    margin:0 !important;
+    padding:0 !important;
+    overflow:hidden !important;
     box-shadow:none !important;
     border:0 !important;
-    margin:0 !important;
   }
 
   .bending-preview-content{
-    overflow:visible !important;
-    min-height:auto !important;
+    width:100% !important;
+    height:100% !important;
+    min-height:0 !important;
+    margin:0 !important;
     padding:0 !important;
+    overflow:hidden !important;
+  }
+
+  .bend-preview{
+    width:100% !important;
+    height:100% !important;
+    min-height:0 !important;
+    display:flex !important;
+    flex-direction:column !important;
+    overflow:hidden !important;
+  }
+
+  .bend-preview-header{
+    flex:0 0 auto !important;
+  }
+
+  .bend-preview-drawing{
+    flex:1 1 auto !important;
+    min-height:0 !important;
+    width:100% !important;
+    overflow:hidden !important;
+  }
+
+  .bend-preview-svg{
+    display:block !important;
+    width:100% !important;
+    height:100% !important;
+  }
+
+  .bend-preview-bottom{
+    flex:0 0 auto !important;
+    width:100% !important;
   }
 }

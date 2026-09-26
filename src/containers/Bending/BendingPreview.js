@@ -13,7 +13,6 @@ import {
 const PARAMETER_TEXT_COLOR="text.primary";
 const PARAMETER_TEXT_SIZE="0.8rem";
 
-
 const validateProfile=profile=>{
     if(!profile)
         return "Profile is missing";
@@ -108,7 +107,6 @@ const PartHeader=({profile})=>(
         </Typography>
     </Box>
 );
-
 
 const Parameters=({
                       profile,
@@ -241,7 +239,7 @@ const Parameters=({
                 <Typography
                     variant="body2"
                     color={PARAMETER_TEXT_COLOR}
-                    sx={{fontSize:PARAMETER_TEXT_SIZE}}
+                    fontSize={PARAMETER_TEXT_SIZE}
                 >
                     Heat temp: <strong>
                     top: {
@@ -278,7 +276,6 @@ const Parameters=({
                 </Typography>
             )}
 
-
             <Typography
                 variant="body2"
                 color={PARAMETER_TEXT_COLOR}
@@ -291,7 +288,6 @@ const Parameters=({
         </Box>
     );
 };
-
 
 const BendingPreview=({
                           profile,
@@ -333,7 +329,6 @@ const BendingPreview=({
         return()=>observer.disconnect();
     },[]);
 
-
     const dataSimulate=useMemo(()=>{
         if(
             !profile?.thickness||
@@ -356,8 +351,6 @@ const BendingPreview=({
         profile?.machine,
         profile?.simulation
     ]);
-
-    //console.log(dataSimulate)
 
     const colors=useMemo(()=>({
         active:{
@@ -392,7 +385,6 @@ const BendingPreview=({
         }
     }),[theme]);
 
-
     const svgData=useMemo(()=>{
         if(!profile||validationError)
             return null;
@@ -403,8 +395,7 @@ const BendingPreview=({
             containerSize,
             geometry
         );
-    },[profile, validationError, view, containerSize, geometry]);
-
+    },[profile,validationError,view,containerSize,geometry]);
 
     const committedRotation=
         Number(view?.rotation??0);
@@ -415,11 +406,9 @@ const BendingPreview=({
         )-
         committedRotation;
 
-
     const viewBoxValues=svgData?.viewBox
         ?.split(/\s+/)
         .map(Number);
-
 
     const rotationCenter=
         viewBoxValues?.length===4
@@ -435,7 +424,6 @@ const BendingPreview=({
                 x:0,
                 y:0
             };
-
 
     return(
         <Box
@@ -544,6 +532,7 @@ const BendingPreview=({
             </Box>
 
             <Box
+                className="bend-preview-bottom"
                 sx={{
                     display:"flex",
                     flexWrap:"wrap",
@@ -582,6 +571,5 @@ const BendingPreview=({
         </Box>
     );
 };
-
 
 export default BendingPreview;
