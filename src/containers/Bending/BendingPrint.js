@@ -155,7 +155,7 @@ const BendingPrint=({
             className="bending-print-page"
             sx={{
                 width:"100%",
-                height:"100vh",
+                minHeight:0,
                 boxSizing:"border-box",
                 display:"flex",
                 flexDirection:"column",
@@ -164,8 +164,6 @@ const BendingPrint=({
                 p:2
             }}
         >
-
-            {/* Верхний блок */}
             <Box
                 sx={{
                     width:"100%",
@@ -183,8 +181,6 @@ const BendingPrint=({
                 Thickness: {profile?.thickness??"—"} mm
             </Box>
 
-
-            {/* Центральный блок */}
             <Box
                 sx={{
                     flex:1,
@@ -201,7 +197,6 @@ const BendingPrint=({
                     <svg
                         viewBox={svgData.viewBox}
                         width="100%"
-                        height="100%"
                         preserveAspectRatio="xMidYMid meet"
                     >
                         <g
@@ -255,21 +250,21 @@ const BendingPrint=({
                 )}
             </Box>
 
-
-            {/* Нижний блок */}
             <Box
                 sx={{
                     display:"flex",
                     flexWrap:"wrap",
-                    gap:3,
-                    alignItems:"flex-start",
-                    mt:1,
-                    flexShrink:0
+                    alignItems:"stretch",
+                    width:"100%",
+                    flexShrink:0,
+                    gap:1,
+                    mt:1
                 }}
             >
                 <Box
                     sx={{
-                        flex:"1 1 250px"
+                        flex:"1 1 18rem",
+                        minWidth:0
                     }}
                 >
                     <PrintParameters
@@ -283,7 +278,8 @@ const BendingPrint=({
                 <Box
                     sx={{
                         flex:"0 1 auto",
-                        maxWidth:"100%"
+                        maxWidth:"100%",
+                        mx:"auto"
                     }}
                 >
                     <TemperatureProfileChart
@@ -292,7 +288,6 @@ const BendingPrint=({
                     />
                 </Box>
             </Box>
-
         </Box>,
         document.getElementById("print-root")
     );

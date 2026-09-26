@@ -12,8 +12,6 @@ code {
   monospace;
 }
 
-
-
 #print-root{
   display:none;
 }
@@ -23,25 +21,11 @@ code {
     display:none !important;
   }
 
+  .biege-main-page{
+    display:none !important;
+  }
+
   #print-root{
     display:block !important;
-    width:100% !important;
-  }
-
-  .bending-print-page{
-    display:flex !important;
-    flex-direction:column !important;
-    width:100% !important;
-    min-height:100% !important;
-    box-sizing:border-box !important;
-    margin:0 !important;
-    padding:0 !important;
-    background:#fff !important;
-    color:#000 !important;
-  }
-
-  .bending-print-page svg{
-    display:block !important;
-    max-width:100% !important;
   }
 }
