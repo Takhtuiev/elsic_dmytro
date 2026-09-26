@@ -25,7 +25,6 @@ code {
     margin:0 !important;
     padding:0 !important;
     width:100% !important;
-    height:100% !important;
     overflow:hidden !important;
   }
 
@@ -36,10 +35,8 @@ code {
   body > #root{
     display:block !important;
     width:100% !important;
-    height:100% !important;
     margin:0 !important;
     padding:0 !important;
-    overflow:hidden !important;
   }
 
   #root .biege-main-page{
@@ -48,10 +45,11 @@ code {
     left:0 !important;
     top:0 !important;
     width:100% !important;
-    height:100% !important;
+    height:auto !important;
+    min-height:0 !important;
     margin:0 !important;
     padding:0 !important;
-    overflow:hidden !important;
+    overflow:visible !important;
   }
 
   #root .biege-main-page *{
@@ -66,31 +64,37 @@ code {
   .bending-preview-paper{
     display:block !important;
     width:100% !important;
-    height:100% !important;
+    height:auto !important;
     max-height:none !important;
+    min-height:0 !important;
     margin:0 !important;
     padding:0 !important;
-    overflow:hidden !important;
+    overflow:visible !important;
     box-shadow:none !important;
     border:0 !important;
+    break-inside:avoid !important;
+    page-break-inside:avoid !important;
   }
 
   .bending-preview-content{
+    display:block !important;
     width:100% !important;
-    height:100% !important;
+    height:auto !important;
     min-height:0 !important;
     margin:0 !important;
     padding:0 !important;
-    overflow:hidden !important;
+    overflow:visible !important;
   }
 
   .bend-preview{
-    width:100% !important;
-    height:100% !important;
-    min-height:0 !important;
     display:flex !important;
     flex-direction:column !important;
+    width:100% !important;
+    height:calc(100vh - 1px) !important;
+    min-height:0 !important;
     overflow:hidden !important;
+    break-inside:avoid !important;
+    page-break-inside:avoid !important;
   }
 
   .bend-preview-header{
@@ -113,5 +117,19 @@ code {
   .bend-preview-bottom{
     flex:0 0 auto !important;
     width:100% !important;
+    min-width:0 !important;
+    flex-wrap:nowrap !important;
+    break-inside:avoid !important;
+    page-break-inside:avoid !important;
+  }
+
+  .bend-preview-bottom > :first-child{
+    min-width:0 !important;
+    flex:1 1 0 !important;
+  }
+
+  .bend-preview-bottom > :last-child{
+    min-width:0 !important;
+    flex:0 1 auto !important;
   }
 }
