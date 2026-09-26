@@ -18,6 +18,7 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import FlipIcon from "@mui/icons-material/Flip";
 import FullscreenIcon from "@mui/icons-material/Fullscreen";
 import DatabaseIcon from "@mui/icons-material/Storage";
+import PrintIcon from "@mui/icons-material/Print";
 import {useDispatch,useSelector} from "react-redux";
 import {useNavigate} from "react-router-dom";
 
@@ -36,8 +37,6 @@ import {
 import buildProfileGeometry from "./BuildProfileGeometry";
 import {setProfile} from "../../Store/bendingSlice";
 import {MATERIALS,MACHINES} from "./parameters";
-import PrintIcon from "@mui/icons-material/Print";
-import BendingPrint from "./BendingPrint";
 
 
 const INITIAL_STATE={
@@ -65,7 +64,11 @@ const INITIAL_STATE={
     simulation:{
         target:{
             type:"minTemperature",
-            value:(MATERIALS["PVC_CAW_RED"]?.minFormingTemp+MATERIALS["PVC_CAW_RED"]?.maxFormingTemp)/2
+            value:
+                (
+                    MATERIALS["PVC_CAW_RED"]?.minFormingTemp+
+                    MATERIALS["PVC_CAW_RED"]?.maxFormingTemp
+                )/2
         },
 
         temperatures:{
@@ -91,6 +94,7 @@ const INITIAL_STATE={
     }
 };
 
+
 const setByPath=(object,path,value)=>{
     const result=Array.isArray(object)
         ?[...object]
@@ -113,6 +117,7 @@ const setByPath=(object,path,value)=>{
     return result;
 };
 
+
 const getShelfVector=(geometry,index,fromEnd=false)=>{
     const p1=geometry.sideA?.[index];
     const p2=geometry.sideA?.[index+1];
@@ -120,8 +125,14 @@ const getShelfVector=(geometry,index,fromEnd=false)=>{
     if(!p1||!p2)return null;
 
     return fromEnd
-        ?{x:p1.x-p2.x,y:p1.y-p2.y}
-        :{x:p2.x-p1.x,y:p2.y-p1.y};
+        ?{
+            x:p1.x-p2.x,
+            y:p1.y-p2.y
+        }
+        :{
+            x:p2.x-p1.x,
+            y:p2.y-p1.y
+        };
 };
 
 
@@ -167,11 +178,12 @@ const getViewRotation=(
 
     if(!vector)return currentRotation;
 
-    if(mirrored)
+    if(mirrored){
         vector={
             x:-vector.x,
             y:vector.y
         };
+    }
 
     let angle=
         Math.atan2(
@@ -206,11 +218,12 @@ const isOppositeShelfDown=(
 
     if(!vector)return false;
 
-    if(mirrored)
+    if(mirrored){
         vector={
             x:-vector.x,
             y:vector.y
         };
+    }
 
     const rad=
         rotation*Math.PI/180;
@@ -308,10 +321,10 @@ const PreviewToolbar=({
                           onRotationChange,
                           onRotationCommitted,
                           onMirror,
-                          onFullscreen,
-                          setPrintMode
+                          onFullscreen
                       })=>(
     <Box
+        className="bending-preview-toolbar"
         sx={{
             px:1,
             py:0,
@@ -378,7 +391,7 @@ const PreviewToolbar=({
         <Tooltip title="Print">
             <IconButton
                 size="small"
-                onClick={()=>setPrintMode(true)}
+                onClick={()=>window.print()}
                 title="Print"
                 sx={{
                     color:"text.secondary"
@@ -404,8 +417,6 @@ export default function Biegeberechnung(){
     const profile=useSelector(
         state=>state.bending.profile
     );
-
-    const [printMode,setPrintMode]=useState(false);
 
     const [state,setState]=useState(
         profile??INITIAL_STATE
@@ -484,7 +495,11 @@ export default function Biegeberechnung(){
         changes=>{
             setState(prev=>{
                 if(changes.path){
-                    const [collection,index,field]=changes.path;
+                    const [
+                        collection,
+                        index,
+                        field
+                    ]=changes.path;
 
                     const nextGeometry=setByPath(
                         prev.geometry,
@@ -501,10 +516,12 @@ export default function Biegeberechnung(){
 
                     if(
                         collection==="bends"&&
-                        (field==="angle"||field==="direction")&&
+                        (
+                            field==="angle"||
+                            field==="direction"
+                        )&&
                         index<=selectedShelfIndex
                     ){
-
                         const geometryProfile={
                             ...prev,
                             ...nextGeometry,
@@ -564,7 +581,9 @@ export default function Biegeberechnung(){
     );
 
     const builtGeometry=useMemo(
-        ()=>buildProfileGeometry(geometryProfile),
+        ()=>buildProfileGeometry(
+            geometryProfile
+        ),
         [geometryProfile]
     );
 
@@ -589,11 +608,9 @@ export default function Biegeberechnung(){
                         index
                     );
 
-                // Выбран другой угол
                 if(
                     prev.view.bendIndex!==index
                 ){
-                    // Сохраняем исходный вид только при первом выборе
                     if(prev.view.bendIndex<0){
                         savedView.current={
                             rotation:
@@ -623,8 +640,6 @@ export default function Biegeberechnung(){
                     };
                 }
 
-                // Та же позиция уже выбрана:
-                // снимаем выбор и возвращаем исходный view
                 if(
                     prev.view.bendSide!==preferredSide
                 ){
@@ -639,7 +654,6 @@ export default function Biegeberechnung(){
                     };
                 }
 
-                // Переключаем ту же деталь на противоположную сторону
                 const nextSide=
                     prev.view.bendSide==="fromStart"
                         ?"toEnd"
@@ -906,306 +920,265 @@ export default function Biegeberechnung(){
         rotationPreview??rotation;
 
     return(
-        <>
-            <Box
-                className="biege-main-page"
-                sx={{
-                    display:"grid",
-                    gridTemplateColumns:
-                        "22rem minmax(22rem,1fr)",
-                    gridTemplateAreas:
-                        `"editor preview"`,
-                    gap:2,
-                    m:1,
+        <Box
+            className="biege-main-page"
+            sx={{
+                display:"grid",
+                gridTemplateColumns:
+                    "22rem minmax(22rem,1fr)",
+                gridTemplateAreas:
+                    `"editor preview"`,
+                gap:2,
+                m:1,
 
-                    "@media (max-width:calc(22rem + 22rem + 16px))":{
-                        gridTemplateColumns:"1fr",
-                        gridTemplateAreas:`
-                        "preview"
-                        "editor"
-                    `,
-                        mx:0
-                    }
+                "@media (max-width:calc(22rem + 22rem + 16px))":{
+                    gridTemplateColumns:"1fr",
+                    gridTemplateAreas:`
+"preview"
+"editor"
+    `,
+                    mx:0
+                }
+            }}
+        >
+            <Paper
+                className="bending-preview-paper"
+                sx={{
+                    gridArea:"preview",
+                    minWidth:0,
+                    maxHeight:600,
+                    display:"flex",
+                    flexDirection:"column",
+                    overflow:"hidden"
                 }}
             >
-                <Paper
+                <PreviewToolbar
+                    rotation={sliderRotation}
+                    bendIndex={bendIndex}
+                    mirrored={mirrored}
+                    onRotationChange={
+                        handleProfileRotationChange
+                    }
+                    onRotationCommitted={
+                        handleProfileRotationCommitted
+                    }
+                    onMirror={()=>
+                        handleProfileMirrorChange(
+                            !mirrored
+                        )
+                    }
+                    onFullscreen={()=>
+                        navigate(
+                            "/biegeberechnung/preview"
+                        )
+                    }
+                />
+
+                <Box
+                    className="bending-preview-content"
                     sx={{
-                        gridArea:"preview",
+                        flex:1,
+                        minHeight:0,
                         minWidth:0,
-                        maxHeight:600,
+                        overflow:"hidden",
+                        p:1
+                    }}
+                >
+                    <BendingPreviewPage
+                        profile={geometryProfile}
+                        geometry={builtGeometry}
+                        machine={machine}
+                        blankLength={blankLength}
+                        machineParams={machineParams}
+                        simulation={simulation}
+                        rotationPreview={rotationPreview}
+                    />
+                </Box>
+            </Paper>
+
+            <Paper
+                className="bending-editor-paper"
+                sx={{
+                    gridArea:"editor",
+                    minWidth:0
+                }}
+            >
+                {shelves.map((shelf,index)=>(
+                    <ProfileRow
+                        key={index}
+                        shelf={shelf}
+                        shelves={shelves}
+                        index={index}
+                        bend={bends[index]}
+                        bends={bends}
+                        bendIndex={bendIndex}
+                        bendSide={bendSide}
+                        isVertical={
+                            verticalShelfIndex===index
+                        }
+                        onUpdate={updateGeometry}
+                        onSelectBend={()=>
+                            handleSelectBend(index)
+                        }
+                        onVerticalShelfChange={()=>
+                            handleVerticalShelfChange(index)
+                        }
+                        onRemoveBend={()=>
+                            removeBend(index)
+                        }
+                        canRemove={
+                            bends.length>1
+                        }
+                    />
+                ))}
+
+                <Box sx={{p:1}}>
+                    <Button
+                        fullWidth
+                        variant="outlined"
+                        startIcon={<AddIcon/>}
+                        onClick={addBend}
+                    >
+                        Add Bend
+                    </Button>
+                </Box>
+
+                <Box
+                    sx={{
+                        p:1,
                         display:"flex",
                         flexDirection:"column",
-                        overflow:"hidden"
+                        gap:1
                     }}
                 >
-                    <PreviewToolbar
-                        rotation={sliderRotation}
-                        bendIndex={bendIndex}
-                        mirrored={mirrored}
-                        onRotationChange={
-                            handleProfileRotationChange
-                        }
-                        onRotationCommitted={
-                            handleProfileRotationCommitted
-                        }
-                        onMirror={()=>
-                            handleProfileMirrorChange(
-                                !mirrored
-                            )
-                        }
-                        onFullscreen={()=>
-                            navigate(
-                                "/biegeberechnung/preview"
-                            )
-                        }
-                        setPrintMode={setPrintMode}
-                    />
-
-                    <Box
-                        sx={{
-                            flex:1,
-                            minHeight:0,
-                            minWidth:0,
-                            overflow:"hidden",
-                            p:1
-                        }}
+                    <Typography
+                        variant="subtitle2"
+                        sx={{mb:1}}
                     >
-                        <BendingPreviewPage
-                            profile={geometryProfile}
-                            geometry={builtGeometry}
-                            machine={machine}
-                            blankLength={blankLength}
-                            machineParams={machineParams}
-                            simulation={simulation}
-                            rotationPreview={rotationPreview}
+                        Parameters
+                    </Typography>
+
+                    <Box sx={{mb:1}}>
+                        <TextField
+                            label="Machine"
+                            value={machine?.name||""}
+                            onClick={()=>
+                                setMachineDialogOpen(true)
+                            }
+                            size="small"
+                            fullWidth
+                            slotProps={{
+                                htmlInput:{
+                                    readOnly:true,
+                                    tabIndex:-1
+                                },
+                                input:{
+                                    endAdornment:(
+                                        <InputAdornment position="end">
+                                            <IconButton
+                                                size="small"
+                                                onClick={e=>{
+                                                    e.stopPropagation();
+
+                                                    setMachineDialogOpen(
+                                                        true
+                                                    );
+                                                }}
+                                            >
+                                                <DatabaseIcon
+                                                    fontSize="small"
+                                                />
+                                            </IconButton>
+                                        </InputAdornment>
+                                    )
+                                }
+                            }}
+                            sx={{
+                                "& .MuiInputBase-root":{
+                                    cursor:"pointer"
+                                },
+                                "& .MuiInputBase-input":{
+                                    cursor:"pointer",
+                                    userSelect:"none"
+                                }
+                            }}
                         />
                     </Box>
-                </Paper>
 
-                <Paper
-                    sx={{
-                        gridArea:"editor",
-                        minWidth:0
-                    }}
-                >
-                    {shelves.map((shelf,index)=>(
-                        <ProfileRow
-                            key={index}
-                            shelf={shelf}
-                            shelves={shelves}
-                            index={index}
-                            bend={bends[index]}
-                            bends={bends}
-                            bendIndex={bendIndex}
-                            bendSide={bendSide}
-                            isVertical={
-                                verticalShelfIndex===index
+                    <Box sx={{mb:1}}>
+                        <TextField
+                            label="Material"
+                            value={material?.name||""}
+                            onClick={()=>
+                                setMaterialDialogOpen(true)
                             }
-                            onUpdate={updateGeometry}
-                            onSelectBend={()=>
-                                handleSelectBend(index)
-                            }
-                            onVerticalShelfChange={()=>
-                                handleVerticalShelfChange(index)
-                            }
-                            onRemoveBend={()=>
-                                removeBend(index)
-                            }
-                            canRemove={
-                                bends.length>1
-                            }
-                        />
-                    ))}
-
-                    <Box sx={{p:1}}>
-                        <Button
+                            size="small"
                             fullWidth
-                            variant="outlined"
-                            startIcon={<AddIcon/>}
-                            onClick={addBend}
-                        >
-                            Add Bend
-                        </Button>
+                            slotProps={{
+                                htmlInput:{
+                                    readOnly:true,
+                                    tabIndex:-1
+                                },
+                                input:{
+                                    endAdornment:(
+                                        <InputAdornment position="end">
+                                            <IconButton
+                                                size="small"
+                                                onClick={e=>{
+                                                    e.stopPropagation();
+
+                                                    setMaterialDialogOpen(
+                                                        true
+                                                    );
+                                                }}
+                                            >
+                                                <DatabaseIcon
+                                                    fontSize="small"
+                                                />
+                                            </IconButton>
+                                        </InputAdornment>
+                                    )
+                                }
+                            }}
+                            sx={{
+                                "& .MuiInputBase-root":{
+                                    cursor:"pointer"
+                                },
+                                "& .MuiInputBase-input":{
+                                    cursor:"pointer",
+                                    userSelect:"none"
+                                }
+                            }}
+                        />
                     </Box>
 
                     <Box
                         sx={{
-                            p:1,
-                            display:"flex",
-                            flexDirection:"column",
+                            display:"grid",
+                            gridTemplateColumns:
+                                "1fr 1fr",
                             gap:1
                         }}
                     >
-                        <Typography
-                            variant="subtitle2"
-                            sx={{mb:1}}
-                        >
-                            Parameters
-                        </Typography>
-
-                        <Box sx={{mb:1}}>
-                            <TextField
-                                label="Machine"
-                                value={machine?.name||""}
-                                onClick={()=>
-                                    setMachineDialogOpen(true)
-                                }
-                                size="small"
-                                fullWidth
-                                slotProps={{
-                                    htmlInput:{
-                                        readOnly:true,
-                                        tabIndex:-1
-                                    },
-                                    input:{
-                                        endAdornment:(
-                                            <InputAdornment position="end">
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={e=>{
-                                                        e.stopPropagation();
-
-                                                        setMachineDialogOpen(
-                                                            true
-                                                        );
-                                                    }}
-                                                >
-                                                    <DatabaseIcon
-                                                        fontSize="small"
-                                                    />
-                                                </IconButton>
-                                            </InputAdornment>
-                                        )
-                                    }
-                                }}
-                                sx={{
-                                    "& .MuiInputBase-root":{
-                                        cursor:"pointer"
-                                    },
-                                    "& .MuiInputBase-input":{
-                                        cursor:"pointer",
-                                        userSelect:"none"
-                                    }
-                                }}
-                            />
-                        </Box>
-
-                        <Box sx={{mb:1}}>
-                            <TextField
-                                label="Material"
-                                value={material?.name||""}
-                                onClick={()=>
-                                    setMaterialDialogOpen(true)
-                                }
-                                size="small"
-                                fullWidth
-                                slotProps={{
-                                    htmlInput:{
-                                        readOnly:true,
-                                        tabIndex:-1
-                                    },
-                                    input:{
-                                        endAdornment:(
-                                            <InputAdornment position="end">
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={e=>{
-                                                        e.stopPropagation();
-
-                                                        setMaterialDialogOpen(
-                                                            true
-                                                        );
-                                                    }}
-                                                >
-                                                    <DatabaseIcon
-                                                        fontSize="small"
-                                                    />
-                                                </IconButton>
-                                            </InputAdornment>
-                                        )
-                                    }
-                                }}
-                                sx={{
-                                    "& .MuiInputBase-root":{
-                                        cursor:"pointer"
-                                    },
-                                    "& .MuiInputBase-input":{
-                                        cursor:"pointer",
-                                        userSelect:"none"
-                                    }
-                                }}
-                            />
-                        </Box>
-
-                        <Box
-                            sx={{
-                                display:"grid",
-                                gridTemplateColumns:
-                                    "1fr 1fr",
-                                gap:1
-                            }}
-                        >
-                            <ParamField
-                                label="Thickness"
-                                value={thickness}
-                                step=".1"
-                                onChange={value=>
-                                    updateGeometry({
-                                        thickness:
-                                            value===""
-                                                ?""
-                                                :Number(value)
-                                    })
-                                }
-                                endAdornment={
-                                    <Box
-                                        sx={{
-                                            display:"flex",
-                                            alignItems:"center"
-                                        }}
-                                    >
-                                        <Box
-                                            sx={{
-                                                fontSize:"0.8rem"
-                                            }}
-                                        >
-                                            mm
-                                        </Box>
-
-                                        <IconButton
-                                            size="small"
-                                            onClick={e=>
-                                                setThicknessMenuAnchor(
-                                                    e.currentTarget
-                                                )
-                                            }
-                                            sx={{
-                                                p:.25,
-                                                color:
-                                                    "text.secondary"
-                                            }}
-                                        >
-                                            <KeyboardArrowDownIcon
-                                                fontSize="small"
-                                            />
-                                        </IconButton>
-                                    </Box>
-                                }
-                            />
-
-                            <ParamField
-                                label="Part width"
-                                value={width}
-                                step=".1"
-                                onChange={value=>
-                                    updateGeometry({
-                                        width:
-                                            value===""
-                                                ?""
-                                                :Number(value)
-                                    })
-                                }
-                                endAdornment={
+                        <ParamField
+                            label="Thickness"
+                            value={thickness}
+                            step=".1"
+                            onChange={value=>
+                                updateGeometry({
+                                    thickness:
+                                        value===""
+                                            ?""
+                                            :Number(value)
+                                })
+                            }
+                            endAdornment={
+                                <Box
+                                    sx={{
+                                        display:"flex",
+                                        alignItems:"center"
+                                    }}
+                                >
                                     <Box
                                         sx={{
                                             fontSize:"0.8rem"
@@ -1213,182 +1186,212 @@ export default function Biegeberechnung(){
                                     >
                                         mm
                                     </Box>
-                                }
-                            />
-                        </Box>
 
-                        <Box sx={{mb:1}}>
-                            <TextField
-                                label="Simulation parameters"
-                                value="Simulation settings"
-                                onClick={()=>
-                                    setSimulationDialogOpen(true)
-                                }
-                                size="small"
-                                fullWidth
-                                slotProps={{
-                                    htmlInput:{
-                                        readOnly:true,
-                                        tabIndex:-1
-                                    },
-                                    input:{
-                                        endAdornment:(
-                                            <InputAdornment position="end">
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={e=>{
-                                                        e.stopPropagation();
+                                    <IconButton
+                                        size="small"
+                                        onClick={e=>
+                                            setThicknessMenuAnchor(
+                                                e.currentTarget
+                                            )
+                                        }
+                                        sx={{
+                                            p:.25,
+                                            color:
+                                                "text.secondary"
+                                        }}
+                                    >
+                                        <KeyboardArrowDownIcon
+                                            fontSize="small"
+                                        />
+                                    </IconButton>
+                                </Box>
+                            }
+                        />
 
-                                                        setSimulationDialogOpen(
-                                                            true
-                                                        );
-                                                    }}
-                                                >
-                                                    <DatabaseIcon
-                                                        fontSize="small"
-                                                    />
-                                                </IconButton>
-                                            </InputAdornment>
-                                        )
-                                    }
-                                }}
-                                sx={{
-                                    "& .MuiInputBase-root":{
-                                        cursor:"pointer"
-                                    },
-                                    "& .MuiInputBase-input":{
-                                        cursor:"pointer",
-                                        userSelect:"none"
-                                    }
-                                }}
-                            />
-                        </Box>
+                        <ParamField
+                            label="Part width"
+                            value={width}
+                            step=".1"
+                            onChange={value=>
+                                updateGeometry({
+                                    width:
+                                        value===""
+                                            ?""
+                                            :Number(value)
+                                })
+                            }
+                            endAdornment={
+                                <Box
+                                    sx={{
+                                        fontSize:"0.8rem"
+                                    }}
+                                >
+                                    mm
+                                </Box>
+                            }
+                        />
                     </Box>
 
-                    <Menu
-                        anchorEl={thicknessMenuAnchor}
-                        open={Boolean(thicknessMenuAnchor)}
-                        onClose={()=>
-                            setThicknessMenuAnchor(null)
-                        }
-                    >
-                        {[4,5,6,8,10].map(value=>(
-                            <MenuItem
-                                key={value}
-                                selected={
-                                    thickness===value
-                                }
-                                onClick={()=>{
-                                    updateGeometry({
-                                        thickness:value
-                                    });
-
-                                    setThicknessMenuAnchor(
-                                        null
-                                    );
-                                }}
-                            >
-                                {value} mm
-                            </MenuItem>
-                        ))}
-                    </Menu>
-
-                    <BendingDialog
-                        open={materialDialogOpen}
-                        title="Material"
-                        value={material}
-                        onClose={()=>
-                            setMaterialDialogOpen(false)
-                        }
-                        onApply={value=>{
-                            updateState({
-                                material:value
-                            });
-
-                            setMaterialDialogOpen(false);
-                        }}
-                    >
-                        <MaterialContent
-                            materials={MATERIALS}
-                        />
-                    </BendingDialog>
-
-                    <BendingDialog
-                        open={machineDialogOpen}
-                        title="Machine"
-                        value={machine}
-                        onClose={()=>
-                            setMachineDialogOpen(false)
-                        }
-                        onApply={value=>{
-                            updateState({
-                                machine:value
-                            });
-
-                            setMachineDialogOpen(false);
-                        }}
-                    >
-                        <MachineContent
-                            machines={MACHINES}
-                        />
-                    </BendingDialog>
-
-                    <BendingDialog
-                        open={simulationDialogOpen}
-                        title="Simulation parameters"
-                        value={simulation}
-                        onClose={()=>
-                            setSimulationDialogOpen(false)
-                        }
-                        onApply={value=>{
-                            updateState({
-                                simulation:value
-                            });
-
-                            setSimulationDialogOpen(false);
-                        }}
-                    >
-                        <SimulationContent/>
-                    </BendingDialog>
-
-                    <Box
-                        sx={{
-                            px:1,
-                            pb:1,
-                            pt:.5,
-                            textAlign:"center"
-                        }}
-                    >
-                        <Link
-                            component="button"
-                            type="button"
-                            underline="hover"
+                    <Box sx={{mb:1}}>
+                        <TextField
+                            label="Simulation parameters"
+                            value="Simulation settings"
                             onClick={()=>
-                                navigate("/heating-methodology_de")
+                                setSimulationDialogOpen(true)
                             }
+                            size="small"
+                            fullWidth
+                            slotProps={{
+                                htmlInput:{
+                                    readOnly:true,
+                                    tabIndex:-1
+                                },
+                                input:{
+                                    endAdornment:(
+                                        <InputAdornment position="end">
+                                            <IconButton
+                                                size="small"
+                                                onClick={e=>{
+                                                    e.stopPropagation();
+
+                                                    setSimulationDialogOpen(
+                                                        true
+                                                    );
+                                                }}
+                                            >
+                                                <DatabaseIcon
+                                                    fontSize="small"
+                                                />
+                                            </IconButton>
+                                        </InputAdornment>
+                                    )
+                                }
+                            }}
                             sx={{
-                                fontSize:"0.8rem",
-                                cursor:"pointer"
+                                "& .MuiInputBase-root":{
+                                    cursor:"pointer"
+                                },
+                                "& .MuiInputBase-input":{
+                                    cursor:"pointer",
+                                    userSelect:"none"
+                                }
+                            }}
+                        />
+                    </Box>
+                </Box>
+
+                <Menu
+                    anchorEl={thicknessMenuAnchor}
+                    open={Boolean(thicknessMenuAnchor)}
+                    onClose={()=>
+                        setThicknessMenuAnchor(null)
+                    }
+                >
+                    {[4,5,6,8,10].map(value=>(
+                        <MenuItem
+                            key={value}
+                            selected={
+                                thickness===value
+                            }
+                            onClick={()=>{
+                                updateGeometry({
+                                    thickness:value
+                                });
+
+                                setThicknessMenuAnchor(
+                                    null
+                                );
                             }}
                         >
-                            Heating methodology
-                        </Link>
-                    </Box>
-                </Paper>
-            </Box>
+                            {value} mm
+                        </MenuItem>
+                    ))}
+                </Menu>
 
-            {printMode&&(
-                <BendingPrint
-                    profile={geometryProfile}
-                    geometry={builtGeometry}
-                    machine={machine}
-                    blankLength={blankLength}
-                    machineParams={machineParams}
-                    simulation={simulation}
-                    rotationPreview={rotationPreview}
-                    onClose={()=>setPrintMode(false)}
-                />
-            )}
-        </>
+                <BendingDialog
+                    open={materialDialogOpen}
+                    title="Material"
+                    value={material}
+                    onClose={()=>
+                        setMaterialDialogOpen(false)
+                    }
+                    onApply={value=>{
+                        updateState({
+                            material:value
+                        });
+
+                        setMaterialDialogOpen(false);
+                    }}
+                >
+                    <MaterialContent
+                        materials={MATERIALS}
+                    />
+                </BendingDialog>
+
+                <BendingDialog
+                    open={machineDialogOpen}
+                    title="Machine"
+                    value={machine}
+                    onClose={()=>
+                        setMachineDialogOpen(false)
+                    }
+                    onApply={value=>{
+                        updateState({
+                            machine:value
+                        });
+
+                        setMachineDialogOpen(false);
+                    }}
+                >
+                    <MachineContent
+                        machines={MACHINES}
+                    />
+                </BendingDialog>
+
+                <BendingDialog
+                    open={simulationDialogOpen}
+                    title="Simulation parameters"
+                    value={simulation}
+                    onClose={()=>
+                        setSimulationDialogOpen(false)
+                    }
+                    onApply={value=>{
+                        updateState({
+                            simulation:value
+                        });
+
+                        setSimulationDialogOpen(false);
+                    }}
+                >
+                    <SimulationContent/>
+                </BendingDialog>
+
+                <Box
+                    sx={{
+                        px:1,
+                        pb:1,
+                        pt:.5,
+                        textAlign:"center"
+                    }}
+                >
+                    <Link
+                        component="button"
+                        type="button"
+                        underline="hover"
+                        onClick={()=>
+                            navigate(
+                                "/heating-methodology_de"
+                            )
+                        }
+                        sx={{
+                            fontSize:"0.8rem",
+                            cursor:"pointer"
+                        }}
+                    >
+                        Heating methodology
+                    </Link>
+                </Box>
+            </Paper>
+        </Box>
     );
 }

@@ -12,20 +12,47 @@ code {
   monospace;
 }
 
-#print-root{
-  display:none;
-}
+
+
 
 @media print{
-  #root{
-    display:none !important;
+  body *{
+    visibility:hidden !important;
+  }
+
+  .biege-main-page,
+  .biege-main-page *{
+    visibility:visible !important;
   }
 
   .biege-main-page{
+    display:block !important;
+    position:absolute !important;
+    left:0 !important;
+    top:0 !important;
+    width:100% !important;
+    margin:0 !important;
+    padding:0 !important;
+  }
+
+  .bending-editor-paper,
+  .bending-preview-toolbar{
     display:none !important;
   }
 
-  #print-root{
+  .bending-preview-paper{
     display:block !important;
+    width:100% !important;
+    max-height:none !important;
+    overflow:visible !important;
+    box-shadow:none !important;
+    border:0 !important;
+    margin:0 !important;
+  }
+
+  .bending-preview-content{
+    overflow:visible !important;
+    min-height:auto !important;
+    padding:0 !important;
   }
 }
