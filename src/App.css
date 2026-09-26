@@ -72,24 +72,3 @@
   transition: 0.5s;
 }
 
-.bending-print-page{
-  display:none;
-}
-
-@media print{
-  .biege-main-page{
-    display:none !important;
-  }
-
-  .bending-print-page{
-    display:block !important;
-  }
-
-  @page{
-    margin:10mm;
-  }
-
-  body{
-    margin:0;
-  }
-}

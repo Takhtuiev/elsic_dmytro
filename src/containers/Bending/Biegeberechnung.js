@@ -908,6 +908,7 @@ export default function Biegeberechnung(){
     return(
         <>
             <Box
+                className="biege-main-page"
                 sx={{
                     display:"grid",
                     gridTemplateColumns:

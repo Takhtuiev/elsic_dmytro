@@ -1,4 +1,5 @@
 import React,{useEffect,useMemo} from "react";
+import {createPortal} from "react-dom";
 import {Box,useTheme} from "@mui/material";
 import {alpha} from "@mui/material/styles";
 
@@ -8,6 +9,7 @@ import {simulate1DHeating} from "./pvc-1d-transient-heating";
 import {
     TemperatureProfileChart
 } from "./TemperatureProfileChart";
+
 
 const BendingPrint=({
                         profile,
@@ -20,11 +22,9 @@ const BendingPrint=({
     const theme=useTheme();
 
     useEffect(()=>{
-        const print=()=>{
+        const timer=setTimeout(()=>{
             window.print();
-        };
-
-        const timer=setTimeout(print,100);
+        },100);
 
         const afterPrint=()=>{
             onClose?.();
@@ -150,22 +150,28 @@ const BendingPrint=({
             };
 
 
-    return(
+    return createPortal(
         <Box
             className="bending-print-page"
             sx={{
-                display:"none",
                 width:"100%",
+                height:"100vh",
+                boxSizing:"border-box",
+                display:"flex",
+                flexDirection:"column",
                 background:"#fff",
                 color:"#000",
                 p:2
             }}
         >
+
+            {/* Верхний блок */}
             <Box
                 sx={{
                     width:"100%",
                     fontSize:"12px",
-                    mb:1
+                    mb:1,
+                    flexShrink:0
                 }}
             >
                 <strong>
@@ -177,13 +183,18 @@ const BendingPrint=({
                 Thickness: {profile?.thickness??"—"} mm
             </Box>
 
+
+            {/* Центральный блок */}
             <Box
                 sx={{
+                    flex:1,
+                    minHeight:0,
+                    minWidth:0,
                     width:"100%",
-                    height:"120mm",
                     display:"flex",
                     alignItems:"center",
-                    justifyContent:"center"
+                    justifyContent:"center",
+                    overflow:"hidden"
                 }}
             >
                 {svgData&&(
@@ -244,16 +255,23 @@ const BendingPrint=({
                 )}
             </Box>
 
+
+            {/* Нижний блок */}
             <Box
                 sx={{
                     display:"flex",
                     flexWrap:"wrap",
                     gap:3,
                     alignItems:"flex-start",
-                    mt:1
+                    mt:1,
+                    flexShrink:0
                 }}
             >
-                <Box sx={{flex:"1 1 250px"}}>
+                <Box
+                    sx={{
+                        flex:"1 1 250px"
+                    }}
+                >
                     <PrintParameters
                         profile={profile}
                         blankLength={blankLength}
@@ -274,7 +292,9 @@ const BendingPrint=({
                     />
                 </Box>
             </Box>
-        </Box>
+
+        </Box>,
+        document.getElementById("print-root")
     );
 };
 

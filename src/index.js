@@ -1,4 +1,4 @@
-import React, {StrictMode} from "react";
+import React,{StrictMode} from "react";
 import ReactDOM from "react-dom/client";
 
 import "./index.css";
@@ -14,11 +14,15 @@ import ClerkOrgInitializer from "./components/ClerkOrgInitializer";
 const PUBLISHABLE_KEY =
     process.env.REACT_APP_CLERK_PUBLISHABLE_KEY;
 
-if (!PUBLISHABLE_KEY) {
+if(!PUBLISHABLE_KEY){
     throw new Error("Missing Clerk Publishable Key");
 }
 
-const root = ReactDOM.createRoot(
+const printRoot=document.createElement("div");
+printRoot.id="print-root";
+document.body.appendChild(printRoot);
+
+const root=ReactDOM.createRoot(
     document.getElementById("root")
 );
 
@@ -26,8 +30,8 @@ root.render(
     <StrictMode>
         <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
             <Provider store={store}>
-                <ClerkOrgInitializer />
-                <App />
+                <ClerkOrgInitializer/>
+                <App/>
             </Provider>
         </ClerkProvider>
     </StrictMode>
