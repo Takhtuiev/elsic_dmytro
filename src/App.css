@@ -73,37 +73,29 @@
 }
 
 @media print {
+  .bend-print-toolbar {
+    display:none !important;
+  }
+
   .bend-print-root {
     width:100% !important;
     height:auto !important;
-    min-height:0 !important;
     overflow:visible !important;
-  }
-
-  .bend-print-toolbar {
-    display:none !important;
   }
 
   .bend-print-content {
     width:100% !important;
     height:auto !important;
-    min-height:0 !important;
-    padding:0 !important;
     overflow:visible !important;
+    padding:0 !important;
   }
 
   .bend-preview {
-    width:100% !important;
     height:auto !important;
     min-height:0 !important;
-    display:flex !important;
-    flex-direction:column !important;
   }
 
   .bend-preview-drawing {
-    flex:none !important;
-    height:auto !important;
-    min-height:0 !important;
     overflow:visible !important;
   }
 
