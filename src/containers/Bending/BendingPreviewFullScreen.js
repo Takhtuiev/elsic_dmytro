@@ -13,66 +13,74 @@ import {
     calculateBendingMachineParams,
     calculateOuterLengthToEnd
 } from "./Calculations";
+import buildProfileGeometry from "./BuildProfileGeometry";
 
 
 const BendingPreviewFullScreen=()=>{
     const navigate=useNavigate();
 
-    const profile=useSelector(
+    const reduxProfile=useSelector(
         state=>state.bending.profile
     );
 
-    const machine=profile?.machine;
-    const simulation=profile?.simulation;
-    const geometry=profile?.geometry;
+    const machine=reduxProfile?.machine;
+    const simulation=reduxProfile?.simulation;
+    const baseGeometry=reduxProfile?.geometry;
 
-    const geometryProfile=useMemo(
-        ()=>{
-            if(!profile||!geometry)return null;
+    const profile=useMemo(()=>{
+        if(!reduxProfile||!baseGeometry)return null;
 
-            return{
-                ...profile,
-                ...geometry,
-                kFactor:profile.material?.kFactor,
-                rTool:machine?.rTool
-            };
-        },
-        [
-            profile,
-            geometry,
-            machine
-        ]
-    );
+        return{
+            ...reduxProfile,
+            ...baseGeometry,
+            kFactor:reduxProfile.material?.kFactor,
+            rTool:machine?.rTool
+        };
+    },[
+        reduxProfile,
+        baseGeometry,
+        machine
+    ]);
+
+    const geometry=useMemo(()=>{
+        if(!profile)return null;
+
+        return buildProfileGeometry(
+            profile
+        );
+    },[profile]);
+
+    const rotationPreview=
+        reduxProfile?.view?.rotation??0;
 
     const blankLength=useMemo(()=>{
-        if(!geometryProfile)return null;
+        if(!profile)return null;
 
         return calculateBlankLength(
-            geometryProfile
+            profile
         );
-    },[geometryProfile]);
-
+    },[profile]);
 
     const machineParams=useMemo(()=>{
         const selectedBendIndex=
-            profile?.view?.bendIndex??-1;
+            reduxProfile?.view?.bendIndex??-1;
 
         if(
-            !geometryProfile||
+            !profile||
             selectedBendIndex<0||
-            !geometryProfile.bends?.[selectedBendIndex]
+            !profile.bends?.[selectedBendIndex]
         ){
             return null;
         }
 
         const selectedBend=
-            geometryProfile.bends[selectedBendIndex];
+            profile.bends[selectedBendIndex];
 
         const distanceToOuterApex=
             calculateOuterLengthToEnd(
-                geometryProfile,
+                profile,
                 selectedBendIndex,
-                profile.view.bendSide
+                reduxProfile?.view?.bendSide
             );
 
         return calculateBendingMachineParams({
@@ -81,17 +89,16 @@ const BendingPreviewFullScreen=()=>{
                 distanceToOuterApex.toFixed(2)
             ),
             isInnerMode:false,
-            t:geometryProfile.thickness,
+            t:profile.thickness,
             rTool:machine?.rTool
         });
     },[
+        reduxProfile,
         profile,
-        geometryProfile,
         machine
     ]);
 
-
-    if(!profile||!geometryProfile){
+    if(!profile||!geometry){
         return(
             <Box
                 sx={{
@@ -110,7 +117,6 @@ const BendingPreviewFullScreen=()=>{
         );
     }
 
-
     return(
         <Box
             className="bend-print-root"
@@ -123,7 +129,6 @@ const BendingPreviewFullScreen=()=>{
                 bgcolor:"background.default"
             }}
         >
-
             <Box
                 className="bend-print-toolbar"
                 sx={{
@@ -133,7 +138,7 @@ const BendingPreviewFullScreen=()=>{
                     alignItems:"center",
                     px:2,
                     borderBottom:"1px solid",
-                    borderColor:"divider",
+                    borderColor:"divider"
                 }}
             >
                 <IconButton
@@ -148,7 +153,7 @@ const BendingPreviewFullScreen=()=>{
                     sx={{
                         ml:"auto",
                         display:"flex",
-                        alignItems:"center",
+                        alignItems:"center"
                     }}
                 >
                     <IconButton
@@ -156,7 +161,7 @@ const BendingPreviewFullScreen=()=>{
                         onClick={()=>window.print()}
                         title="Print"
                         sx={{
-                            color:"text.secondary",
+                            color:"text.secondary"
                         }}
                     >
                         <PrintIcon/>
@@ -170,15 +175,14 @@ const BendingPreviewFullScreen=()=>{
                             color:"text.secondary",
                             "&:hover":{
                                 color:"error.main",
-                                backgroundColor:"action.hover",
-                            },
+                                backgroundColor:"action.hover"
+                            }
                         }}
                     >
                         <CloseIcon/>
                     </IconButton>
                 </Box>
             </Box>
-
 
             <Box
                 className="bend-print-content"
@@ -194,17 +198,17 @@ const BendingPreviewFullScreen=()=>{
                 }}
             >
                 <BendingPreview
-                    profile={geometryProfile}
+                    profile={profile}
+                    geometry={geometry}
                     machine={machine}
-                    simulation={simulation}
                     blankLength={blankLength}
                     machineParams={machineParams}
+                    simulation={simulation}
+                    rotationPreview={rotationPreview}
                 />
             </Box>
-
         </Box>
     );
 };
-
 
 export default BendingPreviewFullScreen;
