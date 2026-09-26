@@ -22,9 +22,17 @@ code{
     overflow:hidden !important;
   }
 
-  #root > div{
-    min-height:0 !important;
+  #root{
+    width:100% !important;
     height:100% !important;
+    min-height:0 !important;
+  }
+
+  #root > div{
+    display:block !important;
+    width:100% !important;
+    height:100% !important;
+    min-height:0 !important;
     margin:0 !important;
     padding:0 !important;
   }
@@ -46,8 +54,7 @@ code{
   .biege-main-page{
     display:block !important;
     position:absolute !important;
-    left:0 !important;
-    top:0 !important;
+    inset:0 !important;
     width:100% !important;
     height:100% !important;
     min-height:0 !important;
@@ -118,21 +125,10 @@ code{
   }
 
   .bend-preview-bottom{
+    display:flex !important;
     flex:0 0 auto !important;
     width:100% !important;
     break-inside:avoid !important;
     page-break-inside:avoid !important;
-  }
-}
-
-@media print and (max-width:600px){
-  #root > div,
-  #root > div > :has(.biege-main-page),
-  .biege-main-page,
-  .bending-preview-paper,
-  .bending-preview-content,
-  .bend-preview{
-    height:calc(100% - 2px) !important;
-    min-height:0 !important;
   }
 }
