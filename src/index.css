@@ -22,6 +22,13 @@ code{
     overflow:hidden !important;
   }
 
+  #root > div{
+    min-height:0 !important;
+    height:100% !important;
+    margin:0 !important;
+    padding:0 !important;
+  }
+
   #root > div > *{
     display:none !important;
   }
@@ -30,8 +37,10 @@ code{
     display:block !important;
     width:100% !important;
     height:100% !important;
+    min-height:0 !important;
     margin:0 !important;
     padding:0 !important;
+    overflow:hidden !important;
   }
 
   .biege-main-page{
@@ -41,6 +50,7 @@ code{
     top:0 !important;
     width:100% !important;
     height:100% !important;
+    min-height:0 !important;
     margin:0 !important;
     padding:0 !important;
     overflow:hidden !important;
@@ -55,12 +65,15 @@ code{
     display:block !important;
     width:100% !important;
     height:100% !important;
+    min-height:0 !important;
     max-height:none !important;
     margin:0 !important;
     padding:0 !important;
     overflow:hidden !important;
     box-shadow:none !important;
     border:0 !important;
+    break-inside:avoid !important;
+    page-break-inside:avoid !important;
   }
 
   .bending-preview-content{
@@ -70,6 +83,8 @@ code{
     margin:0 !important;
     padding:0 !important;
     overflow:hidden !important;
+    break-inside:avoid !important;
+    page-break-inside:avoid !important;
   }
 
   .bend-preview{
@@ -79,6 +94,8 @@ code{
     display:flex !important;
     flex-direction:column !important;
     overflow:hidden !important;
+    break-inside:avoid !important;
+    page-break-inside:avoid !important;
   }
 
   .bend-preview-header{
@@ -103,18 +120,19 @@ code{
   .bend-preview-bottom{
     flex:0 0 auto !important;
     width:100% !important;
+    break-inside:avoid !important;
+    page-break-inside:avoid !important;
   }
 }
 
 @media print and (max-width:600px){
-  html,
-  body{
-    height:auto !important;
-    min-height:0 !important;
-  }
-
-  body > #root{
-    height:auto !important;
+  #root > div,
+  #root > div > :has(.biege-main-page),
+  .biege-main-page,
+  .bending-preview-paper,
+  .bending-preview-content,
+  .bend-preview{
+    height:calc(100% - 2px) !important;
     min-height:0 !important;
   }
 }
