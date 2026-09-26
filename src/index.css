@@ -1,19 +1,30 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-  'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Roboto','Oxygen',
+  'Ubuntu','Cantarell','Fira Sans','Droid Sans','Helvetica Neue',
   sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+code{
+  font-family:source-code-pro,Menlo,Monaco,Consolas,'Courier New',
   monospace;
 }
 
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Roboto','Oxygen',
+  'Ubuntu','Cantarell','Fira Sans','Droid Sans','Helvetica Neue',
+  sans-serif;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
 
-
+code{
+  font-family:source-code-pro,Menlo,Monaco,Consolas,'Courier New',
+  monospace;
+}
 
 @media print{
   @page{
@@ -25,35 +36,42 @@ code {
     margin:0 !important;
     padding:0 !important;
     width:100% !important;
+    height:100% !important;
     overflow:hidden !important;
   }
 
-  body > *{
+  /*
+   * AppLayout:
+   *
+   * <Box>
+   *     <Box><NavigationTabs /></Box>
+   *     <Box><Routes /></Box>
+   *     <Box><Footer /></Box>
+   * </Box>
+   */
+
+  #root > div > *{
     display:none !important;
   }
 
-  body > #root{
+  #root > div > :has(.biege-main-page){
     display:block !important;
     width:100% !important;
+    height:100% !important;
     margin:0 !important;
     padding:0 !important;
   }
 
-  #root .biege-main-page{
+  .biege-main-page{
     display:block !important;
     position:absolute !important;
     left:0 !important;
     top:0 !important;
     width:100% !important;
-    height:auto !important;
-    min-height:0 !important;
+    height:100% !important;
     margin:0 !important;
     padding:0 !important;
-    overflow:visible !important;
-  }
-
-  #root .biege-main-page *{
-    visibility:visible !important;
+    overflow:hidden !important;
   }
 
   .bending-editor-paper,
@@ -64,41 +82,37 @@ code {
   .bending-preview-paper{
     display:block !important;
     width:100% !important;
-    height:auto !important;
+    height:100% !important;
     max-height:none !important;
-    min-height:0 !important;
     margin:0 !important;
     padding:0 !important;
-    overflow:visible !important;
+    overflow:hidden !important;
     box-shadow:none !important;
     border:0 !important;
-    break-inside:avoid !important;
-    page-break-inside:avoid !important;
   }
 
   .bending-preview-content{
-    display:block !important;
     width:100% !important;
-    height:auto !important;
+    height:100% !important;
     min-height:0 !important;
     margin:0 !important;
     padding:0 !important;
-    overflow:visible !important;
+    overflow:hidden !important;
   }
 
   .bend-preview{
+    width:100% !important;
+    height:100% !important;
+    min-height:0 !important;
     display:flex !important;
     flex-direction:column !important;
-    width:100% !important;
-    height:calc(100vh - 1px) !important;
-    min-height:0 !important;
     overflow:hidden !important;
-    break-inside:avoid !important;
-    page-break-inside:avoid !important;
   }
 
   .bend-preview-header{
+    display:flex !important;
     flex:0 0 auto !important;
+    width:100% !important;
   }
 
   .bend-preview-drawing{
@@ -117,19 +131,5 @@ code {
   .bend-preview-bottom{
     flex:0 0 auto !important;
     width:100% !important;
-    min-width:0 !important;
-    flex-wrap:nowrap !important;
-    break-inside:avoid !important;
-    page-break-inside:avoid !important;
-  }
-
-  .bend-preview-bottom > :first-child{
-    min-width:0 !important;
-    flex:1 1 0 !important;
-  }
-
-  .bend-preview-bottom > :last-child{
-    min-width:0 !important;
-    flex:0 1 auto !important;
   }
 }
