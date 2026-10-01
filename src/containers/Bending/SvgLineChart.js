@@ -948,7 +948,14 @@ const SvgLineChart = memo(({ chart }) => {
                 {/* 8. Текстовые подписи значений на оси X */}
                 {xAxisLabels.map(label => (
                     <text key={`x-limit-label-${label.index}`} x={label.x} y={height - pad.bottom + X_AXIS_LABEL_OFFSET} textAnchor="middle" dominantBaseline="hanging" fontSize={8} fontWeight="bold" fill={label.color}>
-                        {Number(label.value).toFixed(1).replace(/\.?0+$/, "")}{axes.x}
+                        {(() => {
+                            const value = Number(label.value);
+                            const decimals = String(value).split(".")[1]?.length || 0;
+                            return decimals > 3
+                                ? Math.round(value)
+                                : value.toFixed(1).replace(/\.?0+$/, "");
+                        })()}
+                        {axes.x}
                     </text>
                 ))}
 
