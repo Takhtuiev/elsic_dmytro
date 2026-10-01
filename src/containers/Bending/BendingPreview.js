@@ -330,8 +330,8 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 className="bend-preview-drawing"
                 sx={{
                     flex: 1,
-                    minWidth:300,
-                    maxHeight:400,
+                    minWidth:360,
+                    maxHeight:480,
                     width: "100%",
                     display: "flex",
                     alignItems: "center",
@@ -362,9 +362,23 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 </Box>
 
                 {chartData.chart1 && chartData.chart2 && (
-                    <Box sx={{ flex: "0 1 auto", maxWidth: "100%", mx: "auto" }}>
-                        <Box><SvgLineChart chart={chartData.chart1} /></Box>
-                        <Box><SvgLineChart chart={chartData.chart2} /></Box>
+                    <Box
+                        sx={{
+                            display: "flex",
+                            gap: 1,
+                        }}
+                    >
+                        {chartData.chart1 && (
+                            <Box>
+                                <SvgLineChart chart={chartData.chart1} />
+                            </Box>
+                        )}
+
+                        {chartData.chart2 && (
+                            <Box>
+                                <SvgLineChart chart={chartData.chart2} />
+                            </Box>
+                        )}
                     </Box>
                 )}
             </Box>
