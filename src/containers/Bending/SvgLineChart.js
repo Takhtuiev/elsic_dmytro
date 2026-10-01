@@ -787,7 +787,7 @@ const SvgLineChart = memo(({ chart }) => {
         }
 
         for (const label of yAxisLabels) {
-            label.y = Math.max(pad.top + 3, label.y);
+            label.y = Math.max(pad.top, label.y);
         }
 
         // --- НОВЫЙ КОД (Вставьте вместо старого) ---
@@ -826,8 +826,8 @@ const SvgLineChart = memo(({ chart }) => {
 
             // 3. Мягко удерживаем элементы в рамках физических границ SVG-контейнера
             if (rightAxisLabels.length > 0) {
-                const minYBound = pad.top + 4;
-                const maxYBound = height - pad.bottom + 2;
+                const minYBound = pad.top;
+                const maxYBound = height - pad.bottom;
 
                 // Корректируем верхний элемент, если он вылетел за потолок
                 if (rightAxisLabels[0].y < minYBound) {
@@ -913,7 +913,7 @@ const SvgLineChart = memo(({ chart }) => {
 
                 {/* 3. Рендеринг стандартных пунктирных линий сетки */}
                 {gridLinesY.map(({ id, y, isSpecial }, i) => (
-                    i > 0 && !isSpecial && <line key={id} x1={pad.left} y1={y} x2={width - pad.right} y2={y} stroke={theme.palette.divider} strokeWidth={1} strokeDasharray="4 2" />
+                    i > 0 && !isSpecial && <line key={id} x1={pad.left} y1={y} x2={width - pad.right} y2={y} stroke={theme.palette.divider} strokeWidth={0.5} strokeDasharray="4 2" />
                 ))}
 
                 {/* 4. Рендеринг вертикальных линий лимитов (ось X) */}
