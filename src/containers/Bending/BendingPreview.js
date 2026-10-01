@@ -366,6 +366,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                         sx={{
                             display: "flex",
                             flexWrap: "wrap",
+                            mx: "auto",
                             gap: 1,
                         }}
                     >
