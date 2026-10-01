@@ -184,10 +184,7 @@ const ProfileRow=memo(({
                     alignItems:"center",
                     gap:1,
                     width:"100%",
-                    p:1,
-                    borderRadius:"6px",
-                    border:"1px solid",
-                    borderColor:"divider",
+                    px:1,
                     backgroundColor:"background.paper"
                 }}
             >
@@ -268,7 +265,7 @@ const ProfileRow=memo(({
                         alignItems:"center",
                         width:"100%",
                         position:"relative",
-                        py:1.5,
+                        py:1,
                         pl:4,
                         boxSizing:"border-box"
                     }}
@@ -302,11 +299,6 @@ const ProfileRow=memo(({
                             gap:1,
                             width:"100%",
                             p:1,
-                            borderRadius:"6px",
-                            border:"1px solid",
-                            borderColor:isSelected
-                                ?"primary.main"
-                                :"divider",
                             backgroundColor:"action.hover"
                         }}
                     >

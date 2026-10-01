@@ -82,6 +82,7 @@ const INITIAL_STATE={
         },
 
         stopAtMaxTemperature:true,
+        recordHistory:false,
         maxTimeSeconds:1800
     },
 
@@ -381,7 +382,6 @@ const PreviewToolbar=({
             <IconButton
                 size="small"
                 onClick={()=>window.print()}
-                title="Print"
                 sx={{
                     color:"text.secondary"
                 }}
@@ -934,8 +934,8 @@ export default function Biegeberechnung(){
                 className="bending-preview-paper"
                 sx={{
                     gridArea:"preview",
-                    minWidth:0,
-                    maxHeight:600,
+                    minWidth:300,
+                    maxHeight:800,
                     display:"flex",
                     flexDirection:"column",
                     overflow:"hidden"
@@ -987,38 +987,46 @@ export default function Biegeberechnung(){
                     minWidth:0
                 }}
             >
-                {shelves.map((shelf,index)=>(
-                    <ProfileRow
-                        key={index}
-                        shelf={shelf}
-                        shelves={shelves}
-                        index={index}
-                        bend={bends[index]}
-                        bends={bends}
-                        bendIndex={bendIndex}
-                        bendSide={bendSide}
-                        isVertical={
-                            verticalShelfIndex===index
-                        }
-                        onUpdate={updateGeometry}
-                        onSelectBend={()=>
-                            handleSelectBend(index)
-                        }
-                        onVerticalShelfChange={()=>
-                            handleVerticalShelfChange(index)
-                        }
-                        onRemoveBend={()=>
-                            removeBend(index)
-                        }
-                        canRemove={
-                            bends.length>1
-                        }
-                    />
-                ))}
+                <Box sx={{my:1}}>
+
+                    {shelves.map((shelf,index)=>(
+                        <ProfileRow
+                            key={index}
+                            shelf={shelf}
+                            shelves={shelves}
+                            index={index}
+                            bend={bends[index]}
+                            bends={bends}
+                            bendIndex={bendIndex}
+                            bendSide={bendSide}
+                            isVertical={
+                                verticalShelfIndex===index
+                            }
+                            onUpdate={updateGeometry}
+                            onSelectBend={()=>
+                                handleSelectBend(index)
+                            }
+                            onVerticalShelfChange={()=>
+                                handleVerticalShelfChange(index)
+                            }
+                            onRemoveBend={()=>
+                                removeBend(index)
+                            }
+                            canRemove={
+                                bends.length>1
+                            }
+                        />
+                    ))}
+                </Box>
 
                 <Box sx={{p:1}}>
                     <Button
-                        fullWidth
+                        sx={{
+                            width:"10rem",
+                            mx:"auto",
+                            display:"flex",
+                            whiteSpace:"nowrap"
+                        }}
                         variant="outlined"
                         startIcon={<AddIcon/>}
                         onClick={addBend}
@@ -1026,6 +1034,7 @@ export default function Biegeberechnung(){
                         Add Bend
                     </Button>
                 </Box>
+
 
                 <Box
                     sx={{

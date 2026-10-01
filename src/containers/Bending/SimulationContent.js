@@ -83,6 +83,9 @@ const SimulationContent=({
     const stopAtMaxTemperature=
         value?.stopAtMaxTemperature??true;
 
+    const recordHistory=
+        value?.recordHistory??true;
+
     const maxTimeSeconds=
         value?.maxTimeSeconds??600;
 
@@ -122,6 +125,13 @@ const SimulationContent=({
         onChange?.({
             ...value,
             stopAtMaxTemperature:event.target.checked
+        });
+    };
+
+    const handleRecordHistoryChange=event=>{
+        onChange?.({
+            ...value,
+            recordHistory:event.target.checked
         });
     };
 
@@ -358,24 +368,49 @@ const SimulationContent=({
 
                 </Box>
 
-                {/* STOP CONDITION */}
+                {/* OPTIONS */}
 
-                <FormControlLabel
-                    control={
-                        <Switch
-                            size="small"
-                            checked={stopAtMaxTemperature}
-                            onChange={
-                                handleStopAtMaxTemperatureChange
-                            }
-                        />
-                    }
-                    label="Stop at maximum temperature"
+                <Box
                     sx={{
-                        mx:1,
-                        my:0
+                        display:"flex",
+                        flexDirection:"column",
+                        gap:.25
                     }}
-                />
+                >
+
+                    <FormControlLabel
+                        control={
+                            <Switch
+                                size="small"
+                                checked={stopAtMaxTemperature}
+                                onChange={
+                                    handleStopAtMaxTemperatureChange
+                                }
+                            />
+                        }
+                        label="Stop at maximum temperature"
+                        sx={{
+                            mx:1
+                        }}
+                    />
+
+                    <FormControlLabel
+                        control={
+                            <Switch
+                                size="small"
+                                checked={recordHistory}
+                                onChange={
+                                    handleRecordHistoryChange
+                                }
+                            />
+                        }
+                        label="Record heating history"
+                        sx={{
+                            m:1
+                        }}
+                    />
+
+                </Box>
 
             </Box>
 

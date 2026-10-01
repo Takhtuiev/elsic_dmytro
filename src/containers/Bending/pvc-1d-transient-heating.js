@@ -324,29 +324,25 @@ export function simulateHeating({
     oldT.set(T);
     Tnext.set(T);
 
-    const history = storeHistory ? [] : null;
-    const centerIndex = (nodeCount - 1) >> 1;
-    const last = nodeCount - 1;
+    const history=storeHistory
+        ? {
+            frontSurfaceC:[],
+            centerC:[],
+            backSurfaceC:[]
+        }
+        : null;
+
+    const centerIndex=(nodeCount-1)>>1;
+    const last=nodeCount-1;
 
     const fluxBuf = { g0: 0, g1: 0 };
 
-    const getMinC = values => {
-        let min = Infinity;
-        for (let i = 0; i < values.length; i++) {
-            if (values[i] < min) min = values[i];
-        }
-        return min - 273.15;
-    };
+    const pushHistory=()=>{
+        if(!storeHistory) return;
 
-    const pushHistory = () => {
-        if (!storeHistory) return;
-        history.push({
-            timeSeconds: time,
-            frontSurfaceC: Number(T[0]) - 273.15,
-            centerC: Number(T[centerIndex]) - 273.15,
-            backSurfaceC: Number(T[last]) - 273.15,
-            minTemperatureC: getMinC(T)
-        });
+        history.frontSurfaceC.push(T[0]-273.15);
+        history.centerC.push(T[centerIndex]-273.15);
+        history.backSurfaceC.push(T[last]-273.15);
     };
 
     if (storeHistory) pushHistory();
@@ -444,12 +440,11 @@ export function simulateHeating({
                 decompositionReached = true;
                 status = { type: "error", message: `Degradation! Temperature  > ${(decompTempK - 273.15).toFixed(0)}°C.` };
 
-                if (stopAtMaxTemperature === true) {
-                    time += fraction * dt;
-                    for (let i = 0; i < nodeCount; i++) {
-                        T[i] = oldT[i] + fraction * (Tnext[i] - oldT[i]);
+                if(stopAtMaxTemperature===true){
+                    time+=fraction*dt;
+                    for(let i=0;i<nodeCount;i++){
+                        T[i]=oldT[i]+fraction*(Tnext[i]-oldT[i]);
                     }
-                    pushHistory();
                     break;
                 }
             }
@@ -478,12 +473,11 @@ export function simulateHeating({
                     fraction = Math.max(fraction, (targetK - oldT[i]) / dT);
                 }
 
-                if (canReach && fraction <= 1) {
-                    time += fraction * dt;
-                    for (let i = 0; i < nodeCount; i++) {
-                        T[i] = oldT[i] + fraction * (Tnext[i] - oldT[i]);
+                if(canReach&&fraction<=1){
+                    time+=fraction*dt;
+                    for(let i=0;i<nodeCount;i++){
+                        T[i]=oldT[i]+fraction*(Tnext[i]-oldT[i]);
                     }
-                    pushHistory();
                     break;
                 }
             }
@@ -502,13 +496,12 @@ export function simulateHeating({
 
                 if (oldT[0] >= targetK || oldT[last] >= targetK) fraction = 0;
 
-                if (fraction >= 0 && fraction <= 1 &&
-                    (oldT[0] >= targetK || oldT[last] >= targetK || Tnext[0] >= targetK || Tnext[last] >= targetK)) {
-                    time += fraction * dt;
-                    for (let i = 0; i < nodeCount; i++) {
-                        T[i] = oldT[i] + fraction * (Tnext[i] - oldT[i]);
+                if(fraction>=0&&fraction<=1&&
+                    (oldT[0]>=targetK||oldT[last]>=targetK||Tnext[0]>=targetK||Tnext[last]>=targetK)){
+                    time+=fraction*dt;
+                    for(let i=0;i<nodeCount;i++){
+                        T[i]=oldT[i]+fraction*(Tnext[i]-oldT[i]);
                     }
-                    pushHistory();
                     break;
                 }
             }
@@ -516,7 +509,7 @@ export function simulateHeating({
 
         time += dt;
 
-        if (storeHistory && (Math.abs(time % sampleEverySeconds) < dt / 2 || time >= simulationMaxTime)) {
+        if(storeHistory&&Math.abs(time%sampleEverySeconds)<dt/2){
             pushHistory();
         }
     }
@@ -533,17 +526,22 @@ export function simulateHeating({
         }
     }
 
-    if (!status) {
-        status = { type: "ok", message: "Compiled successfully." };
-    }
+    const historyResult=storeHistory
+        ? {
+            stepSeconds:sampleEverySeconds,
+            frontSurfaceC:Float64Array.from(history.frontSurfaceC),
+            centerC:Float64Array.from(history.centerC),
+            backSurfaceC:Float64Array.from(history.backSurfaceC)
+        }
+        : null;
 
     return {
-        temperatureProfileK: new Float64Array(T),
-        heatingTimeSeconds: time,
+        temperatureProfileK:new Float64Array(T),
+        heatingTimeSeconds:time,
         reachedTarget,
         status,
-        history,
-        buffers: bufs
+        history:historyResult,
+        buffers:bufs
     };
 }
 
@@ -559,93 +557,245 @@ export function simulateCooldown({
                                      epsS,
                                      ambT,
                                      ambRadT,
-                                     cooldownTimeSeconds = 10,
-                                     convectiveHeatTransferCoefficient = 7.5,
-                                     maxNonlinearIterations = 3,
-                                     nonlinearToleranceK = 0.1,
+                                     cooldownTimeSeconds=10,
+                                     convectiveHeatTransferCoefficient=7.5,
+                                     maxNonlinearIterations=3,
+                                     nonlinearToleranceK=0.1,
+                                     sampleEverySeconds=1,
+                                     storeHistory=false,
                                      buffers
                                  }) {
-    let cooldownTime = 0;
+    let cooldownTime=0;
 
-    const lower = buffers.lower;
-    const diagonal = buffers.diagonal;
-    const upper = buffers.upper;
-    const rhs = buffers.rhs;
-    const T_cool_next = buffers.Tnext;
-    const oldT_cool = buffers.oldT;
-    const cPrime = buffers.cPrime;
-    const dPrime = buffers.dPrime;
+    const lower=buffers.lower;
+    const diagonal=buffers.diagonal;
+    const upper=buffers.upper;
+    const rhs=buffers.rhs;
+    const T_cool_next=buffers.Tnext;
+    const oldT_cool=buffers.oldT;
+    const cPrime=buffers.cPrime;
+    const dPrime=buffers.dPrime;
 
-    const T_cool = new Float64Array(initialProfileK);
-    const T_room_K = ambT + 273.15;
-    const T_rad_room_K = ambRadT + 273.15;
-    const T_rad_room_K_2 = T_rad_room_K * T_rad_room_K;
+    const T_cool=new Float64Array(initialProfileK);
+    const T_room_K=ambT+273.15;
+    const T_rad_room_K=ambRadT+273.15;
+    const T_rad_room_K_2=T_rad_room_K*T_rad_room_K;
 
-    const last = nodeCount - 1;
-    const dt_div_dx = dt / dx;
-    const dt_div_dx2 = dt / (dx * dx);
+    const last=nodeCount-1;
+    const centerIndex=(nodeCount-1)>>1;
 
-    const fluxBuf = { g0: 0, g1: 0 };
+    const dt_div_dx=dt/dx;
+    const dt_div_dx2=dt/(dx*dx);
 
-    while (cooldownTime < cooldownTimeSeconds) {
+    const fluxBuf={g0:0,g1:0};
+
+    const history=storeHistory
+        ?{
+            frontSurfaceC:[],
+            centerC:[],
+            backSurfaceC:[]
+        }
+        :null;
+
+    const pushHistory=()=>{
+        if(!storeHistory) return;
+
+        history.frontSurfaceC.push(
+            T_cool[0]-273.15
+        );
+
+        history.centerC.push(
+            T_cool[centerIndex]-273.15
+        );
+
+        history.backSurfaceC.push(
+            T_cool[last]-273.15
+        );
+    };
+
+    // Initial cooldown point = final heating point
+    if(storeHistory) pushHistory();
+
+    while(cooldownTime<cooldownTimeSeconds){
+
         oldT_cool.set(T_cool);
-        let converged = false;
 
-        for (let iter = 0; iter < maxNonlinearIterations; iter++) {
-            for (let i = 1; i < last; i++) {
-                const props = matModel.get(T_cool[i] - 273.15);
-                const r = (dt_div_dx2 * props.k) / (props.density * props.cp);
+        let converged=false;
 
-                lower[i] = upper[i] = -r;
-                diagonal[i] = 1 + 2 * r;
-                rhs[i] = oldT_cool[i];
+        for(
+            let iter=0;
+            iter<maxNonlinearIterations;
+            iter++
+        ){
+
+            for(let i=1;i<last;i++){
+
+                const props=
+                    matModel.get(
+                        T_cool[i]-273.15
+                    );
+
+                const r=
+                    (dt_div_dx2*props.k)/
+                    (props.density*props.cp);
+
+                lower[i]=upper[i]=-r;
+                diagonal[i]=1+2*r;
+                rhs[i]=oldT_cool[i];
             }
 
             // Top cooldown
-            const propsTop = matModel.get(T_cool[0] - 273.15);
-            fillCooldownBoundary(T_cool[0], epsS, convectiveHeatTransferCoefficient, T_room_K, T_rad_room_K, T_rad_room_K_2, fluxBuf);
-            const invVolTop = 1 / (propsTop.density * propsTop.cp);
-            const factorTop = 2 * dt_div_dx * invVolTop;
-            const condTop = 2 * propsTop.k * dt_div_dx2 * invVolTop;
+            const propsTop=
+                matModel.get(
+                    T_cool[0]-273.15
+                );
 
-            diagonal[0] = 1 + condTop - factorTop * fluxBuf.g1;
-            rhs[0] = oldT_cool[0] + factorTop * fluxBuf.g0;
-            upper[0] = -condTop;
+            fillCooldownBoundary(
+                T_cool[0],
+                epsS,
+                convectiveHeatTransferCoefficient,
+                T_room_K,
+                T_rad_room_K,
+                T_rad_room_K_2,
+                fluxBuf
+            );
+
+            const invVolTop=
+                1/
+                (propsTop.density*propsTop.cp);
+
+            const factorTop=
+                2*dt_div_dx*invVolTop;
+
+            const condTop=
+                2*propsTop.k*
+                dt_div_dx2*
+                invVolTop;
+
+            diagonal[0]=
+                1+
+                condTop-
+                factorTop*fluxBuf.g1;
+
+            rhs[0]=
+                oldT_cool[0]+
+                factorTop*fluxBuf.g0;
+
+            upper[0]=-condTop;
 
             // Bottom cooldown
-            const propsBot = matModel.get(T_cool[last] - 273.15);
-            fillCooldownBoundary(T_cool[last], epsS, convectiveHeatTransferCoefficient, T_room_K, T_rad_room_K, T_rad_room_K_2, fluxBuf);
-            const invVolBot = 1 / (propsBot.density * propsBot.cp);
-            const factorBot = 2 * dt_div_dx * invVolBot;
-            const condBot = 2 * propsBot.k * dt_div_dx2 * invVolBot;
+            const propsBot=
+                matModel.get(
+                    T_cool[last]-273.15
+                );
 
-            diagonal[last] = 1 + condBot - factorBot * fluxBuf.g1;
-            rhs[last] = oldT_cool[last] + factorBot * fluxBuf.g0;
-            lower[last] = -condBot;
+            fillCooldownBoundary(
+                T_cool[last],
+                epsS,
+                convectiveHeatTransferCoefficient,
+                T_room_K,
+                T_rad_room_K,
+                T_rad_room_K_2,
+                fluxBuf
+            );
 
-            if (!solveTridiagonal(lower, diagonal, upper, rhs, T_cool_next, cPrime, dPrime)) {
+            const invVolBot=
+                1/
+                (propsBot.density*propsBot.cp);
+
+            const factorBot=
+                2*dt_div_dx*invVolBot;
+
+            const condBot=
+                2*propsBot.k*
+                dt_div_dx2*
+                invVolBot;
+
+            diagonal[last]=
+                1+
+                condBot-
+                factorBot*fluxBuf.g1;
+
+            rhs[last]=
+                oldT_cool[last]+
+                factorBot*fluxBuf.g0;
+
+            lower[last]=-condBot;
+
+            if(!solveTridiagonal(
+                lower,
+                diagonal,
+                upper,
+                rhs,
+                T_cool_next,
+                cPrime,
+                dPrime
+            )){
                 break;
             }
 
-            converged = true;
-            for (let i = 0; i < nodeCount; i++) {
-                if (Math.abs(T_cool_next[i] - T_cool[i]) > nonlinearToleranceK) {
-                    converged = false;
+            converged=true;
+
+            for(let i=0;i<nodeCount;i++){
+
+                if(
+                    Math.abs(
+                        T_cool_next[i]-
+                        T_cool[i]
+                    )>
+                    nonlinearToleranceK
+                ){
+                    converged=false;
                     break;
                 }
             }
 
             T_cool.set(T_cool_next);
-            if (converged) break;
+
+            if(converged) break;
         }
 
-        if (!converged) break;
-        cooldownTime += dt;
+        if(!converged) break;
+
+        cooldownTime+=dt;
+
+        if(
+            storeHistory&&
+            Math.abs(
+                cooldownTime%
+                sampleEverySeconds
+            )<dt/2
+        ){
+            pushHistory();
+        }
     }
 
+    const historyResult=storeHistory
+        ?{
+            stepSeconds:sampleEverySeconds,
+            frontSurfaceC:
+                Float64Array.from(
+                    history.frontSurfaceC
+                ),
+            centerC:
+                Float64Array.from(
+                    history.centerC
+                ),
+            backSurfaceC:
+                Float64Array.from(
+                    history.backSurfaceC
+                )
+        }
+        :null;
+
     return {
-        temperatureProfileK: new Float64Array(T_cool),
-        cooldownTimeSeconds: cooldownTime
+        temperatureProfileK:
+            new Float64Array(T_cool),
+
+        cooldownTimeSeconds:
+        cooldownTime,
+
+        history:historyResult
     };
 }
 
@@ -653,90 +803,106 @@ export function simulateCooldown({
  * MAIN SIMULATION
  * ========================= */
 export function simulate1DHeating({
-                                      thicknessMm,
-                                      material,
-                                      machine,
-                                      simulation,
-                                      dxMm,
-                                      dtSeconds,
-                                      sampleEverySeconds = 1,
-                                      storeHistory = false,
-                                      includeBreakdown = false
-                                  }) {
-    const calculationStart = performance.now();
+    thicknessMm,
+    material,
+    machine,
+    simulation,
+    dxMm,
+    dtSeconds,
+    sampleEverySeconds=1,
+    storeHistory=false,
+    includeBreakdown=false
+}){
+    const calculationStart=performance.now();
 
-    const mach = normalizeMachine(machine);
+    const mach=normalizeMachine(machine);
 
-    if (!mach) return makeError("Invalid machine.");
+    if(!mach)
+        return makeError("Invalid machine.");
 
-    const validation = validateSimulationParams({
+    const validation=validateSimulationParams({
         thicknessMm,
         material,
-        machine: mach,
+        machine:mach,
         simulation,
         dxMm,
         dtSeconds
     });
 
-    if (!validation.isValid) return makeError(validation.error);
+    if(!validation.isValid)
+        return makeError(validation.error);
 
-    const dt = validation.dtSeconds;
-    const dx = validation.dxMm / 1000;
+    const dt=validation.dtSeconds;
+    const dx=validation.dxMm/1000;
 
-    const { nodeCount } = createGrid(thicknessMm / 1000, dx);
+    const {nodeCount}=createGrid(
+        thicknessMm/1000,
+        dx
+    );
 
-    const target = simulation.target;
-    const targetType = target.type;
-    const targetValue = target.value;
+    const target=simulation.target;
+    const targetType=target.type;
+    const targetValue=target.value;
 
-    const temperatures = simulation.temperatures;
-    const initT = temperatures.initialC;
-    const ambT = temperatures.ambientC;
-    const ambRadT = temperatures.ambientRadiationC;
+    const temperatures=simulation.temperatures;
+    const initT=temperatures.initialC;
+    const ambT=temperatures.ambientC;
+    const ambRadT=temperatures.ambientRadiationC;
 
-    const maxTimeSeconds = simulation.maxTimeSeconds;
+    const maxTimeSeconds=simulation.maxTimeSeconds;
 
-    const cooling = simulation.cooling;
-    const cooldownTimeSeconds = cooling.timeSeconds;
-    const coolingH = cooling.convectiveHeatTransferCoefficient;
+    const cooling=simulation.cooling;
+    const cooldownTimeSeconds=cooling.timeSeconds;
+    const coolingH=
+        cooling.convectiveHeatTransferCoefficient;
 
-    const stopAtMaxTemperature = simulation.stopAtMaxTemperature === true;
+    const stopAtMaxTemperature=
+        simulation.stopAtMaxTemperature===true;
 
-    const maxFormingTemp = material.maxFormingTemp;
-    const decompTemp = material.decompositionTemp;
-    const decompTempK = toKelvin(decompTemp);
+    const maxFormingTemp=
+        material.maxFormingTemp;
 
-    const matModel = createMaterialModel(material);
-    if (!matModel) return makeError("Invalid material model.");
+    const decompTemp=
+        material.decompositionTemp;
 
-    const buffers = {
-        lower: new Float64Array(nodeCount),
-        diagonal: new Float64Array(nodeCount),
-        upper: new Float64Array(nodeCount),
-        rhs: new Float64Array(nodeCount),
-        Tnext: new Float64Array(nodeCount),
-        oldT: new Float64Array(nodeCount),
-        cPrime: new Float64Array(nodeCount),
-        dPrime: new Float64Array(nodeCount)
+    const decompTempK=
+        toKelvin(decompTemp);
+
+    const matModel=createMaterialModel(material);
+
+    if(!matModel)
+        return makeError("Invalid material model.");
+
+    const buffers={
+        lower:new Float64Array(nodeCount),
+        diagonal:new Float64Array(nodeCount),
+        upper:new Float64Array(nodeCount),
+        rhs:new Float64Array(nodeCount),
+        Tnext:new Float64Array(nodeCount),
+        oldT:new Float64Array(nodeCount),
+        cPrime:new Float64Array(nodeCount),
+        dPrime:new Float64Array(nodeCount)
     };
 
-    const targetK = targetType === "minTemperature" || targetType === "surfaceTemperature"
-        ? toKelvin(targetValue)
-        : null;
+    const targetK=
+        targetType==="minTemperature"||
+        targetType==="surfaceTemperature"
+            ?toKelvin(targetValue)
+            :null;
 
     /* =========================
      * HEATING
      * ========================= */
-    const heating = simulateHeating({
+    const heating=simulateHeating({
         nodeCount,
         dx,
         dt,
         matModel,
-        topSide: mach.heaters[0],
-        botSide: mach.heaters[1],
+        topSide:mach.heaters[0],
+        botSide:mach.heaters[1],
         ambT,
         ambRadT,
-        epsS: material.emissivity,
+        epsS:material.emissivity,
         targetType,
         targetValue,
         targetK,
@@ -745,105 +911,178 @@ export function simulate1DHeating({
         maxTimeSeconds,
         sampleEverySeconds,
         storeHistory,
-        initialTemperatureC: initT,
+        initialTemperatureC:initT,
         buffers
     });
 
-    let status = heating.status;
+    let status=heating.status;
 
-    if (status?.type === "error" && heating.heatingTimeSeconds === 0) {
+    if(
+        status?.type==="error"&&
+        heating.heatingTimeSeconds===0
+    ){
         return makeError(status.message);
     }
 
-    const heatingProfileK = heating.temperatureProfileK;
+    const heatingProfileK=
+        heating.temperatureProfileK;
 
     /* =========================
      * COOLDOWN
      * ========================= */
-    const cooldown = simulateCooldown({
-        initialProfileK: heatingProfileK,
+    const cooldown=simulateCooldown({
+        initialProfileK:heatingProfileK,
         nodeCount,
         dx,
         dt,
         matModel,
-        epsS: material.emissivity,
+        epsS:material.emissivity,
         ambT,
         ambRadT,
         cooldownTimeSeconds,
-        convectiveHeatTransferCoefficient: coolingH,
-        maxNonlinearIterations: MAX_NONLINEAR_ITERATIONS,
-        nonlinearToleranceK: NONLINEAR_TOLERANCE_K,
+        convectiveHeatTransferCoefficient:coolingH,
+        maxNonlinearIterations:
+            MAX_NONLINEAR_ITERATIONS,
+        nonlinearToleranceK:
+            NONLINEAR_TOLERANCE_K,
+        sampleEverySeconds,
+        storeHistory,
         buffers
     });
 
-    const cooldownProfileK = cooldown.temperatureProfileK;
-    const heatingProfileC = new Float64Array(nodeCount);
-    const cooldownProfileC = new Float64Array(nodeCount);
+    const cooldownProfileK=
+        cooldown.temperatureProfileK;
 
-    for (let i = 0; i < nodeCount; i++) {
-        heatingProfileC[i] = heatingProfileK[i] - 273.15;
-        cooldownProfileC[i] = cooldownProfileK[i] - 273.15;
+    const heatingProfileC=
+        new Float64Array(nodeCount);
+
+    const cooldownProfileC=
+        new Float64Array(nodeCount);
+
+    for(let i=0;i<nodeCount;i++){
+        heatingProfileC[i]=
+            heatingProfileK[i]-273.15;
+
+        cooldownProfileC[i]=
+            cooldownProfileK[i]-273.15;
     }
 
-    const centerIndex = (nodeCount - 1) >> 1;
-    const centerC = heatingProfileC[centerIndex];
-    const frontC = heatingProfileC[0];
-    const backC = heatingProfileC[nodeCount - 1];
+    const centerIndex=(nodeCount-1)>>1;
 
-    let minTemperatureC = Infinity;
-    for (let i = 0; i < nodeCount; i++) {
-        if (heatingProfileC[i] < minTemperatureC) minTemperatureC = heatingProfileC[i];
+    const centerC=
+        heatingProfileC[centerIndex];
+
+    const frontC=
+        heatingProfileC[0];
+
+    const backC=
+        heatingProfileC[nodeCount-1];
+
+    let minTemperatureC=Infinity;
+
+    for(let i=0;i<nodeCount;i++){
+        if(
+            heatingProfileC[i]<
+            minTemperatureC
+        ){
+            minTemperatureC=
+                heatingProfileC[i];
+        }
     }
 
-    const calculationTimeMs = performance.now() - calculationStart;
+    const calculationTimeMs=
+        performance.now()-
+        calculationStart;
 
-    const res = {
-        heatingTimeSeconds: heating.heatingTimeSeconds,
-        cooldownTimeSec: cooldownTimeSeconds,
+    const res={
+        heatingTimeSeconds:
+            heating.heatingTimeSeconds,
+
+        cooldownTimeSec:
+            cooldownTimeSeconds,
+
         calculationTimeMs,
-        heaterTemperaturesC: {
-            top: mach.heaters[0].regulatorTemperatureC,
-            bottom: mach.heaters[1].regulatorTemperatureC
+
+        heaterTemperaturesC:{
+            top:
+                mach.heaters[0]
+                    .regulatorTemperatureC,
+
+            bottom:
+                mach.heaters[1]
+                    .regulatorTemperatureC
         },
-        reachedTarget: heating.reachedTarget,
+
+        reachedTarget:
+            heating.reachedTarget,
+
         status,
-        temperatureProfile: {
-            temperaturesC: heatingProfileC,
+
+        temperatureProfile:{
+            temperaturesC:
+                heatingProfileC,
+
             cooldownProfileC,
-            dxMm: dx * 1000
+
+            dxMm:
+                dx*1000
         },
-        history: heating.history
+
+        history:storeHistory
+            ?{
+                heating:heating.history,
+                cooling:cooldown.history
+            }
+            :null
     };
 
-    if (includeBreakdown) {
-
-        res.diagnostics = {
-            grid: {
+    if(includeBreakdown){
+        res.diagnostics={
+            grid:{
                 nodeCount,
-                dxMm: dx * 1000,
-                requestedDxMm: validation.dxMm,
+                dxMm:dx*1000,
+                requestedDxMm:
+                    validation.dxMm
             },
 
-            numerical: {
-                dtSeconds: dt,
-                nonlinearIterations: MAX_NONLINEAR_ITERATIONS,
-                nonlinearToleranceK: NONLINEAR_TOLERANCE_K,
+            numerical:{
+                dtSeconds:dt,
+                nonlinearIterations:
+                    MAX_NONLINEAR_ITERATIONS,
+                nonlinearToleranceK:
+                    NONLINEAR_TOLERANCE_K
             },
 
-            result: {
-                heatingTimeSeconds: heating.heatingTimeSeconds,
-                reachedTarget: heating.reachedTarget,
-                actualMinTemperatureC: minTemperatureC,
-                actualCenterC: centerC,
-                actualFrontSurfaceC: frontC,
-                actualBackSurfaceC: backC,
+            result:{
+                heatingTimeSeconds:
+                    heating.heatingTimeSeconds,
+
+                reachedTarget:
+                    heating.reachedTarget,
+
+                actualMinTemperatureC:
+                    minTemperatureC,
+
+                actualCenterC:
+                    centerC,
+
+                actualFrontSurfaceC:
+                    frontC,
+
+                actualBackSurfaceC:
+                    backC
             },
 
-            temperatures: {
-                targetC: targetValue,
-                maxFormingC: maxFormingTemp,
-                decompositionC: decompTemp,
-            },
+            temperatures:{
+                targetC:
+                    targetValue,
+
+                maxFormingC:
+                    maxFormingTemp,
+
+                decompositionC:
+                    decompTemp
+            }
         };
     }
 
@@ -853,50 +1092,58 @@ export function simulate1DHeating({
 /* =========================
  * ERROR ANALYSIS
  * ========================= */
-export function calculateFitError({ simulation, measurements, weights = { surface: 1, center: 1 } }) {
-    if (!measurements?.length || !simulation?.history?.length) {
-        return { rmseC: Infinity };
+export function calculateFitError({
+                                      simulation,
+                                      measurements,
+                                      weights={surface:1,center:1}
+                                  }){
+
+    const history=simulation?.history?.heating;
+
+    if(!measurements?.length||!history?.frontSurfaceC?.length){
+        return {rmseC:Infinity};
     }
 
-    const history = simulation.history;
-    let squaredError = 0;
-    let count = 0;
+    const sampleCount=history.frontSurfaceC.length;
+    const stepSeconds=history.stepSeconds;
 
-    for (const m of measurements) {
-        if (!Number.isFinite(m?.timeSeconds)) continue;
+    let squaredError=0;
+    let count=0;
 
-        let low = 0;
-        let high = history.length - 1;
+    for(const m of measurements){
+        if(!Number.isFinite(m?.timeSeconds)) continue;
 
-        while (low < high - 1) {
-            const mid = (low + high) >> 1;
-            if (history[mid].timeSeconds < m.timeSeconds) low = mid;
-            else high = mid;
-        }
+        const index=Math.min(
+            Math.max(0,Math.round(m.timeSeconds/stepSeconds)),
+            sampleCount-1
+        );
 
-        const sim = Math.abs(history[low].timeSeconds - m.timeSeconds) < Math.abs(history[high].timeSeconds - m.timeSeconds)
-            ? history[low]
-            : history[high];
-
-        if (Number.isFinite(m.frontSurfaceC)) {
-            squaredError += weights.surface * ((sim.frontSurfaceC - m.frontSurfaceC) ** 2);
+        if(Number.isFinite(m.frontSurfaceC)){
+            squaredError+=weights.surface*
+                (history.frontSurfaceC[index]-m.frontSurfaceC)**2;
             count++;
         }
 
-        if (Number.isFinite(m.centerC)) {
-            squaredError += weights.center * ((sim.centerC - m.centerC) ** 2);
+        if(Number.isFinite(m.centerC)){
+            squaredError+=weights.center*
+                (history.centerC[index]-m.centerC)**2;
             count++;
         }
 
-        if (Number.isFinite(m.backSurfaceC)) {
-            squaredError += weights.surface * ((sim.backSurfaceC - m.backSurfaceC) ** 2);
+        if(Number.isFinite(m.backSurfaceC)){
+            squaredError+=weights.surface*
+                (history.backSurfaceC[index]-m.backSurfaceC)**2;
             count++;
         }
     }
 
-    return count === 0
-        ? { rmseC: Infinity }
-        : { rmseC: Math.sqrt(squaredError / count), sse: squaredError, samples: count };
+    return count===0
+        ? {rmseC:Infinity}
+        : {
+            rmseC:Math.sqrt(squaredError/count),
+            sse:squaredError,
+            samples:count
+        };
 }
 
 /* =========================
