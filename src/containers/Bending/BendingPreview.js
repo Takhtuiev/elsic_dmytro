@@ -90,7 +90,7 @@ const PartHeader = React.memo(({ profile }) => (
 ));
 PartHeader.displayName = "PartHeader";
 
-// Мемоизированные параметры
+// Мемоизированные параметры.
 const Parameters = React.memo(({ profile, part, machineParams, data }) => {
     const material = profile?.material;
     const blankLength = Number(part?.blankLength);
