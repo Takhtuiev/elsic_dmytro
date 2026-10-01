@@ -365,17 +365,18 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     <Box
                         sx={{
                             display: "flex",
+                            flexWrap: "wrap",
                             gap: 1,
                         }}
                     >
                         {chartData.chart1 && (
-                            <Box>
+                            <Box mx={"auto"}>
                                 <SvgLineChart chart={chartData.chart1} />
                             </Box>
                         )}
 
                         {chartData.chart2 && (
-                            <Box>
+                            <Box mx={"auto"}>
                                 <SvgLineChart chart={chartData.chart2} />
                             </Box>
                         )}
