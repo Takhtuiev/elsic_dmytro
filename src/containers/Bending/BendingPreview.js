@@ -328,7 +328,16 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             <Box
                 ref={containerRef}
                 className="bend-preview-drawing"
-                sx={{ flex: 1, minHeight: 0, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}
+                sx={{
+                    flex: 1,
+                    minWidth:300,
+                    maxHeight:400,
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    overflow: "hidden"
+                }}
             >
                 {validationError ? (
                     <Box sx={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center" }}>

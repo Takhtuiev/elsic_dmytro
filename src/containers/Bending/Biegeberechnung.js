@@ -934,8 +934,6 @@ export default function Biegeberechnung(){
                 className="bending-preview-paper"
                 sx={{
                     gridArea:"preview",
-                    minWidth:300,
-                    maxHeight:800,
                     display:"flex",
                     flexDirection:"column",
                     overflow:"hidden"
