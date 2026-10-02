@@ -1323,14 +1323,13 @@ export default function Biegeberechnung(){
                     open={machineDialogOpen}
                     title="Machine"
                     value={machine}
-                    onClose={()=>
-                        setMachineDialogOpen(false)
-                    }
+                    onClose={()=>{
+                        setMachineDialogOpen(false);
+                    }}
                     onApply={value=>{
                         updateState({
                             machine:value
                         });
-
                         setMachineDialogOpen(false);
                     }}
                 >
