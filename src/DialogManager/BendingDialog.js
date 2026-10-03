@@ -20,7 +20,7 @@ export default function BendingDialog({
                                           renderContent,
                                           onApply,
                                           onClose,
-                                          applyDisabled = false
+                                          saveDisabled = false
                                       }) {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -32,7 +32,7 @@ export default function BendingDialog({
 
         if (event.target.tagName === "TEXTAREA") return;
 
-        if (applyDisabled) return;
+        if (saveDisabled) return;
 
         event.preventDefault();
         onApply?.(value);
@@ -169,7 +169,7 @@ export default function BendingDialog({
                 <Button
                     variant="contained"
                     onClick={() => onApply?.(value)}
-                    disabled={applyDisabled}
+                    disabled={saveDisabled}
                     disableElevation
                     sx={{
                         textTransform: "none",
