@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 
-import BendingDialog from "./BendingDialog";
+import MyDialog from "./MyDialog";
 
 import {
     selectCurrentDialog,
@@ -118,7 +118,7 @@ export default function DialogManager() {
     }
 
     return (
-        <BendingDialog
+        <MyDialog
             open
             title={dialog.title}
             value={dialog.draft}

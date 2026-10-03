@@ -12,7 +12,7 @@ import {
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 
-export default function BendingDialog({
+export default function MyDialog({
                                           open,
                                           title,
                                           value,
