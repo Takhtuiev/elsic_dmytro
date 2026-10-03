@@ -313,6 +313,10 @@ const MachineContent=({
                     },
                     borderColor:"divider",
                     p:1.5,
+                    pb:{
+                        xs:2.5,
+                        md:1.5
+                    },
                     bgcolor:"background.default",
                     maxHeight:{
                         md:"500px"
