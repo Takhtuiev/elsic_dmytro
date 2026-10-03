@@ -33,22 +33,20 @@ export default function DialogManager() {
     const previousStackLength = useRef(0);
     const historyDepth = useRef(0);
 
-    // Back браузера/телефона уже обработал изменение history.
+    // Флаг: назад пошел именно браузер/смартфон
     const browserBack = useRef(false);
 
-    // Закрытие Dialog программно.
-    const programmaticClose = useRef(false);
+    // СЧЕТЧИК: сколько событий popstate мы сами спровоцировали через history.go(-count)
+    const expectedProgrammaticPops = useRef(0);
 
     /*
-     * Синхронизация Redux stack -> browser history.
+     * 1. Синхронизация Redux stack -> browser history.
      */
     useEffect(() => {
         const currentLength = stack.length;
         const previousLength = previousStackLength.current;
 
-        /*
-         * Открылись новые Dialog.
-         */
+        // Открылись новые Dialog
         if (currentLength > previousLength) {
             const count = currentLength - previousLength;
 
@@ -60,44 +58,24 @@ export default function DialogManager() {
                     },
                     ""
                 );
-
                 historyDepth.current += 1;
             }
         }
 
-        /*
-         * Dialog закрылся.
-         */
+        // Dialog закрылся
         if (currentLength < previousLength) {
             const count = previousLength - currentLength;
 
-            /*
-             * Если закрытие произошло через системный Back,
-             * history уже была изменена самим браузером.
-             *
-             * НИКАКОЙ history.back() здесь больше не нужен.
-             */
             if (browserBack.current) {
+                // Закрытие пришло из popstate (физическая кнопка назад)
                 browserBack.current = false;
-
-                historyDepth.current = Math.max(
-                    0,
-                    historyDepth.current - count
-                );
+                historyDepth.current = Math.max(0, historyDepth.current - count);
             } else {
-                /*
-                 * Закрытие произошло через:
-                 * Cancel / крестик / Save.
-                 *
-                 * Поэтому теперь удаляем соответствующие
-                 * записи из browser history.
-                 */
-                historyDepth.current = Math.max(
-                    0,
-                    historyDepth.current - count
-                );
+                // Закрытие из UI (Крестик / Cancel / Save)
+                historyDepth.current = Math.max(0, historyDepth.current - count);
 
-                programmaticClose.current = true;
+                // Фиксируем, что следующие N событий popstate — наши технические
+                expectedProgrammaticPops.current += count;
 
                 window.history.go(-count);
             }
@@ -107,45 +85,26 @@ export default function DialogManager() {
     }, [stack.length]);
 
     /*
-     * Обработка системной кнопки Back / браузерной Back.
+     * 2. Обработка системной кнопки Back / браузерной Back.
      */
     useEffect(() => {
         const handlePopState = () => {
-            /*
-             * Это popstate, который мы сами вызвали
-             * через history.go(-count) после обычного закрытия.
-             */
-            if (programmaticClose.current) {
-                programmaticClose.current = false;
+            // Если это наш собственный программный переход — уменьшаем счетчик и игнорируем
+            if (expectedProgrammaticPops.current > 0) {
+                expectedProgrammaticPops.current -= 1;
                 return;
             }
 
-            /*
-             * Если открыт хотя бы один Dialog,
-             * системный Back закрывает только верхний.
-             */
-            if (
-                historyDepth.current > 0 &&
-                stack.length > 0
-            ) {
+            // Если в истории есть наши диалоги и в редюсере что-то лежит
+            if (historyDepth.current > 0 && stack.length > 0) {
                 browserBack.current = true;
-
                 dispatch(closeDialog());
             }
         };
 
-        window.addEventListener(
-            "popstate",
-            handlePopState
-        );
-
-        return () => {
-            window.removeEventListener(
-                "popstate",
-                handlePopState
-            );
-        };
-    }, [dispatch, stack.length]);
+        window.addEventListener("popstate", handlePopState);
+        return () => window.removeEventListener("popstate", handlePopState);
+    }, [dispatch, stack.length]); // stack.length в dependency необходим для актуального состояния в обработчике
 
     if (!dialog) {
         return null;
@@ -154,40 +113,18 @@ export default function DialogManager() {
     const Content = dialogContent[dialog.dialogType];
 
     if (!Content) {
-        console.error(
-            `Unknown dialog type: ${dialog.dialogType}`
-        );
+        console.error(`Unknown dialog type: ${dialog.dialogType}`);
         return null;
     }
-
-    const handleChange = value => {
-        dispatch(
-            updateDialogDraft(value)
-        );
-    };
-
-    const handleClose = () => {
-        dispatch(
-            closeDialog()
-        );
-    };
-
-    const handleApply = value => {
-        dispatch(
-            closeDialog({
-                value
-            })
-        );
-    };
 
     return (
         <BendingDialog
             open
             title={dialog.title}
             value={dialog.draft}
-            onChange={handleChange}
-            onClose={handleClose}
-            onApply={handleApply}
+            onChange={value => dispatch(updateDialogDraft(value))}
+            onClose={() => dispatch(closeDialog())}
+            onApply={value => dispatch(closeDialog({ value }))}
             renderContent={({ value, onChange }) => (
                 <Content
                     {...dialog.data}
