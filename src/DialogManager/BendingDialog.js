@@ -207,6 +207,7 @@ export default function BendingDialog({
                         fontWeight: 500,
                         px: 2,
                         py: 0.5,
+                        borderRadius: isMobile ? 1.5 : 2,
                         flex: isMobile ? 1 : "none"
                     }}
                 >
@@ -225,13 +226,6 @@ export default function BendingDialog({
                         py: 0.5,
                         borderRadius: isMobile ? 1.5 : 2,
                         flex: isMobile ? 1 : "none",
-
-                        "&.Mui-disabled": {
-                            backgroundColor:
-                                theme.palette.mode === "dark"
-                                    ? "rgba(255, 255, 255, 0.12)"
-                                    : "rgba(0, 0, 0, 0.12)",
-                        }
                     }}
                 >
                     Save
