@@ -22,10 +22,6 @@ import {useDispatch,useSelector} from "react-redux";
 import {useNavigate} from "react-router-dom";
 
 import ProfileRow from "./ProfileRow";
-import BendingDialog from "./BendingDialog";
-import MaterialContent from "./MaterialContent";
-import MachineContent from "./MachineContent";
-import SimulationContent from "./SimulationContent";
 
 import {
     calculateBlankLength,
@@ -33,8 +29,18 @@ import {
     calculateBendingMachineParams
 } from "./Calculations";
 import buildProfileGeometry from "./BuildProfileGeometry";
-import {setProfile} from "../../Store/bendingSlice";
-import {MATERIALS,MACHINES} from "./parameters";
+import {
+    setProfile
+} from "../../Store/bendingSlice";
+import {
+    openDialog,
+    selectLastReturnedData,
+    clearDialogDataReturned
+} from "../../Store/dialogSlice";
+import {
+    MATERIALS,
+    MACHINES
+} from "./parameters";
 import BendingPreview from "./BendingPreview";
 
 
@@ -49,14 +55,29 @@ const INITIAL_STATE={
         width:430,
 
         shelves:[
-            {length:50,side:"right"},
-            {length:100,side:"right"},
-            {length:150,side:"left"}
+            {
+                length:50,
+                side:"right"
+            },
+            {
+                length:100,
+                side:"right"
+            },
+            {
+                length:150,
+                side:"left"
+            }
         ],
 
         bends:[
-            {angle:90,direction:"right"},
-            {angle:135,direction:"left"}
+            {
+                angle:90,
+                direction:"right"
+            },
+            {
+                angle:135,
+                direction:"left"
+            }
         ]
     },
 
@@ -122,7 +143,9 @@ const getShelfVector=(geometry,index,fromEnd=false)=>{
     const p1=geometry.sideA?.[index];
     const p2=geometry.sideA?.[index+1];
 
-    if(!p1||!p2)return null;
+    if(!p1||!p2){
+        return null;
+    }
 
     return fromEnd
         ?{
@@ -150,8 +173,13 @@ const getPreferredSide=(shelves,index)=>{
         0
     );
 
-    if(beforeLength<afterLength)return"fromStart";
-    if(beforeLength>afterLength)return"toEnd";
+    if(beforeLength<afterLength){
+        return "fromStart";
+    }
+
+    if(beforeLength>afterLength){
+        return "toEnd";
+    }
 
     return before.length<=after.length
         ?"fromStart"
@@ -176,7 +204,9 @@ const getViewRotation=(
         shelfIndex
     );
 
-    if(!vector)return currentRotation;
+    if(!vector){
+        return currentRotation;
+    }
 
     if(mirrored){
         vector={
@@ -191,8 +221,9 @@ const getViewRotation=(
             vector.x
         )*180/Math.PI;
 
-    if(side==="fromStart")
+    if(side==="fromStart"){
         angle+=180;
+    }
 
     return-angle;
 };
@@ -216,7 +247,9 @@ const isOppositeShelfDown=(
         side==="toEnd"
     );
 
-    if(!vector)return false;
+    if(!vector){
+        return false;
+    }
 
     if(mirrored){
         vector={
@@ -320,7 +353,7 @@ const PreviewToolbar=({
                           mirrored,
                           onRotationChange,
                           onRotationCommitted,
-                          onMirror,
+                          onMirror
                       })=>(
     <Box
         className="bending-preview-toolbar"
@@ -407,6 +440,10 @@ export default function Biegeberechnung(){
         state=>state.bending.profile
     );
 
+    const lastReturnedData=useSelector(
+        selectLastReturnedData
+    );
+
     const [state,setState]=useState(
         profile??INITIAL_STATE
     );
@@ -426,24 +463,53 @@ export default function Biegeberechnung(){
         setThicknessMenuAnchor
     ]=useState(null);
 
-    const [
-        materialDialogOpen,
-        setMaterialDialogOpen
-    ]=useState(false);
-
-    const [
-        machineDialogOpen,
-        setMachineDialogOpen
-    ]=useState(false);
-
-    const [
-        simulationDialogOpen,
-        setSimulationDialogOpen
-    ]=useState(false);
-
     useEffect(()=>{
         dispatch(setProfile(state));
     },[state,dispatch]);
+
+    useEffect(()=>{
+        if(!lastReturnedData){
+            return;
+        }
+
+        const {
+            dialogType,
+            data
+        }=lastReturnedData;
+
+        const value=data?.value;
+
+        if(value===undefined){
+            dispatch(clearDialogDataReturned());
+            return;
+        }
+
+        if(dialogType==="material"){
+            setState(prev=>({
+                ...prev,
+                material:value
+            }));
+        }
+
+        if(dialogType==="machine"){
+            setState(prev=>({
+                ...prev,
+                machine:value
+            }));
+        }
+
+        if(dialogType==="simulation"){
+            setState(prev=>({
+                ...prev,
+                simulation:value
+            }));
+        }
+
+        dispatch(clearDialogDataReturned());
+    },[
+        lastReturnedData,
+        dispatch
+    ]);
 
     const {
         material,
@@ -690,7 +756,9 @@ export default function Biegeberechnung(){
                     index
                 );
 
-                if(!vector)return prev;
+                if(!vector){
+                    return prev;
+                }
 
                 const dx=prev.view.mirrored
                     ?-vector.x
@@ -831,10 +899,11 @@ export default function Biegeberechnung(){
                 let nextIndex=
                     prev.view.bendIndex;
 
-                if(nextIndex===index)
+                if(nextIndex===index){
                     nextIndex=-1;
-                else if(nextIndex>index)
+                }else if(nextIndex>index){
                     nextIndex--;
+                }
 
                 return{
                     ...prev,
@@ -908,6 +977,56 @@ export default function Biegeberechnung(){
     const sliderRotation=
         rotationPreview??rotation;
 
+    const openMaterialDialog=useCallback(()=>{
+        dispatch(
+            openDialog({
+                id:"material",
+                dialogType:"material",
+                title:"Material",
+                data:{
+                    value:material,
+                    materials:MATERIALS
+                }
+            })
+        );
+    },[
+        dispatch,
+        material
+    ]);
+
+    const openMachineDialog=useCallback(()=>{
+        dispatch(
+            openDialog({
+                id:"machine",
+                dialogType:"machine",
+                title:"Machine",
+                data:{
+                    value:machine,
+                    machines:MACHINES
+                }
+            })
+        );
+    },[
+        dispatch,
+        machine
+    ]);
+
+    const openSimulationDialog=useCallback(()=>{
+        dispatch(
+            openDialog({
+                id:"simulation",
+                dialogType:"simulation",
+                title:"Simulation parameters",
+                data:{
+                    value:simulation
+                }
+            })
+        );
+    },[
+        dispatch,
+        simulation
+    ]);
+
     return(
         <Box
             className="biege-main-page"
@@ -925,7 +1044,7 @@ export default function Biegeberechnung(){
                     gridTemplateAreas:`
 "preview"
 "editor"
-    `,
+                    `,
                     mx:0
                 }
             }}
@@ -986,7 +1105,6 @@ export default function Biegeberechnung(){
                 }}
             >
                 <Box sx={{my:1}}>
-
                     {shelves.map((shelf,index)=>(
                         <ProfileRow
                             key={index}
@@ -1033,7 +1151,6 @@ export default function Biegeberechnung(){
                     </Button>
                 </Box>
 
-
                 <Box
                     sx={{
                         p:1,
@@ -1053,9 +1170,7 @@ export default function Biegeberechnung(){
                         <TextField
                             label="Machine"
                             value={machine?.name||""}
-                            onClick={()=>
-                                setMachineDialogOpen(true)
-                            }
+                            onClick={openMachineDialog}
                             size="small"
                             fullWidth
                             slotProps={{
@@ -1070,10 +1185,7 @@ export default function Biegeberechnung(){
                                                 size="small"
                                                 onClick={e=>{
                                                     e.stopPropagation();
-
-                                                    setMachineDialogOpen(
-                                                        true
-                                                    );
+                                                    openMachineDialog();
                                                 }}
                                             >
                                                 <DatabaseIcon
@@ -1100,9 +1212,7 @@ export default function Biegeberechnung(){
                         <TextField
                             label="Material"
                             value={material?.name||""}
-                            onClick={()=>
-                                setMaterialDialogOpen(true)
-                            }
+                            onClick={openMaterialDialog}
                             size="small"
                             fullWidth
                             slotProps={{
@@ -1117,10 +1227,7 @@ export default function Biegeberechnung(){
                                                 size="small"
                                                 onClick={e=>{
                                                     e.stopPropagation();
-
-                                                    setMaterialDialogOpen(
-                                                        true
-                                                    );
+                                                    openMaterialDialog();
                                                 }}
                                             >
                                                 <DatabaseIcon
@@ -1187,8 +1294,7 @@ export default function Biegeberechnung(){
                                         }
                                         sx={{
                                             p:.25,
-                                            color:
-                                                "text.secondary"
+                                            color:"text.secondary"
                                         }}
                                     >
                                         <KeyboardArrowDownIcon
@@ -1227,9 +1333,7 @@ export default function Biegeberechnung(){
                         <TextField
                             label="Simulation parameters"
                             value="Simulation settings"
-                            onClick={()=>
-                                setSimulationDialogOpen(true)
-                            }
+                            onClick={openSimulationDialog}
                             size="small"
                             fullWidth
                             slotProps={{
@@ -1244,10 +1348,7 @@ export default function Biegeberechnung(){
                                                 size="small"
                                                 onClick={e=>{
                                                     e.stopPropagation();
-
-                                                    setSimulationDialogOpen(
-                                                        true
-                                                    );
+                                                    openSimulationDialog();
                                                 }}
                                             >
                                                 <DatabaseIcon
@@ -1281,80 +1382,19 @@ export default function Biegeberechnung(){
                     {[4,5,6,8,10].map(value=>(
                         <MenuItem
                             key={value}
-                            selected={
-                                thickness===value
-                            }
+                            selected={thickness===value}
                             onClick={()=>{
                                 updateGeometry({
                                     thickness:value
                                 });
 
-                                setThicknessMenuAnchor(
-                                    null
-                                );
+                                setThicknessMenuAnchor(null);
                             }}
                         >
                             {value} mm
                         </MenuItem>
                     ))}
                 </Menu>
-
-                <BendingDialog
-                    open={materialDialogOpen}
-                    title="Material"
-                    value={material}
-                    onClose={()=>
-                        setMaterialDialogOpen(false)
-                    }
-                    onApply={value=>{
-                        updateState({
-                            material:value
-                        });
-
-                        setMaterialDialogOpen(false);
-                    }}
-                >
-                    <MaterialContent
-                        materials={MATERIALS}
-                    />
-                </BendingDialog>
-
-                <BendingDialog
-                    open={machineDialogOpen}
-                    title="Machine"
-                    value={machine}
-                    onClose={()=>{
-                        setMachineDialogOpen(false);
-                    }}
-                    onApply={value=>{
-                        updateState({
-                            machine:value
-                        });
-                        setMachineDialogOpen(false);
-                    }}
-                >
-                    <MachineContent
-                        machines={MACHINES}
-                    />
-                </BendingDialog>
-
-                <BendingDialog
-                    open={simulationDialogOpen}
-                    title="Simulation parameters"
-                    value={simulation}
-                    onClose={()=>
-                        setSimulationDialogOpen(false)
-                    }
-                    onApply={value=>{
-                        updateState({
-                            simulation:value
-                        });
-
-                        setSimulationDialogOpen(false);
-                    }}
-                >
-                    <SimulationContent/>
-                </BendingDialog>
 
                 <Box
                     sx={{

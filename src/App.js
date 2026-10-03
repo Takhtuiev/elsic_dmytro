@@ -1,8 +1,8 @@
-import React, { lazy } from "react";
+import React,{lazy} from "react";
 import {
     BrowserRouter,
     Route,
-    Routes,
+    Routes
 } from "react-router-dom";
 
 import "@fontsource/roboto/300.css";
@@ -10,12 +10,10 @@ import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 
-import { Box } from "@mui/system";
-import {
-    Protect,
-} from "@clerk/clerk-react";
+import {Box} from "@mui/system";
+import {Protect} from "@clerk/clerk-react";
 
-import { ColorModeContextProvider } from "./Providers/ColorModeProvider";
+import {ColorModeContextProvider} from "./Providers/ColorModeProvider";
 import NavigationTabs from "./components/Navigation/NavigationTabs";
 import Footer from "./containers/Footer/Footer";
 import ScrollToTop from "./components/ScrollToTop";
@@ -28,26 +26,34 @@ import OrganizationAdmin from "./components/Admin/OrganizationAdmin";
 import Datenschutz from "./containers/Datenschutz";
 import HeatingMethodologyPage from "./containers/Bending/information/HeatingMethodologyPage";
 import HeatingMethodologyPageDe from "./containers/Bending/information/HeatingMethodologyPageDe";
+import DialogManager from "./DialogManager/DialogManager";
 
-const Home = lazy(() => import("./containers/Home"));
-const Contacts = lazy(() => import("./containers/Contacts"));
-const NotFound = lazy(() => import("./containers/NotFoundPage/NotFound"));
+const Home=lazy(
+    ()=>import("./containers/Home")
+);
 
-function AppContent() {
-    return (
+const Contacts=lazy(
+    ()=>import("./containers/Contacts")
+);
+
+const NotFound=lazy(
+    ()=>import("./containers/NotFoundPage/NotFound")
+);
+
+function AppContent(){
+    return(
         <ColorModeContextProvider>
             <BrowserRouter>
-                <AppLayout />
+                <AppLayout/>
             </BrowserRouter>
         </ColorModeContextProvider>
     );
 }
 
-function AppLayout() {
-
-    return (
+function AppLayout(){
+    return(
         <>
-            <ScrollToTop />
+            <ScrollToTop/>
 
             <Box
                 display="flex"
@@ -55,37 +61,37 @@ function AppLayout() {
                 minHeight="100vh"
             >
                 <Box width="100%">
-                    <NavigationTabs />
+                    <NavigationTabs/>
                 </Box>
 
                 <Box
                     sx={{
-                        width: "100%",
-                        minHeight: "100vh",
-                        maxWidth: "lg",
-                        mx: "auto"
+                        width:"100%",
+                        minHeight:"100vh",
+                        maxWidth:"lg",
+                        mx:"auto"
                     }}
                 >
                     <Routes>
 
                         <Route
                             path="/"
-                            element={<Home />}
+                            element={<Home/>}
                         />
 
                         <Route
                             path="/home"
-                            element={<Home />}
+                            element={<Home/>}
                         />
 
                         <Route
                             path="/contacts"
-                            element={<Contacts />}
+                            element={<Contacts/>}
                         />
 
                         <Route
                             path="/my_account/*"
-                            element={<MyAccount />}
+                            element={<MyAccount/>}
                         />
 
                         <Route
@@ -93,36 +99,43 @@ function AppLayout() {
                             element={
                                 <Protect
                                     permission="org:calculation:use"
-                                    fallback={<AccessDenied />}
+                                    fallback={<AccessDenied/>}
                                 >
-                                    <Biegeberechnung />
+                                    <Biegeberechnung/>
                                 </Protect>
                             }
                         />
 
                         <Route
                             path="/heating-methodology"
-                            element={<HeatingMethodologyPage />}
-                        />
-                        <Route
-                            path="/heating-methodology_de"
-                            element={<HeatingMethodologyPageDe />}
+                            element={
+                                <HeatingMethodologyPage/>
+                            }
                         />
 
+                        <Route
+                            path="/heating-methodology_de"
+                            element={
+                                <HeatingMethodologyPageDe/>
+                            }
+                        />
 
                         <Route
                             path="/administration"
                             element={
                                 <Protect
                                     role="org:admin"
-                                    fallback={<AccessDenied />}
+                                    fallback={<AccessDenied/>}
                                 >
-                                    <OrganizationAdmin />
+                                    <OrganizationAdmin/>
                                 </Protect>
                             }
                         />
 
-                        <Route path="/datenschutz" element={<Datenschutz />} />
+                        <Route
+                            path="/datenschutz"
+                            element={<Datenschutz/>}
+                        />
 
                         <Route
                             path="*"
@@ -140,13 +153,15 @@ function AppLayout() {
                     width="100%"
                     mt="auto"
                 >
-                    <Footer />
+                    <Footer/>
                 </Box>
             </Box>
+
+            <DialogManager/>
         </>
     );
 }
 
-export default function App() {
-    return <AppContent />;
+export default function App(){
+    return <AppContent/>;
 }

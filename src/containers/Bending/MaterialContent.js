@@ -1,5 +1,22 @@
 import React,{useEffect,useMemo}from"react";
-import{Box,Paper,Typography,Radio,Divider}from"@mui/material";
+import{
+    Box,
+    Typography,
+    Radio,
+    Divider,
+    Button,
+    List,
+    ListItemButton
+}from"@mui/material";
+import EditIcon from"@mui/icons-material/Edit";
+import{useDispatch,useSelector}from"react-redux";
+
+import{
+    openDialog,
+    selectCurrentDialog,
+    selectLastReturnedData,
+    clearDialogDataReturned
+}from"../../Store/dialogSlice";
 
 const physicalProps=[
     {key:"density",label:"Density",unit:"kg/m³",color:"#7b1fa2"},
@@ -29,10 +46,19 @@ const bendingProps=[
 ];
 
 const MaterialContent=({
-    value,
-    materials={},
-    onChange
-})=>{
+                           value,
+                           materials={},
+                           onChange
+                       })=>{
+    const dispatch=useDispatch();
+
+    const currentDialog=useSelector(
+        selectCurrentDialog
+    );
+
+    const lastReturnedData=useSelector(
+        selectLastReturnedData
+    );
 
     const materialEntries=useMemo(
         ()=>Object.entries(materials),
@@ -40,63 +66,115 @@ const MaterialContent=({
     );
 
     const selectedIndex=useMemo(
-        ()=>materialEntries.findIndex(([,item])=>item===value),
+        ()=>materialEntries.findIndex(
+            ([,item])=>
+                item===value||
+                item?.name===value?.name
+        ),
         [materialEntries,value]
     );
 
     useEffect(()=>{
-        const handleKeyDown=event=>{
+        if(
+            lastReturnedData?.dialogType!=="material-edit"
+        ){
+            return;
+        }
 
-            if(!materialEntries.length)
-                return;
+        const updatedMaterial=
+            lastReturnedData?.data?.value;
 
-            if(event.key!=="ArrowDown"&&event.key!=="ArrowUp")
+        if(updatedMaterial){
+            onChange?.(updatedMaterial);
+        }
+
+        dispatch(clearDialogDataReturned());
+    },[
+        lastReturnedData,
+        onChange,
+        dispatch
+    ]);
+
+    useEffect(()=>{
+        const handleKeyDown=(event)=>{
+            if(currentDialog||!materialEntries.length){
                 return;
+            }
+
+            if(
+                event.key!=="ArrowDown"&&
+                event.key!=="ArrowUp"
+            ){
+                return;
+            }
 
             event.preventDefault();
 
-            let nextIndex;
-
-            if(event.key==="ArrowDown"){
-                nextIndex=
-                    selectedIndex<materialEntries.length-1
+            const nextIndex=
+                event.key==="ArrowDown"
+                    ?selectedIndex<materialEntries.length-1
                         ?selectedIndex+1
-                        :0;
-            }else{
-                nextIndex=
-                    selectedIndex>0
+                        :0
+                    :selectedIndex>0
                         ?selectedIndex-1
                         :materialEntries.length-1;
-            }
 
-            const[nextKey,nextMaterial]=materialEntries[nextIndex];
+            const[
+                nextKey,
+                nextMaterial
+            ]=materialEntries[nextIndex];
 
-            if(!nextMaterial)
+            if(!nextMaterial){
                 return;
+            }
 
             onChange?.(nextMaterial);
 
-            requestAnimationFrame(()=>{
-                document
-                    .getElementById(`mat-card-${nextKey}`)
-                    ?.scrollIntoView({
-                        block:"nearest",
-                        behavior:"smooth"
-                    });
-            });
+            document
+                .getElementById(
+                    `material-card-${nextKey}`
+                )
+                ?.scrollIntoView({
+                    block:"nearest",
+                    behavior:"smooth"
+                });
         };
 
-        window.addEventListener("keydown",handleKeyDown);
+        window.addEventListener(
+            "keydown",
+            handleKeyDown
+        );
 
-        return()=>{
-            window.removeEventListener("keydown",handleKeyDown);
-        };
-    },[selectedIndex,materialEntries,onChange]);
+        return()=>window.removeEventListener(
+            "keydown",
+            handleKeyDown
+        );
+    },[
+        currentDialog,
+        selectedIndex,
+        materialEntries,
+        onChange
+    ]);
+
+    const formatValue=(value,unit="")=>{
+        if(
+            value===undefined||
+            value===null||
+            value===""
+        ){
+            return"—";
+        }
+
+        return`${value}${unit?` ${unit}`:""}`;
+    };
 
     const renderPropRow=p=>{
-
-        if(value?.[p.key]===undefined||value?.[p.key]===null)
+        if(
+            value?.[p.key]===undefined||
+            value?.[p.key]===null
+        ){
             return null;
+        }
 
         return(
             <Box
@@ -106,7 +184,8 @@ const MaterialContent=({
                     justifyContent:"space-between",
                     alignItems:"center",
                     borderBottom:"1px dashed",
-                    borderColor:"divider"
+                    borderColor:"divider",
+                    gap:2
                 }}
             >
                 <Typography
@@ -127,108 +206,216 @@ const MaterialContent=({
                 <Typography
                     variant="caption"
                     fontWeight={600}
-                    sx={{p:.25,lineHeight:1.15}}
+                    sx={{
+                        p:.25,
+                        lineHeight:1.15,
+                        textAlign:"right"
+                    }}
                 >
-                    {value[p.key]} {p.unit}
+                    {formatValue(
+                        value[p.key],
+                        p.unit
+                    )}
                 </Typography>
             </Box>
+        );
+    };
+
+    const renderSection=(items,index)=>{
+        return(
+            <React.Fragment key={index}>
+                {index>0&&(
+                    <Divider
+                        sx={{
+                            my:.5,
+                            borderStyle:"dashed"
+                        }}
+                    />
+                )}
+
+                {items.map(renderPropRow)}
+            </React.Fragment>
+        );
+    };
+
+    const handleEdit=()=>{
+        dispatch(
+            openDialog({
+                id:"material-edit",
+                dialogType:"material-edit",
+                title:"Edit material",
+                data:{
+                    value
+                }
+            })
         );
     };
 
     return(
         <Box
             sx={{
-                p:0,
                 display:"flex",
-                flexDirection:{xs:"column",md:"row"},
-                height:{xs:"auto",md:"400px"},
-                minHeight:{md:"400px"},
-                overflow:{xs:"visible",md:"hidden"}
+                flexDirection:{
+                    xs:"column",
+                    md:"row"
+                }
             }}
         >
-
             <Box
                 sx={{
-                    flex:1,
-                    minHeight:{xs:"auto",md:"20rem"},
-                    display:"flex",
-                    flexDirection:"column",
-                    borderRight:{md:"1px solid"},
-                    borderBottom:{xs:"1px solid",md:"none"},
+                    flex:"0 0 260px",
+                    borderRight:{
+                        md:"1px solid"
+                    },
+                    borderBottom:{
+                        xs:"1px solid",
+                        md:"none"
+                    },
                     borderColor:"divider",
-                    p:2,
-                    overflow:"visible"
+                    p:1.5,
+                    bgcolor:"background.default",
+                    maxHeight:{
+                        md:"500px"
+                    },
+                    overflowY:"auto"
                 }}
             >
-                <Box
+                <Typography
+                    variant="caption"
+                    fontWeight={700}
+                    color="text.secondary"
+                    sx={{
+                        display:"block",
+                        mb:1,
+                        px:1,
+                        letterSpacing:"0.05em"
+                    }}
+                >
+                    AVAILABLE MATERIALS ({materialEntries.length})
+                </Typography>
+
+                <List
+                    disablePadding
                     sx={{
                         display:"flex",
                         flexDirection:"column",
-                        gap:1,
-                        overflowY:{xs:"visible",md:"auto"},
-                        minHeight:0
+                        gap:.5
                     }}
                 >
-                    {materialEntries.map(([key,item])=>{
+                    {materialEntries.map(
+                        ([key,item])=>{
+                            const isSelected=
+                                item===value||
+                                item?.name===value?.name;
 
-                        const isSel=item===value;
-
-                        return(
-                            <Paper
-                                key={key}
-                                id={`mat-card-${key}`}
-                                variant="outlined"
-                                onClick={()=>onChange?.(item)}
-                                sx={{
-                                    p:1.5,
-                                    display:"flex",
-                                    alignItems:"center",
-                                    cursor:"pointer",
-                                    borderRadius:1.5,
-                                    borderColor:isSel?"primary.main":"divider",
-                                    bgcolor:isSel?"action.selected":"background.paper",
-                                    "&:hover":{bgcolor:"action.hover"}
-                                }}
-                            >
-                                <Radio
-                                    checked={isSel}
-                                    size="small"
-                                    sx={{p:0,mr:1}}
-                                />
-
-                                <Typography
-                                    variant="body2"
-                                    fontWeight={isSel?600:400}
+                            return(
+                                <ListItemButton
+                                    key={key}
+                                    id={`material-card-${key}`}
+                                    onClick={()=>
+                                        onChange?.(item)
+                                    }
+                                    selected={isSelected}
+                                    sx={{
+                                        p:.75,
+                                        borderRadius:1.5,
+                                        border:"1px solid",
+                                        borderColor:
+                                            isSelected
+                                                ?"primary.main"
+                                                :"transparent",
+                                        "&.Mui-selected":{
+                                            bgcolor:
+                                                "action.selected",
+                                            "&:hover":{
+                                                bgcolor:
+                                                    "action.selected"
+                                            }
+                                        }
+                                    }}
                                 >
-                                    {item.name}
-                                </Typography>
-                            </Paper>
-                        );
-                    })}
-                </Box>
+                                    <Radio
+                                        checked={isSelected}
+                                        size="small"
+                                        sx={{
+                                            p:0,
+                                            mr:1
+                                        }}
+                                    />
+
+                                    <Typography
+                                        variant="body2"
+                                        fontWeight={
+                                            isSelected
+                                                ?600
+                                                :400
+                                        }
+                                        noWrap
+                                    >
+                                        {item?.name||key}
+                                    </Typography>
+                                </ListItemButton>
+                            );
+                        }
+                    )}
+                </List>
             </Box>
 
             <Box
                 sx={{
                     flex:1,
-                    minHeight:{xs:"auto",md:"20rem"},
-                    bgcolor:"background.default",
                     p:2,
                     display:"flex",
                     flexDirection:"column",
-                    justifyContent:value?"flex-start":"center",
-                    overflow:"visible"
+                    bgcolor:"background.paper"
                 }}
             >
-                {value?(
-                    <>
-                        <Typography
-                            variant="subtitle2"
-                            fontWeight={700}
-                            sx={{mb:1,lineHeight:1.2}}
+                {value?.name?(
+                    <Box
+                        sx={{
+                            display:"flex",
+                            flexDirection:"column",
+                            gap:1.5,
+                            width:"100%"
+                        }}
+                    >
+                        <Box
+                            sx={{
+                                display:"flex",
+                                justifyContent:
+                                    "space-between",
+                                alignItems:"center",
+                                width:"100%",
+                                flexWrap:"wrap",
+                                gap:1.5
+                            }}
                         >
-                            {value.name}
-                        </Typography>
+                            <Typography
+                                variant="subtitle1"
+                                fontWeight={700}
+                                noWrap
+                                sx={{
+                                    letterSpacing:
+                                        "-0.01em"
+                                }}
+                            >
+                                {value.name}
+                            </Typography>
+
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<EditIcon/>}
+                                onClick={handleEdit}
+                                sx={{
+                                    textTransform:"none"
+                                }}
+                            >
+                                Edit
+                            </Button>
+                        </Box>
+
+                        <Divider/>
 
                         <Box
                             sx={{
@@ -237,41 +424,61 @@ const MaterialContent=({
                                 gap:.5
                             }}
                         >
-                            {physicalProps.map(renderPropRow)}
+                            {renderSection(
+                                physicalProps,
+                                0
+                            )}
 
-                            <Divider
-                                sx={{my:.5,borderStyle:"dashed"}}
-                            />
+                            {renderSection(
+                                transitionProps,
+                                1
+                            )}
 
-                            {transitionProps.map(renderPropRow)}
+                            {renderSection(
+                                surfaceProps,
+                                2
+                            )}
 
-                            <Divider
-                                sx={{my:.5,borderStyle:"dashed"}}
-                            />
+                            {renderSection(
+                                tempProps,
+                                3
+                            )}
 
-                            {surfaceProps.map(renderPropRow)}
-
-                            <Divider
-                                sx={{my:.5,borderStyle:"dashed"}}
-                            />
-
-                            {tempProps.map(renderPropRow)}
-
-                            <Divider
-                                sx={{my:.5,borderStyle:"dashed"}}
-                            />
-
-                            {bendingProps.map(renderPropRow)}
+                            {renderSection(
+                                bendingProps,
+                                4
+                            )}
                         </Box>
-                    </>
+                    </Box>
                 ):(
-                    <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        align="center"
+                    <Box
+                        sx={{
+                            display:"flex",
+                            flexDirection:"column",
+                            alignItems:"center",
+                            justifyContent:"center",
+                            flex:1,
+                            py:4,
+                            gap:.5
+                        }}
                     >
-                        Select a material from the list to view its properties
-                    </Typography>
+                        <Typography
+                            color="text.secondary"
+                            variant="body2"
+                            fontWeight={500}
+                        >
+                            No material selected
+                        </Typography>
+
+                        <Typography
+                            color="text.disabled"
+                            variant="caption"
+                        >
+                            Please choose a material from
+                            the left list to view or edit
+                            details.
+                        </Typography>
+                    </Box>
                 )}
             </Box>
         </Box>
