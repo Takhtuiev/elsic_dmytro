@@ -32,18 +32,26 @@ export default function MachineEditContent({value={},onChange}){
     };
 
     const handleHeaterValueChange=(heaterIndex,key)=>(event)=>{
-        const nextValue=
-            event.target.value===""
-                ? ""
-                : Number(event.target.value);
+        const rawValue=event.target.value;
 
         onChange({
             ...value,
             heaters:(value?.heaters||[]).map(
-                (heater,index)=>
-                    index===heaterIndex
-                        ? {...heater,[key]:nextValue}
-                        : heater
+                (heater,index)=>{
+                    if(index!==heaterIndex){
+                        return heater;
+                    }
+
+                    const nextHeater={...heater};
+
+                    if(rawValue===""){
+                        delete nextHeater[key];
+                    }else{
+                        nextHeater[key]=Number(rawValue);
+                    }
+
+                    return nextHeater;
+                }
             )
         });
     };
