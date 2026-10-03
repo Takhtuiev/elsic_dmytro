@@ -56,6 +56,13 @@ export default function BendingDialog({
 
         return () => {
             window.removeEventListener("popstate", handlePopState);
+
+            // Если Dialog был закрыт не через Back,
+            // удаляем созданную им запись history.
+            if (historyAdded.current) {
+                historyAdded.current = false;
+                window.history.back();
+            }
         };
     }, [open, isMobile]);
 
