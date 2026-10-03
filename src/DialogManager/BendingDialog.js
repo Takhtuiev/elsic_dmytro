@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
     Button,
     Dialog,
@@ -25,12 +25,75 @@ export default function BendingDialog({
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-    const pxSize = isMobile ? 2 : 2.5; // Оставляем хорошие горизонтальные отступы (16px / 20px)
+    const historyAdded = useRef(false);
+    const onCloseRef = useRef(onClose);
+    const onApplyRef = useRef(onApply);
+
+    const pxSize = isMobile ? 2 : 2.5;
+
+    useEffect(() => {
+        onCloseRef.current = onClose;
+    }, [onClose]);
+
+    useEffect(() => {
+        onApplyRef.current = onApply;
+    }, [onApply]);
+
+    // На мобильном добавляем отдельную запись в history.
+    // Системная кнопка Back тогда сначала закрывает Dialog.
+    useEffect(() => {
+        if (!open || !isMobile) return;
+
+        window.history.pushState({ bendingDialog: true }, "");
+        historyAdded.current = true;
+
+        const handlePopState = () => {
+            historyAdded.current = false;
+            onCloseRef.current?.();
+        };
+
+        window.addEventListener("popstate", handlePopState);
+
+        return () => {
+            window.removeEventListener("popstate", handlePopState);
+        };
+    }, [open, isMobile]);
+
+    // Обычное закрытие Dialog.
+    const handleClose = () => {
+        if (isMobile && historyAdded.current) {
+            historyAdded.current = false;
+            window.history.back();
+            return;
+        }
+
+        onClose?.();
+    };
+
+    // Enter = Save.
+    const handleKeyDown = (event) => {
+        if (event.key !== "Enter" || event.shiftKey) return;
+
+        // В textarea Enter должен оставаться обычным переносом строки.
+        if (event.target.tagName === "TEXTAREA") return;
+
+        // Не срабатываем на disabled Save.
+        if (applyDisabled) return;
+
+        event.preventDefault();
+        onApplyRef.current?.(value);
+    };
 
     return (
         <Dialog
             open={open}
-            onClose={onClose}
+            onClose={(event, reason) => {
+                // Клик мышью вне окна ничего не делает.
+                if (reason === "backdropClick") return;
+
+                handleClose();
+            }}
+            onKeyDown={handleKeyDown}
             fullWidth
             maxWidth="md"
             fullScreen={isMobile}
@@ -38,10 +101,6 @@ export default function BendingDialog({
                 paper: {
                     sx: {
                         borderRadius: isMobile ? 0 : 3,
-                        boxShadow: theme.palette.mode === "dark"
-                            ? "0 24px 48px -12px rgba(0, 0, 0, 0.5)"
-                            : "0 24px 48px -12px rgba(0, 0, 0, 0.08)",
-                        backgroundColor: theme.palette.background.paper,
                         backgroundImage: "none",
                         display: "flex",
                         flexDirection: "column",
@@ -51,13 +110,12 @@ export default function BendingDialog({
                 }
             }}
         >
-            {/* Заголовок — МИНИМАЛЬНАЯ ВЫСОТА */}
             <DialogTitle
                 sx={{
                     m: 0,
                     px: pxSize,
-                    py: 1, // 🌟 Всего 8px сверху и снизу (шапка стала максимально узкой)
-                    fontSize: isMobile ? "1.1rem" : "1.2rem", // Размер шрифта не менялся
+                    py: 1,
+                    fontSize: isMobile ? "1.1rem" : "1.2rem",
                     fontWeight: 600,
                     display: "flex",
                     alignItems: "center",
@@ -65,18 +123,26 @@ export default function BendingDialog({
                     borderBottom: `1px solid ${theme.palette.divider}`,
                     backgroundColor: theme.palette.background.paper,
                     flexShrink: 0,
-                    minHeight: "auto", // Сбрасываем системные ограничения MUI по высоте
+                    minHeight: "auto",
                 }}
             >
-                <Box sx={{ flexGrow: 1, pr: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <Box
+                    sx={{
+                        flexGrow: 1,
+                        pr: 2,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap"
+                    }}
+                >
                     {title}
                 </Box>
 
                 <IconButton
                     aria-label="close"
-                    onClick={onClose}
+                    onClick={handleClose}
                     sx={{
-                        p: 0.5, // Микро-паддинг, чтобы кнопка не раздувала шапку
+                        p: 0.5,
                         color: "text.secondary",
                         transition: "all 0.2s ease-in-out",
                         "&:hover": {
@@ -85,28 +151,30 @@ export default function BendingDialog({
                         },
                     }}
                 >
-                    <CloseIcon fontSize="medium" /> {/* Размер иконки сохранен */}
+                    <CloseIcon fontSize="medium" />
                 </IconButton>
             </DialogTitle>
 
-            {/* Контентная зона — СИММЕТРИЧНЫЕ ОТСТУПЫ */}
             <DialogContent
                 sx={{
                     pt: `${theme.spacing(2.5)} !important`,
                     pb: `${theme.spacing(2.5)} !important`,
                     px: pxSize,
                     borderColor: "divider",
-                    backgroundColor: theme.palette.mode === "dark"
-                        ? "background.default"
-                        : "background.paper",
+                    backgroundColor:
+                        theme.palette.mode === "dark"
+                            ? "background.default"
+                            : "background.paper",
                     flexGrow: isMobile ? 1 : 0,
 
                     "& > *:first-of-type": {
                         marginTop: 0,
                     },
+
                     "& > *:last-of-type": {
                         marginBottom: 0,
                     },
+
                     "&:last-child": {
                         paddingBottom: `${theme.spacing(2.5)} !important`,
                     }
@@ -118,28 +186,27 @@ export default function BendingDialog({
                 })}
             </DialogContent>
 
-            {/* Футер — МИНИМАЛЬНАЯ ВЫСОТА */}
             <DialogActions
                 sx={{
                     px: pxSize,
-                    py: 1, // 🌟 Всего 8px сверху и снизу (футер стал максимально узким)
+                    py: 1,
                     m: 0,
                     gap: 1,
                     borderTop: `1px solid ${theme.palette.divider}`,
                     backgroundColor: theme.palette.background.paper,
                     flexShrink: 0,
-                    minHeight: "auto", // Сбрасываем системные ограничения MUI по высоте
+                    minHeight: "auto",
                 }}
             >
                 <Button
-                    onClick={onClose}
+                    onClick={handleClose}
                     variant="text"
                     sx={{
                         color: "text.secondary",
                         textTransform: "none",
                         fontWeight: 500,
                         px: 2,
-                        py: 0.5, // Высота кнопок осталась прежней и удобной для клика
+                        py: 0.5,
                         flex: isMobile ? 1 : "none"
                     }}
                 >
@@ -158,10 +225,12 @@ export default function BendingDialog({
                         py: 0.5,
                         borderRadius: isMobile ? 1.5 : 2,
                         flex: isMobile ? 1 : "none",
+
                         "&.Mui-disabled": {
-                            backgroundColor: theme.palette.mode === "dark"
-                                ? "rgba(255, 255, 255, 0.12)"
-                                : "rgba(0, 0, 0, 0.12)",
+                            backgroundColor:
+                                theme.palette.mode === "dark"
+                                    ? "rgba(255, 255, 255, 0.12)"
+                                    : "rgba(0, 0, 0, 0.12)",
                         }
                     }}
                 >
