@@ -30,31 +30,25 @@ export default function DialogManager() {
     const dialog = useSelector(selectCurrentDialog);
     const stack = useSelector(selectDialogStack);
 
-    const historyDepth = useRef(0);
     const previousStackLength = useRef(0);
+    const historyDepth = useRef(0);
 
-    // Флаг: history.back() был вызван нами,
-    // поэтому popstate не должен повторно закрывать Dialog.
-    const programmaticBack = useRef(false);
+    // Back браузера/телефона уже обработал изменение history.
+    const browserBack = useRef(false);
+
+    // Закрытие Dialog программно.
+    const programmaticClose = useRef(false);
 
     /*
-     * Синхронизация Redux stack <-> browser history.
-     *
-     * Каждый Dialog = одна history-запись.
-     *
-     * Например:
-     *
-     * Redux:
-     * [A, B, C]
-     *
-     * History:
-     * page -> A -> B -> C
+     * Синхронизация Redux stack -> browser history.
      */
     useEffect(() => {
         const currentLength = stack.length;
         const previousLength = previousStackLength.current;
 
-        // Открыли один или несколько Dialog.
+        /*
+         * Открылись новые Dialog.
+         */
         if (currentLength > previousLength) {
             const count = currentLength - previousLength;
 
@@ -62,7 +56,7 @@ export default function DialogManager() {
                 window.history.pushState(
                     {
                         ...(window.history.state || {}),
-                        bendingDialog: true,
+                        bendingDialog: true
                     },
                     ""
                 );
@@ -71,15 +65,39 @@ export default function DialogManager() {
             }
         }
 
-        // Dialog был закрыт через крестик / Cancel / Save
-        // или stack был очищен.
+        /*
+         * Dialog закрылся.
+         */
         if (currentLength < previousLength) {
             const count = previousLength - currentLength;
 
-            if (historyDepth.current >= count) {
-                historyDepth.current -= count;
+            /*
+             * Если закрытие произошло через системный Back,
+             * history уже была изменена самим браузером.
+             *
+             * НИКАКОЙ history.back() здесь больше не нужен.
+             */
+            if (browserBack.current) {
+                browserBack.current = false;
 
-                programmaticBack.current = true;
+                historyDepth.current = Math.max(
+                    0,
+                    historyDepth.current - count
+                );
+            } else {
+                /*
+                 * Закрытие произошло через:
+                 * Cancel / крестик / Save.
+                 *
+                 * Поэтому теперь удаляем соответствующие
+                 * записи из browser history.
+                 */
+                historyDepth.current = Math.max(
+                    0,
+                    historyDepth.current - count
+                );
+
+                programmaticClose.current = true;
 
                 window.history.go(-count);
             }
@@ -89,31 +107,43 @@ export default function DialogManager() {
     }, [stack.length]);
 
     /*
-     * Системная кнопка Back / браузерная кнопка Back.
-     *
-     * Если есть открытые Dialog, закрываем только верхний.
+     * Обработка системной кнопки Back / браузерной Back.
      */
     useEffect(() => {
         const handlePopState = () => {
-            // Это был history.go(-count), вызванный нами
-            // после обычного закрытия Dialog.
-            if (programmaticBack.current) {
-                programmaticBack.current = false;
+            /*
+             * Это popstate, который мы сами вызвали
+             * через history.go(-count) после обычного закрытия.
+             */
+            if (programmaticClose.current) {
+                programmaticClose.current = false;
                 return;
             }
 
-            // Если Dialog открыт — Back закрывает верхний.
-            if (historyDepth.current > 0 && stack.length > 0) {
-                historyDepth.current -= 1;
+            /*
+             * Если открыт хотя бы один Dialog,
+             * системный Back закрывает только верхний.
+             */
+            if (
+                historyDepth.current > 0 &&
+                stack.length > 0
+            ) {
+                browserBack.current = true;
 
                 dispatch(closeDialog());
             }
         };
 
-        window.addEventListener("popstate", handlePopState);
+        window.addEventListener(
+            "popstate",
+            handlePopState
+        );
 
         return () => {
-            window.removeEventListener("popstate", handlePopState);
+            window.removeEventListener(
+                "popstate",
+                handlePopState
+            );
         };
     }, [dispatch, stack.length]);
 
