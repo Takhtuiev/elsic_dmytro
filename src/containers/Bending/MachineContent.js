@@ -301,7 +301,9 @@ const MachineContent=({
         >
             <Box
                 sx={{
-                    flex:"0 0 260px",
+                    flex:{
+                        md:"0 0 260px"
+                    },
                     borderRight:{
                         md:"1px solid"
                     },
