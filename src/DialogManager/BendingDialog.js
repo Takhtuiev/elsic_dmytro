@@ -26,6 +26,8 @@ export default function BendingDialog({
     const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
     const historyAdded = useRef(false);
+    const closingByHistory = useRef(false);
+
     const onCloseRef = useRef(onClose);
     const onApplyRef = useRef(onApply);
 
@@ -39,16 +41,27 @@ export default function BendingDialog({
         onApplyRef.current = onApply;
     }, [onApply]);
 
-    // На мобильном добавляем отдельную запись в history.
-    // Системная кнопка Back тогда сначала закрывает Dialog.
+    // Каждое открытое мобильное окно получает
+    // собственную запись в browser history.
     useEffect(() => {
         if (!open || !isMobile) return;
 
-        window.history.pushState({ bendingDialog: true }, "");
         historyAdded.current = true;
+        closingByHistory.current = false;
+
+        window.history.pushState(
+            { ...(window.history.state || {}), bendingDialog: true },
+            ""
+        );
 
         const handlePopState = () => {
+            // Back был нажат пользователем.
+            // Текущий Dialog является верхним и должен закрыться.
+            if (!historyAdded.current) return;
+
             historyAdded.current = false;
+            closingByHistory.current = true;
+
             onCloseRef.current?.();
         };
 
@@ -56,20 +69,15 @@ export default function BendingDialog({
 
         return () => {
             window.removeEventListener("popstate", handlePopState);
-
-            // Если Dialog был закрыт не через Back,
-            // удаляем созданную им запись history.
-            if (historyAdded.current) {
-                historyAdded.current = false;
-                window.history.back();
-            }
         };
     }, [open, isMobile]);
 
-    // Обычное закрытие Dialog.
+    // Закрытие через крестик / Cancel / Esc.
     const handleClose = () => {
         if (isMobile && historyAdded.current) {
             historyAdded.current = false;
+
+            // Удаляем history-запись этого Dialog.
             window.history.back();
             return;
         }
@@ -77,14 +85,12 @@ export default function BendingDialog({
         onClose?.();
     };
 
-    // Enter = Save.
+    // Enter = Save
     const handleKeyDown = (event) => {
         if (event.key !== "Enter" || event.shiftKey) return;
 
-        // В textarea Enter должен оставаться обычным переносом строки.
         if (event.target.tagName === "TEXTAREA") return;
 
-        // Не срабатываем на disabled Save.
         if (applyDisabled) return;
 
         event.preventDefault();
@@ -95,7 +101,7 @@ export default function BendingDialog({
         <Dialog
             open={open}
             onClose={(event, reason) => {
-                // Клик мышью вне окна ничего не делает.
+                // Клик по backdrop не закрывает Dialog.
                 if (reason === "backdropClick") return;
 
                 handleClose();
@@ -223,7 +229,7 @@ export default function BendingDialog({
 
                 <Button
                     variant="contained"
-                    onClick={() => onApply?.(value)}
+                    onClick={() => onApplyRef.current?.(value)}
                     disabled={applyDisabled}
                     disableElevation
                     sx={{
