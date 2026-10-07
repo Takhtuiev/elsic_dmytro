@@ -601,8 +601,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                             centerCoeff += 2 * coeffRightY;
                         } else if (j === lastY) {
                             const coeffLeftY = (dt * kEff) / (dyH * dyL);
-                            matrixA[matRowOffset - 1] = -2 * coeffLeftY;
-                            centerCoeff += 2 * coeffLeftY;
+                            matrixA[matRowOffset - 1] = -coeffLeftY; // Убрали удвоение
+                            centerCoeff += coeffLeftY; // Тепло уходит дальше по листу
                         }
                     }
 
@@ -821,8 +821,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                             centerCoeff += 2 * coeffRightY;
                         } else if (j === lastY) {
                             const coeffLeftY = (coolingDt * kEff) / (dyH * dyL);
-                            matrixA[matRowOffset - 1] = -2 * coeffLeftY;
-                            centerCoeff += 2 * coeffLeftY;
+                            matrixA[matRowOffset - 1] = -coeffLeftY; // Убрали удвоение
+                            centerCoeff += coeffLeftY; // Даем теплу рассеиваться в холодную часть
                         }
                     }
                     matrixA[matRowOffset] = centerCoeff;
