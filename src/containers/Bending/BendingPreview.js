@@ -247,7 +247,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         });
     }, [profile?.thickness, profile?.material, profile?.machine, profile?.simulation]);
 
-    console.log(result2D)
+    //console.log(result2D)
 
 
     const colors = useMemo(() => ({
