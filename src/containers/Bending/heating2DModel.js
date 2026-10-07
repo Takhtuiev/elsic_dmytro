@@ -601,8 +601,23 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                             centerCoeff += 2 * coeffRightY;
                         } else if (j === lastY) {
                             const coeffLeftY = (dt * kEff) / (dyH * dyL);
-                            matrixA[matRowOffset - 1] = -coeffLeftY; // Убрали удвоение
-                            centerCoeff += coeffLeftY; // Тепло уходит дальше по листу
+                            const coeffRightY = (dt * kEff) / (dyH * dyL);
+
+                            // Внутри сетки считаем честно и неявно
+                            matrixA[matRowOffset - 1] = -coeffLeftY;
+                            centerCoeff += coeffLeftY;
+                            matrixA[matRowOffset] = centerCoeff;
+
+                            // А отток тепла наружу считаем явно, на основе остывания до ambientTemperatureK
+                            // сглаженного по температуре края с прошлого временного шага (oldT)
+                            const T_edge_old = oldT[idxRow];
+                            const T_virtual_extrapolated = T_edge_old - (oldT[idxRow - 1] - T_edge_old);
+
+                            // Ограничиваем экстраполяцию снизу, чтобы она не падала ниже ambient
+                            const T_target = T_virtual_extrapolated < ambientTemperatureK ? ambientTemperatureK : T_virtual_extrapolated;
+
+                            // Добавляем этот отток тепла в правую часть (RHS) как известную величину
+                            rhsVec[idxRow] += coeffRightY * (T_target - T_edge_old);
                         }
                     }
 
@@ -821,8 +836,17 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                             centerCoeff += 2 * coeffRightY;
                         } else if (j === lastY) {
                             const coeffLeftY = (coolingDt * kEff) / (dyH * dyL);
-                            matrixA[matRowOffset - 1] = -coeffLeftY; // Убрали удвоение
-                            centerCoeff += coeffLeftY; // Даем теплу рассеиваться в холодную часть
+                            const coeffRightY = (coolingDt * kEff) / (dyH * dyL);
+
+                            matrixA[matRowOffset - 1] = -coeffLeftY;
+                            centerCoeff += coeffLeftY;
+                            matrixA[matRowOffset] = centerCoeff;
+
+                            const T_edge_old = oldT[idxRow];
+                            const T_virtual_extrapolated = T_edge_old - (oldT[idxRow - 1] - T_edge_old);
+                            const T_target = T_virtual_extrapolated < ambientTemperatureK ? ambientTemperatureK : T_virtual_extrapolated;
+
+                            rhsVec[idxRow] += coeffRightY * (T_target - T_edge_old);
                         }
                     }
                     matrixA[matRowOffset] = centerCoeff;
