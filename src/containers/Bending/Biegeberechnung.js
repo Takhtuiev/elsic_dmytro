@@ -91,6 +91,8 @@ const INITIAL_STATE={
                 )/2
         },
 
+        widthHalfMm: 0,
+
         temperatures:{
             ambientC:20,
             ambientRadiationC:20,

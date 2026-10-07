@@ -34,8 +34,8 @@ export const MACHINES = {
                 regulatorTemperatureC: 270,
                 heaterTemperatureFactor: 1.0,
                 heaterEmissivity: 0.90,
-                viewFactor: 0.9,
-                radiationGain: 1.00,
+                viewFactor: 1,
+                radiationGain: 0.90,
                 convectiveHeatTransferCoefficient: 8,
             },
             {
