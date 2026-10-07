@@ -166,12 +166,6 @@ const Parameters = React.memo(({ profile, part, machineParams, data }) => {
                 </Box>
             )}
 
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
-                <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
-                    Heat temp: <strong>top: {data?.heaterTemperaturesC?.top ?? "—"}°C, bottom: {data?.heaterTemperaturesC?.bottom ?? "—"}°C</strong>
-                </Typography>
-            </Box>
-
             <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
                 Heating: <strong>{formatTime(data?.heatingTimeSeconds)}</strong> (ΔT = {heatingDeltaT !== null ? heatingDeltaT.toFixed(1) : "—"}°C)
                 {Number.isFinite(Number(data?.coolingTimeSeconds)) && (
