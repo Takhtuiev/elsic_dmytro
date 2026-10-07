@@ -438,8 +438,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             }
 
         };
-    }, [result2D, theme, profile?.thickness]);
-
+    }, [result2D, theme, profile?.thickness, commonYAxis]);
 
 
     return (
