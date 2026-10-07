@@ -170,7 +170,7 @@ const Parameters = React.memo(({ profile, part, machineParams, data }) => {
                 Heating: <strong>{formatTime(data?.heatingTimeSeconds)}</strong> (ΔT = {heatingDeltaT !== null ? heatingDeltaT.toFixed(1) : "—"}°C)
                 {Number.isFinite(Number(data?.coolingTimeSeconds)) && (
                     <>
-                        , Cooling: <strong>{formatTime(data.coolingTimeSeconds)}</strong> (ΔT = {pauseDeltaT !== null ? pauseDeltaT.toFixed(1) : "—"}°C)
+                        , Pause: <strong>{formatTime(data.coolingTimeSeconds)}</strong> (ΔT = {pauseDeltaT !== null ? pauseDeltaT.toFixed(1) : "—"}°C)
                     </>
                 )}
             </Typography>
