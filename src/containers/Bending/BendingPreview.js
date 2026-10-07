@@ -112,15 +112,31 @@ const Parameters = React.memo(({ profile, part, machineParams, data }) => {
     const status = data?.status;
     const statusColor = status?.type === "error" ? "error" : status?.type === "warning" ? "warning" : "text.secondary";
 
-    const getDeltaT = useCallback((values) => {
-        if (!values) return null;
-        const numericValues = Array.from(values).map(Number).filter(Number.isFinite);
-        if (!numericValues.length) return null;
-        return Math.max(...numericValues) - Math.min(...numericValues);
+    // Новая логика: передаем профиль температур и фазу, извлекаем срез y=0
+    const getDeltaTForVerticalSlice = useCallback((temperatureProfile, phase) => {
+        if (!temperatureProfile) return null;
+
+        // Получаем точки [x, temperature] для вертикального среза у = 0
+        const points = getVerticalSlicePoints(temperatureProfile, 0, phase);
+        if (!points || !points.length) return null;
+
+        // Извлекаем только значения температур (второй элемент каждого массива [x, temp])
+        const temperatures = points.map(p => Number(p[1])).filter(Number.isFinite);
+        if (!temperatures.length) return null;
+
+        return Math.max(...temperatures) - Math.min(...temperatures);
     }, []);
 
-    const heatingDeltaT = useMemo(() => getDeltaT(data?.temperatureProfile?.temperaturesC), [data?.temperatureProfile?.temperaturesC, getDeltaT]);
-    const pauseDeltaT = useMemo(() => getDeltaT(data?.temperatureProfile?.cooldownProfileC), [data?.temperatureProfile?.cooldownProfileC, getDeltaT]);
+    // Считаем дельту строго в срезе y=0 для обеих фаз
+    const heatingDeltaT = useMemo(() =>
+            getDeltaTForVerticalSlice(data?.temperatureProfile, "heating"),
+        [data?.temperatureProfile, getDeltaTForVerticalSlice]
+    );
+
+    const pauseDeltaT = useMemo(() =>
+            getDeltaTForVerticalSlice(data?.temperatureProfile, "pause"),
+        [data?.temperatureProfile, getDeltaTForVerticalSlice]
+    );
 
     return (
         <Box className="bend-preview-parameters">
@@ -158,9 +174,9 @@ const Parameters = React.memo(({ profile, part, machineParams, data }) => {
 
             <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
                 Heating: <strong>{formatTime(data?.heatingTimeSeconds)}</strong> (ΔT = {heatingDeltaT !== null ? heatingDeltaT.toFixed(1) : "—"}°C)
-                {Number.isFinite(Number(data?.cooldownTimeSec)) && (
+                {Number.isFinite(Number(data?.coolingTimeSeconds)) && (
                     <>
-                        , Pause: <strong>{formatTime(data.cooldownTimeSec)}</strong> (ΔT = {pauseDeltaT !== null ? pauseDeltaT.toFixed(1) : "—"}°C)
+                        , Cooling: <strong>{formatTime(data.coolingTimeSeconds)}</strong> (ΔT = {pauseDeltaT !== null ? pauseDeltaT.toFixed(1) : "—"}°C)
                     </>
                 )}
             </Typography>
@@ -172,7 +188,7 @@ const Parameters = React.memo(({ profile, part, machineParams, data }) => {
             )}
 
             <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.8)`}>
-                Simulation calculation time: {data?.calculationTimeMs?.toFixed(1)} ms {isDev && "(2D)"}
+                Simulation calculation time: {data?.calculationTimeMs?.toFixed(1)} ms
             </Typography>
         </Box>
     );
@@ -231,7 +247,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         });
     }, [profile?.thickness, profile?.material, profile?.machine, profile?.simulation]);
 
-    console.log(result2D)
+    //console.log(result2D)
 
 
     const colors = useMemo(() => ({
@@ -274,17 +290,20 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 
 
 // =================================================================
-// 1. ХУК ДЛЯ ГРАФИКОВ ПО 1D МОДЕЛИ (Толщина и Время) + 2D Вертикальный срез
+// 1. ХУК ДЛЯ ГРАФИКОВ ПО МОДЕЛЯМ (Толщина и Динамика Времени)
 // =================================================================
     const chart1And2 = useMemo(() => {
-        // Если нет 2D данных, графики построить нельзя
         if (!result2D) return { chart1: null, chart2: null };
 
         const thickness = Number(profile?.thickness || 0);
+        const heatingTimeSeconds = Number(result2D.heatingTimeSeconds || 0);
 
         const graphsChart1 = [];
+        const graphsChart2 = [];
 
-        // Включаем 1D графики только в режиме разработки
+        // ---------------------------------------------------------
+        // Наполнение CHART 1 и CHART 2 данными 1D (Режим DEV)
+        // ---------------------------------------------------------
         if (isDev && dataSimulate?.temperatureProfile) {
             const dxMm1D = dataSimulate.temperatureProfile.dxMm || 0;
             graphsChart1.push(
@@ -301,7 +320,38 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             );
         }
 
-        // Основные графики вертикального среза 2D (показываются всегда)
+        if (isDev && dataSimulate?.history) {
+            const { history: hist1D, heatingTimeSeconds: heatTime1D } = dataSimulate;
+            const heatHist = hist1D?.heating;
+            const coolHist = hist1D?.cooling;
+            const heatStep = heatHist?.stepSeconds || 0;
+            const coolStep = coolHist?.stepSeconds || heatStep || 0;
+
+            graphsChart2.push(
+                {
+                    name: "Front Surface (1D)",
+                    points: getChartPoints(heatHist?.frontSurfaceC, heatStep)
+                        .concat(getChartPoints(coolHist?.frontSurfaceC, coolStep, Number(heatTime1D))),
+                    color: theme.palette.info.main, opacity: 0.4, lineWidth: 1, showMarker: false,
+                },
+                {
+                    name: "Center (1D)",
+                    points: getChartPoints(heatHist?.centerC, heatStep)
+                        .concat(getChartPoints(coolHist?.centerC, coolStep, Number(heatTime1D))),
+                    color: theme.palette.info.main, opacity: 0.4, lineWidth: 1, showMarker: false,
+                },
+                {
+                    name: "Back Surface (1D)",
+                    points: getChartPoints(heatHist?.backSurfaceC, heatStep)
+                        .concat(getChartPoints(coolHist?.backSurfaceC, coolStep, Number(heatTime1D))),
+                    color: theme.palette.info.main, opacity: 0.4, lineWidth: 1, showMarker: false,
+                }
+            );
+        }
+
+        // ---------------------------------------------------------
+        // Наполнение CHART 1 и CHART 2 данными актуальной 2D модели
+        // ---------------------------------------------------------
         if (result2D?.temperatureProfile) {
             graphsChart1.push(
                 {
@@ -317,7 +367,30 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             );
         }
 
-        // --- CHART 1 (Профиль по толщине) ---
+        if (result2D?.history) {
+            const { history: hist2D } = result2D;
+            const times = hist2D.time || [];
+
+            graphsChart2.push(
+                {
+                    name: "Front Surface (2D)",
+                    points: times.map((t, idx) => [t, Number(hist2D.frontSurfaceC[idx])]),
+                    color: theme.palette.error.main, opacity: 1, lineWidth: 1, showMarker: true,
+                },
+                {
+                    name: "Center (2D)",
+                    points: times.map((t, idx) => [t, Number(hist2D.centerC[idx])]),
+                    color: theme.palette.success.main, opacity: 1, lineWidth: 1, showMarker: true,
+                },
+                {
+                    name: "Back Surface (2D)",
+                    points: times.map((t, idx) => [t, Number(hist2D.backSurfaceC[idx])]),
+                    color: theme.palette.primary.main, opacity: 1, lineWidth: 1, showMarker: true,
+                }
+            );
+        }
+
+        // --- Сборка CHART 1 (Профиль по толщине) ---
         const chart1 = {
             graphs: graphsChart1,
             axes: {
@@ -326,57 +399,14 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             }
         };
 
-        // --- CHART 2 (Динамика во времени из 1D истории) — ТОЛЬКО ДЛЯ DEV ---
-        let chart2 = null;
-        if (isDev && dataSimulate?.history) {
-            const { history, heatingTimeSeconds } = dataSimulate;
-            const heatHist = history?.heating;
-            const coolHist = history?.cooling;
-            const heatStep = heatHist?.stepSeconds || 0;
-            const coolStep = coolHist?.stepSeconds || heatStep || 0;
-
-            chart2 = {
-                graphs: [
-                    {
-                        name: "frontSurfaceC",
-                        points: getChartPoints(heatHist?.frontSurfaceC, heatStep)
-                            .concat([[heatingTimeSeconds, coolHist?.frontSurfaceC?.[0] || 0]]),
-                        color: theme.palette.text.primary, opacity: 1, lineWidth: 1.5, showMarker: false,
-                    },
-                    {
-                        name: "frontSurfaceCooling",
-                        points: getChartPoints(coolHist?.frontSurfaceC, coolStep, Number(heatingTimeSeconds)),
-                        color: theme.palette.text.secondary, opacity: 0.7, lineWidth: 1, showMarker: true,
-                    },
-                    {
-                        name: "backSurfaceC",
-                        points: getChartPoints(heatHist?.backSurfaceC, heatStep)
-                            .concat([[heatingTimeSeconds, coolHist?.backSurfaceC?.[0] || 0]]),
-                        color: theme.palette.text.primary, opacity: 1, lineWidth: 1.5, showMarker: false,
-                    },
-                    {
-                        name: "backSurfaceCooling",
-                        points: getChartPoints(coolHist?.backSurfaceC, coolStep, Number(heatingTimeSeconds)),
-                        color: theme.palette.text.secondary, opacity: 0.7, lineWidth: 1, showMarker: true,
-                    },
-                    {
-                        name: "centerC",
-                        points: getChartPoints(heatHist?.centerC, heatStep)
-                            .concat([[heatingTimeSeconds, coolHist?.centerC?.[0] || 0]]),
-                        color: theme.palette.text.primary, opacity: 1, lineWidth: 1.5, showMarker: false,
-                    },
-                    {
-                        name: "centerCooling",
-                        points: getChartPoints(coolHist?.centerC, coolStep, Number(heatingTimeSeconds)),
-                        color: theme.palette.text.secondary, opacity: 0.7, lineWidth: 1, showMarker: true,
-                    }
-                ],
-                axes: {
-                    x: { unit: "s", lines: [{ value: Number(heatingTimeSeconds), color: theme.palette.text.secondary }], ranges: [] },
-                    y: commonYAxis
-                }
-            };
-        }
+        // --- Сборка CHART 2 (Динамика истории во времени) ---
+        const chart2 = graphsChart2.length > 0 ? {
+            graphs: graphsChart2,
+            axes: {
+                x: { unit: "s", lines: [{ value: heatingTimeSeconds, color: theme.palette.text.secondary }], ranges: [] },
+                y: commonYAxis
+            }
+        } : null;
 
         return { chart1, chart2 };
     }, [dataSimulate, result2D, commonYAxis, theme, profile?.thickness]);
@@ -478,7 +508,6 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 
             <Box className="bend-preview-bottom" sx={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", width: "100%", flexShrink: 0, gap: 1 }}>
                 <Box sx={{ flex: "1 1 18rem" }}>
-                    {/* Передаем result2D вместо dataSimulate, чтобы параметры формировались на основе актуальной 2D модели */}
                     <Parameters profile={profile} part={{ blankLength }} machineParams={machineParams} data={result2D} />
                 </Box>
 
@@ -491,7 +520,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                             gap: 1,
                         }}
                     >
-                        {/* --- ГРАФИК 1: Профиль по толщине (2D срез всегда, 1D только в dev) --- */}
+                        {/* --- ГРАФИК 1: Профиль по толщине (2D и 1D) --- */}
                         {chart1And2?.chart1 && (
                             <Box mx={"auto"}>
                                 <SvgLineChart chart={chart1And2.chart1} />
@@ -505,8 +534,8 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                             </Box>
                         )}
 
-                        {/* --- ГРАФИК 2: Динамика во времени (Только для разработки) --- */}
-                        {isDev && chart1And2?.chart2 && (
+                        {/* --- ГРАФИК 2: История динамики во времени (2D всегда, 1D подмешивается в dev) --- */}
+                        {chart1And2?.chart2 && (
                             <Box mx={"auto"}>
                                 <SvgLineChart chart={chart1And2.chart2} />
                             </Box>

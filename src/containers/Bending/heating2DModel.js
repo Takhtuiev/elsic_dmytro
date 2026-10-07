@@ -98,6 +98,7 @@ function createMaterialModel(material) {
 const makeError = (message, extra = {}) => ({
     status: { type: "error", message },
     heatingTimeSeconds: 0,
+    coolingTimeSeconds: 0,
     calculationTimeMs: 0,
     reachedTarget: false,
     stoppedByMaxTemperature: false,
@@ -157,15 +158,13 @@ function createNonlinearGridX(thicknessMm, nodeCount) {
 function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convectionTransitionEndMm) {
     let y = new Float64Array(nodeCount);
 
-    const ySlot = slotHalfWidthMm;
-    const yTrans = convectionTransitionEndMm;
-    const yCenter = (ySlot + yTrans) / 2.0;
+    const yCenter = (slotHalfWidthMm + convectionTransitionEndMm) / 2.0;
     const yChangePrincipleMm = slotHalfWidthMm + 3.0;
 
     function getWeightDensity(posMm) {
         let weight = 1.0;
         weight += 2.0 * Math.exp(-Math.pow(posMm / 3.0, 2));
-        const zoneWidth = (yTrans - ySlot) * 0.5 || 1.5;
+        const zoneWidth = (convectionTransitionEndMm - slotHalfWidthMm) * 0.5 || 1.5;
         weight += 8.0 * Math.exp(-Math.pow((posMm - yCenter) / zoneWidth, 2));
         return weight;
     }
@@ -297,9 +296,8 @@ function solveBandMatrixOptimized(A, N, bandWidth, r, x, precalc) {
             const iStride = i * abRowStride;
             let sum = A[iStride + (lead + j - i)];
             const kMinI = kMinIArr[i];
-            const kMin = kMinI < kMinJ ? kMinJ : kMinI;
 
-            let k = kMin;
+            let k = kMinI < kMinJ ? kMinJ : kMinI;
             for (; k < i - 3; k += 4) {
                 sum -= A[iStride + (lead + k - i)] * A[k * abRowStride + (lead + j - k)];
                 sum -= A[iStride + (lead + k + 1 - i)] * A[(k + 1) * abRowStride + (lead + j - (k + 1))];
@@ -316,9 +314,8 @@ function solveBandMatrixOptimized(A, N, bandWidth, r, x, precalc) {
             const iStride = i * abRowStride;
             let sum = A[iStride + (lead + j - i)];
             const kMinI = kMinIArr[i];
-            const kMin = kMinI < kMinJ ? kMinJ : kMinI;
 
-            let k = kMin;
+            let k = kMinI < kMinJ ? kMinJ : kMinI;
             for (; k < j - 3; k += 4) {
                 sum -= A[iStride + (lead + k - i)] * A[k * abRowStride + (lead + j - k)];
                 sum -= A[iStride + (lead + k + 1 - i)] * A[(k + 1) * abRowStride + (lead + j - (k + 1))];
@@ -497,12 +494,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let lastLoggedTime = -1;
     const logHistory = (force = false) => {
         if (!storeHistory) return;
-        if (!force && (time - lastLoggedTime < 0.2) && time < simulationMaxTime) return;
+        if (!force && (time - lastLoggedTime < 1.0) && time < simulationMaxTime) return;
 
         history.time.push(time);
-        history.frontSurfaceC.push(T[0] - 273.15);
-        history.centerC.push(T[((Nx - 1) >> 1) * Ny] - 273.15);
-        history.backSurfaceC.push(T[lastX * Ny] - 273.15);
+        history.frontSurfaceC.push(T[0] - 273.15); // x=0, y=0
+        history.centerC.push(T[((Nx - 1) >> 1) * Ny] - 273.15); // x=center, y=0
+        history.backSurfaceC.push(T[lastX * Ny] - 273.15); // x=thickness, y=0
         lastLoggedTime = time;
     };
 
@@ -742,6 +739,20 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
     let coolingTimeElapsed = 0;
     let coolingDt = 0.05;
+    let lastCoolingLoggedTime = -1.0;
+
+    const logCoolingHistory = (force = false) => {
+        if (!storeHistory) return;
+        if (!force && (coolingTimeElapsed - lastCoolingLoggedTime < 1.0) && coolingTimeElapsed < coolingTime) return;
+
+        history.time.push(time + coolingTimeElapsed);
+        history.frontSurfaceC.push(T[0] - 273.15);
+        history.centerC.push(T[((Nx - 1) >> 1) * Ny] - 273.15);
+        history.backSurfaceC.push(T[lastX * Ny] - 273.15);
+        lastCoolingLoggedTime = coolingTimeElapsed;
+    };
+
+    logCoolingHistory(true);
 
     while (coolingTimeElapsed < coolingTime) {
         if (coolingTimeElapsed + coolingDt > coolingTime) {
@@ -823,7 +834,11 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         }
         T.set(currentIterT);
         coolingTimeElapsed += coolingDt;
+
+        logCoolingHistory(false);
     }
+
+    logCoolingHistory(true);
 
     const pauseProfileC = new Float64Array(size2D);
     for (let i = 0; i < size2D; i++) {
@@ -832,6 +847,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
     return {
         heatingTimeSeconds: time,
+        coolingTimeSeconds: coolingTimeElapsed,
         calculationTimeMs: performance.now() - calculationStart,
         reachedTarget,
         status,
