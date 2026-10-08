@@ -247,16 +247,16 @@ const Parameters = React.memo(({ profile, part, machineParams, data, plasticZone
                 )}
             </Typography>
 
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+            {maxRadius !== null &&  plasticZoneWidth !== null && (
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
                 <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
-                    Plastic zone width (pause): <strong>{plasticZoneWidth !== null ? `${plasticZoneWidth.toFixed(1)} mm` : "—"}</strong>
+                    Plastic zone width (pause): <strong>{`${plasticZoneWidth.toFixed(1)} mm`}</strong>
                 </Typography>
-                {maxRadius !== null && (
                     <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
                         Max internal radius: <strong>{maxRadius > 0 ? `${maxRadius.toFixed(1)} mm` : "0.0 mm"}</strong>
                     </Typography>
-                )}
             </Box>
+            )}
 
             {status?.type !== "ok" && status?.message && (
                 <Typography variant="body2" color={statusColor} fontSize={PARAMETER_TEXT_SIZE} fontWeight={500} sx={{ mt: 0.5 }}>
@@ -496,6 +496,10 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 // РАСЧЕТ МАКСИМАЛЬНОГО ВНУТРЕННЕГО РАДИУСА ГИБКИ С УЧЕТОМ K-FACTOR
 // =================================================================
     const maxRadiusCalculated = useMemo(() => {
+
+        if (plasticZoneWidthCalculated == null) {
+            return null;
+        }
         const bendAngle = Number(machineParams?.bendAngle);
         const thickness = Number(profile?.thickness || 0);
 
