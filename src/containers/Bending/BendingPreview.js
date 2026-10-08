@@ -13,7 +13,7 @@ import {getHorizontalSlicePoints, getVerticalSlicePoints, simulate2DHeating} fro
 // ============================================================================
 import { simulate1DHeating } from "./pvc-1d-transient-heating";
 
-const isDev = process.env.REACT_APP_DEVELOPMENT === 'development';
+const isDev = process.env.REACT_APP_DEVELOPMENT === 'true';
 
 const get1DChartsData = (profile, theme, graphsChart1, graphsChart2) => {
     if (!isDev || !profile?.thickness || !profile?.material || !profile?.machine || !profile.simulation) {
