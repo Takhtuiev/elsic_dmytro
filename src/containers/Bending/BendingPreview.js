@@ -166,7 +166,7 @@ const PartHeader = React.memo(({ profile }) => (
 PartHeader.displayName = "PartHeader";
 
 // Мемоизированные параметры.
-const Parameters = React.memo(({ profile, part, machineParams, data }) => {
+const Parameters = React.memo(({ profile, part, machineParams, data, plasticZoneWidth, maxRadius }) => {
     const material = profile?.material;
     const blankLength = Number(part?.blankLength);
     const width = Number(profile?.width);
@@ -187,12 +187,13 @@ const Parameters = React.memo(({ profile, part, machineParams, data }) => {
     const getDeltaTForVerticalSlice = useCallback((temperatureProfile, phase) => {
         if (!temperatureProfile) return null;
 
-        // Получаем точки [x, temperature] для вертикального среза у = 0
         const points = getVerticalSlicePoints(temperatureProfile, 0, phase);
         if (!points || !points.length) return null;
 
-        // Извлекаем только значения температур (второй элемент каждого массива [x, temp])
-        const temperatures = points.map(p => Number(p)).filter(Number.isFinite);
+        const temperatures = points
+            .map(p => Number(p?.[1]))
+            .filter(Number.isFinite);
+
         if (!temperatures.length) return null;
 
         return Math.max(...temperatures) - Math.min(...temperatures);
@@ -245,6 +246,17 @@ const Parameters = React.memo(({ profile, part, machineParams, data }) => {
                     </>
                 )}
             </Typography>
+
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+                <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
+                    Plastic zone width (pause): <strong>{plasticZoneWidth !== null ? `${plasticZoneWidth.toFixed(1)} mm` : "—"}</strong>
+                </Typography>
+                {maxRadius !== null && (
+                    <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
+                        Max internal radius: <strong>{maxRadius > 0 ? `${maxRadius.toFixed(1)} mm` : "0.0 mm"}</strong>
+                    </Typography>
+                )}
+            </Box>
 
             {status?.type !== "ok" && status?.message && (
                 <Typography variant="body2" color={statusColor} fontSize={PARAMETER_TEXT_SIZE} fontWeight={500} sx={{ mt: 0.5 }}>
@@ -422,6 +434,83 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 
 
 // =================================================================
+// ВЫДЕЛЕННЫЙ МЕМОИЗИРОВАННЫЙ РАСЧЕТ КООРДИНАТЫ X ДЛЯ ТЕМПЕРАТУРЫ Tg ПОСЛЕ ОСТЫВАНИЯ
+// =================================================================
+    const xTgPauseValue = useMemo(() => {
+        if (!result2D || !result2D.temperatureProfile) return null;
+
+        const thickness = Number(profile?.thickness || 0);
+        const width = Number(profile?.width || 0);
+        const glassTransition = Number(profile?.material?.glassTransitionTemp);
+
+        if (!Number.isFinite(glassTransition)) return null;
+
+        const topPoints = getHorizontalSlicePoints(result2D.temperatureProfile, 0, "pause") || [];
+        const midPoints = getHorizontalSlicePoints(result2D.temperatureProfile, thickness / 2, "pause") || [];
+        const bottomPoints = getHorizontalSlicePoints(result2D.temperatureProfile, thickness, "pause") || [];
+
+        const minTempsAtX = [];
+        for (let i = 0; i < topPoints.length; i++) {
+            if (!topPoints[i]) continue;
+            const x = topPoints[i][0];
+            const tTop = topPoints[i][1];
+
+            const tMid = midPoints.find(p => p && Math.abs(p[0] - x) < 0.01)?.[1] ?? tTop;
+            const tBot = bottomPoints.find(p => p && Math.abs(p[0] - x) < 0.01)?.[1] ?? tTop;
+
+            const minT = Math.min(tTop, tMid, tBot);
+            minTempsAtX.push({ x, minT });
+        }
+
+        let xTgPause = null;
+        for (let i = 0; i < minTempsAtX.length - 1; i++) {
+            const p1 = minTempsAtX[i];
+            const p2 = minTempsAtX[i + 1];
+
+            if ((p1.minT >= glassTransition && p2.minT <= glassTransition) ||
+                (p1.minT <= glassTransition && p2.minT >= glassTransition)) {
+
+                if (Math.abs(p2.minT - p1.minT) < 0.001) {
+                    xTgPause = p1.x;
+                } else {
+                    xTgPause = p1.x + (glassTransition - p1.minT) * (p2.x - p1.x) / (p2.minT - p1.minT);
+                }
+                break;
+            }
+        }
+
+        if (xTgPause !== null && xTgPause <= width / 2) {
+            return xTgPause;
+        }
+
+        return null;
+    }, [result2D, profile?.thickness, profile?.width, profile?.material?.glassTransitionTemp]);
+
+
+    const plasticZoneWidthCalculated = useMemo(() => {
+        return xTgPauseValue !== null ? xTgPauseValue * 2 : null;
+    }, [xTgPauseValue]);
+
+
+// =================================================================
+// РАСЧЕТ МАКСИМАЛЬНОГО ВНУТРЕННЕГО РАДИУСА ГИБКИ С УЧЕТОМ K-FACTOR
+// =================================================================
+    const maxRadiusCalculated = useMemo(() => {
+        const bendAngle = Number(machineParams?.bendAngle);
+        const thickness = Number(profile?.thickness || 0);
+
+        const kFactor = profile?.material?.kFactor;
+
+        const turnAngleRad = (bendAngle * Math.PI) / 180;
+        if (turnAngleRad <= 0) return 0;
+
+        const rInnerMax = (plasticZoneWidthCalculated / turnAngleRad) - (kFactor * thickness);
+
+        return rInnerMax > 0 ? rInnerMax : 0;
+    }, [plasticZoneWidthCalculated, machineParams?.bendAngle, profile?.thickness, profile?.material?.kFactor]);
+
+
+// =================================================================
 // 2. ХУК ДЛЯ ГРАФИКОВ ПО 2D МОДЕЛИ (Ширина и 3 Среза)
 // =================================================================
     const chart3Data = useMemo(() => {
@@ -429,7 +518,6 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 
         const thickness = Number(profile?.thickness || 0);
         const width = Number(profile?.width || 0);
-        const glassTransition = Number(profile?.material?.glassTransitionTemp);
 
         const makeSymmetric = (points) => {
             if (!points || !points.length) return [];
@@ -450,61 +538,21 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             }
         }
 
-        // 2. Поиск X-координаты пересечения Tg строго после остывания (фаза "pause")
-        if (Number.isFinite(glassTransition)) {
-            const topPoints = getHorizontalSlicePoints(result2D.temperatureProfile, 0, "pause") || [];
-            const midPoints = getHorizontalSlicePoints(result2D.temperatureProfile, thickness / 2, "pause") || [];
-            const bottomPoints = getHorizontalSlicePoints(result2D.temperatureProfile, thickness, "pause") || [];
-
-            // Собираем пары [x, min_temp_at_this_x] для положительной полуоси X
-            const minTempsAtX = [];
-            for (let i = 0; i < topPoints.length; i++) {
-                const x = topPoints[i][0];
-                const tTop = topPoints[i][1];
-
-                // Находим температуры в этой же координате X для середины и низа листа
-                const tMid = midPoints.find(p => Math.abs(p[0] - x) < 0.01)?.[1] ?? tTop;
-                const tBot = bottomPoints.find(p => Math.abs(p[0] - x) < 0.01)?.[1] ?? tTop;
-
-                // Берем наименьшую температуру по толщине (самое холодное ядро)
-                const minT = Math.min(tTop, tMid, tBot);
-                minTempsAtX.push({ x, minT });
-            }
-
-            // Ищем точку пересечения Tg методом линейной интерполяции
-            let xTgPause = null;
-            for (let i = 0; i < minTempsAtX.length - 1; i++) {
-                const p1 = minTempsAtX[i];
-                const p2 = minTempsAtX[i + 1];
-
-                if ((p1.minT >= glassTransition && p2.minT <= glassTransition) ||
-                    (p1.minT <= glassTransition && p2.minT >= glassTransition)) {
-
-                    if (Math.abs(p2.minT - p1.minT) < 0.001) {
-                        xTgPause = p1.x;
-                    } else {
-                        xTgPause = p1.x + (glassTransition - p1.minT) * (p2.x - p1.x) / (p2.minT - p1.minT);
-                    }
-                    break;
-                }
-            }
-
-            // Если точка найдена внутри физических границ детали, добавляем акцентные линии
-            if (xTgPause !== null && xTgPause <= width / 2) {
-                xLines.push({
-                    value: xTgPause,
-                    color: theme.palette.warning.main,
-                    lineWidth: 1.5,
-                    dashArray: "4 4",
-                    label: `Гибочная зона (${(xTgPause * 2).toFixed(1)} мм)`
-                });
-                xLines.push({
-                    value: -xTgPause,
-                    color: theme.palette.warning.main,
-                    lineWidth: 1.5,
-                    dashArray: "4 4"
-                });
-            }
+        // 2. Использование пересчитанной X-координаты пересечения Tg для акцентных линий
+        if (xTgPauseValue !== null) {
+            xLines.push({
+                value: xTgPauseValue,
+                color: theme.palette.warning.main,
+                lineWidth: 1.5,
+                dashArray: "4 4",
+                label: `Гибочная зона (${(xTgPauseValue * 2).toFixed(1)} мм)`
+            });
+            xLines.push({
+                value: -xTgPauseValue,
+                color: theme.palette.warning.main,
+                lineWidth: 1.5,
+                dashArray: "4 4"
+            });
         }
 
         return {
@@ -545,7 +593,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 y: commonYAxis
             }
         };
-    }, [result2D, theme, profile?.thickness, profile?.width, profile?.material?.glassTransitionTemp, commonYAxis]);
+    }, [result2D, theme, profile?.thickness, profile?.width, commonYAxis, xTgPauseValue]);
 
 
     return (
@@ -585,7 +633,14 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 
             <Box className="bend-preview-bottom" sx={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", width: "100%", flexShrink: 0, gap: 1 }}>
                 <Box sx={{ flex: "1 1 18rem" }}>
-                    <Parameters profile={profile} part={{ blankLength }} machineParams={machineParams} data={result2D} />
+                    <Parameters
+                        profile={profile}
+                        part={{ blankLength }}
+                        machineParams={machineParams}
+                        data={result2D}
+                        plasticZoneWidth={plasticZoneWidthCalculated}
+                        maxRadius={maxRadiusCalculated}
+                    />
                 </Box>
 
                 {(chart1And2?.chart1 || chart3Data || chart1And2?.chart2) && (
