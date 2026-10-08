@@ -4,12 +4,83 @@ import { alpha } from "@mui/material/styles";
 
 import BendProfileRender from "./BendProfileRender";
 import { prepareSvgLayers } from "./prepareSvgLayers";
-import { simulate1DHeating } from "./pvc-1d-transient-heating";
 import SvgLineChart from "./SvgLineChart";
 import {getHorizontalSlicePoints, getVerticalSlicePoints, simulate2DHeating} from "./heating2DModel";
 
-// Флаг режима разработки
+// ============================================================================
+// !!! БЛОК 1D СИМУЛЯЦИИ (ДЛЯ УДАЛЕНИЯ) !!!
+// Когда 1D больше не понадобится, полностью удалите этот блок до следующей метки.
+// ============================================================================
+import { simulate1DHeating } from "./pvc-1d-transient-heating";
+
 const isDev = process.env.REACT_APP_SHOW_1D_MODE === "true";
+
+const get1DChartsData = (profile, theme, graphsChart1, graphsChart2) => {
+    if (!isDev || !profile?.thickness || !profile?.material || !profile?.machine || !profile.simulation) {
+        return;
+    }
+
+    const dataSimulate = simulate1DHeating({
+        thicknessMm: profile.thickness,
+        material: profile.material,
+        machine: profile.machine,
+        simulation: profile.simulation,
+        storeHistory: profile.simulation?.recordHistory ?? false
+    });
+
+    if (!dataSimulate) return;
+
+    // Наполнение CHART 1 данными 1D
+    if (dataSimulate.temperatureProfile) {
+        const dxMm1D = dataSimulate.temperatureProfile.dxMm || 0;
+        graphsChart1.push(
+            {
+                name: "Heating (1D)",
+                points: getChartPoints(dataSimulate.temperatureProfile?.temperaturesC, dxMm1D),
+                color: theme.palette.dividers, opacity: 0.4, lineWidth: 1,
+            },
+            {
+                name: "Cooling (1D)",
+                points: getChartPoints(dataSimulate.temperatureProfile?.cooldownProfileC, dxMm1D),
+                color: theme.palette.dividers, opacity: 0.4, lineWidth: 1,
+            }
+        );
+    }
+
+    // Наполнение CHART 2 данными 1D
+    if (dataSimulate.history) {
+        const { history: hist1D, heatingTimeSeconds: heatTime1D } = dataSimulate;
+        const heatHist = hist1D?.heating;
+        const coolHist = hist1D?.cooling;
+        const heatStep = heatHist?.stepSeconds || 0;
+        const coolStep = coolHist?.stepSeconds || heatStep || 0;
+
+        graphsChart2.push(
+            {
+                name: "Front Surface (1D)",
+                points: getChartPoints(heatHist?.frontSurfaceC, heatStep)
+                    .concat(getChartPoints(coolHist?.frontSurfaceC, coolStep, Number(heatTime1D))),
+                color: theme.palette.dividers, opacity: 0.4, lineWidth: 1, showMarker: false,
+            },
+            {
+                name: "Center (1D)",
+                points: getChartPoints(heatHist?.centerC, heatStep)
+                    .concat(getChartPoints(coolHist?.centerC, coolStep, Number(heatTime1D))),
+                color: theme.palette.dividers, opacity: 0.4, lineWidth: 1, showMarker: false,
+            },
+            {
+                name: "Back Surface (1D)",
+                points: getChartPoints(heatHist?.backSurfaceC, heatStep)
+                    .concat(getChartPoints(coolHist?.backSurfaceC, coolStep, Number(heatTime1D))),
+                color: theme.palette.dividers, opacity: 0.4, lineWidth: 1, showMarker: false,
+            }
+        );
+    }
+};
+// ============================================================================
+// !!! КОНЕЦ БЛОКА 1D СИМУЛЯЦИИ !!!
+// ============================================================================
+
 
 const PARAMETER_TEXT_COLOR = "text.primary";
 const PARAMETER_TEXT_SIZE = "0.8rem";
@@ -121,7 +192,7 @@ const Parameters = React.memo(({ profile, part, machineParams, data }) => {
         if (!points || !points.length) return null;
 
         // Извлекаем только значения температур (второй элемент каждого массива [x, temp])
-        const temperatures = points.map(p => Number(p[1])).filter(Number.isFinite);
+        const temperatures = points.map(p => Number(p)).filter(Number.isFinite);
         if (!temperatures.length) return null;
 
         return Math.max(...temperatures) - Math.min(...temperatures);
@@ -211,21 +282,6 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         return () => observer.disconnect();
     }, []);
 
-    // 1D симуляция считается ТОЛЬКО в режиме разработки
-    const dataSimulate = useMemo(() => {
-        if (!isDev || !profile?.thickness || !profile?.material || !profile?.machine || !profile.simulation) {
-            return null;
-        }
-
-        return simulate1DHeating({
-            thicknessMm: profile.thickness,
-            material: profile.material,
-            machine: profile.machine,
-            simulation: profile.simulation,
-            storeHistory: profile.simulation?.recordHistory ?? false
-        });
-    }, [profile?.thickness, profile?.material, profile?.machine, profile?.simulation]);
-
 
     const result2D = useMemo(() => {
         if (!profile?.thickness || !profile?.material || !profile?.machine || !profile.simulation) {
@@ -241,8 +297,8 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         });
     }, [profile?.thickness, profile?.material, profile?.machine, profile?.simulation]);
 
-    //console.log(result2D)
 
+    console.log(result2D)
 
     const colors = useMemo(() => ({
         active: { line: theme.palette.text.primary, fill: alpha(theme.palette.text.primary, 0.1), annotation: alpha(theme.palette.text.primary, 0.75) },
@@ -296,52 +352,9 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         const graphsChart2 = [];
 
         // ---------------------------------------------------------
-        // Наполнение CHART 1 и CHART 2 данными 1D (Режим DEV)
+        // Вызов 1D симуляции для графиков (КОГДА БУДЕТЕ УДАЛЯТЬ 1D — СТЕРЕТЬ ЭТУ СТРОКУ)
         // ---------------------------------------------------------
-        if (isDev && dataSimulate?.temperatureProfile) {
-            const dxMm1D = dataSimulate.temperatureProfile.dxMm || 0;
-            graphsChart1.push(
-                {
-                    name: "Heating (1D)",
-                    points: getChartPoints(dataSimulate.temperatureProfile?.temperaturesC, dxMm1D),
-                    color: theme.palette.info.main, opacity: 0.5, lineWidth: 1.5,
-                },
-                {
-                    name: "Cooling (1D)",
-                    points: getChartPoints(dataSimulate.temperatureProfile?.cooldownProfileC, dxMm1D),
-                    color: theme.palette.info.main, opacity: 0.3, lineWidth: 1.5,
-                }
-            );
-        }
-
-        if (isDev && dataSimulate?.history) {
-            const { history: hist1D, heatingTimeSeconds: heatTime1D } = dataSimulate;
-            const heatHist = hist1D?.heating;
-            const coolHist = hist1D?.cooling;
-            const heatStep = heatHist?.stepSeconds || 0;
-            const coolStep = coolHist?.stepSeconds || heatStep || 0;
-
-            graphsChart2.push(
-                {
-                    name: "Front Surface (1D)",
-                    points: getChartPoints(heatHist?.frontSurfaceC, heatStep)
-                        .concat(getChartPoints(coolHist?.frontSurfaceC, coolStep, Number(heatTime1D))),
-                    color: theme.palette.info.main, opacity: 0.4, lineWidth: 1, showMarker: false,
-                },
-                {
-                    name: "Center (1D)",
-                    points: getChartPoints(heatHist?.centerC, heatStep)
-                        .concat(getChartPoints(coolHist?.centerC, coolStep, Number(heatTime1D))),
-                    color: theme.palette.info.main, opacity: 0.4, lineWidth: 1, showMarker: false,
-                },
-                {
-                    name: "Back Surface (1D)",
-                    points: getChartPoints(heatHist?.backSurfaceC, heatStep)
-                        .concat(getChartPoints(coolHist?.backSurfaceC, coolStep, Number(heatTime1D))),
-                    color: theme.palette.info.main, opacity: 0.4, lineWidth: 1, showMarker: false,
-                }
-            );
-        }
+        get1DChartsData(profile, theme, graphsChart1, graphsChart2, heatingTimeSeconds);
 
         // ---------------------------------------------------------
         // Наполнение CHART 1 и CHART 2 данными актуальной 2D модели
@@ -351,12 +364,12 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 {
                     name: "Heating (Vertical Slice)",
                     points: getVerticalSlicePoints(result2D.temperatureProfile, 0, "heating"),
-                    color: theme.palette.text.primary, opacity: 1, lineWidth: 2,
+                    color: theme.palette.text.primary, opacity: 1, lineWidth: 1.5,
                 },
                 {
                     name: "Cooling (Vertical Slice)",
                     points: getVerticalSlicePoints(result2D.temperatureProfile, 0, "pause"),
-                    color: theme.palette.text.secondary, opacity: 0.7, lineWidth: 1,
+                    color: theme.palette.text.secondary, opacity: 1, lineWidth: 1,
                 }
             );
         }
@@ -403,7 +416,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         } : null;
 
         return { chart1, chart2 };
-    }, [dataSimulate, result2D, commonYAxis, theme, profile?.thickness]);
+    }, [result2D, commonYAxis, theme, profile]);
 
 
 // =================================================================
@@ -413,6 +426,8 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         if (!result2D || !result2D.temperatureProfile) return null;
 
         const thickness = Number(profile?.thickness || 0);
+        const width = Number(profile?.width || 0);
+        const glassTransition = Number(profile?.material?.glassTransitionTemp);
 
         const makeSymmetric = (points) => {
             if (!points || !points.length) return [];
@@ -422,6 +437,73 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             const leftSideReversed = [...leftSide].reverse();
             return [...leftSideReversed, ...points];
         };
+
+        // 1. Базовые сетка-линии каждые 5 мм от центра
+        const xLines = [{ value: 0, color: theme.palette.text.secondary }];
+        if (width > 0) {
+            const maxVal = width / 2;
+            for (let val = 5; val <= maxVal; val += 5) {
+                xLines.push({ value: val, color: alpha(theme.palette.divider, 0.25) });
+                xLines.push({ value: -val, color: alpha(theme.palette.divider, 0.25) });
+            }
+        }
+
+        // 2. Поиск X-координаты пересечения Tg строго после остывания (фаза "pause")
+        if (Number.isFinite(glassTransition)) {
+            const topPoints = getHorizontalSlicePoints(result2D.temperatureProfile, 0, "pause") || [];
+            const midPoints = getHorizontalSlicePoints(result2D.temperatureProfile, thickness / 2, "pause") || [];
+            const bottomPoints = getHorizontalSlicePoints(result2D.temperatureProfile, thickness, "pause") || [];
+
+            // Собираем пары [x, min_temp_at_this_x] для положительной полуоси X
+            const minTempsAtX = [];
+            for (let i = 0; i < topPoints.length; i++) {
+                const x = topPoints[i][0];
+                const tTop = topPoints[i][1];
+
+                // Находим температуры в этой же координате X для середины и низа листа
+                const tMid = midPoints.find(p => Math.abs(p[0] - x) < 0.01)?.[1] ?? tTop;
+                const tBot = bottomPoints.find(p => Math.abs(p[0] - x) < 0.01)?.[1] ?? tTop;
+
+                // Берем наименьшую температуру по толщине (самое холодное ядро)
+                const minT = Math.min(tTop, tMid, tBot);
+                minTempsAtX.push({ x, minT });
+            }
+
+            // Ищем точку пересечения Tg методом линейной интерполяции
+            let xTgPause = null;
+            for (let i = 0; i < minTempsAtX.length - 1; i++) {
+                const p1 = minTempsAtX[i];
+                const p2 = minTempsAtX[i + 1];
+
+                if ((p1.minT >= glassTransition && p2.minT <= glassTransition) ||
+                    (p1.minT <= glassTransition && p2.minT >= glassTransition)) {
+
+                    if (Math.abs(p2.minT - p1.minT) < 0.001) {
+                        xTgPause = p1.x;
+                    } else {
+                        xTgPause = p1.x + (glassTransition - p1.minT) * (p2.x - p1.x) / (p2.minT - p1.minT);
+                    }
+                    break;
+                }
+            }
+
+            // Если точка найдена внутри физических границ детали, добавляем акцентные линии
+            if (xTgPause !== null && xTgPause <= width / 2) {
+                xLines.push({
+                    value: xTgPause,
+                    color: theme.palette.warning.main,
+                    lineWidth: 1.5,
+                    dashArray: "4 4",
+                    label: `Гибочная зона (${(xTgPause * 2).toFixed(1)} мм)`
+                });
+                xLines.push({
+                    value: -xTgPause,
+                    color: theme.palette.warning.main,
+                    lineWidth: 1.5,
+                    dashArray: "4 4"
+                });
+            }
+        }
 
         return {
             graphs: [
@@ -457,12 +539,11 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 }
             ],
             axes: {
-                x: { unit: "mm", lines: [{ value: 0, color: theme.palette.text.secondary }], ranges: [] },
+                x: { unit: "mm", lines: xLines, ranges: [] },
                 y: commonYAxis
             }
-
         };
-    }, [result2D, theme, profile?.thickness, commonYAxis]);
+    }, [result2D, theme, profile?.thickness, profile?.width, profile?.material?.glassTransitionTemp, commonYAxis]);
 
 
     return (

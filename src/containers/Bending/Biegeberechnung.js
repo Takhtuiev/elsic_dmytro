@@ -91,7 +91,7 @@ const INITIAL_STATE={
                 )/2
         },
 
-        widthHalfMm: 0,
+        widthHalfMm: 15,
 
         temperatures:{
             ambientC:20,

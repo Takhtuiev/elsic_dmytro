@@ -13,7 +13,7 @@
 export const GRID_X_STEP_MM = 0.2;
 export const GRID_Y_STEP_MM = 0.8;
 export const DEFAULT_DT_SECONDS = 0.1;
-export const MAX_NONLINEAR_ITERATIONS = 3;
+export const MAX_NONLINEAR_ITERATIONS = 5;
 export const NONLINEAR_TOLERANCE_K = 0.1;
 export const MIN_GRID_STEP_MM = 0.05;
 
@@ -26,22 +26,20 @@ export const DISTANCE_TO_SHEET_MM = 8.0;
 const EFFECTIVE_H_MM = DISTANCE_TO_SHEET_MM + HEATER_RADIUS_MM;
 
 // Асимметрия естественной конвекции вне зоны щели нагревателя (при нагреве)
-const AMBIENT_CONVECTION_H_TOP = 10.0;
-const AMBIENT_CONVECTION_H_BOT = 5.0;
+const AMBIENT_CONVECTION_H_TOP = 8.0;
+const AMBIENT_CONVECTION_H_BOT = 7.0;
 
 /* ========================================================
  * АДАПТИВНЫЙ ВРЕМЕННОЙ ШАГ
  * ======================================================== */
 const ADAPTIVE_MAX_DT = 2.5;
-const TARGET_DELTA_T = 2.0;
+const TARGET_DELTA_T = 1.5;
 const ADAPTIVE_GROWTH_FACTOR = 1.15;
 const ADAPTIVE_SHRINK_FACTOR = 0.60;
 
 const clamp = (v, min, max) => v < min ? min : (v > max ? max : v);
 const toKelvin = c => c + 273.15;
 const validPositive = v => Number.isFinite(v) && v > 0;
-const getProperty = (property, temperatureC) =>
-    typeof property === "function" ? property(temperatureC) : property;
 
 /**
  * Рассчитывает избыточную энтальпию фазового перехода (интеграл от избыточной Cp).
@@ -56,22 +54,32 @@ function getExcessEnthalpy(t, tg, jumpFactor, width, baseCp) {
     if (t >= tEnd) {
         return deltaCpMax * (t - (tStart + tEnd) / 2.0);
     }
-    return (deltaCpMax / (2.0 * width)) * Math.pow(t - tStart, 2);
+    return (deltaCpMax / (2.0 * width)) * (t - tStart) * (t - tStart);
 }
 
+// ОПТИМИЗАЦИЯ 3: Избавление от динамического typeof в модели материала
 function createMaterialModel(material) {
     if (!material || typeof material !== "object") return null;
     const tg = material.glassTransitionTemp;
     const jumpFactor = material.tgSpecificHeatJumpFactor;
     const width = material.tgTransitionWidthC;
 
+    // Проверяем типы один раз при инициализации модели
+    const isFnDensity = typeof material.density === "function";
+    const isFnThermalConductivity = typeof material.thermalConductivity === "function";
+    const isFnSpecificHeat = typeof material.specificHeat === "function";
+
+    const matDensity = material.density;
+    const matThermalConductivity = material.thermalConductivity;
+    const matSpecificHeat = material.specificHeat;
+
     return {
         constant: false,
         properties: null,
         get: (temperatureC, oldTemperatureC = null) => {
-            const density = getProperty(material.density, temperatureC);
-            const k = getProperty(material.thermalConductivity, temperatureC);
-            const baseCp = getProperty(material.specificHeat, temperatureC);
+            const density = isFnDensity ? matDensity(temperatureC) : matDensity;
+            const k = isFnThermalConductivity ? matThermalConductivity(temperatureC) : matThermalConductivity;
+            const baseCp = isFnSpecificHeat ? matSpecificHeat(temperatureC) : matSpecificHeat;
 
             let cp = baseCp;
 
@@ -131,6 +139,7 @@ export function validateSimulationParams({ thicknessMm, material, machine, simul
     return { isValid: true, dtSeconds: finalDt };
 }
 
+// ОПТИМИЗАЦИЯ 1: Предрасчет обратных величин шагов X (перевод в метры)
 function createNonlinearGridX(thicknessMm, nodeCount) {
     const x = new Float64Array(nodeCount);
     for (let i = 0; i < nodeCount; i++) {
@@ -152,9 +161,20 @@ function createNonlinearGridX(thicknessMm, nodeCount) {
     }
     dxHat[nodeCount - 1] = 0.5 * dx[nodeCount - 2];
 
-    return { x, dx, dxHat, nodeCount };
+    // Вычисляем массивы обратных шагов
+    const invDxH = new Float64Array(nodeCount);
+    const invDxL = new Float64Array(nodeCount);
+    const invDxR = new Float64Array(nodeCount);
+    for (let i = 0; i < nodeCount; i++) {
+        invDxH[i] = 1000.0 / dxHat[i];
+        if (i > 0) invDxL[i] = 1000.0 / dx[i - 1];
+        if (i < nodeCount - 1) invDxR[i] = 1000.0 / dx[i];
+    }
+
+    return { x, dx, dxHat, invDxH, invDxL, invDxR, nodeCount };
 }
 
+// ОПТИМИЗАЦИЯ 1: Предрасчет обратных величин шагов Y (перевод в метры)
 function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convectionTransitionEndMm) {
     let y = new Float64Array(nodeCount);
 
@@ -246,7 +266,17 @@ function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convecti
     }
     dyHat[nodeCount - 1] = 0.5 * dy[nodeCount - 2];
 
-    return { y, dy, dyHat, nodeCount };
+    // Вычисляем массивы обратных шагов
+    const invDyH = new Float64Array(nodeCount);
+    const invDyL = new Float64Array(nodeCount);
+    const invDyR = new Float64Array(nodeCount);
+    for (let j = 0; j < nodeCount; j++) {
+        invDyH[j] = 1000.0 / (dyHat[j] || 0.001);
+        if (j > 0) invDyL[j] = 1000.0 / (dy[j - 1] || 0.001);
+        if (j < nodeCount - 1) invDyR[j] = 1000.0 / (dy[j] || 0.001);
+    }
+
+    return { y, dy, dyHat, invDyH, invDyL, invDyR, nodeCount };
 }
 
 export function getNonlinearViewFactors(yCoordinatesMm) {
@@ -406,7 +436,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
     const gridX = createNonlinearGridX(thicknessMm, Nx);
     const gridY = is1D
-        ? { y: new Float64Array([0.0]), dy: new Float64Array([0.0]), dyHat: new Float64Array([0.0]), nodeCount: 1 }
+        ? { y: new Float64Array([0.0]), dy: new Float64Array([0.0]), dyHat: new Float64Array([0.0]), invDyH: new Float64Array([1000.0/0.001]), invDyL: new Float64Array([0.0]), invDyR: new Float64Array([0.0]), nodeCount: 1 }
         : createParametricGridY(simulation.widthHalfMm, Ny, slotHalfWidthMm, convectionTransitionEndMm);
 
     const target = simulation.target;
@@ -458,9 +488,15 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
     const T_top_K = (ambT + mach.heaters[0].heaterTemperatureFactor * (mach.heaters[0].regulatorTemperatureC - ambT)) + 273.15;
     const T_bot_K = (ambT + mach.heaters[1].heaterTemperatureFactor * (mach.heaters[1].regulatorTemperatureC - ambT)) + 273.15;
+
+    // ОПТИМИЗАЦИЯ 2: Предрасчет константных четвертых степеней температур печи и среды
+    const T_top_K_4 = T_top_K * T_top_K * T_top_K * T_top_K;
+    const T_bot_K_4 = T_bot_K * T_bot_K * T_bot_K * T_bot_K;
+
     const hTop = mach.heaters[0].convectiveHeatTransferCoefficient;
     const hBot = mach.heaters[1].convectiveHeatTransferCoefficient;
     const ambientTemperatureK = ambT + 273.15;
+    const ambientTemperatureK_4 = ambientTemperatureK * ambientTemperatureK * ambientTemperatureK * ambientTemperatureK;
 
     const epsS = material.emissivity;
     const epsH_top = mach.heaters[0].heaterEmissivity;
@@ -494,6 +530,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let lastLoggedTime = -1;
     const logHistory = (force = false) => {
         if (!storeHistory) return;
+        // ЗАЩИТА: если точка для этого времени уже записана, выходим
+        if (history.time.length > 0 && history.time[history.time.length - 1] === time) return;
         if (!force && (time - lastLoggedTime < 1.0) && time < simulationMaxTime) return;
 
         history.time.push(time);
@@ -507,6 +545,14 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
     let status = null;
     let forceStop = false;
+
+    // Ссылки на массивы обратных шагов для быстрого доступа
+    const invDxH = gridX.invDxH;
+    const invDxL = gridX.invDxL;
+    const invDxR = gridX.invDxR;
+    const invDyH = gridY.invDyH;
+    const invDyL = gridY.invDyL;
+    const invDyR = gridY.invDyR;
 
     // ========================================================
     // ФАЗА 1: ИНТЕНСИВНЫЙ НАГРЕВ
@@ -526,9 +572,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         for (let iter = 0; iter < MAX_NONLINEAR_ITERATIONS; iter++) {
             for (let i = 0; i <= lastX; i++) {
                 const iNy = i * Ny;
-                const dxH = gridX.dxHat[i] / 1000.0;
-                const dxL = i > 0 ? (gridX.dx[i - 1] / 1000.0) : 0;
-                const dxR = i < lastX ? (gridX.dx[i] / 1000.0) : 0;
+                const idxInvDxH = invDxH[i];
 
                 for (let j = 0; j <= lastY; j++) {
                     const idxRow = iNy + j;
@@ -539,84 +583,85 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     const volHeatCap = props.density * props.cp;
                     const kEff = props.k;
 
-                    const dyH = (gridY.dyHat[j] / 1000.0) || 0.001;
-                    const dyL = (j > 0 ? (gridY.dy[j - 1] / 1000.0) : 0) || 0.001;
-                    const dyR = (j < lastY ? (gridY.dy[j] / 1000.0) : 0) || 0.001;
-
                     rhsVec[idxRow] = oldT[idxRow] * volHeatCap;
                     let centerCoeff = volHeatCap;
 
                     const matRowOffset = idxRow * abRowStride + lead;
+                    const dtkEff = dt * kEff;
 
+                    // ОПТИМИЗАЦИЯ 1: Замена деления на умножение на обратную величину шага
                     if (i > 0 && i < lastX) {
-                        const coeffLeft = (dt * kEff) / (dxH * dxL);
-                        const coeffRight = (dt * kEff) / (dxH * dxR);
+                        const coeffLeft = dtkEff * idxInvDxH * invDxL[i];
+                        const coeffRight = dtkEff * idxInvDxH * invDxR[i];
                         matrixA[matRowOffset - Ny] = -coeffLeft;
                         matrixA[matRowOffset + Ny] = -coeffRight;
                         centerCoeff += (coeffLeft + coeffRight);
                     } else if (i === 0) {
-                        const coeffRight = (dt * kEff) / (dxH * dxR);
+                        const coeffRight = dtkEff * idxInvDxH * invDxR[i];
                         matrixA[matRowOffset + Ny] = -coeffRight;
                         centerCoeff += coeffRight;
 
                         const fH = viewFactorsY[j];
                         const radATop = radFactorTopBase * fH;
-                        const currentTempK_3 = currentTempK * currentTempK * currentTempK;
+
+                        // ОПТИМИЗАЦИЯ 2: Бинарное перемножение вместо Math.pow(T, 4)
+                        const currentTempK_2 = currentTempK * currentTempK;
+                        const currentTempK_3 = currentTempK_2 * currentTempK;
+                        const currentTempK_4 = currentTempK_2 * currentTempK_2;
 
                         const q_conv = precalcConvTopH[j] * (precalcConvTopAir[j] - currentTempK);
                         const dq_conv = -precalcConvTopH[j];
-                        const q_rad = radATop * (Math.pow(T_top_K, 4) - Math.pow(currentTempK, 4));
+                        const q_rad = radATop * (T_top_K_4 - currentTempK_4);
                         const dq_rad = -4 * radATop * currentTempK_3;
 
-                        centerCoeff -= (dt / dxH) * (dq_conv + dq_rad);
-                        rhsVec[idxRow] += (dt / dxH) * ((q_conv + q_rad) - (dq_conv + dq_rad) * currentTempK);
+                        centerCoeff -= (dt * idxInvDxH) * (dq_conv + dq_rad);
+                        rhsVec[idxRow] += (dt * idxInvDxH) * ((q_conv + q_rad) - (dq_conv + dq_rad) * currentTempK);
                     } else if (i === lastX) {
-                        const coeffLeft = (dt * kEff) / (dxH * dxL);
+                        const coeffLeft = dtkEff * idxInvDxH * invDxL[i];
                         matrixA[matRowOffset - Ny] = -coeffLeft;
                         centerCoeff += coeffLeft;
 
                         const fH = viewFactorsY[j];
                         const radABot = radFactorBotBase * fH;
-                        const currentTempK_3 = currentTempK * currentTempK * currentTempK;
+
+                        // ОПТИМИЗАЦИЯ 2: Бинарное перемножение вместо Math.pow(T, 4)
+                        const currentTempK_2 = currentTempK * currentTempK;
+                        const currentTempK_3 = currentTempK_2 * currentTempK;
+                        const currentTempK_4 = currentTempK_2 * currentTempK_2;
 
                         const q_conv = precalcConvBotH[j] * (precalcConvBotAir[j] - currentTempK);
                         const dq_conv = -precalcConvBotH[j];
-                        const q_rad = radABot * (Math.pow(T_bot_K, 4) - Math.pow(currentTempK, 4));
+                        const q_rad = radABot * (T_bot_K_4 - currentTempK_4);
                         const dq_rad = -4 * radABot * currentTempK_3;
 
-                        centerCoeff -= (dt / dxH) * (dq_conv + dq_rad);
-                        rhsVec[idxRow] += (dt / dxH) * ((q_conv + q_rad) - (dq_conv + dq_rad) * currentTempK);
+                        centerCoeff -= (dt * idxInvDxH) * (dq_conv + dq_rad);
+                        rhsVec[idxRow] += (dt * idxInvDxH) * ((q_conv + q_rad) - (dq_conv + dq_rad) * currentTempK);
                     }
 
                     if (!is1D) {
+                        const idxInvDyH = invDyH[j];
                         if (j > 0 && j < lastY) {
-                            const coeffLeftY = (dt * kEff) / (dyH * dyL);
-                            const coeffRightY = (dt * kEff) / (dyH * dyR);
+                            const coeffLeftY = dtkEff * idxInvDyH * invDyL[j];
+                            const coeffRightY = dtkEff * idxInvDyH * invDyR[j];
                             matrixA[matRowOffset - 1] = -coeffLeftY;
                             matrixA[matRowOffset + 1] = -coeffRightY;
                             centerCoeff += (coeffLeftY + coeffRightY);
                         } else if (j === 0) {
-                            const coeffRightY = (dt * kEff) / (dyH * dyR);
+                            const coeffRightY = dtkEff * idxInvDyH * invDyR[j];
                             matrixA[matRowOffset + 1] = -2 * coeffRightY;
                             centerCoeff += 2 * coeffRightY;
                         } else if (j === lastY) {
-                            const coeffLeftY = (dt * kEff) / (dyH * dyL);
-                            const coeffRightY = (dt * kEff) / (dyH * dyL);
+                            const coeffLeftY = dtkEff * idxInvDyH * invDyL[j];
+                            const coeffRightY = dtkEff * idxInvDyH * invDyL[j];
 
-                            // Внутри сетки считаем честно и неявно
                             matrixA[matRowOffset - 1] = -coeffLeftY;
                             centerCoeff += coeffLeftY;
                             matrixA[matRowOffset] = centerCoeff;
 
-                            // А отток тепла наружу считаем явно, на основе остывания до ambientTemperatureK
-                            // сглаженного по температуре края с прошлого временного шага (oldT)
                             const T_edge_old = oldT[idxRow];
                             const T_virtual_extrapolated = T_edge_old - (oldT[idxRow - 1] - T_edge_old);
-
-                            // Ограничиваем экстраполяцию снизу, чтобы она не падала ниже ambient
                             const T_target = T_virtual_extrapolated < ambientTemperatureK ? ambientTemperatureK : T_virtual_extrapolated;
 
-                            // Добавляем этот отток тепла в правую часть (RHS) как известную величину
                             rhsVec[idxRow] += coeffRightY * (T_target - T_edge_old);
                         }
                     }
@@ -746,21 +791,25 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const reachedTarget = targetType === "time" ? time >= targetValue : (targetK == null ? false : isTargetReached2D(T, Nx, Ny, target, targetK));
 
     // ========================================================
-    // ФАЗА 2: ПАУЗА (ОСТЫВАНИЕ ПРИ ПЕРЕНОСЕ ЛИСТА)
+    // ФАЗА 2: ПАУЗА (ОСТЫВАНИЕ С АДАПТИВНЫМ ШАГОМ)
     // ========================================================
     const coolingTime = simulation.cooling?.timeSeconds || 0;
     const hCooling = simulation.cooling?.convectiveHeatTransferCoefficient || 8.0;
     const radFactorAmbient = epsS * SIGMA;
 
     let coolingTimeElapsed = 0;
-    let coolingDt = 0.05;
+    let coolingDt = dtSeconds === undefined ? DEFAULT_DT_SECONDS : dtSeconds;
     let lastCoolingLoggedTime = -1.0;
 
     const logCoolingHistory = (force = false) => {
         if (!storeHistory) return;
+        const currentAbsoluteTime = time + coolingTimeElapsed;
+
+        // Защита от дублирования логов во времени
+        if (history.time.length > 0 && history.time[history.time.length - 1] === currentAbsoluteTime) return;
         if (!force && (coolingTimeElapsed - lastCoolingLoggedTime < 1.0) && coolingTimeElapsed < coolingTime) return;
 
-        history.time.push(time + coolingTimeElapsed);
+        history.time.push(currentAbsoluteTime);
         history.frontSurfaceC.push(T[0] - 273.15);
         history.centerC.push(T[((Nx - 1) >> 1) * Ny] - 273.15);
         history.backSurfaceC.push(T[lastX * Ny] - 273.15);
@@ -777,13 +826,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
         oldT.set(T);
         currentIterT.set(T);
+        let coolingConverged = false;
 
-        for (let iter = 0; iter < 2; iter++) {
+        for (let iter = 0; iter < MAX_NONLINEAR_ITERATIONS; iter++) {
             for (let i = 0; i <= lastX; i++) {
                 const iNy = i * Ny;
-                const dxH = gridX.dxHat[i] / 1000.0;
-                const dxL = i > 0 ? (gridX.dx[i - 1] / 1000.0) : 0;
-                const dxR = i < lastX ? (gridX.dx[i] / 1000.0) : 0;
+                const idxInvDxH = invDxH[i];
 
                 for (let j = 0; j <= lastY; j++) {
                     const idxRow = iNy + j;
@@ -794,49 +842,52 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     const volHeatCap = props.density * props.cp;
                     const kEff = props.k;
 
-                    const dyH = (gridY.dyHat[j] / 1000.0) || 0.001;
-                    const dyL = (j > 0 ? (gridY.dy[j - 1] / 1000.0) : 0) || 0.001;
-                    const dyR = (j < lastY ? (gridY.dy[j] / 1000.0) : 0) || 0.001;
-
                     rhsVec[idxRow] = oldT[idxRow] * volHeatCap;
                     let centerCoeff = volHeatCap;
                     const matRowOffset = idxRow * abRowStride + lead;
+                    const coolingDtkEff = coolingDt * kEff;
 
+                    // ОПТИМИЗАЦИЯ 1: Замена деления на умножение на обратную величину шага
                     if (i > 0 && i < lastX) {
-                        const coeffLeft = (coolingDt * kEff) / (dxH * dxL);
-                        const coeffRight = (coolingDt * kEff) / (dxH * dxR);
+                        const coeffLeft = coolingDtkEff * idxInvDxH * invDxL[i];
+                        const coeffRight = coolingDtkEff * idxInvDxH * invDxR[i];
                         matrixA[matRowOffset - Ny] = -coeffLeft;
                         matrixA[matRowOffset + Ny] = -coeffRight;
                         centerCoeff += (coeffLeft + coeffRight);
                     } else if (i === 0 || i === lastX) {
-                        const coeffNext = i === 0 ? (coolingDt * kEff) / (dxH * dxR) : (coolingDt * kEff) / (dxH * dxL);
+                        const coeffNext = i === 0 ? (coolingDtkEff * idxInvDxH * invDxR[i]) : (coolingDtkEff * idxInvDxH * invDxL[i]);
                         matrixA[matRowOffset + (i === 0 ? Ny : -Ny)] = -coeffNext;
                         centerCoeff += coeffNext;
 
-                        const currentTempK_3 = currentTempK * currentTempK * currentTempK;
+                        // ОПТИМИЗАЦИЯ 2: Бинарное перемножение вместо Math.pow(T, 4)
+                        const currentTempK_2 = currentTempK * currentTempK;
+                        const currentTempK_3 = currentTempK_2 * currentTempK;
+                        const currentTempK_4 = currentTempK_2 * currentTempK_2;
+
                         const q_conv = hCooling * (ambientTemperatureK - currentTempK);
                         const dq_conv = -hCooling;
-                        const q_rad = radFactorAmbient * (Math.pow(ambientTemperatureK, 4) - Math.pow(currentTempK, 4));
+                        const q_rad = radFactorAmbient * (ambientTemperatureK_4 - currentTempK_4);
                         const dq_rad = -4 * radFactorAmbient * currentTempK_3;
 
-                        centerCoeff -= (coolingDt / dxH) * (dq_conv + dq_rad);
-                        rhsVec[idxRow] += (coolingDt / dxH) * ((q_conv + q_rad) - (dq_conv + dq_rad) * currentTempK);
+                        centerCoeff -= (coolingDt * idxInvDxH) * (dq_conv + dq_rad);
+                        rhsVec[idxRow] += (coolingDt * idxInvDxH) * ((q_conv + q_rad) - (dq_conv + dq_rad) * currentTempK);
                     }
 
                     if (!is1D) {
+                        const idxInvDyH = invDyH[j];
                         if (j > 0 && j < lastY) {
-                            const coeffLeftY = (coolingDt * kEff) / (dyH * dyL);
-                            const coeffRightY = (coolingDt * kEff) / (dyH * dyR);
+                            const coeffLeftY = coolingDtkEff * idxInvDyH * invDyL[j];
+                            const coeffRightY = coolingDtkEff * idxInvDyH * invDyR[j];
                             matrixA[matRowOffset - 1] = -coeffLeftY;
                             matrixA[matRowOffset + 1] = -coeffRightY;
                             centerCoeff += (coeffLeftY + coeffRightY);
                         } else if (j === 0) {
-                            const coeffRightY = (coolingDt * kEff) / (dyH * dyR);
+                            const coeffRightY = coolingDtkEff * idxInvDyH * invDyR[j];
                             matrixA[matRowOffset + 1] = -2 * coeffRightY;
                             centerCoeff += 2 * coeffRightY;
                         } else if (j === lastY) {
-                            const coeffLeftY = (coolingDt * kEff) / (dyH * dyL);
-                            const coeffRightY = (coolingDt * kEff) / (dyH * dyL);
+                            const coeffLeftY = coolingDtkEff * idxInvDyH * invDyL[j];
+                            const coeffRightY = coolingDtkEff * idxInvDyH * invDyL[j];
 
                             matrixA[matRowOffset - 1] = -coeffLeftY;
                             centerCoeff += coeffLeftY;
@@ -854,12 +905,52 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             }
             matrixAClone.set(matrixA);
             solveBandMatrixOptimized(matrixAClone, size2D, bandWidth, rhsVec, solverX, precalc);
+
+            let maxCoolingDeltaK = 0;
+            for (let k = 0; k < size2D; k++) {
+                const diff = Math.abs(solverX[k] - currentIterT[k]);
+                if (diff > maxCoolingDeltaK) maxCoolingDeltaK = diff;
+            }
             currentIterT.set(solverX);
+            if (maxCoolingDeltaK < NONLINEAR_TOLERANCE_K) {
+                coolingConverged = true;
+                break;
+            }
         }
+
+        if (isAdaptive && !coolingConverged) {
+            coolingDt *= ADAPTIVE_SHRINK_FACTOR;
+            if (coolingDt < 1e-5) {
+                status = { type: "error", message: "Degradation! Cooling step limits reached." };
+                break;
+            }
+            T.set(oldT);
+            continue;
+        }
+
+        let maxStepCoolingChange = 0;
+        for (let k = 0; k < size2D; k++) {
+            const stepChange = Math.abs(currentIterT[k] - T[k]);
+            if (stepChange > maxStepCoolingChange) maxStepCoolingChange = stepChange;
+        }
+
         T.set(currentIterT);
         coolingTimeElapsed += coolingDt;
-
         logCoolingHistory(false);
+
+        if (isAdaptive) {
+            if (maxStepCoolingChange > 0) {
+                const stepRatio = TARGET_DELTA_T / maxStepCoolingChange;
+                if (stepRatio > 1.0) {
+                    coolingDt *= Math.min(ADAPTIVE_GROWTH_FACTOR, stepRatio);
+                    if (coolingDt > ADAPTIVE_MAX_DT) coolingDt = ADAPTIVE_MAX_DT;
+                } else {
+                    coolingDt *= Math.max(ADAPTIVE_SHRINK_FACTOR, stepRatio);
+                }
+            } else {
+                coolingDt = ADAPTIVE_MAX_DT;
+            }
+        }
     }
 
     logCoolingHistory(true);
