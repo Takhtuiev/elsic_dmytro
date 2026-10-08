@@ -13,7 +13,7 @@ import {getHorizontalSlicePoints, getVerticalSlicePoints, simulate2DHeating} fro
 // ============================================================================
 import { simulate1DHeating } from "./pvc-1d-transient-heating";
 
-const isDev = process.env.REACT_APP_SHOW_1D_MODE === "true";
+const isDev = process.env.REACT_APP_DEVELOPMENT === 'development';
 
 const get1DChartsData = (profile, theme, graphsChart1, graphsChart2) => {
     if (!isDev || !profile?.thickness || !profile?.material || !profile?.machine || !profile.simulation) {
@@ -298,7 +298,9 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
     }, [profile?.thickness, profile?.material, profile?.machine, profile?.simulation]);
 
 
-    console.log(result2D)
+    if (isDev) {
+        console.log(result2D);
+    }
 
     const colors = useMemo(() => ({
         active: { line: theme.palette.text.primary, fill: alpha(theme.palette.text.primary, 0.1), annotation: alpha(theme.palette.text.primary, 0.75) },
