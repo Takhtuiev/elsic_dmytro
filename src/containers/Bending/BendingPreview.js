@@ -527,17 +527,17 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 {
                     name: "Верхняя поверхность пауза",
                     points: makeSymmetric(getHorizontalSlicePoints(result2D.temperatureProfile, 0, "pause")),
-                    color: theme.palette.error.main, opacity: 0.6, lineWidth: 0.6,
+                    color: theme.palette.error.main, opacity: 0.7, lineWidth: 0.6,
                 },
                 {
                     name: "Середина листа пауза",
                     points: makeSymmetric(getHorizontalSlicePoints(result2D.temperatureProfile, thickness / 2, "pause")),
-                    color: theme.palette.success.main, opacity: 0.6, lineWidth: 0.6,
+                    color: theme.palette.success.main, opacity: 0.7, lineWidth: 0.6,
                 },
                 {
                     name: "Нижняя поверхность пауза",
                     points: makeSymmetric(getHorizontalSlicePoints(result2D.temperatureProfile, thickness, "pause")),
-                    color: theme.palette.primary.main, opacity: 0.6, lineWidth: 0.6,
+                    color: theme.palette.primary.main, opacity: 0.7, lineWidth: 0.6,
                 }
             ],
             axes: {
