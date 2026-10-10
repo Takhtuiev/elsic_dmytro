@@ -12,6 +12,8 @@ const X_AXIS_LABEL_OFFSET = 5;             // Смещение подписей 
 const Y_AXIS_LABEL_OFFSET = 5;             // Смещение подписей оси Y относительно левой/правой границы графика
 const LIMIT_RANGE_OPACITY = 0.06;           // Прозрачность фоновых прямоугольников ограничивающих зон (Ranges)
 
+const SHOW_ALL_POINTS = true; // true — показывать все точки, false — только крайние, минимум и максимум
+
 // --- Коэффициенты штрафов (Жадный алгоритм авторазмещения меток) ---
 const LABEL_PENALTIES = {
     placedOverlap: 10000,       // Пересечение с уже размещенной меткой (критическая ошибка)
@@ -184,6 +186,8 @@ const getCurveOverlap = (graph, rect, xs, ys) => {
     const rLeft = rect.left; const rRight = rect.right;
     const rTop = rect.top; const rBottom = rect.bottom;
 
+    if (!curve.length) return 0;
+
     let x1 = xs(curve[0][0]);
     let y1 = ys(curve[0][1]);
 
@@ -319,8 +323,11 @@ const buildLimitData = ({ axis, lines, ranges, mapValue, minValue, maxValue, plo
     return { lines: lineData, ranges: rangeData };
 };
 
-const makePath = (graph, xs, ys) => {
-    const points = graph.points;
+const makePath = (graph, xs, ys, xMin, xMax) => {
+    // Фильтруем точки, оставляя только те сегменты, которые попадают в видимую область
+    const points = graph.points.filter(p => p[0] >= xMin && p[0] <= xMax);
+    if (points.length < 2) return "";
+
     let d = `M ${xs(points[0][0])} ${ys(points[0][1])}`;
 
     for (let i = 0; i < points.length - 1; i++) {
@@ -344,7 +351,7 @@ const getOrderedDirections = (p, graphData, isPlotRightEdgeCheck, ys) => {
     const isRightEdge = isPlotRightEdgeCheck(p);
     let preferredAngle = 0;
 
-    if (!isLeftEdge && !isRightEdge) {
+    if (!isLeftEdge && !isRightEdge && currentCurve[p.id - 1] && currentCurve[p.id + 1]) {
         const prevY = ys(currentCurve[p.id - 1][1]);
         const nextY = ys(currentCurve[p.id + 1][1]);
         const isPeak = p.y < prevY && p.y < nextY;
@@ -401,28 +408,41 @@ const SvgLineChart = memo(({ chart }) => {
         const wPlot = width - pad.left - pad.right;
         const hPlot = height - pad.top - pad.bottom;
 
-        const graphXRanges = graphs.map(graph => {
-            const xValues = graph.points.map(p => p[0]);
-            return { start: Math.min(...xValues), end: Math.max(...xValues) };
-        });
-        const xMin = Math.min(...graphXRanges.map(r => r.start));
-        const xMax = Math.max(...graphXRanges.map(r => r.end));
+        // --- Расчет лимитов Относительно Оси X (с поддержкой пользовательских min/max) ---
+        let xMin = typeof xAxis.min === "number" ? xAxis.min : null;
+        let xMax = typeof xAxis.max === "number" ? xAxis.max : null;
+
+        if (xMin === null || xMax === null) {
+            const graphXRanges = graphs.map(graph => {
+                const xValues = graph.points.map(p => p[0]);
+                return { start: Math.min(...xValues), end: Math.max(...xValues) };
+            });
+            if (xMin === null) xMin = Math.min(...graphXRanges.map(r => r.start));
+            if (xMax === null) xMax = Math.max(...graphXRanges.map(r => r.end));
+        }
         const xDelta = xMax - xMin || 1;
 
         const xs = (x) => pad.left + ((x - xMin) / xDelta) * wPlot;
         const xCenter = xs((xMin + xMax) * 0.5);
 
-        const allValues = graphs.flatMap(graph => graph.points.map(p => p[1]));
-        const yRanges = Array.isArray(yAxis.ranges) ? yAxis.ranges : [];
-        const rangeValues = [...allValues, ...yRanges.flatMap(r => [r.from, r.to])].filter(Number.isFinite);
+        // --- Расчет лимитов Относительно Оси Y (с поддержкой пользовательских min/max) ---
+        let tMin = typeof yAxis.min === "number" ? yAxis.min : null;
+        let tMax = typeof yAxis.max === "number" ? yAxis.max : null;
 
-        if (!rangeValues.length) return null;
+        if (tMin === null || tMax === null) {
+            const allValues = graphs.flatMap(graph => graph.points.map(p => p[1]));
+            const yRanges = Array.isArray(yAxis.ranges) ? yAxis.ranges : [];
+            const rangeValues = [...allValues, ...yRanges.flatMap(r => [r.from, r.to])].filter(Number.isFinite);
 
-        let tMin = Math.floor(Math.min(...rangeValues) / GRID_STEP_C) * GRID_STEP_C;
-        let tMax = Math.ceil(Math.max(...rangeValues) / GRID_STEP_C) * GRID_STEP_C;
-        if (tMax === tMin) {
-            tMin -= GRID_STEP_C;
-            tMax += GRID_STEP_C;
+            if (!rangeValues.length) return null;
+
+            if (tMin === null) tMin = Math.floor(Math.min(...rangeValues) / GRID_STEP_C) * GRID_STEP_C;
+            if (tMax === null) tMax = Math.ceil(Math.max(...rangeValues) / GRID_STEP_C) * GRID_STEP_C;
+
+            if (tMax === tMin) {
+                tMin -= GRID_STEP_C;
+                tMax += GRID_STEP_C;
+            }
         }
         const tDelta = tMax - tMin;
 
@@ -444,20 +464,30 @@ const SvgLineChart = memo(({ chart }) => {
 
         const yLimitValues = [
             ...(Array.isArray(yAxis.lines) ? yAxis.lines.map(l => l.value) : []),
-            ...yRanges.flatMap(r => [r.from, r.to])
+            ...(Array.isArray(yAxis.ranges) ? yAxis.ranges.flatMap(r => [r.from, r.to]) : [])
         ];
         const isSpecialTemperature = (t) => yLimitValues.some(v => Number.isFinite(v) && Math.abs(v - t) < 0.1);
 
         const graphData = graphs.map(graph => {
-            const points = graph.points;
             let minIdx = 0, maxIdx = 0, minV = Infinity, maxV = -Infinity;
 
-            for (let i = 0; i < points.length; i++) {
-                const v = points[i][1];
+            for (let i = 0; i < graph.points.length; i++) {
+                const p = graph.points[i];
+                if (p[0] < xMin || p[0] > xMax) continue; // Игнорируем точки вне диапазона
+
+                const v = p[1];
                 if (v < minV) { minV = v; minIdx = i; }
                 if (v > maxV) { maxV = v; maxIdx = i; }
             }
-            return { ...graph, minIdx, maxIdx, minV, maxV, path: makePath(graph, xs, ys) };
+
+            return {
+                ...graph,
+                minIdx,
+                maxIdx,
+                minV: minV === Infinity ? tMin : minV,
+                maxV: maxV === -Infinity ? tMax : maxV,
+                path: makePath(graph, xs, ys, xMin, xMax)
+            };
         });
 
         const isPlotRightEdge = (p) => {
@@ -472,12 +502,13 @@ const SvgLineChart = memo(({ chart }) => {
         const makeLabels = (graph) => {
             const points = graph.points;
             const lastId = points.length - 1;
-            const raw = [
-                { id: graph.maxIdx, val: graph.maxV, p: 4 },
-                { id: graph.minIdx, val: graph.minV, p: 4 },
-                { id: 0, val: points[0][1], p: 2 },
-                { id: lastId, val: points[lastId][1], p: 2 }
-            ];
+
+            // Собираем кандидатов на маркеры, только если они внутри видимой зоны
+            const raw = [];
+            if (graph.maxIdx >= 0 && points[graph.maxIdx][0] >= xMin && points[graph.maxIdx][0] <= xMax) raw.push({ id: graph.maxIdx, val: graph.maxV, p: 4 });
+            if (graph.minIdx >= 0 && points[graph.minIdx][0] >= xMin && points[graph.minIdx][0] <= xMax && graph.minIdx !== graph.maxIdx) raw.push({ id: graph.minIdx, val: graph.minV, p: 4 });
+            if (points[0][0] >= xMin && points[0][0] <= xMax) raw.push({ id: 0, val: points[0][1], p: 2 });
+            if (points[lastId][0] >= xMin && points[lastId][0] <= xMax && lastId !== 0) raw.push({ id: lastId, val: points[lastId][1], p: 2 });
 
             const result = [];
             const seen = new Set();
@@ -490,6 +521,9 @@ const SvgLineChart = memo(({ chart }) => {
                 const point = points[p.id];
                 const pointX = xs(point[0]);
                 const pointY = ys(p.val);
+
+                // Если точка вышла за вертикальные пределы Y, не рисуем метку для нее
+                if (p.val < tMin || p.val > tMax) continue;
 
                 const isOrigin = Math.abs(pointX - pad.left) < 0.01 && Math.abs(pointY - (height - pad.bottom)) < 0.01;
                 if (isOrigin) continue;
@@ -505,7 +539,7 @@ const SvgLineChart = memo(({ chart }) => {
                     y: pointY
                 };
 
-                if (p.id === lastId) {
+                if (p.id === lastId || Math.abs(point[0] - xMax) < 1e-6) {
                     rightEdgeLabelsRaw.push(labelObj);
                 } else {
                     result.push(labelObj);
@@ -624,6 +658,7 @@ const SvgLineChart = memo(({ chart }) => {
                 const selfEnd = Math.min(currentCurve.length - 2, p.id + 1);
 
                 for (let i = selfStart; i <= selfEnd; i++) {
+                    if (!currentCurve[i] || !currentCurve[i+1]) continue;
                     const x1 = xs(currentCurve[i][0]); const y1 = ys(currentCurve[i][1]);
                     const x2 = xs(currentCurve[i + 1][0]); const y2 = ys(currentCurve[i + 1][1]);
                     const segmentLength = getSegmentLength(x1, y1, x2, y2);
@@ -716,8 +751,8 @@ const SvgLineChart = memo(({ chart }) => {
                 const relativeY = p.y / height;
                 fallback = relativeY < 0.33 ? STATIC_DIRECTIONS[15] : relativeY > 0.66 ? STATIC_DIRECTIONS[1] : STATIC_DIRECTIONS[0];
             } else {
-                const prevY = p.id > 0 ? ys(currentCurve[p.id - 1][1]) : null;
-                const nextY = p.id < currentCurve.length - 1 ? ys(currentCurve[p.id + 1][1]) : null;
+                const prevY = p.id > 0 && currentCurve[p.id - 1] ? ys(currentCurve[p.id - 1][1]) : null;
+                const nextY = p.id < currentCurve.length - 1 && currentCurve[p.id + 1] ? ys(currentCurve[p.id + 1][1]) : null;
                 const isPeak = prevY !== null && nextY !== null && p.y < prevY && p.y < nextY;
                 const isPit = prevY !== null && nextY !== null && p.y > prevY && p.y > nextY;
 
@@ -790,7 +825,6 @@ const SvgLineChart = memo(({ chart }) => {
             label.y = Math.max(pad.top, label.y);
         }
 
-        // --- НОВЫЙ КОД (Вставьте вместо старого) ---
         const rightAxisLabels = rightEdgeLabelsRaw.map(label => ({
             graphIndex: label.graphIndex,
             value: label.val,
@@ -799,12 +833,10 @@ const SvgLineChart = memo(({ chart }) => {
             opacity: label.opacity
         }));
 
-// 1. Обязательно сортируем по исходной высоте
         rightAxisLabels.sort((a, b) => a.y - b.y);
 
-// 2. Итеративно раздвигаем метки в обе стороны от центра коллизии
         let changed = true;
-        const maxIterations = 4; // Количество циклов балансировки для идеального распределения
+        const maxIterations = 4;
 
         for (let iter = 0; iter < maxIterations && changed; iter++) {
             changed = false;
@@ -813,29 +845,24 @@ const SvgLineChart = memo(({ chart }) => {
                 const current = rightAxisLabels[i];
                 const next = rightAxisLabels[i + 1];
 
-                // Вычисляем величину наложения с учетом минимального зазора
                 const overlap = current.y + Y_AXIS_LABEL_MIN_DISTANCE - next.y;
 
                 if (overlap > 0) {
-                    // Раздвигаем ОДНОВРЕМЕННО: верхнюю двигаем еще выше, нижнюю — ниже
                     current.y -= overlap / 2;
                     next.y += overlap / 2;
                     changed = true;
                 }
             }
 
-            // 3. Мягко удерживаем элементы в рамках физических границ SVG-контейнера
             if (rightAxisLabels.length > 0) {
                 const minYBound = pad.top;
                 const maxYBound = height - pad.bottom;
 
-                // Корректируем верхний элемент, если он вылетел за потолок
                 if (rightAxisLabels[0].y < minYBound) {
                     rightAxisLabels[0].y = minYBound;
                     changed = true;
                 }
 
-                // Корректируем нижний элемент, если он пробил пол
                 const lastIdx = rightAxisLabels.length - 1;
                 if (rightAxisLabels[lastIdx].y > maxYBound) {
                     rightAxisLabels[lastIdx].y = maxYBound;
@@ -843,7 +870,6 @@ const SvgLineChart = memo(({ chart }) => {
                 }
             }
         }
-
 
         const xAxisLabels = xLimitLineData.map(line => ({
             type: "limit", index: line.index, value: line.value, x: line.x,
@@ -879,10 +905,20 @@ const SvgLineChart = memo(({ chart }) => {
         const hasLimitAtY = (y) => yLimitLineData.some(line => Math.abs(y - line.y) <= 8) || yLimitRangeData.some(range => Math.abs(y - range.start) <= 8 || Math.abs(y - range.end) <= 8);
         const hasLimitAtX = (x) => xLimitLineData.some(line => Math.abs(x - line.x) <= 8) || xLimitRangeData.some(range => Math.abs(x - range.start) <= 8 || Math.abs(x - range.end) <= 8);
 
+        // Оптимизация поиска: создаем плоскую хэш-карту прямо здесь
+        const placedMap = {};
+        if (Array.isArray(placed)) {
+            placed.forEach(p => {
+                placedMap[`${p.graphIndex}-${p.id}`] = p;
+            });
+        }
+
         return {
             width, height, pad, wPlot, hPlot, xMin, xMax, xCenter, tMin, tMax, gridLinesY,
             yLimitLineData, yLimitRangeData, xLimitLineData, xLimitRangeData,
-            yTopEdge: ys(tMax), yBottomEdge: ys(tMin), graphData, placed, yAxisLabels, rightAxisLabels, xAxisLabels,
+            yTopEdge: ys(tMax), yBottomEdge: ys(tMin), graphData, placed,
+            placedMap, // Добавлено в возвращаемый объект
+            yAxisLabels, rightAxisLabels, xAxisLabels,
             axes, hasLimitAtY, hasLimitAtX, showPoints, showLabels, xs, ys,
             borderColor: chart.status?.type === "error" ? theme.palette.error.main : chart.status?.type === "warning" ? theme.palette.warning.main : theme.palette.divider,
         };
@@ -891,9 +927,11 @@ const SvgLineChart = memo(({ chart }) => {
     if (!chartData) return null;
 
     const {
-        width, height, pad, wPlot, hPlot, xMin, tMin, gridLinesY,
+        width, height, pad, wPlot, hPlot, xMin, tMin, tMax, xMax, gridLinesY,
         yLimitLineData, yLimitRangeData, xLimitLineData, xLimitRangeData,
-        graphData, placed, yAxisLabels, rightAxisLabels, xAxisLabels,
+        graphData,
+        placedMap, // Достаем из useMemo
+        yAxisLabels, rightAxisLabels, xAxisLabels,
         axes, showPoints, showLabels, borderColor, xs, ys,
     } = chartData;
 
@@ -912,8 +950,8 @@ const SvgLineChart = memo(({ chart }) => {
                 ))}
 
                 {/* 3. Рендеринг стандартных пунктирных линий сетки */}
-                {gridLinesY.map(({ id, y, isSpecial }, i) => (
-                    i > 0 && !isSpecial && <line key={id} x1={pad.left} y1={y} x2={width - pad.right} y2={y} stroke={theme.palette.divider} strokeWidth={0.5} strokeDasharray="4 2" />
+                {gridLinesY.map(({ id, y, isSpecial }) => (
+                    id >= tMin && id <= tMax && !isSpecial && <line key={id} x1={pad.left} y1={y} x2={width - pad.right} y2={y} stroke={theme.palette.divider} strokeWidth={0.5} strokeDasharray="4 2" />
                 ))}
 
                 {/* 4. Рендеринг вертикальных линий лимитов (ось X) */}
@@ -945,26 +983,42 @@ const SvgLineChart = memo(({ chart }) => {
                     </text>
                 ))}
 
-                {/* 8. Текстовые подписи значений на оси X */}
-                {xAxisLabels.map(label => (
-                    <text key={`x-limit-label-${label.index}`} x={label.x} y={height - pad.bottom + X_AXIS_LABEL_OFFSET} textAnchor="middle" dominantBaseline="hanging" fontSize={8} fontWeight="bold" fill={label.color}>
-                        {(() => {
-                            const value = Number(label.value);
-                            const decimals = String(value).split(".")[1]?.length || 0;
-                            return decimals > 3
-                                ? Math.round(value)
-                                : value.toFixed(1).replace(/\.?0+$/, "");
-                        })()}
-                        {axes.x}
-                    </text>
-                ))}
+                {/* 8. Текстовые подписи значений на оси X (Оптимизировано: убрана анонимная IIFE функция) */}
+                {xAxisLabels.map(label => {
+                    const val = Number(label.value);
+                    const parts = String(label.value).split(".");
+                    const decimals = parts ? parts.length : 0;
+                    const displayValue = decimals > 3 ? Math.round(val) : val.toFixed(1).replace(/\.?[0]+$/, "");
+
+                    return (
+                        <text key={`x-limit-label-${label.index}`} x={label.x} y={height - pad.bottom + X_AXIS_LABEL_OFFSET} textAnchor="middle" dominantBaseline="hanging" fontSize={8} fontWeight="bold" fill={label.color}>
+                            {displayValue}{axes.x}
+                        </text>
+                    );
+                })}
 
                 {/* 9. Основной рендеринг кривых линий графиков */}
                 {graphData.map(graph => (
                     <path key={`path-${graph.index}`} d={graph.path} fill="none" stroke={graph.color} strokeWidth={graph.lineWidth} opacity={graph.opacity} strokeLinecap="round" strokeLinejoin="round" />
                 ))}
 
-                {/* 10. Рендеринг маркеров (точек) данных и вынесенных текстовых меток значений */}
+                {/* 2. Маркеры всех точек — по настройке */}
+                {SHOW_ALL_POINTS && graphData.map(graph =>
+                    graph.points.map((pt, ptIdx) => (
+                        <g key={`${graph.index}-pt-${ptIdx}`}>
+                            <circle
+                                cx={xs(pt[0])}
+                                cy={ys(pt[1])}
+                                r={graph.lineWidth * 0.5}
+                                stroke={theme.palette.background.paper}
+                                strokeWidth={graph.lineWidth * 0.25}
+                                opacity={graph.opacity}
+                            />
+                        </g>
+                    ))
+                )}
+
+                {/* 10. Рендеринг маркеров (точек) данных и вынесенных текстовых меток значений (Оптимизировано через O(1) хэш-карту) */}
                 {showPoints && graphData.map(graph => {
                     return graph.points.map((pt, ptIdx) => {
                         const pointX = xs(pt[0]);
@@ -973,15 +1027,28 @@ const SvgLineChart = memo(({ chart }) => {
                         const isMax = ptIdx === graph.maxIdx;
                         const lastId = graph.points.length - 1;
 
-                        const labelPlaced = placed.find(p => p.graphIndex === graph.index && p.id === ptIdx);
+                        // Обрезаем отрисовку точек, которые вышли за заданные внешние рамки
+                        if (pt[0] < xMin || pt[0] > xMax || pt[1] < tMin || pt[1] > tMax) return null;
+
+                        // Мгновенный поиск O(1) по строковому ключу
+                        const labelPlaced = placedMap[`${graph.index}-${ptIdx}`];
 
                         const isInterestingPoint = ptIdx === 0 || ptIdx === lastId || isMin || isMax;
                         if (!isInterestingPoint) return null;
 
                         return (
                             <g key={`${graph.index}-pt-${ptIdx}`}>
-                                <circle cx={pointX} cy={pointY} r={Math.max(2.5, graph.lineWidth * 1.5)} fill={isMin ? theme.palette.info.main : isMax ? theme.palette.error.main : graph.color} stroke={theme.palette.background.paper} strokeWidth={1} opacity={graph.opacity} />
-
+                                {graph.showMarker && (
+                                    <circle
+                                        cx={pointX}
+                                        cy={pointY}
+                                        r={Math.max(2.5, graph.lineWidth * 1.5)}
+                                        fill={isMin ? theme.palette.info.main : isMax ? theme.palette.error.main : graph.color}
+                                        stroke={theme.palette.background.paper}
+                                        strokeWidth={1}
+                                        opacity={graph.opacity}
+                                    />
+                                )}
                                 {showLabels && labelPlaced && (
                                     <text x={pointX + labelPlaced.dx} y={pointY + labelPlaced.dy} textAnchor={labelPlaced.textAnchor} dominantBaseline="middle" fontSize={9} fontWeight="bold" fill={graph.color} opacity={graph.opacity}>
                                         {Math.round(pt[1])}{axes.y}
