@@ -22,7 +22,7 @@ const getChartPoints = (valuesArray, step, xOffset = 0) => {
     ]);
 };
 
-const get1DChartsData = (profile, theme, graphsChart1, graphsChart2) => {
+const get1DChartsData = (profile, theme, graphsChart1, graphsChart2, showVerticalSlice, showTimeDynamics) => {
     if (!isDev || !profile?.thickness || !profile?.material || !profile?.machine || !profile.simulation) {
         return;
     }
@@ -37,7 +37,7 @@ const get1DChartsData = (profile, theme, graphsChart1, graphsChart2) => {
 
     if (!dataSimulate) return;
 
-    if (dataSimulate.temperatureProfile) {
+    if (showVerticalSlice && dataSimulate.temperatureProfile) {
         const dxMm1D = dataSimulate.temperatureProfile.dxMm || 0;
         graphsChart1.push(
             {
@@ -53,7 +53,7 @@ const get1DChartsData = (profile, theme, graphsChart1, graphsChart2) => {
         );
     }
 
-    if (dataSimulate.history) {
+    if (showTimeDynamics && dataSimulate.history) {
         const { history: hist1D, heatingTimeSeconds: heatTime1D } = dataSimulate;
         const heatHist = hist1D?.heating;
         const coolHist = hist1D?.cooling;
@@ -80,7 +80,6 @@ const get1DChartsData = (profile, theme, graphsChart1, graphsChart2) => {
         );
 
         // --- Графики ОХЛАЖДЕНИЯ (Cooling) ---
-        // Передаем Number(heatTime1D) как смещение начала координат по оси X (времени)
         graphsChart2.push(
             {
                 name: "Front Surface (1D) - Cooling",
@@ -297,6 +296,12 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
     const containerRef = useRef(null);
     const [containerSize, setContainerSize] = useState({ width: 800, height: 500 });
 
+    // Чтение флагов видимости из переданного объекта симуляции (дефолт true)
+    const showVerticalSlice = profile?.simulation?.ui?.showVerticalSlice ?? true;
+    const showHorizontalWidth = profile?.simulation?.ui?.showHorizontalWidth ?? true;
+    const showTimeDynamics = profile?.simulation?.ui?.showTimeDynamics ?? true;
+    const showContours2D = profile?.simulation?.ui?.showContours2D ?? true;
+
     const validationError = useMemo(() => validateProfile(profile), [profile]);
     const view = profile?.view;
 
@@ -308,7 +313,6 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             if (!entries || !entries.length) return;
             const { width, height } = entries[0].contentRect;
 
-            // Предотвращаем избыточные рендеры с помощью requestAnimationFrame
             animationFrameId = requestAnimationFrame(() => {
                 if (width && height) {
                     setContainerSize({ width, height });
@@ -378,8 +382,10 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         };
     }, [profile?.material, theme]);
 
+    // Тщательная проверка активности: если оба графика отключены, функция мгновенно завершается
     const chart1And2 = useMemo(() => {
         if (!result2D) return { chart1: null, chart2: null };
+        if (!showVerticalSlice && !showTimeDynamics) return { chart1: null, chart2: null };
 
         const thickness = Number(profile?.thickness || 0);
         const heatingTimeSeconds = Number(result2D.heatingTimeSeconds || 0);
@@ -387,10 +393,11 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         const graphsChart1 = [];
         const graphsChart2 = [];
 
-        // Вызов 1D симуляции
-        get1DChartsData(profile, theme, graphsChart1, graphsChart2);
+        // Передаем флаги видимости внутрь 1D хелпера
+        get1DChartsData(profile, theme, graphsChart1, graphsChart2, showVerticalSlice, showTimeDynamics);
 
-        if (result2D?.temperatureProfile) {
+        // Расчет вертикального среза выполняется ТОЛЬКО при активности флага
+        if (showVerticalSlice && result2D?.temperatureProfile) {
             graphsChart1.push(
                 {
                     name: "Heating (Vertical Slice)",
@@ -405,18 +412,17 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             );
         }
 
-        if (result2D?.history) {
+        // Цикл прохода по истории выполняется ТОЛЬКО при включенной динамике времени
+        if (showTimeDynamics && result2D?.history) {
             const { history: hist2D } = result2D;
             const times = hist2D.time || [];
             const heatTime = Number(result2D?.heatingTimeSeconds || 0);
 
-// Инициализируем плоские массивы под каждую кривую
             const heatFront = [], heatCenter = [], heatBack = [];
             const coolFront = [], coolCenter = [], coolBack = [];
 
             let lastHeatPoint = null;
 
-// Одиночный цикл вместо раздельных проходов итератора
             for (let i = 0; i < times.length; i++) {
                 const t = times[i];
                 const fC = Number(hist2D.frontSurfaceC[i]);
@@ -429,9 +435,8 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     heatFront.push([t, fC]);
                     heatCenter.push([t, cC]);
                     heatBack.push([t, bC]);
-                    lastHeatPoint = pt; // Запоминаем финальную точку нагрева
+                    lastHeatPoint = pt;
                 } else {
-                    // Если это первый шаг охлаждения, бесшовно добавляем стыковочную точку
                     if (coolFront.length === 0 && lastHeatPoint !== null) {
                         const [lt, lf, lc, lb] = lastHeatPoint;
                         coolFront.push([lt, lf]);
@@ -444,9 +449,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 }
             }
 
-// За один вызов пушим готовые структуры в конфигурацию графика
             graphsChart2.push(
-                // --- Нагрев (Heating) ---
                 {
                     name: "Front Surface (2D) - Heating", points: heatFront,
                     color: theme.palette.error.main, opacity: 1, lineWidth: 1, showMarker: false,
@@ -459,7 +462,6 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     name: "Back Surface (2D) - Heating", points: heatBack,
                     color: theme.palette.primary.main, opacity: 1, lineWidth: 1, showMarker: false,
                 },
-                // --- Охлаждение (Cooling) ---
                 {
                     name: "Front Surface (2D) - Cooling", points: coolFront,
                     color: theme.palette.error.main, opacity: 1, lineWidth: 1, showMarker: true,
@@ -475,15 +477,15 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             );
         }
 
-        const chart1 = {
+        const chart1 = (showVerticalSlice && graphsChart1.length > 0) ? {
             graphs: graphsChart1,
             axes: {
                 x: { unit: "mm", lines: [{ value: thickness / 2, color: theme.palette.text.secondary }], ranges: [] },
                 y: commonYAxis
             }
-        };
+        } : null;
 
-        const chart2 = graphsChart2.length > 0 ? {
+        const chart2 = (showTimeDynamics && graphsChart2.length > 0) ? {
             graphs: graphsChart2,
             axes: {
                 x: { unit: "s", lines: [{ value: heatingTimeSeconds, color: theme.palette.text.secondary }], ranges: [] },
@@ -492,7 +494,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         } : null;
 
         return { chart1, chart2 };
-    }, [result2D, commonYAxis, theme, profile]);
+    }, [result2D, commonYAxis, theme, profile, showVerticalSlice, showTimeDynamics]);
 
     const xTgPauseValue = useMemo(() => {
         if (!result2D?.temperatureProfile) return null;
@@ -559,8 +561,9 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         return rInnerMax > 0 ? rInnerMax : 0;
     }, [plasticZoneWidthCalculated, machineParams?.bendAngle, profile?.thickness, profile?.material?.kFactor]);
 
+    // Проверка активности флага showHorizontalWidth на самом старте хука
     const chart3Data = useMemo(() => {
-        if (!result2D?.temperatureProfile) return null;
+        if (!showHorizontalWidth || !result2D?.temperatureProfile) return null;
 
         const thickness = Number(profile?.thickness || 0);
         const width = Number(profile?.width || 0);
@@ -637,10 +640,11 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 y: commonYAxis
             }
         };
-    }, [result2D, theme, profile?.thickness, profile?.width, commonYAxis, xTgPauseValue]);
+    }, [result2D, theme, profile?.thickness, profile?.width, commonYAxis, xTgPauseValue, showHorizontalWidth]);
 
+    // Проверка активности флага showContours2D на самом старте хука
     const chartContourData = useMemo(() => {
-        if (!result2D?.temperatureProfile) return null;
+        if (!showContours2D || !result2D?.temperatureProfile) return null;
 
         const thickness = Number(profile?.thickness || 0);
         const width = Number(profile?.width || 0);
@@ -648,20 +652,12 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         const Tg = Number(profile?.material?.glassTransitionTemp);
         const Tmin = Number(profile?.material?.minFormingTemp);
         const Tmax = Number(profile?.material?.maxFormingTemp);
+        const Tdecomp = Number(profile?.material?.decompositionTemp);
 
         const profileData = result2D.temperatureProfile;
         const { xCoordinatesMm, yCoordinatesMm, Nx, Ny, heating, pause } = profileData;
         const gridConfig = { Nx, Ny, xCoordinatesMm, yCoordinatesMm };
 
-// ==========================================
-// ЕДИНАЯ УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ИНТЕРПОЛЯЦИИ
-// ==========================================
-
-        /**
-         * Вычисляет координату точки пересечения target между двумя узлами.
-         * t1, t2 — температуры в узлах
-         * c1, c2 — физические координаты этих узлов (в мм по ширине или толщине)
-         */
         const interpolateCoordinate = (t1, t2, c1, c2, target) => {
             if (Math.abs(t2 - t1) >= 0.001) {
                 return c1 + (target - t1) * (c2 - c1) / (t2 - t1);
@@ -669,31 +665,26 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             return c1;
         };
 
-
-// ==========================================
-// ОСНОВНАЯ ФУНКЦИЯ РАСЧЕТА ИЗОТЕРМЫ
-// ==========================================
-
         const addTemperatureIsotherm = (targetTemp, T_flat, gridConfig, nameLabel, lineStyle = {}) => {
             if (!Number.isFinite(targetTemp) || !T_flat?.length || !gridConfig) return [];
 
             const { Nx, Ny, xCoordinatesMm, yCoordinatesMm } = gridConfig;
+            const maxSemiWidth = yCoordinatesMm[Ny - 1] || 0;
 
-            // Хелпер для точной интерполяции координаты Y на оси симметрии X=0
-            const getCenterY = (i1, i2) => {
+            const getInterpolatedY = (i1, i2, jIndex) => {
                 const idx1 = Math.max(0, Math.min(i1, Nx - 1));
                 const idx2 = Math.max(0, Math.min(i2, Nx - 1));
+                const col = Math.max(0, Math.min(jIndex, Ny - 1));
 
                 return interpolateCoordinate(
-                    T_flat[idx1 * Ny],
-                    T_flat[idx2 * Ny],
+                    T_flat[idx1 * Ny + col],
+                    T_flat[idx2 * Ny + col],
                     xCoordinatesMm[idx1],
                     xCoordinatesMm[idx2],
                     targetTemp
                 );
             };
 
-            // Хелпер для зеркалирования правого крыла (исключаем точки на оси X = 0, чтобы избежать дублирования)
             const getLeftSideDirect = (seg) => {
                 return seg
                     .filter(([x]) => x > 0.001)
@@ -704,7 +695,6 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             let currentSegment = [];
             let lastValidI = -2;
 
-            // --- 1. Сбор правого крыла изотермы по слоям сетки ---
             for (let i = 0; i < Nx; i++) {
                 const thicknessMm = xCoordinatesMm[i];
                 const rowOffset = i * Ny;
@@ -721,23 +711,55 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 
                         if (wMm >= 0) {
                             interpolatedWidthMm = wMm;
-                            break; // Нашли первое пересечение в слое — выходим
+                            break;
                         }
                     }
                 }
 
                 if (interpolatedWidthMm !== null) {
-                    // Обнаружен разрыв между сегментами
-                    if (i !== lastValidI + 1 && currentSegment.length > 0) {
-                        currentSegment.exactCenterYEnd = getCenterY(lastValidI, lastValidI + 1);
-                        segmentsRight.push(currentSegment);
+                    const getEdgePoint = (iStart, iEnd) => {
+                        const tS1 = T_flat[iStart * Ny + (Ny - 1)];
+                        const tS2 = T_flat[iEnd * Ny + (Ny - 1)];
 
+                        if ((tS1 >= targetTemp && tS2 <= targetTemp) || (tS1 <= targetTemp && tS2 >= targetTemp)) {
+                            const sideY = getInterpolatedY(iStart, iEnd, Ny - 1);
+                            return { point: [maxSemiWidth, sideY], sideY };
+                        }
+                        return { centerY: getInterpolatedY(iStart, iEnd, 0) };
+                    };
+
+                    if (i !== lastValidI + 1 && currentSegment.length > 0) {
+                        const endEdge = getEdgePoint(lastValidI, lastValidI + 1);
+                        if (endEdge.sideY !== undefined) {
+                            currentSegment.push(endEdge.point);
+                            currentSegment.exactSideYEnd = endEdge.sideY;
+                        } else {
+                            currentSegment.exactCenterYEnd = endEdge.centerY;
+                        }
+
+                        segmentsRight.push(currentSegment);
                         currentSegment = [];
-                        currentSegment.exactCenterYStart = getCenterY(i - 1, i);
+
+                        const startEdge = getEdgePoint(i - 1, i);
+                        if (startEdge.sideY !== undefined) {
+                            currentSegment.push(startEdge.point);
+                            currentSegment.exactSideYStart = startEdge.sideY;
+                        } else {
+                            currentSegment.exactCenterYStart = startEdge.centerY;
+                        }
                     }
-                    // Изотерма началась не с первого слоя плиты
                     else if (currentSegment.length === 0) {
-                        currentSegment.exactCenterYStart = i > 0 ? getCenterY(i - 1, i) : getCenterY(0, 0);
+                        if (i > 0) {
+                            const startEdge = getEdgePoint(i - 1, i);
+                            if (startEdge.sideY !== undefined) {
+                                currentSegment.push(startEdge.point);
+                                currentSegment.exactSideYStart = startEdge.sideY;
+                            } else {
+                                currentSegment.exactCenterYStart = startEdge.centerY;
+                            }
+                        } else {
+                            currentSegment.exactCenterYStart = getInterpolatedY(0, 0, 0);
+                        }
                     }
 
                     currentSegment.push([interpolatedWidthMm, thicknessMm]);
@@ -745,40 +767,34 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 }
             }
 
-            // Сохраняем последний активный сегмент
             if (currentSegment.length > 0) {
-                currentSegment.exactCenterYEnd = lastValidI < Nx - 1 ? getCenterY(lastValidI, lastValidI + 1) : getCenterY(Nx - 1, Nx - 1);
+                if (lastValidI < Nx - 1) {
+                    const tSide1 = T_flat[lastValidI * Ny + (Ny - 1)];
+                    const tSide2 = T_flat[(lastValidI + 1) * Ny + (Ny - 1)];
+                    const isGoingToSide = (tSide1 >= targetTemp && tSide2 <= targetTemp) || (tSide1 <= targetTemp && tSide2 >= targetTemp);
+
+                    if (isGoingToSide) {
+                        const sideY = getInterpolatedY(lastValidI, lastValidI + 1, Ny - 1);
+                        currentSegment.push([maxSemiWidth, sideY]);
+                        currentSegment.exactSideYEnd = sideY;
+                    } else {
+                        currentSegment.exactCenterYEnd = getInterpolatedY(lastValidI, lastValidI + 1, 0);
+                    }
+                } else {
+                    currentSegment.exactCenterYEnd = getInterpolatedY(Nx - 1, Nx - 1, 0);
+                }
                 segmentsRight.push(currentSegment);
             }
 
             if (segmentsRight.length === 0) return [];
 
-            // --- 2. Настройка стилей графика ---
-            const baseProps = {
-                showMarker: false,
-                showPoints: false,
-                ...lineStyle
-            };
-
+            const baseProps = { showMarker: false, showPoints: false, ...lineStyle };
             const resultGraphs = [];
-
-            // --- 3. Зеркалирование и сшивание контуров ---
             const totalThickness = xCoordinatesMm[Nx - 1] || 0;
 
             segmentsRight.forEach((segRight, segIdx) => {
                 const n = segRight.length;
 
-                // Случай 1: Изотерма сквозная по всей толщине плиты (быстрый путь)
-                if (n === Nx) {
-                    const leftSide = getLeftSideDirect(segRight);
-                    resultGraphs.push(
-                        { name: `${nameLabel} (Лев)`, points: leftSide, ...baseProps },
-                        { name: `${nameLabel} (Прав)`, points: segRight, ...baseProps }
-                    );
-                    return;
-                }
-
-                // Случай 2: Точечный сегмент (одиночный узел сетки)
                 if (n === 1) {
                     const [x, y] = segRight[0];
                     resultGraphs.push({
@@ -789,73 +805,78 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     return;
                 }
 
-                // Случай 3: Сложные геометрические капы (овалы, полукруги)
+                const xStart = segRight[0][0];
                 const yStart = segRight[0][1];
+                const xEnd = segRight[n - 1][0];
                 const yEnd = segRight[n - 1][1];
 
-                const isStartOnSurface = Math.abs(yStart) < 0.001 || Math.abs(yStart - totalThickness) < 0.001;
-                const isEndOnSurface = Math.abs(yEnd - totalThickness) < 0.001 || Math.abs(yEnd) < 0.001;
+                const EDGE_EPS = 0.05;
+
+                const isStartOnSurface = Math.abs(yStart) < EDGE_EPS || Math.abs(yStart - totalThickness) < EDGE_EPS;
+                const isEndOnSurface   = Math.abs(yEnd - totalThickness) < EDGE_EPS || Math.abs(yEnd) < EDGE_EPS;
+                const isStartOnSideBorder = Math.abs(xStart - maxSemiWidth) < EDGE_EPS;
+                const isEndOnSideBorder   = Math.abs(xEnd - maxSemiWidth) < EDGE_EPS;
+
+                const isStartOnAnyEdge = (isStartOnSurface || isStartOnSideBorder) && xStart > 0.01;
+                const isEndOnAnyEdge   = (isEndOnSurface || isEndOnSideBorder) && xEnd > 0.01;
+
+                const leftSideDirect = getLeftSideDirect(segRight);
+                const leftSideReversed = [...leftSideDirect].reverse();
+                const segmentIdStr = segmentsRight.length > 1 ? ` Зона ${segIdx + 1}` : "";
+
+                if (isStartOnAnyEdge && isEndOnAnyEdge) {
+                    resultGraphs.push(
+                        { name: `${nameLabel}${segmentIdStr} (Лев)`, points: leftSideReversed, ...baseProps },
+                        { name: `${nameLabel}${segmentIdStr} (Прав)`, points: segRight, ...baseProps }
+                    );
+                    return;
+                }
 
                 const centerYStart = segRight.exactCenterYStart;
                 const centerYEnd = segRight.exactCenterYEnd;
-
-                // Формируем чистые левые массивы без дублирования точек оси X=0
-                const leftSideDirect = getLeftSideDirect(segRight);
-                const leftSideReversed = [...leftSideDirect].reverse();
+                const hasCenterStart = centerYStart !== undefined;
+                const hasCenterEnd   = centerYEnd !== undefined;
 
                 let smoothCapPoints;
 
-                if (isEndOnSurface && !isStartOnSurface) {
-                    // Конец на поверхности, старт внутри (замыкание через точный centerYStart)
+                if (isStartOnAnyEdge && !hasCenterStart && !hasCenterEnd) {
+                    resultGraphs.push(
+                        { name: `${nameLabel}${segmentIdStr} (Лев)`, points: leftSideReversed, ...baseProps },
+                        { name: `${nameLabel}${segmentIdStr} (Прав)`, points: segRight, ...baseProps }
+                    );
+                    return;
+                }
+
+                if (isEndOnAnyEdge && !isStartOnAnyEdge) {
                     smoothCapPoints = [...leftSideReversed, [0, centerYStart], ...segRight];
                 }
-                else if (isStartOnSurface && !isEndOnSurface) {
-                    // Старт на поверхности, конец внутри (замыкание через точный centerYEnd)
+                else if (isStartOnAnyEdge && !isEndOnAnyEdge) {
                     const rightSideReversed = [...segRight].reverse();
                     smoothCapPoints = [...leftSideDirect, [0, centerYEnd], ...rightSideReversed];
                 }
-                else if (!isStartOnSurface && !isEndOnSurface) {
-                    // Полностью изолированный овал (замкнутый контур с обоих концов)
+                else if (!isStartOnAnyEdge && !isEndOnAnyEdge) {
                     smoothCapPoints = [[0, centerYStart], ...segRight, [0, centerYEnd], ...leftSideReversed, [0, centerYStart]];
                 }
                 else {
-                    // Касается обеих поверхностей плиты (разрезанный пополам объект)
                     smoothCapPoints = [...leftSideReversed, ...segRight];
                 }
 
-                const segmentIdStr = segmentsRight.length > 1 ? ` Зона ${segIdx + 1}` : "";
-                resultGraphs.push({
-                    name: `${nameLabel}${segmentIdStr}`,
-                    points: smoothCapPoints,
-                    ...baseProps
-                });
+                resultGraphs.push({ name: `${nameLabel}${segmentIdStr}`, points: smoothCapPoints, ...baseProps });
             });
 
             return resultGraphs;
         };
 
         const graphs = [
-            // --- Нагрев ---
-            ...addTemperatureIsotherm(Tg, heating, gridConfig, "Tg Нагрев", {
-                color: theme.palette.warning.main, lineWidth: 1.6
-            }),
-            ...addTemperatureIsotherm(Tmin, heating, gridConfig, "T min Нагрев", {
-                color: theme.palette.success.main, lineWidth: 1.6
-            }),
-            ...addTemperatureIsotherm(Tmax, heating, gridConfig, "T max Нагрев", {
-                color: theme.palette.success.main, lineWidth: 1.6
-            }),
+            ...addTemperatureIsotherm(Tg, heating, gridConfig, "Tg Нагрев", { color: theme.palette.warning.main, lineWidth: 1.6 }),
+            ...addTemperatureIsotherm(Tmin, heating, gridConfig, "T min Нагрев", { color: theme.palette.success.main, lineWidth: 1.6 }),
+            ...addTemperatureIsotherm(Tmax, heating, gridConfig, "T max Нагрев", { color: theme.palette.success.main, lineWidth: 1.6 }),
+            ...addTemperatureIsotherm(Tdecomp, heating, gridConfig, "Деструкция Нагрев", { color: theme.palette.error.main, lineWidth: 1.8 }),
 
-            // --- Пауза ---
-            ...addTemperatureIsotherm(Tg, pause, gridConfig, "Tg Пауза", {
-                color: theme.palette.warning.dark, lineWidth: 1.0, opacity: 0.7
-            }),
-            ...addTemperatureIsotherm(Tmin, pause, gridConfig, "T min Пауза", {
-                color: theme.palette.success.dark, lineWidth: 1.0, opacity: 0.7
-            }),
-            ...addTemperatureIsotherm(Tmax, pause, gridConfig, "T max Пауза", {
-                color: theme.palette.success.main, lineWidth: 1.0, opacity: 0.7
-            })
+            ...addTemperatureIsotherm(Tg, pause, gridConfig, "Tg Пауза", { color: theme.palette.warning.dark, lineWidth: 1.0, opacity: 0.7 }),
+            ...addTemperatureIsotherm(Tmin, pause, gridConfig, "T min Пауза", { color: theme.palette.success.dark, lineWidth: 1.0, opacity: 0.7 }),
+            ...addTemperatureIsotherm(Tmax, pause, gridConfig, "T max Пауза", { color: theme.palette.success.main, lineWidth: 1.0, opacity: 0.7 }),
+            ...addTemperatureIsotherm(Tdecomp, pause, gridConfig, "Деструкция Пауза", { color: theme.palette.error.dark, lineWidth: 1.2, opacity: 0.7 })
         ];
 
         const xLines = [{ value: 0, color: theme.palette.text.secondary, label: "Центр" }];
@@ -870,16 +891,9 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         return {
             graphs,
             axes: {
-                x: { unit: "mm",
-                    lines: xLines,
-                    ranges: [],
-                    // Передаем границы по ширине: от левого края (-полуширина) до правого (+полуширина)
-                },
+                x: { unit: "mm", lines: xLines, ranges: [] },
                 y: {
-                    unit: "mm",
-                    // Передаем границы по толщине листа: от 0 до полной толщины
-                    min: 0,
-                    max: thickness,
+                    unit: "mm", min: 0, max: thickness,
                     lines: [
                         { value: 0, color: theme.palette.text.primary, label: "Верх" },
                         { value: thickness / 2, color: alpha(theme.palette.divider, 0.3) },
@@ -889,7 +903,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 }
             }
         };
-    }, [result2D, theme, profile?.thickness, profile?.width, profile?.material]);
+    }, [result2D, theme, profile?.thickness, profile?.width, profile?.material, showContours2D]);
 
     return (
         <Box className="bend-preview" sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -899,14 +913,8 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 ref={containerRef}
                 className="bend-preview-drawing"
                 sx={{
-                    flex: 1,
-                    minWidth: 360,
-                    maxHeight: 480,
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    overflow: "hidden"
+                    flex: 1, minWidth: 360, maxHeight: 480, width: "100%",
+                    display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden"
                 }}
             >
                 {validationError ? (
@@ -926,7 +934,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 )}
             </Box>
 
-            <Box className="bend-preview-bottom" sx={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", width: "100%", flexShrink: 0, gap: 1 }}>
+            <Box className="bend-preview-bottom" sx={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", width: "100%", flexShrink: 0, gap: 1, mt: 1 }}>
                 <Box sx={{ flex: "1 1 18rem" }}>
                     <Parameters
                         profile={profile}
@@ -942,33 +950,31 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     />
                 </Box>
 
-                {(chart1And2?.chart1 || chart3Data || chart1And2?.chart2) && (
-                    <Box sx={{ display: "flex", flexWrap: "wrap", mx: "auto", gap: 1 }}>
-                        {chart1And2?.chart1 && (
-                            <Box mx="auto">
-                                <SvgLineChart chart={chart1And2.chart1} />
-                            </Box>
-                        )}
+                <Box sx={{ display: "flex", flexWrap: "wrap", mx: "auto", gap: 1 }}>
+                    {showVerticalSlice && chart1And2?.chart1 && (
+                        <Box mx="auto">
+                            <SvgLineChart chart={chart1And2.chart1} />
+                        </Box>
+                    )}
 
-                        {chart3Data && (
-                            <Box mx="auto">
-                                <SvgLineChart chart={chart3Data} />
-                            </Box>
-                        )}
+                    {showTimeDynamics && chart1And2?.chart2 && (
+                        <Box mx="auto">
+                            <SvgLineChart chart={chart1And2.chart2} />
+                        </Box>
+                    )}
 
-                        {chart1And2?.chart2 && (
-                            <Box mx="auto">
-                                <SvgLineChart chart={chart1And2.chart2} />
-                            </Box>
-                        )}
+                    {showHorizontalWidth && chart3Data && (
+                        <Box mx="auto">
+                            <SvgLineChart chart={chart3Data} />
+                        </Box>
+                    )}
 
-                        {chartContourData && (
-                            <Box mx="auto">
-                                <SvgLineChart chart={chartContourData} />
-                            </Box>
-                        )}
-                    </Box>
-                )}
+                    {showContours2D && chartContourData && (
+                        <Box mx="auto">
+                            <SvgLineChart chart={chartContourData} />
+                        </Box>
+                    )}
+                </Box>
             </Box>
         </Box>
     );

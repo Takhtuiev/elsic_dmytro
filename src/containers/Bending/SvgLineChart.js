@@ -324,23 +324,51 @@ const buildLimitData = ({ axis, lines, ranges, mapValue, minValue, maxValue, plo
 };
 
 const makePath = (graph, xs, ys, xMin, xMax) => {
-    // Фильтруем точки, оставляя только те сегменты, которые попадают в видимую область
+    // 1. Фильтруем точки, оставляя только видимые
     const points = graph.points.filter(p => p[0] >= xMin && p[0] <= xMax);
     if (points.length < 2) return "";
 
-    let d = `M ${xs(points[0][0])} ${ys(points[0][1])}`;
+    const n = points.length;
 
-    for (let i = 0; i < points.length - 1; i++) {
-        const p0 = points[i > 0 ? i - 1 : 0];
-        const p1 = points[i];
-        const p2 = points[i + 1];
-        const p3 = points[Math.min(i + 2, points.length - 1)];
+    // Переводим физические координаты в пиксели экрана
+    const px = points.map(p => xs(p[0]));
+    const py = points.map(p => ys(p[1]));
 
-        const x0 = xs(p0[0]); const x1 = xs(p1[0]); const x2 = xs(p2[0]); const x3 = xs(p3[0]);
-        const y0 = ys(p0[1]); const y1 = ys(p1[1]); const y2 = ys(p2[1]); const y3 = ys(p3[1]);
+    const dx = new Array(n).fill(0);
+    const dy = new Array(n).fill(0);
 
-        d += ` C ${x1 + (x2 - x0) / 6},${y1 + (y2 - y0) / 6} ${x2 - (x3 - x1) / 6},${y2 - (y3 - y1) / 6} ${x2},${y2}`;
+    // 2. Расчет векторов касательных
+    for (let i = 0; i < n; i++) {
+        if (i === 0 || i === n - 1) {
+            // ГЛАВНОЕ ИЗМЕНЕНИЕ: Жестко обнуляем dx на границах плиты (i=0 и i=n-1).
+            // Линия начнет движение строго перпендикулярно оси X, вылет вбок невозможен.
+            dx[i] = 0;
+            dy[i] = 0;
+        } else {
+            // Для внутренних точек оставляем стандартное сглаживание
+            dx[i] = (px[i + 1] - px[i - 1]) / 2;
+            dy[i] = (py[i + 1] - py[i - 1]) / 2;
+        }
     }
+
+    // 3. Сборка SVG пути
+    let d = `M ${px[0]} ${py[0]}`;
+
+    for (let i = 0; i < n - 1; i++) {
+        let cp1x = px[i] + dx[i] / 3;
+        let cp1y = py[i] + dy[i] / 3;
+        let cp2x = px[i + 1] - dx[i + 1] / 3;
+        let cp2y = py[i + 1] - dy[i + 1] / 3;
+
+        // Дополнительный железный guardrail: зажимаем X контрольных точек в границах сегмента
+        const minX = Math.min(px[i], px[i + 1]);
+        const maxX = Math.max(px[i], px[i + 1]);
+        cp1x = Math.max(minX, Math.min(maxX, cp1x));
+        cp2x = Math.max(minX, Math.min(maxX, cp2x));
+
+        d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${px[i + 1]},${py[i + 1]}`;
+    }
+
     return d;
 };
 

@@ -36,7 +36,8 @@ const ConfigCard = memo(({ title, children, action }) => (
 
 export default function SimulationContent({ value = {}, onChange }) {
     const [linkTemps, setLinkTemps] = useState(true);
-    const { temperatures = {}, cooling = {}, target = {}, stopAtMaxTemperature = true, recordHistory = true, maxTimeSeconds = 600, widthHalfMm = 10 } = value;
+    const { temperatures = {}, cooling = {}, target = {}, stopAtMaxTemperature = true, recordHistory = true, maxTimeSeconds = 600, widthHalfMm = 10, ui = {} } = value;
+    const { showVerticalSlice = true, showHorizontalWidth = true, showTimeDynamics = true, showContours2D = true } = ui;
 
     const dimension = widthHalfMm === 0 ? "1d" : "2d";
 
@@ -58,6 +59,16 @@ export default function SimulationContent({ value = {}, onChange }) {
             widthHalfMm: newDim === "1d" ? 0 : 10
         }));
     }, [updateValue]);
+
+    const handleChartUiChange = useCallback((key) => (e) => updateValue(p => {
+        const isChecked = e.target.checked;
+        const currentUi = p.ui || {};
+        const updatedFields = { ui: { ...currentUi, [key]: isChecked } };
+        if (key === "showTimeDynamics") {
+            updatedFields.recordHistory = isChecked;
+        }
+        return updatedFields;
+    }), [updateValue]);
 
     return (
         <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, gap: 2.5, width: "100%" }}>
@@ -110,6 +121,13 @@ export default function SimulationContent({ value = {}, onChange }) {
                     <RowField label="Cooling time" value={cooling.timeSeconds ?? 0} onChange={(v) => updateValue(p => ({ cooling: { ...p.cooling, timeSeconds: v === "" ? "" : Number(v) } }))} unit="s" />
                     <RowField label="Air convection coefficient" value={cooling.convectiveHeatTransferCoefficient ?? 8} onChange={(v) => updateValue(p => ({ cooling: { ...p.cooling, convectiveHeatTransferCoefficient: v === "" ? "" : Number(v) } }))} unit={String.raw`\frac{W}{m^2\cdot K}`} />
                     <RowField label="Maximum simulation time" value={maxTimeSeconds} onChange={(v) => updateValue(() => ({ maxTimeSeconds: v === "" ? "" : Number(v) }))} unit="s" />
+                </ConfigCard>
+
+                <ConfigCard title="Charts Visibility">
+                    <FormControlLabel control={<Switch size="small" checked={showVerticalSlice} onChange={handleChartUiChange("showVerticalSlice")} />} label="Vertical slice" />
+                    <FormControlLabel control={<Switch size="small" checked={showTimeDynamics} onChange={handleChartUiChange("showTimeDynamics")} />} label="Time dynamics" />
+                    <FormControlLabel control={<Switch size="small" checked={showHorizontalWidth} onChange={handleChartUiChange("showHorizontalWidth")} />} label="Distribution by width" />
+                    <FormControlLabel control={<Switch size="small" checked={showContours2D} onChange={handleChartUiChange("showContours2D")} />} label="2D Isotherms" />
                 </ConfigCard>
             </Box>
         </Box>

@@ -81,32 +81,28 @@ const INITIAL_STATE={
         ]
     },
 
-    simulation:{
-        target:{
-            type:"minTemperature",
-            value:
-                (
-                    MATERIALS["PVC_CAW_RED"]?.minFormingTemp+
-                    MATERIALS["PVC_CAW_RED"]?.maxFormingTemp
-                )/2
+    simulation: {
+        // --- Физические параметры ---
+        target: {
+            type: "minTemperature",
+            value: (MATERIALS["PVC_CAW_RED"]?.minFormingTemp + MATERIALS["PVC_CAW_RED"]?.maxFormingTemp) / 2
         },
-
         widthHalfMm: 15,
+        temperatures: { ambientC: 20, ambientRadiationC: 20, initialC: 20 },
+        cooling: { timeSeconds: 10, convectiveHeatTransferCoefficient: 8 },
+        stopAtMaxTemperature: true,
+        maxTimeSeconds: 1800,
 
-        temperatures:{
-            ambientC:20,
-            ambientRadiationC:20,
-            initialC:20
-        },
+        // --- Флаг движка (управляется автоматически через ui.showTimeDynamics) ---
+        recordHistory: false,
 
-        cooling:{
-            timeSeconds:10,
-            convectiveHeatTransferCoefficient:8
-        },
-
-        stopAtMaxTemperature:true,
-        recordHistory:false,
-        maxTimeSeconds:1800
+        // --- Флаги отображения графиков (управление из интерфейса) ---
+        ui: {
+            showVerticalSlice: true,   // График 1: Вертикальный срез по толщине
+            showHorizontalWidth: true, // График 2: Распределение по ширине
+            showTimeDynamics: true,    // График 3: Динамика во времени (История нагрева)
+            showContours2D: true       // График 4: 2D Изотермы (Контуры)
+        }
     },
 
     view:{
