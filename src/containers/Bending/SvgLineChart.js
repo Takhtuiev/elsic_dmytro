@@ -20,8 +20,8 @@ const LABEL_PENALTIES = {
     placedNear: 50,             // Нахождение слишком близко к другой метке (менее 4px)
     curveOverlap: 5000,         // Пересечение прямоугольника метки с линиями графиков
     pointInside: 1000,          // Точка данных оказалась внутри текста самой метки
-    leftOverflow: 3000,         // Выход за левую границу координатной сетки графика
-    rightOverflow: 4000,           // Выход за правую границу координатной сетки графика
+    leftOverflow: 3000,         // Выход за левую границу координатовой сетки графика
+    rightOverflow: 4000,           // Выход за правую границу координатовой сетки графика
     topOverflow: 200,           // Выход за верхнюю границу сетки
     bottomOverflow: 300,        // Выход за нижнюю границу сетки
     labelAreaOverflow: 10000,   // Выход метки за физические пределы самого SVG-контейнера
@@ -46,7 +46,7 @@ const STATIC_DIRECTIONS = [
     { idx: 8, angle: 180, vx: -1, vy: 0 },
     { idx: 9, angle: -157.5, vx: -0.92387953251128, vy: -0.38268343236508 },
     { idx: 10, angle: -135, vx: -0.70710678118654, vy: -0.70710678118654 },
-    { idx: 11, angle: -112.5, vx: -0.38268343251128, vy: -0.92387953236508 },
+    { idx: 11, angle: -112.5, vx: -0.38268343251128, vy: -0.92387953251128 },
     { idx: 12, angle: -90, vx: 0, vy: -1 },
     { idx: 13, angle: -67.5, vx: 0.38268343251128, vy: -0.92387953236508 },
     { idx: 14, angle: -45, vx: 0.70710678118654, vy: -0.70710678118654 },
@@ -266,6 +266,8 @@ const getOverflowPenalty = (rect, plotLeft, plotRight, plotTop, plotBottom) => {
 };
 
 const buildLimitData = ({ axis, lines, ranges, mapValue, minValue, maxValue, plotStart, plotEnd }) => {
+
+
     const limitLines = [
         ...(Array.isArray(lines) ? lines : []),
         ...(Array.isArray(ranges) ? ranges.flatMap(range => [
@@ -323,53 +325,67 @@ const buildLimitData = ({ axis, lines, ranges, mapValue, minValue, maxValue, plo
     return { lines: lineData, ranges: rangeData };
 };
 
-const makePath = (graph, xs, ys, xMin, xMax) => {
-    // 1. Фильтруем точки, оставляя только видимые
-    const points = graph.points.filter(p => p[0] >= xMin && p[0] <= xMax);
-    if (points.length < 2) return "";
+const makePath = (graph, xs, ys, xAbsoluteMin, xAbsoluteMax) => {
+    if (!graph || !Array.isArray(graph.points) || !graph.points.length) return "";
 
-    const n = points.length;
+    // Распиливаем массив точек на независимые сегменты по разделителю null
+    const segments = [];
+    let currentSegment = [];
 
-    // Переводим физические координаты в пиксели экрана
-    const px = points.map(p => xs(p[0]));
-    const py = points.map(p => ys(p[1]));
-
-    const dx = new Array(n).fill(0);
-    const dy = new Array(n).fill(0);
-
-    // 2. Расчет векторов касательных
-    for (let i = 0; i < n; i++) {
-        if (i === 0 || i === n - 1) {
-            // ГЛАВНОЕ ИЗМЕНЕНИЕ: Жестко обнуляем dx на границах плиты (i=0 и i=n-1).
-            // Линия начнет движение строго перпендикулярно оси X, вылет вбок невозможен.
-            dx[i] = 0;
-            dy[i] = 0;
+    graph.points.forEach(p => {
+        if (p === null) {
+            if (currentSegment.length >= 2) segments.push(currentSegment);
+            currentSegment = [];
         } else {
-            // Для внутренних точек оставляем стандартное сглаживание
-            dx[i] = (px[i + 1] - px[i - 1]) / 2;
-            dy[i] = (py[i + 1] - py[i - 1]) / 2;
+            currentSegment.push(p);
         }
-    }
+    });
+    if (currentSegment.length >= 2) segments.push(currentSegment);
 
-    // 3. Сборка SVG пути
-    let d = `M ${px[0]} ${py[0]}`;
+    // Внутренний хелпер для генерации плавной кривой одной изолированной части
+    const renderSegmentPath = (pointsList) => {
+        const points = pointsList.filter(p => p && p[0] >= xAbsoluteMin && p[0] <= xAbsoluteMax);
+        if (points.length < 2) return "";
 
-    for (let i = 0; i < n - 1; i++) {
-        let cp1x = px[i] + dx[i] / 3;
-        let cp1y = py[i] + dy[i] / 3;
-        let cp2x = px[i + 1] - dx[i + 1] / 3;
-        let cp2y = py[i + 1] - dy[i + 1] / 3;
+        const n = points.length;
+        const px = points.map(p => xs(p[0]));
+        const py = points.map(p => ys(p[1]));
 
-        // Дополнительный железный guardrail: зажимаем X контрольных точек в границах сегмента
-        const minX = Math.min(px[i], px[i + 1]);
-        const maxX = Math.max(px[i], px[i + 1]);
-        cp1x = Math.max(minX, Math.min(maxX, cp1x));
-        cp2x = Math.max(minX, Math.min(maxX, cp2x));
+        const dx = new Array(n).fill(0);
+        const dy = new Array(n).fill(0);
 
-        d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${px[i + 1]},${py[i + 1]}`;
-    }
+        for (let i = 0; i < n; i++) {
+            if (i === 0 || i === n - 1) {
+                dx[i] = 0; dy[i] = 0;
+            } else {
+                dx[i] = (px[i + 1] - px[i - 1]) / 2;
+                dy[i] = (py[i + 1] - py[i - 1]) / 2;
+            }
+        }
 
-    return d;
+        let d = `M ${px[0]} ${py[0]}`;
+        for (let i = 0; i < n - 1; i++) {
+            let cp1x = px[i] + dx[i] / 3;
+            let cp1y = py[i] + dy[i] / 3;
+            let cp2x = px[i + 1] - dx[i + 1] / 3;
+            let cp2y = py[i + 1] - dy[i + 1] / 3;
+
+            const minX = Math.min(px[i], px[i + 1]);
+            const maxX = Math.max(px[i], px[i + 1]);
+            cp1x = Math.max(minX, Math.min(maxX, cp1x));
+            cp2x = Math.max(minX, Math.min(maxX, cp2x));
+
+            d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${px[i + 1]},${py[i + 1]}`;
+        }
+        return d;
+    };
+
+    // Склеиваем пути частей через пробел. SVG-команда "M" сбросит перо и начнет контур заново
+    return segments
+        .map(seg => renderSegmentPath(seg))
+        .filter(Boolean)
+        .join(" ")
+        .trim();
 };
 
 const getOrderedDirections = (p, graphData, isPlotRightEdgeCheck, ys) => {
@@ -379,7 +395,11 @@ const getOrderedDirections = (p, graphData, isPlotRightEdgeCheck, ys) => {
     const isRightEdge = isPlotRightEdgeCheck(p);
     let preferredAngle = 0;
 
-    if (!isLeftEdge && !isRightEdge && currentCurve[p.id - 1] && currentCurve[p.id + 1]) {
+    // Добавляем проверки Array.isArray для соседних точек, чтобы исключить null-разделители
+    if (!isLeftEdge && !isRightEdge &&
+        currentCurve[p.id - 1] && Array.isArray(currentCurve[p.id - 1]) &&
+        currentCurve[p.id + 1] && Array.isArray(currentCurve[p.id + 1])) {
+
         const prevY = ys(currentCurve[p.id - 1][1]);
         const nextY = ys(currentCurve[p.id + 1][1]);
         const isPeak = p.y < prevY && p.y < nextY;
@@ -399,12 +419,17 @@ const getOrderedDirections = (p, graphData, isPlotRightEdgeCheck, ys) => {
     });
 };
 
+
 // --- Основной графический компонент ---
 
 const SvgLineChart = memo(({ chart }) => {
     const theme = useTheme();
 
     const chartData = useMemo(() => {
+
+        console.log("=== ДАННЫЕ ГРАФИКА (CHART) ===", chart);
+
+
         if (!chart || !Array.isArray(chart.graphs) || !chart.graphs.length) return null;
 
         const xAxis = chart.axes?.x || {};
@@ -414,19 +439,21 @@ const SvgLineChart = memo(({ chart }) => {
         const showLabels = chart.showLabels !== false;
 
         const graphs = chart.graphs
-            .filter(graph => Array.isArray(graph?.points) && graph.points.length >= 2)
+            .filter(graph => graph && Array.isArray(graph.points) && graph.points.length >= 2)
             .map((graph, index) => ({
                 ...graph,
                 index,
-                points: graph.points
-                    .filter(point => Array.isArray(point) && point.length >= 2 && Number.isFinite(point[0]) && Number.isFinite(point[1]))
-                    .map(point => [Number(point[0]), Number(point[1])]),
+                points: graph.points.map(point => {
+                    // 🔴 Если точка — разделитель null, возвращаем null в массив как есть
+                    if (point === null) return null;
+                    // Очищаем только реальные массивы координат [x, y]
+                    return [Number(point[0]), Number(point[1])];
+                }),
                 color: graph.color || theme.palette.text.primary,
                 opacity: typeof graph.opacity === "number" ? Math.max(0, Math.min(1, graph.opacity)) : 1,
                 lineWidth: typeof graph.lineWidth === "number" && graph.lineWidth > 0 ? graph.lineWidth : 2,
                 showMarker: graph.showMarker !== false,
-            }))
-            .filter(graph => graph.points.length >= 2);
+            }));
 
         if (!graphs.length) return null;
 
@@ -436,53 +463,73 @@ const SvgLineChart = memo(({ chart }) => {
         const wPlot = width - pad.left - pad.right;
         const hPlot = height - pad.top - pad.bottom;
 
-        // --- Расчет лимитов Относительно Оси X (с поддержкой пользовательских min/max) ---
-        let xMin = typeof xAxis.min === "number" ? xAxis.min : null;
-        let xMax = typeof xAxis.max === "number" ? xAxis.max : null;
+        const xMinRaw = typeof xAxis.min === "number" ? xAxis.min : null;
+        const xMaxRaw = typeof xAxis.max === "number" ? xAxis.max : null;
+
+        let xMin = xMinRaw;
+        let xMax = xMaxRaw;
 
         if (xMin === null || xMax === null) {
             const graphXRanges = graphs.map(graph => {
-                const xValues = graph.points.map(p => p[0]);
+                // 👇 ДОБАВЛЕН ФИЛЬТР: оставляем только реальные массивы точек, игнорируя null
+                const validPoints = (graph.points || []).filter(p => p && Array.isArray(p));
+
+                if (validPoints.length === 0) return { start: 0, end: 0 };
+
+                const xValues = validPoints.map(p => p[0]);
                 return { start: Math.min(...xValues), end: Math.max(...xValues) };
             });
+
             if (xMin === null) xMin = Math.min(...graphXRanges.map(r => r.start));
             if (xMax === null) xMax = Math.max(...graphXRanges.map(r => r.end));
         }
-        const xDelta = xMax - xMin || 1;
 
-        const xs = (x) => pad.left + ((x - xMin) / xDelta) * wPlot;
+        const xAbsoluteMin = Math.min(xMin, xMax);
+        const xAbsoluteMax = Math.max(xMin, xMax);
+
+        const xs = (x) => pad.left + ((x - xMin) / (xMax - xMin || 1)) * wPlot;
         const xCenter = xs((xMin + xMax) * 0.5);
 
-        // --- Расчет лимитов Относительно Оси Y (с поддержкой пользовательских min/max) ---
         let tMin = typeof yAxis.min === "number" ? yAxis.min : null;
         let tMax = typeof yAxis.max === "number" ? yAxis.max : null;
 
         if (tMin === null || tMax === null) {
-            const allValues = graphs.flatMap(graph => graph.points.map(p => p[1]));
+            // 👇 БЕЗОПАСНЫЙ ВАРИАНТ: фильтруем null-точки перед чтением p[1]
+            const allValues = graphs.flatMap(graph =>
+                (graph.points || [])
+                    .filter(p => p && Array.isArray(p))
+                    .map(p => p[1])
+            );
             const yRanges = Array.isArray(yAxis.ranges) ? yAxis.ranges : [];
             const rangeValues = [...allValues, ...yRanges.flatMap(r => [r.from, r.to])].filter(Number.isFinite);
 
-            if (!rangeValues.length) return null;
+            if (rangeValues.length > 0) {
+                // Учитываем, что изначальные min/max из настроек осей могут быть инвертированы (например, min: thickness, max: 0)
+                const rawMin = Math.min(...rangeValues);
+                const rawMax = Math.max(...rangeValues);
 
-            if (tMin === null) tMin = Math.floor(Math.min(...rangeValues) / GRID_STEP_C) * GRID_STEP_C;
-            if (tMax === null) tMax = Math.ceil(Math.max(...rangeValues) / GRID_STEP_C) * GRID_STEP_C;
-
-            if (tMax === tMin) {
-                tMin -= GRID_STEP_C;
-                tMax += GRID_STEP_C;
+                tMin = typeof yAxis.min === "number" ? yAxis.min : Math.floor(rawMin / GRID_STEP_C) * GRID_STEP_C;
+                tMax = typeof yAxis.max === "number" ? yAxis.max : Math.ceil(rawMax / GRID_STEP_C) * GRID_STEP_C;
+            } else {
+                // Дефолтные значения на случай пустых графиков контуров
+                tMin = typeof yAxis.min === "number" ? yAxis.min : 0;
+                tMax = typeof yAxis.max === "number" ? yAxis.max : 100;
             }
         }
-        const tDelta = tMax - tMin;
 
-        const ys = (t) => pad.top + ((tMax - t) / tDelta) * hPlot;
+// Корректно определяем границы для математических вычислений, даже если tMin > tMax
+        const tAbsoluteMin = Math.min(tMin, tMax);
+        const tAbsoluteMax = Math.max(tMin, tMax);
+
+        const ys = (t) => pad.top + ((tMax - t) / (tMax - tMin || 1)) * hPlot;
 
         const yLimits = buildLimitData({
             axis: "y", lines: yAxis.lines, ranges: yAxis.ranges, mapValue: ys,
-            minValue: tMin, maxValue: tMax, plotStart: pad.top, plotEnd: pad.top + hPlot
+            minValue: tAbsoluteMin, maxValue: tAbsoluteMax, plotStart: pad.top, plotEnd: pad.top + hPlot
         });
         const xLimits = buildLimitData({
             axis: "x", lines: xAxis.lines, ranges: xAxis.ranges, mapValue: xs,
-            minValue: xMin, maxValue: xMax, plotStart: pad.left, plotEnd: pad.left + wPlot
+            minValue: xAbsoluteMin, maxValue: xAbsoluteMax, plotStart: pad.left, plotEnd: pad.left + wPlot
         });
 
         const yLimitLineData = yLimits.lines;
@@ -497,46 +544,432 @@ const SvgLineChart = memo(({ chart }) => {
         const isSpecialTemperature = (t) => yLimitValues.some(v => Number.isFinite(v) && Math.abs(v - t) < 0.1);
 
         const graphData = graphs.map(graph => {
-            let minIdx = 0, maxIdx = 0, minV = Infinity, maxV = -Infinity;
+            let minIdx = -1, maxIdx = -1, minV = Infinity, maxV = -Infinity;
 
             for (let i = 0; i < graph.points.length; i++) {
                 const p = graph.points[i];
-                if (p[0] < xMin || p[0] > xMax) continue; // Игнорируем точки вне диапазона
+                // Добавлена строгая проверка структуры точки
+                if (!p || !Array.isArray(p) || p.length < 2) continue;
+                if (p[0] < xAbsoluteMin || p[0] > xAbsoluteMax) continue;
 
                 const v = p[1];
                 if (v < minV) { minV = v; minIdx = i; }
                 if (v > maxV) { maxV = v; maxIdx = i; }
             }
 
+            // Если валидных точек не найдено, ставим дефолтные безопасные индексы
+            if (minIdx === -1) minIdx = 0;
+            if (maxIdx === -1) maxIdx = 0;
+
             return {
                 ...graph,
                 minIdx,
                 maxIdx,
-                minV: minV === Infinity ? tMin : minV,
-                maxV: maxV === -Infinity ? tMax : maxV,
-                path: makePath(graph, xs, ys, xMin, xMax)
+                minV: minV === Infinity ? Math.min(tMin, tMax) : minV,
+                maxV: maxV === -Infinity ? Math.max(tMin, tMax) : maxV,
+                path: makePath(graph, xs, ys, xAbsoluteMin, xAbsoluteMax)
             };
         });
 
+
+        // --- Заливка областей между графиками ---
+        const fillsData = [];
+
+        // 1. Точное определение грани (в пикселях)
+        const getEdgeType = (pt) => {
+            const EPS = 1e-2;
+            const xPix = xs(pt[0]);
+            const yPix = ys(pt[1]);
+            const pTop = pad.top;
+            const pBottom = pad.top + hPlot;
+            const pLeft = pad.left;
+            const pRight = pad.left + wPlot;
+
+            if (Math.abs(yPix - pTop) < EPS) return 'top';
+            if (Math.abs(xPix - pRight) < EPS) return 'right';
+            if (Math.abs(yPix - pBottom) < EPS) return 'bottom';
+            if (Math.abs(xPix - pLeft) < EPS) return 'left';
+            return 'none';
+        };
+
+        // 2. Универсальный обход углов (прямой или реверсивный)
+// Теперь функция принимает четвертым аргументом объект с физическими границами в координатах данных
+        const getCornersBetween = (p1, p2, reverseCorners = false, bounds = null) => {
+            const edge1 = getEdgeType(p1);
+            const edge2 = getEdgeType(p2);
+
+            // Если точки не на границах или на одной и той же грани — углы не нужны
+            if (edge1 === 'none' || edge2 === 'none' || edge1 === edge2) return [];
+
+            const xLeft   = bounds ? bounds.xLeft   : (typeof xMin !== 'undefined' ? xMin : 0);
+            const xRight  = bounds ? bounds.xRight  : (typeof xMax !== 'undefined' ? xMax : 100);
+            const yTop    = bounds ? bounds.yTop    : (typeof tMax !== 'undefined' ? tMax : 100);
+            const yBottom = bounds ? bounds.yBottom : (typeof tMin !== 'undefined' ? tMin : 0);
+
+            // Порядок граней строго по часовой стрелке: Top -> Right -> Bottom -> Left
+            const edgeOrder = ['top', 'right', 'bottom', 'left'];
+
+            // Каждой грани соответствует угол, в который мы упираемся, двигаясь ПО часовой стрелке
+            const corners = {
+                'top':    [xRight, yTop],    // Конец верхней грани = Верхний Правый угол
+                'right':  [xRight, yBottom], // Конец правой грани = Нижний Правый угол
+                'bottom': [xLeft, yBottom],  // Конец нижней грани = Нижний Левый угол
+                'left':   [xLeft, yTop]      // Конец левой грани = Верхний Левый угол
+            };
+
+            let idx = edgeOrder.indexOf(edge1);
+            const endIdx = edgeOrder.indexOf(edge2);
+            const intermediate = [];
+
+            // Безопасный обход граней в зависимости от флага реверса
+            while (idx !== endIdx) {
+                if (!reverseCorners) {
+                    // Движение ПО часовой стрелке
+                    intermediate.push(corners[edgeOrder[idx]]);
+                    idx = (idx + 1) % 4;
+                } else {
+                    // Движение ПРОТИВ часовой стрелки
+                    idx = (idx - 1 + 4) % 4;
+                    // Берем противоположную угловую точку для движения назад
+                    intermediate.push(corners[edgeOrder[idx]]);
+                }
+            }
+
+            return intermediate;
+        };
+
+
+
+        // 3. Сегментация графика по null
+        const getFillSegments = (name) => {
+            if (name == null) return [];
+            const graph = graphData.find(g => g.name === name);
+            if (!graph) return [];
+
+            const segments = [];
+            let currentSeg = [];
+
+            graph.points.forEach(point => {
+                if (point === null) {
+                    if (currentSeg.length > 0) {
+                        segments.push(currentSeg);
+                        currentSeg = [];
+                    }
+                } else if (
+                    Array.isArray(point) &&
+                    point.length >= 2 &&
+                    Number.isFinite(point[0]) &&
+                    Number.isFinite(point[1])
+                ) {
+                    currentSeg.push(point);
+                }
+            });
+            if (currentSeg.length > 0) segments.push(currentSeg);
+            return segments;
+        };
+
+
+
+        // 4. Главный цикл построения полигонов заливки
+        const logPoint = (pt) => pt
+            ? `(${Number(pt[0]).toFixed(2)}, ${Number(pt[1]).toFixed(2)})`
+            : "—";
+
+
+        const getGraphName = (names, index) => {
+            if (names == null) return "Граница графика";
+            const list = Array.isArray(names) ? names : [names];
+            return list[index] ?? list.join(" + ");
+        };
+
+
+        if (Array.isArray(chart.fills)) {
+            chart.fills.forEach((fill, index) => {
+                if (fill.from == null && fill.to == null) return;
+
+                console.group(`FILL [${fill.name || index}]`);
+
+                const rawFromSegments = fill.from == null
+                    ? [[[xMin, tMin], [xMax, tMin], [xMax, tMax], [xMin, tMax], [xMin, tMin]]]
+                    : getFillSegments(fill.from);
+
+                const rawToSegments = fill.to == null
+                    ? []
+                    : getFillSegments(fill.to);
+
+                console.group(`FROM: ${fill.from ?? "Граница графика"}`);
+                console.groupEnd();
+
+                console.group(`TO: ${fill.to ?? "Нет"}`);
+                console.groupEnd();
+
+                if (!rawFromSegments.length && !rawToSegments.length) {
+                    console.warn("Нет данных для контура");
+                    console.groupEnd();
+                    return;
+                }
+
+                const splitSegments = (segments) => {
+                    const open = [];
+                    const loops = [];
+
+                    segments.forEach(seg => {
+                        if (!seg || seg.length < 2) return;
+
+                        const first = seg[0];
+                        const last = seg[seg.length - 1];
+                        const closed = Math.hypot(
+                            first[0] - last[0],
+                            first[1] - last[1]
+                        ) < 1e-4;
+
+                        (closed ? loops : open).push(seg);
+                    });
+
+                    return { open, loops };
+                };
+
+                const { open: fromOpen, loops: fromLoops } = splitSegments(rawFromSegments);
+                const { open: toOpen, loops: toLoops } = splitSegments(rawToSegments);
+
+
+                const buildContour = (segments, isReversed = false, names = null, bounds = null) => {
+                    if (!segments.length) return "";
+
+                    const orderedSegments = isReversed ? [...segments].reverse() : segments;
+                    const pointsSequence = [];
+                    let lastPoint = null;
+                    let lastGraphName = null;
+
+                    orderedSegments.forEach((seg, i) => {
+                        if (!seg.length) return;
+
+                        const points = isReversed ? [...seg].reverse() : seg;
+                        const start = points[0];
+                        const end = points[points.length - 1];
+                        const sourceIndex = isReversed ? segments.length - 1 - i : i;
+                        const graphName = getGraphName(names, sourceIndex);
+
+                        console.log(
+                            `${isReversed ? "TO" : "FROM"} — сегмент ${i + 1} [${graphName}]:`,
+                            `${logPoint(start)} → ${logPoint(end)}`
+                        );
+
+                        if (lastPoint) {
+                            const corners = getCornersBetween(lastPoint, start, isReversed, bounds);
+
+                            console.log(
+                                `  ↳ СОЕДИНЕНИЕ ${lastGraphName} → ${graphName}:`,
+                                `${logPoint(lastPoint)} → ${corners.map(logPoint).join(" → ") || "без промежуточных точек"} → ${logPoint(start)}`
+                            );
+
+                            pointsSequence.push(...corners);
+                        }
+
+                        pointsSequence.push(...points);
+                        lastPoint = end;
+                        lastGraphName = graphName;
+                    });
+
+                    return pointsSequence
+                        .map((pt, idx) => `${idx === 0 ? "M" : "L"} ${xs(pt[0])} ${ys(pt[1])}`)
+                        .join(" ");
+                };
+
+                const bounds = {
+                    xLeft: xMin,
+                    xRight: xMax,
+                    yTop: tMax,
+                    yBottom: tMin
+                };
+
+                console.log("━━━ 1. FROM ━━━");
+                const fromPath = buildContour(fromOpen, false, fill.from, bounds);
+
+                let dPath = "";
+
+                if (fromPath && toOpen.length) {
+                    const lastFromSegment = fromOpen[fromOpen.length - 1];
+                    const lastFromPt = lastFromSegment[lastFromSegment.length - 1];
+
+                    const lastToSegment = toOpen[toOpen.length - 1];
+                    const firstToPt = lastToSegment[lastToSegment.length - 1];
+
+                    // FROM → TO: обход границы вперёд.
+                    const connectPoints1 = getCornersBetween(
+                        lastFromPt,
+                        firstToPt,
+                        false,
+                        bounds
+                    );
+
+                    console.log("━━━ 2. ПЕРЕХОД FROM → TO ━━━");
+                    console.log(
+                        `FROM → TO: ${getGraphName(fill.from, fromOpen.length - 1)} → ${getGraphName(fill.to, toOpen.length - 1)}`,
+                        `${logPoint(lastFromPt)} → ${connectPoints1.map(logPoint).join(" → ") || "без промежуточных точек"} → ${logPoint(firstToPt)}`
+                    );
+
+                    console.log("━━━ 3. TO (обратный обход) ━━━");
+                    const toPath = buildContour(toOpen, true, fill.to, bounds);
+
+                    const firstToSegment = toOpen[0];
+                    const lastToPt = firstToSegment[0];
+
+                    const firstFromSegment = fromOpen[0];
+                    const firstFromPt = firstFromSegment[0];
+
+                    // TO → FROM: обход границы назад.
+                    const connectPoints2 = getCornersBetween(
+                        lastToPt,
+                        firstFromPt,
+                        false,
+                        bounds
+                    );
+
+                    console.log(
+                        `TO → FROM: ${getGraphName(fill.to, 0)} → ${getGraphName(fill.from, 0)}`,
+                        `${logPoint(lastToPt)} → ${connectPoints2.map(logPoint).join(" → ") || "без промежуточных точек"} → ${logPoint(firstFromPt)}`
+                    );
+
+                    const c1 = connectPoints1
+                        .map(pt => `L ${xs(pt[0])} ${ys(pt[1])}`)
+                        .join(" ");
+
+                    const c2 = connectPoints2
+                        .map(pt => `L ${xs(pt[0])} ${ys(pt[1])}`)
+                        .join(" ");
+
+                    dPath = `${fromPath} ${c1} ${toPath.replace(/^M/, "L")} ${c2} Z`;
+                } else if (fromPath) {
+                    console.log("━━━ 1. FROM (обход по периметру (нету TO)) ━━━");
+                    // 1. Извлекаем первый сегмент и его самую первую (левую) точку
+                    const firstFromSegment = fromOpen[0];
+                    const firstFromPt = firstFromSegment[0]; // Старт нижнего графика
+
+                    // 2. Извлекаем последний сегмент и его самую последнюю (правую) точку
+                    const lastFromSegment = fromOpen[fromOpen.length - 1];
+                    const lastFromPt = lastFromSegment[lastFromSegment.length - 1]; // Конец нижнего графика
+
+                    // 3. Используем вашу функцию getCornersBetween, чтобы безопасно собрать углы.
+                    // Мы передаем: (Конец_Линии, Старт_Линии, Направление_По_Часовой, Границы)
+                    // Так как верхней линии нет, функция проверит весь путь по периметру от правой точки к левой.
+                    const connectCorners = getCornersBetween(
+                        lastFromPt,
+                        firstFromPt,
+                        false,
+                        bounds
+                    );
+
+                    // 4. Переводим координаты полученных углов в SVG-команды линий "L"
+                    const cCorners = connectCorners
+                        .map(pt => `L ${xs(pt[0])} ${ys(pt[1])}`)
+                        .join(" ");
+
+                    // 5. Собираем путь: кривая FROM -> обход всех углов по периметру сетки -> замыкание Z
+                    dPath = `${fromPath} ${cCorners} Z`;
+
+                } else if (toOpen.length) {
+                    console.log("━━━ 3. TO (обратный обход по периметру (нету from)) ━━━");
+                    // 1. Генерируем реверсивный путь для TO (справа налево)
+                    const toPath = buildContour(toOpen, true, fill.to, bounds);
+
+                    // 2. Находим крайние точки исходного графика TO
+                    // Так как контур развернут, он ЗАКОНЧИТСЯ в физическом НАЧАЛЕ (левой точке)
+                    const lastToPt = toOpen[0][0]; // Точка, где перо стоит СЕЙЧАС (слева)
+
+                    // Контур НАЧИНАЛСЯ в физическом КОНЦЕ (правой точке)
+                    const lastToSegment = toOpen[toOpen.length - 1];
+                    const firstToPt = lastToSegment[lastToSegment.length - 1]; // Точка, куда надо ВЕРНУТЬСЯ (справа)
+
+                    // 3. Находим углы периметра от левой точки к правой ПО ЧАСОВОЙ СТРЕЛКЕ (false)
+                    // Функция сама проложит путь: Левый Нижний угол → Правый Нижний угол
+                    const connectCorners = getCornersBetween(
+                        lastToPt,
+                        firstToPt,
+                        true,
+                        bounds
+                    );
+
+                    // 4. Переводим координаты углов в SVG-команды линий "L"
+                    const cCorners = connectCorners
+                        .map(pt => `L ${xs(pt[0])} ${ys(pt[1])}`)
+                        .join(" ");
+
+                    // 5. Собираем путь: реверсивная кривая TO → обход нижнего периметра сетки → замыкание Z
+                    dPath = `${toPath} ${cCorners} Z`;
+                }
+
+                const renderLoops = (loops) =>
+                    loops.map(seg =>
+                        seg.map((pt, idx) =>
+                            `${idx === 0 ? "M" : "L"} ${xs(pt[0])} ${ys(pt[1])}`
+                        ).join(" ") + " Z"
+                    ).join(" ");
+
+                const fromLoopsPath = renderLoops(fromLoops);
+                const toLoopsPath = renderLoops(toLoops);
+
+                if (fromLoopsPath) dPath = `${dPath} ${fromLoopsPath}`.trim();
+                if (toLoopsPath) dPath = `${dPath} ${toLoopsPath}`.trim();
+
+                if (dPath) {
+                    fillsData.push({
+                        id: `fill-${fill.name || index}`,
+                        path: dPath,
+                        color: fill.color || theme.palette.success.main,
+                        opacity: typeof fill.opacity === "number" ? fill.opacity : 0.15,
+                    });
+                }
+
+                console.log("RESULT", {
+                    pathLength: dPath.length,
+                    closed: dPath.trim().endsWith("Z"),
+                    fromSegments: rawFromSegments.length,
+                    toSegments: rawToSegments.length,
+                    fromOpen: fromOpen.length,
+                    toOpen: toOpen.length,
+                    fromLoops: fromLoops.length,
+                    toLoops: toLoops.length,
+                    pathStart: dPath.slice(0, 100),
+                    pathEnd: dPath.slice(-100),
+                });
+
+                console.groupEnd();
+            });
+        }
+
         const isPlotRightEdge = (p) => {
             const graph = graphData[p.graphIndex];
-            if (!graph) return false;
+            if (!graph || !Array.isArray(graph.points)) return false;
+
             const point = graph.points[p.id];
-            return point ? Math.abs(point[0] - xMax) < 1e-6 : false;
+            return point && Array.isArray(point) && point.length >= 2
+                ? Math.abs(point[0] - xMax) < 1e-6
+                : false;
         };
 
         const rightEdgeLabelsRaw = [];
 
         const makeLabels = (graph) => {
             const points = graph.points;
+            if (!points || !points.length) return [];
             const lastId = points.length - 1;
 
-            // Собираем кандидатов на маркеры, только если они внутри видимой зоны
             const raw = [];
-            if (graph.maxIdx >= 0 && points[graph.maxIdx][0] >= xMin && points[graph.maxIdx][0] <= xMax) raw.push({ id: graph.maxIdx, val: graph.maxV, p: 4 });
-            if (graph.minIdx >= 0 && points[graph.minIdx][0] >= xMin && points[graph.minIdx][0] <= xMax && graph.minIdx !== graph.maxIdx) raw.push({ id: graph.minIdx, val: graph.minV, p: 4 });
-            if (points[0][0] >= xMin && points[0][0] <= xMax) raw.push({ id: 0, val: points[0][1], p: 2 });
-            if (points[lastId][0] >= xMin && points[lastId][0] <= xMax && lastId !== 0) raw.push({ id: lastId, val: points[lastId][1], p: 2 });
+
+            // Добавляем строгую проверку Array.isArray(points[idx])
+            if (graph.maxIdx >= 0 && points[graph.maxIdx] && Array.isArray(points[graph.maxIdx]) && points[graph.maxIdx][0] >= xAbsoluteMin && points[graph.maxIdx][0] <= xAbsoluteMax) {
+                raw.push({ id: graph.maxIdx, val: graph.maxV, p: 4 });
+            }
+            if (graph.minIdx >= 0 && points[graph.minIdx] && Array.isArray(points[graph.minIdx]) && points[graph.minIdx][0] >= xAbsoluteMin && points[graph.minIdx][0] <= xAbsoluteMax && graph.minIdx !== graph.maxIdx) {
+                raw.push({ id: graph.minIdx, val: graph.minV, p: 4 });
+            }
+            if (points[0] && Array.isArray(points[0]) && points[0][0] >= xAbsoluteMin && points[0][0] <= xAbsoluteMax) {
+                raw.push({ id: 0, val: points[0][1], p: 2 });
+            }
+            if (points[lastId] && Array.isArray(points[lastId]) && points[lastId][0] >= xAbsoluteMin && points[lastId][0] <= xAbsoluteMax && lastId !== 0) {
+                raw.push({ id: lastId, val: points[lastId][1], p: 2 });
+            }
 
             const result = [];
             const seen = new Set();
@@ -547,11 +980,12 @@ const SvgLineChart = memo(({ chart }) => {
                 seen.add(p.id);
 
                 const point = points[p.id];
+                if (!point || !Array.isArray(point)) continue;
+
                 const pointX = xs(point[0]);
                 const pointY = ys(p.val);
 
-                // Если точка вышла за вертикальные пределы Y, не рисуем метку для нее
-                if (p.val < tMin || p.val > tMax) continue;
+                if (p.val < tAbsoluteMin || p.val > tAbsoluteMax) continue;
 
                 const isOrigin = Math.abs(pointX - pad.left) < 0.01 && Math.abs(pointY - (height - pad.bottom)) < 0.01;
                 if (isOrigin) continue;
@@ -575,6 +1009,7 @@ const SvgLineChart = memo(({ chart }) => {
             }
             return result;
         };
+
 
         const labels = showLabels ? graphData.filter(g => g.showMarker).flatMap(g => makeLabels(g)) : [];
 
@@ -923,17 +1358,18 @@ const SvgLineChart = memo(({ chart }) => {
             label.x = Math.max(pad.left, label.x);
         }
 
-        const linesCount = Math.floor((tMax - tMin) / GRID_STEP_C) + 1;
+        const minGridY = Math.min(tMin, tMax);
+        const maxGridY = Math.max(tMin, tMax);
+        const linesCount = Math.floor((maxGridY - minGridY) / GRID_STEP_C) + 1;
         const gridLinesY = [];
         for (let i = 0; i < linesCount; i++) {
-            const t = tMin + i * GRID_STEP_C;
+            const t = minGridY + i * GRID_STEP_C;
             gridLinesY.push({ id: t, y: ys(t), isSpecial: isSpecialTemperature(t) });
         }
 
         const hasLimitAtY = (y) => yLimitLineData.some(line => Math.abs(y - line.y) <= 8) || yLimitRangeData.some(range => Math.abs(y - range.start) <= 8 || Math.abs(y - range.end) <= 8);
         const hasLimitAtX = (x) => xLimitLineData.some(line => Math.abs(x - line.x) <= 8) || xLimitRangeData.some(range => Math.abs(x - range.start) <= 8 || Math.abs(x - range.end) <= 8);
 
-        // Оптимизация поиска: создаем плоскую хэш-карту прямо здесь
         const placedMap = {};
         if (Array.isArray(placed)) {
             placed.forEach(p => {
@@ -943,9 +1379,10 @@ const SvgLineChart = memo(({ chart }) => {
 
         return {
             width, height, pad, wPlot, hPlot, xMin, xMax, xCenter, tMin, tMax, gridLinesY,
+            xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax,
             yLimitLineData, yLimitRangeData, xLimitLineData, xLimitRangeData,
-            yTopEdge: ys(tMax), yBottomEdge: ys(tMin), graphData, placed,
-            placedMap, // Добавлено в возвращаемый объект
+            yTopEdge: ys(tMax), yBottomEdge: ys(tMin), graphData, fillsData, placed,
+            placedMap,
             yAxisLabels, rightAxisLabels, xAxisLabels,
             axes, hasLimitAtY, hasLimitAtX, showPoints, showLabels, xs, ys,
             borderColor: chart.status?.type === "error" ? theme.palette.error.main : chart.status?.type === "warning" ? theme.palette.warning.main : theme.palette.divider,
@@ -955,17 +1392,46 @@ const SvgLineChart = memo(({ chart }) => {
     if (!chartData) return null;
 
     const {
-        width, height, pad, wPlot, hPlot, xMin, tMin, tMax, xMax, gridLinesY,
+        width, height, pad, wPlot, hPlot, xMin, tMin, gridLinesY,
+        xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax,
         yLimitLineData, yLimitRangeData, xLimitLineData, xLimitRangeData,
-        graphData,
-        placedMap, // Достаем из useMemo
+        graphData, fillsData,
+        placedMap,
         yAxisLabels, rightAxisLabels, xAxisLabels,
         axes, showPoints, showLabels, borderColor, xs, ys,
     } = chartData;
 
+    const formatValue = (value, unit) => {
+
+        const val = Number(value);
+        if (!Number.isFinite(val)) return "";
+
+        const formatted = val.toFixed(1);
+
+        // Для целых чисел убираем .0 и добавляем единицу измерения
+        if (/\.0$/.test(formatted)) {
+            return `${formatted.replace(/\.0$/, "")}${unit}`;
+        }
+
+        // Для дробных чисел единицу измерения не добавляем
+        return formatted;
+    };
+
+
     return (
         <Paper sx={{ border: "1px solid", borderColor, p: 0.5, fontFamily: '"Roboto Mono","SF Mono",monospace', boxShadow: "none" }}>
             <svg width={width} height={height} style={{ display: "block" }} shapeRendering="geometricPrecision">
+
+                <defs>
+                    <clipPath id="blank-clip-bounds">
+                        <rect
+                            x={pad.left}
+                            y={pad.top}
+                            width={wPlot}
+                            height={hPlot}
+                        />
+                    </clipPath>
+                </defs>
 
                 {/* 1. Рендеринг вертикальных подсветок зон ограничений по оси X */}
                 {xLimitRangeData.map(range => (
@@ -979,7 +1445,7 @@ const SvgLineChart = memo(({ chart }) => {
 
                 {/* 3. Рендеринг стандартных пунктирных линий сетки */}
                 {gridLinesY.map(({ id, y, isSpecial }) => (
-                    id >= tMin && id <= tMax && !isSpecial && <line key={id} x1={pad.left} y1={y} x2={width - pad.right} y2={y} stroke={theme.palette.divider} strokeWidth={0.5} strokeDasharray="4 2" />
+                    id >= tAbsoluteMin && id <= tAbsoluteMax && !isSpecial && <line key={id} x1={pad.left} y1={y} x2={width - pad.right} y2={y} stroke={theme.palette.divider} strokeWidth={0.5} strokeDasharray="4 2" />
                 ))}
 
                 {/* 4. Рендеринг вертикальных линий лимитов (ось X) */}
@@ -1000,7 +1466,7 @@ const SvgLineChart = memo(({ chart }) => {
                 {/* 7. Текстовые подписи значений на ЛЕВОЙ оси Y */}
                 {yAxisLabels.map(label => (
                     <text key={`y-limit-label-${label.index}`} x={pad.left - Y_AXIS_LABEL_OFFSET} y={label.y} textAnchor="end" dominantBaseline="middle" fontSize={8} fontWeight="bold" fill={label.color}>
-                        {Number(label.value).toFixed(0)}{axes.y}
+                        {formatValue(label.value,axes.y)}
                     </text>
                 ))}
 
@@ -1011,19 +1477,28 @@ const SvgLineChart = memo(({ chart }) => {
                     </text>
                 ))}
 
-                {/* 8. Текстовые подписи значений на оси X (Оптимизировано: убрана анонимная IIFE функция) */}
-                {xAxisLabels.map(label => {
-                    const val = Number(label.value);
-                    const parts = String(label.value).split(".");
-                    const decimals = parts ? parts.length : 0;
-                    const displayValue = decimals > 3 ? Math.round(val) : val.toFixed(1).replace(/\.?[0]+$/, "");
+                {/* 8. Текстовые подписи значений на оси X */}
+                {xAxisLabels.map(label => (
+                    <text key={`x-limit-label-${label.index}`} x={label.x} y={height - pad.bottom + X_AXIS_LABEL_OFFSET} textAnchor="middle" dominantBaseline="hanging" fontSize={8} fontWeight="bold" fill={label.color}>
+                        {formatValue(label.value,axes.x)}
+                    </text>
+                ))}
 
-                    return (
-                        <text key={`x-limit-label-${label.index}`} x={label.x} y={height - pad.bottom + X_AXIS_LABEL_OFFSET} textAnchor="middle" dominantBaseline="hanging" fontSize={8} fontWeight="bold" fill={label.color}>
-                            {displayValue}{axes.x}
-                        </text>
-                    );
-                })}
+
+                {/* Рендеринг вычтенных температурных зон с авто-обрезкой краев графика */}
+                {fillsData.map(fill => (
+                    <path
+                        key={fill.id}
+                        d={fill.path}
+                        fill={fill.color}
+                        opacity={fill.opacity}
+                        fillRule="evenodd"
+                        clipPath="url(#blank-clip-bounds)"
+                        stroke="none" // <-- ИЗМЕНИТЬ НА "none"
+                        style={{ pointerEvents: "none" }}
+                    />
+                ))}
+
 
                 {/* 9. Основной рендеринг кривых линий графиков */}
                 {graphData.map(graph => (
@@ -1031,37 +1506,54 @@ const SvgLineChart = memo(({ chart }) => {
                 ))}
 
                 {/* 2. Маркеры всех точек — по настройке */}
-                {SHOW_ALL_POINTS && graphData.map(graph =>
-                    graph.points.map((pt, ptIdx) => (
-                        <g key={`${graph.index}-pt-${ptIdx}`}>
-                            <circle
-                                cx={xs(pt[0])}
-                                cy={ys(pt[1])}
-                                r={graph.lineWidth * 0.5}
-                                stroke={theme.palette.background.paper}
-                                strokeWidth={graph.lineWidth * 0.25}
-                                opacity={graph.opacity}
-                            />
-                        </g>
-                    ))
-                )}
+                {SHOW_ALL_POINTS && graphData.map(graph => {
+                    if (!graph || !Array.isArray(graph.points)) return null;
 
-                {/* 10. Рендеринг маркеров (точек) данных и вынесенных текстовых меток значений (Оптимизировано через O(1) хэш-карту) */}
-                {showPoints && graphData.map(graph => {
                     return graph.points.map((pt, ptIdx) => {
+                        // Жесткая проверка: точка должна быть массивом минимум из двух элементов [x, y]
+                        if (!pt || !Array.isArray(pt) || pt.length < 2 || pt[0] == null || pt[1] == null) {
+                            return null;
+                        }
+
+                        return (
+                            <g key={`${graph.index}-pt-${ptIdx}`}>
+                                <circle
+                                    cx={xs(pt[0])}
+                                    cy={ys(pt[1])}
+                                    r={graph.lineWidth * 0.5}
+                                    stroke={theme.palette.background.paper}
+                                    strokeWidth={graph.lineWidth * 0.25}
+                                    opacity={graph.opacity}
+                                />
+                            </g>
+                        );
+                    });
+                })}
+
+
+                {/* 10. Рендеринг маркеров (точек) данных и вынесенных текстовых меток значений */}
+                {showPoints && graphData.map(graph => {
+                    if (!graph || !Array.isArray(graph.points)) return null;
+
+                    return graph.points.map((pt, ptIdx) => {
+                        // Жесткая проверка структуры точки перед расчетами
+                        if (!pt || !Array.isArray(pt) || pt.length < 2 || pt[0] == null || pt[1] == null) {
+                            return null;
+                        }
+
                         const pointX = xs(pt[0]);
                         const pointY = ys(pt[1]);
                         const isMin = ptIdx === graph.minIdx;
                         const isMax = ptIdx === graph.maxIdx;
                         const lastId = graph.points.length - 1;
 
-                        // Обрезаем отрисовку точек, которые вышли за заданные внешние рамки
-                        if (pt[0] < xMin || pt[0] > xMax || pt[1] < tMin || pt[1] > tMax) return null;
+                        if (pt[0] < xAbsoluteMin || pt[0] > xAbsoluteMax || pt[1] < tAbsoluteMin || pt[1] > tAbsoluteMax) {
+                            return null;
+                        }
 
-                        // Мгновенный поиск O(1) по строковому ключу
                         const labelPlaced = placedMap[`${graph.index}-${ptIdx}`];
-
                         const isInterestingPoint = ptIdx === 0 || ptIdx === lastId || isMin || isMax;
+
                         if (!isInterestingPoint) return null;
 
                         return (
@@ -1078,7 +1570,16 @@ const SvgLineChart = memo(({ chart }) => {
                                     />
                                 )}
                                 {showLabels && labelPlaced && (
-                                    <text x={pointX + labelPlaced.dx} y={pointY + labelPlaced.dy} textAnchor={labelPlaced.textAnchor} dominantBaseline="middle" fontSize={9} fontWeight="bold" fill={graph.color} opacity={graph.opacity}>
+                                    <text
+                                        x={pointX + labelPlaced.dx}
+                                        y={pointY + labelPlaced.dy}
+                                        textAnchor={labelPlaced.textAnchor}
+                                        dominantBaseline="middle"
+                                        fontSize={9}
+                                        fontWeight="bold"
+                                        fill={graph.color}
+                                        opacity={graph.opacity}
+                                    >
                                         {Math.round(pt[1])}{axes.y}
                                     </text>
                                 )}
@@ -1086,6 +1587,7 @@ const SvgLineChart = memo(({ chart }) => {
                         );
                     });
                 })}
+
 
             </svg>
         </Paper>

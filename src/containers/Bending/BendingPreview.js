@@ -147,6 +147,8 @@ const validateProfile = (profile) => {
     return null;
 };
 
+// ВСТАВЬТЕ ЭТОТ КОД:
+
 export const formatTime = (seconds) => {
     if (!seconds || seconds < 0) return "0m 00s";
     const totalSeconds = Math.round(seconds);
@@ -341,9 +343,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         });
     }, [profile?.thickness, profile?.material, profile?.machine, profile?.simulation]);
 
-    if (isDev && result2D) {
-        console.log("2D Simulation Result:", result2D);
-    }
+    //if (isDev && result2D) {console.log("2D Simulation Result:", result2D);}
 
     const colors = useMemo(() => ({
         active: { line: theme.palette.text.primary, fill: alpha(theme.palette.text.primary, 0.1), annotation: alpha(theme.palette.text.primary, 0.75) },
@@ -402,12 +402,12 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 {
                     name: "Heating (Vertical Slice)",
                     points: getVerticalSlicePoints(result2D.temperatureProfile, 0, "heating"),
-                    color: theme.palette.text.primary, opacity: 1, lineWidth: 1.5,
+                    color: theme.palette.text.secondary, opacity: 1, lineWidth: 1,
                 },
                 {
                     name: "Cooling (Vertical Slice)",
                     points: getVerticalSlicePoints(result2D.temperatureProfile, 0, "pause"),
-                    color: theme.palette.text.secondary, opacity: 1, lineWidth: 1,
+                    color: theme.palette.text.primary, opacity: 1, lineWidth: 1.6,
                 }
             );
         }
@@ -480,7 +480,13 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         const chart1 = (showVerticalSlice && graphsChart1.length > 0) ? {
             graphs: graphsChart1,
             axes: {
-                x: { unit: "mm", lines: [{ value: thickness / 2, color: theme.palette.text.secondary }], ranges: [] },
+                x: { unit: "mm", lines: [
+                        { value: thickness / 2, color: theme.palette.text.secondary },
+                        // Добавлена простая линия без условий:
+                        {
+                            value: thickness * (profile?.material?.kFactor || 0),
+                            color: theme.palette.info.main, // синий цвет из темы
+                        }], ranges: [] },
                 y: commonYAxis
             }
         } : null;
@@ -503,44 +509,48 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         const width = Number(profile?.width || 0);
         const glassTransition = Number(profile?.material?.glassTransitionTemp);
 
+        // Извлекаем k-фактор (если его нет, берем 0.5 как дефолтную серединную линию)
+        const kFactor = typeof profile?.material?.kFactor === "number"
+            ? profile.material.kFactor
+            : 0.5;
+
         if (!Number.isFinite(glassTransition)) return null;
 
-        const topPoints = getHorizontalSlicePoints(result2D.temperatureProfile, 0, "pause") || [];
-        const midPoints = getHorizontalSlicePoints(result2D.temperatureProfile, thickness / 2, "pause") || [];
-        const bottomPoints = getHorizontalSlicePoints(result2D.temperatureProfile, thickness, "pause") || [];
-
-        const minTempsAtX = [];
-        for (let i = 0; i < topPoints.length; i++) {
-            if (!topPoints[i]) continue;
-            const x = topPoints[i][0];
-            const tTop = topPoints[i][1];
-
-            const tMid = midPoints.find(p => p && Math.abs(p[0] - x) < 0.01)?.[1] ?? tTop;
-            const tBot = bottomPoints.find(p => p && Math.abs(p[0] - x) < 0.01)?.[1] ?? tTop;
-
-            const minT = Math.min(tTop, tMid, tBot);
-            minTempsAtX.push({ x, minT });
-        }
+        // Делаем ТОЛЬКО ОДИН срез — строго на заданной глубине k-фактора
+        const kFactorPoints = getHorizontalSlicePoints(result2D.temperatureProfile, thickness * kFactor, "pause") || [];
 
         let xTgPause = null;
-        for (let i = 0; i < minTempsAtX.length - 1; i++) {
-            const p1 = minTempsAtX[i];
-            const p2 = minTempsAtX[i + 1];
 
-            if ((p1.minT >= glassTransition && p2.minT <= glassTransition) ||
-                (p1.minT <= glassTransition && p2.minT >= glassTransition)) {
+        // Идем прямо по точкам этого среза и ищем пересечение температуры
+        for (let i = 0; i < kFactorPoints.length - 1; i++) {
+            const p1 = kFactorPoints[i];
+            const p2 = kFactorPoints[i + 1];
 
-                if (Math.abs(p2.minT - p1.minT) < 0.001) {
-                    xTgPause = p1.x;
+            // Проверяем структуру точек [x, temp]
+            if (!p1 || !p2 || p1[0] == null || p1[1] == null || p2[0] == null || p2[1] == null) continue;
+
+            const x1 = p1[0];
+            const t1 = p1[1];
+            const x2 = p2[0];
+            const t2 = p2[1];
+
+            // Ищем, где температура на слое пересекает glassTransition
+            if ((t1 >= glassTransition && t2 <= glassTransition) ||
+                (t1 <= glassTransition && t2 >= glassTransition)) {
+
+                if (Math.abs(t2 - t1) < 0.001) {
+                    xTgPause = x1;
                 } else {
-                    xTgPause = p1.x + (glassTransition - p1.minT) * (p2.x - p1.x) / (p2.minT - p1.minT);
+                    // Линейная интерполяция координаты X по температурам слоя k-фактора
+                    xTgPause = x1 + (glassTransition - t1) * (x2 - x1) / (t2 - t1);
                 }
-                break;
+                break; // Нашли первое пересечение — выходим из цикла
             }
         }
 
         return (xTgPause !== null && xTgPause <= width / 2) ? xTgPause : null;
-    }, [result2D, profile?.thickness, profile?.width, profile?.material?.glassTransitionTemp]);
+
+    }, [result2D, profile?.thickness, profile?.width, profile?.material?.glassTransitionTemp, profile?.material?.kFactor]);
 
     const plasticZoneWidthCalculated = useMemo(() => {
         return xTgPauseValue !== null ? xTgPauseValue * 2 : null;
@@ -607,32 +617,32 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 {
                     name: "Верхняя поверхность",
                     points: makeSymmetric(getHorizontalSlicePoints(result2D.temperatureProfile, 0)),
-                    color: theme.palette.error.main, opacity: 1, lineWidth: 1.2,
+                    color: theme.palette.error.main, opacity: 0.8, lineWidth: 0.6,
                 },
                 {
                     name: "Середина листа",
                     points: makeSymmetric(getHorizontalSlicePoints(result2D.temperatureProfile, thickness / 2)),
-                    color: theme.palette.success.main, opacity: 1, lineWidth: 1.2,
+                    color: theme.palette.success.main, opacity: 0.8, lineWidth: 0.6,
                 },
                 {
                     name: "Нижняя поверхность",
                     points: makeSymmetric(getHorizontalSlicePoints(result2D.temperatureProfile, thickness)),
-                    color: theme.palette.primary.main, opacity: 1, lineWidth: 1.2,
+                    color: theme.palette.primary.main, opacity: 0.8, lineWidth: 0.6,
                 },
                 {
                     name: "Верхняя поверхность пауза",
                     points: makeSymmetric(getHorizontalSlicePoints(result2D.temperatureProfile, 0, "pause")),
-                    color: theme.palette.error.main, opacity: 0.7, lineWidth: 0.6,
+                    color: theme.palette.error.main, opacity: 1, lineWidth: 1.2,
                 },
                 {
                     name: "Середина листа пауза",
                     points: makeSymmetric(getHorizontalSlicePoints(result2D.temperatureProfile, thickness / 2, "pause")),
-                    color: theme.palette.success.main, opacity: 0.7, lineWidth: 0.6,
+                    color: theme.palette.success.main, opacity: 1, lineWidth: 1.2,
                 },
                 {
                     name: "Нижняя поверхность пауза",
                     points: makeSymmetric(getHorizontalSlicePoints(result2D.temperatureProfile, thickness, "pause")),
-                    color: theme.palette.primary.main, opacity: 0.7, lineWidth: 0.6,
+                    color: theme.palette.primary.main, opacity: 1, lineWidth: 1.2,
                 }
             ],
             axes: {
@@ -658,31 +668,29 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         const { xCoordinatesMm, yCoordinatesMm, Nx, Ny, heating, pause } = profileData;
         const gridConfig = { Nx, Ny, xCoordinatesMm, yCoordinatesMm };
 
-        const interpolateCoordinate = (t1, t2, c1, c2, target) => {
-            if (Math.abs(t2 - t1) >= 0.001) {
-                return c1 + (target - t1) * (c2 - c1) / (t2 - t1);
-            }
-            return c1;
-        };
-
         const addTemperatureIsotherm = (targetTemp, T_flat, gridConfig, nameLabel, lineStyle = {}) => {
             if (!Number.isFinite(targetTemp) || !T_flat?.length || !gridConfig) return [];
 
             const { Nx, Ny, xCoordinatesMm, yCoordinatesMm } = gridConfig;
             const maxSemiWidth = yCoordinatesMm[Ny - 1] || 0;
 
-            const getInterpolatedY = (i1, i2, jIndex) => {
+            const interpolateCoordinate = (t1, t2, c1, c2, target) => {
+                if (Math.abs(t2 - t1) >= 0.001) {
+                    return c1 + (target - t1) * (c2 - c1) / (t2 - t1);
+                }
+                return c1;
+            };
+
+            // Точная линейная интерполяция толщины (y) на центральной оси x = 0 (столбец j = 0)
+            const getExactYAtCenter = (i1, i2) => {
                 const idx1 = Math.max(0, Math.min(i1, Nx - 1));
                 const idx2 = Math.max(0, Math.min(i2, Nx - 1));
-                const col = Math.max(0, Math.min(jIndex, Ny - 1));
 
-                return interpolateCoordinate(
-                    T_flat[idx1 * Ny + col],
-                    T_flat[idx2 * Ny + col],
-                    xCoordinatesMm[idx1],
-                    xCoordinatesMm[idx2],
-                    targetTemp
-                );
+                const t1 = T_flat[idx1 * Ny];
+                const t2 = T_flat[idx2 * Ny];
+
+                if (Math.abs(t2 - t1) < 0.0001) return xCoordinatesMm[idx1];
+                return interpolateCoordinate(t1, t2, xCoordinatesMm[idx1], xCoordinatesMm[idx2], targetTemp);
             };
 
             const getLeftSideDirect = (seg) => {
@@ -722,10 +730,12 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                         const tS2 = T_flat[iEnd * Ny + (Ny - 1)];
 
                         if ((tS1 >= targetTemp && tS2 <= targetTemp) || (tS1 <= targetTemp && tS2 >= targetTemp)) {
-                            const sideY = getInterpolatedY(iStart, iEnd, Ny - 1);
+                            const idx1 = Math.max(0, Math.min(iStart, Nx - 1));
+                            const idx2 = Math.max(0, Math.min(iEnd, Nx - 1));
+                            const sideY = interpolateCoordinate(T_flat[idx1 * Ny + (Ny - 1)], T_flat[idx2 * Ny + (Ny - 1)], xCoordinatesMm[idx1], xCoordinatesMm[idx2], targetTemp);
                             return { point: [maxSemiWidth, sideY], sideY };
                         }
-                        return { centerY: getInterpolatedY(iStart, iEnd, 0) };
+                        return { centerY: getExactYAtCenter(iStart, iEnd) };
                     };
 
                     if (i !== lastValidI + 1 && currentSegment.length > 0) {
@@ -758,7 +768,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                                 currentSegment.exactCenterYStart = startEdge.centerY;
                             }
                         } else {
-                            currentSegment.exactCenterYStart = getInterpolatedY(0, 0, 0);
+                            currentSegment.exactCenterYStart = getExactYAtCenter(0, 0);
                         }
                     }
 
@@ -774,14 +784,16 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     const isGoingToSide = (tSide1 >= targetTemp && tSide2 <= targetTemp) || (tSide1 <= targetTemp && tSide2 >= targetTemp);
 
                     if (isGoingToSide) {
-                        const sideY = getInterpolatedY(lastValidI, lastValidI + 1, Ny - 1);
+                        const idx1 = Math.max(0, Math.min(lastValidI, Nx - 1));
+                        const idx2 = Math.max(0, Math.min(lastValidI + 1, Nx - 1));
+                        const sideY = interpolateCoordinate(T_flat[idx1 * Ny + (Ny - 1)], T_flat[idx2 * Ny + (Ny - 1)], xCoordinatesMm[idx1], xCoordinatesMm[idx2], targetTemp);
                         currentSegment.push([maxSemiWidth, sideY]);
                         currentSegment.exactSideYEnd = sideY;
                     } else {
-                        currentSegment.exactCenterYEnd = getInterpolatedY(lastValidI, lastValidI + 1, 0);
+                        currentSegment.exactCenterYEnd = getExactYAtCenter(lastValidI, lastValidI + 1);
                     }
                 } else {
-                    currentSegment.exactCenterYEnd = getInterpolatedY(Nx - 1, Nx - 1, 0);
+                    currentSegment.exactCenterYEnd = getExactYAtCenter(Nx - 1, Nx - 1);
                 }
                 segmentsRight.push(currentSegment);
             }
@@ -789,19 +801,21 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             if (segmentsRight.length === 0) return [];
 
             const baseProps = { showMarker: false, showPoints: false, ...lineStyle };
-            const resultGraphs = [];
+            const combinedIsothermPoints = [];
             const totalThickness = xCoordinatesMm[Nx - 1] || 0;
 
-            segmentsRight.forEach((segRight, segIdx) => {
+            // Массив, в который мы соберем ВСЮ правую сторону для изолированных карманов
+            const isolatedRightChain = [];
+
+            segmentsRight.forEach((segRight) => {
                 const n = segRight.length;
+                if (n === 0) return;
 
                 if (n === 1) {
                     const [x, y] = segRight[0];
-                    resultGraphs.push({
-                        name: `${nameLabel}${segmentsRight.length > 1 ? ` Зона \${segIdx + 1}` : ""}`,
-                        points: x > 0.001 ? [[-x, y], [0, y], [x, y]] : [[0, y]],
-                        ...baseProps
-                    });
+                    const singlePart = x > 0.001 ? [[-x, y], [0, y], [x, y]] : [[0, y]];
+                    if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
+                    combinedIsothermPoints.push(...singlePart);
                     return;
                 }
 
@@ -811,7 +825,6 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 const yEnd = segRight[n - 1][1];
 
                 const EDGE_EPS = 0.05;
-
                 const isStartOnSurface = Math.abs(yStart) < EDGE_EPS || Math.abs(yStart - totalThickness) < EDGE_EPS;
                 const isEndOnSurface   = Math.abs(yEnd - totalThickness) < EDGE_EPS || Math.abs(yEnd) < EDGE_EPS;
                 const isStartOnSideBorder = Math.abs(xStart - maxSemiWidth) < EDGE_EPS;
@@ -820,64 +833,91 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 const isStartOnAnyEdge = (isStartOnSurface || isStartOnSideBorder) && xStart > 0.01;
                 const isEndOnAnyEdge   = (isEndOnSurface || isEndOnSideBorder) && xEnd > 0.01;
 
-                const leftSideDirect = getLeftSideDirect(segRight);
-                const leftSideReversed = [...leftSideDirect].reverse();
-                const segmentIdStr = segmentsRight.length > 1 ? ` Зона ${segIdx + 1}` : "";
-
-                if (isStartOnAnyEdge && isEndOnAnyEdge) {
-                    resultGraphs.push(
-                        { name: `${nameLabel}${segmentIdStr} (Лев)`, points: leftSideReversed, ...baseProps },
-                        { name: `${nameLabel}${segmentIdStr} (Прав)`, points: segRight, ...baseProps }
-                    );
-                    return;
-                }
-
+                // Проверяем условия связи с центром
                 const centerYStart = segRight.exactCenterYStart;
                 const centerYEnd = segRight.exactCenterYEnd;
                 const hasCenterStart = centerYStart !== undefined;
                 const hasCenterEnd   = centerYEnd !== undefined;
 
-                let smoothCapPoints;
+                // 🎯 Перехватываем изолированные карманы
+                const isIsolatedPocket = (isStartOnAnyEdge && isEndOnAnyEdge) || (isStartOnAnyEdge && !hasCenterStart && !hasCenterEnd);
 
-                if (isStartOnAnyEdge && !hasCenterStart && !hasCenterEnd) {
-                    resultGraphs.push(
-                        { name: `${nameLabel}${segmentIdStr} (Лев)`, points: leftSideReversed, ...baseProps },
-                        { name: `${nameLabel}${segmentIdStr} (Прав)`, points: segRight, ...baseProps }
-                    );
+                if (isIsolatedPocket) {
+                    // Просто собираем ПРАВУЮ сторону последовательно через null
+                    if (isolatedRightChain.length > 0) isolatedRightChain.push(null);
+                    isolatedRightChain.push(...segRight);
                     return;
                 }
 
+                // --- Оригинальная логика для сквозных пластов (остается без изменений) ---
+                const leftSideDirect = getLeftSideDirect(segRight);
+                const leftSideReversed = [...leftSideDirect].reverse();
+                let branchPoints;
+
+                const rightSideReversed = [...segRight].reverse();
+
+                // СЛУЧАЙ 1: Линия идет от оси X=0 к внешнему краю заготовки (к низу y=max)
                 if (isEndOnAnyEdge && !isStartOnAnyEdge) {
-                    smoothCapPoints = [...leftSideReversed, [0, centerYStart], ...segRight];
+                    branchPoints = [...rightSideReversed, [0, centerYStart], ...leftSideDirect];
                 }
+                // СЛУЧАЙ 2: Линия идет от внешнего края заготовки к оси X=0 (к верху y=0)
                 else if (isStartOnAnyEdge && !isEndOnAnyEdge) {
-                    const rightSideReversed = [...segRight].reverse();
-                    smoothCapPoints = [...leftSideDirect, [0, centerYEnd], ...rightSideReversed];
+                    branchPoints = [...leftSideDirect, [0, centerYEnd], ...rightSideReversed];
                 }
+                // СЛУЧАЙ 3: Замкнутое кольцо/петля вокруг центра (не касается внешних краев)
                 else if (!isStartOnAnyEdge && !isEndOnAnyEdge) {
-                    smoothCapPoints = [[0, centerYStart], ...segRight, [0, centerYEnd], ...leftSideReversed, [0, centerYStart]];
+                    branchPoints = [[0, centerYStart], ...segRight, [0, centerYEnd], ...leftSideReversed, [0, centerYStart]];
                 }
+                // СЛУЧАЙ 4: Резервный (нетипичная геометрия без четких границ)
                 else {
-                    smoothCapPoints = [...leftSideReversed, ...segRight];
+                    branchPoints = [...leftSideReversed, ...segRight];
                 }
 
-                resultGraphs.push({ name: `${nameLabel}${segmentIdStr}`, points: smoothCapPoints, ...baseProps });
+                // Разделитель между независимыми графиками, чтобы не было линий в воздухе
+                if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
+                combinedIsothermPoints.push(...branchPoints);
             });
 
-            return resultGraphs;
+// 🎯 ВАША ЛОГИКА: Отражение всей собранной стороны для карманов
+            if (isolatedRightChain.length > 0) {
+                // 1. Создаем левую сторону: зеркалим X и полностью разворачиваем массив задом наперед
+                const isolatedLeftChain = isolatedRightChain
+                    .map(pt => pt === null ? null : [-pt[0], pt[1]])
+                    .reverse();
+
+                // 2. Добавляем в общий график: сначала ЛЕВУЮ цепочку целиком (она пойдет сверху вниз)
+                if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
+                combinedIsothermPoints.push(...isolatedLeftChain);
+
+                // 3. Затем ПРАВУЮ цепочку целиком (она пойдет снизу вверх благодаря структуре общего обхода)
+                combinedIsothermPoints.push(null);
+                combinedIsothermPoints.push(...isolatedRightChain);
+            }
+
+            if (combinedIsothermPoints.length === 0) return [];
+
+            return [{
+                name: nameLabel,
+                points: combinedIsothermPoints,
+                ...baseProps
+            }];
+
         };
 
-        const graphs = [
-            ...addTemperatureIsotherm(Tg, heating, gridConfig, "Tg Нагрев", { color: theme.palette.warning.main, lineWidth: 1.6 }),
-            ...addTemperatureIsotherm(Tmin, heating, gridConfig, "T min Нагрев", { color: theme.palette.success.main, lineWidth: 1.6 }),
-            ...addTemperatureIsotherm(Tmax, heating, gridConfig, "T max Нагрев", { color: theme.palette.success.main, lineWidth: 1.6 }),
-            ...addTemperatureIsotherm(Tdecomp, heating, gridConfig, "Деструкция Нагрев", { color: theme.palette.error.main, lineWidth: 1.8 }),
 
-            ...addTemperatureIsotherm(Tg, pause, gridConfig, "Tg Пауза", { color: theme.palette.warning.dark, lineWidth: 1.0, opacity: 0.7 }),
-            ...addTemperatureIsotherm(Tmin, pause, gridConfig, "T min Пауза", { color: theme.palette.success.dark, lineWidth: 1.0, opacity: 0.7 }),
-            ...addTemperatureIsotherm(Tmax, pause, gridConfig, "T max Пауза", { color: theme.palette.success.main, lineWidth: 1.0, opacity: 0.7 }),
-            ...addTemperatureIsotherm(Tdecomp, pause, gridConfig, "Деструкция Пауза", { color: theme.palette.error.dark, lineWidth: 1.2, opacity: 0.7 })
+// Переведенные названия графиков на английский язык
+        const graphs = [
+            ...addTemperatureIsotherm(Tg, heating, gridConfig, "Tg Heating", { color: theme.palette.warning.main, lineWidth: 1, opacity: 0.7  }),
+            ...addTemperatureIsotherm(Tmin, heating, gridConfig, "T min Heating", { color: theme.palette.success.main, lineWidth: 1 , opacity: 0.7 }),
+            ...addTemperatureIsotherm(Tmax, heating, gridConfig, "T max Heating", { color: theme.palette.success.main, lineWidth: 1, opacity: 0.7  }),
+            ...addTemperatureIsotherm(Tdecomp, heating, gridConfig, "Decomposition Heating", { color: theme.palette.error.main, lineWidth: 1, opacity: 0.7  }),
+
+            ...addTemperatureIsotherm(Tg, pause, gridConfig, "Tg Pause", { color: theme.palette.warning.dark, lineWidth: 1.6}),
+            ...addTemperatureIsotherm(Tmin, pause, gridConfig, "T min Pause", { color: theme.palette.success.dark, lineWidth: 1.6}),
+            ...addTemperatureIsotherm(Tmax, pause, gridConfig, "T max Pause", { color: theme.palette.success.main, lineWidth: 1.6}),
+            ...addTemperatureIsotherm(Tdecomp, pause, gridConfig, "Decomposition Pause", { color: theme.palette.error.dark, lineWidth: 1.6})
         ];
+
 
         const xLines = [{ value: 0, color: theme.palette.text.secondary, label: "Центр" }];
         if (width > 0) {
@@ -888,21 +928,65 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             }
         }
 
+// Находим максимальную длину по оси X из существующих графиков (например, толщину профиля)
+
         return {
             graphs,
             axes: {
                 x: { unit: "mm", lines: xLines, ranges: [] },
                 y: {
-                    unit: "mm", min: 0, max: thickness,
+                    unit: "mm", min: thickness, max: 0,
                     lines: [
                         { value: 0, color: theme.palette.text.primary, label: "Верх" },
                         { value: thickness / 2, color: alpha(theme.palette.divider, 0.3) },
-                        { value: thickness, color: theme.palette.text.primary, label: "Низ" }
+                        { value: thickness, color: theme.palette.text.primary, label: "Низ" },
+                        {
+                            value: thickness * (profile?.material?.kFactor || 0),
+                            color: theme.palette.info.main, // синий цвет из темы
+                        }
                     ],
                     ranges: []
                 }
-            }
+            },
+            fills: [
+                {
+                    name: "Solid Plastic",
+                    from: null,
+                    to: "Tg Pause",
+                    color: theme.palette.info.main,
+                    opacity: 0.08,
+                },
+                {
+                    name: "High Elastic",
+                    from: "Tg Pause",
+                    to: "T min Pause",
+                    color: theme.palette.success.main,
+                    opacity: 0.05,
+                },
+                {
+                    name: "Optimal Bending",
+                    from: "T min Pause",
+                    to: "T max Pause",
+                    color: theme.palette.success.main,
+                    opacity: 0.15,
+                },
+                {
+                    name: "High Temperature",
+                    from: "T max Pause",
+                    to: "Decomposition Pause",
+                    color: theme.palette.warning.main,
+                    opacity: 0.1,
+                },
+                {
+                    name: "Decomposition Risk",
+                    from: "Decomposition Pause",
+                    to: null,
+                    color: theme.palette.error.main,
+                    opacity: 0.3,
+                },
+            ]
         };
+
     }, [result2D, theme, profile?.thickness, profile?.width, profile?.material, showContours2D]);
 
     return (

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
     Button,
     Dialog,
@@ -13,29 +13,65 @@ import {
 import CloseIcon from "@mui/icons-material/Close";
 
 export default function MyDialog({
-                                          open,
-                                          title,
-                                          value,
-                                          onChange,
-                                          renderContent,
-                                          onApply,
-                                          onClose,
-                                          saveDisabled = false
-                                      }) {
+    open,
+    title,
+    value,
+    onChange,
+    renderContent,
+    onApply,
+    onClose,
+    saveDisabled = false
+}) {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-
     const pxSize = isMobile ? 2 : 2.5;
 
-    const handleKeyDown = event => {
-        if (event.key !== "Enter" || event.shiftKey) return;
+    const [draft, setDraft] = useState(value);
+    const draftRef = useRef(value);
+    const wasOpenRef = useRef(false);
 
-        if (event.target.tagName === "TEXTAREA") return;
+    // Начинаем новый черновик при открытии диалога.
+    useEffect(() => {
+        if (open && !wasOpenRef.current) {
+            draftRef.current = value;
+            setDraft(value);
+        }
 
+        wasOpenRef.current = open;
+    }, [open, value]);
+
+    // Синхронно обновляем ref, чтобы Enter не использовал
+    // устаревшее значение из предыдущего рендера.
+    const handleDraftChange = (nextValue) => {
+        draftRef.current = nextValue;
+        setDraft(nextValue);
+    };
+
+    const handleApply = () => {
         if (saveDisabled) return;
 
+        const currentDraft = draftRef.current;
+
+        onChange?.(currentDraft);
+        onApply?.(currentDraft);
+    };
+
+    const handleKeyDown = (event) => {
+        if (
+            event.key !== "Enter" ||
+            event.shiftKey ||
+            event.nativeEvent.isComposing
+        ) {
+            return;
+        }
+
+        if (event.target.tagName === "TEXTAREA") return;
+        if (event.defaultPrevented || saveDisabled) return;
+
         event.preventDefault();
-        onApply?.(value);
+        event.stopPropagation();
+
+        handleApply();
     };
 
     return (
@@ -57,7 +93,9 @@ export default function MyDialog({
                         display: "flex",
                         flexDirection: "column",
                         height: isMobile ? "auto" : "max-content",
-                        maxHeight: isMobile ? "100%" : "calc(100% - 64px)",
+                        maxHeight: isMobile
+                            ? "100%"
+                            : "calc(100% - 64px)"
                     }
                 }
             }}
@@ -75,7 +113,7 @@ export default function MyDialog({
                     borderBottom: `1px solid ${theme.palette.divider}`,
                     backgroundColor: theme.palette.background.paper,
                     flexShrink: 0,
-                    minHeight: "auto",
+                    minHeight: "auto"
                 }}
             >
                 <Box
@@ -99,8 +137,8 @@ export default function MyDialog({
                         transition: "all 0.2s ease-in-out",
                         "&:hover": {
                             backgroundColor: "action.hover",
-                            color: "text.primary",
-                        },
+                            color: "text.primary"
+                        }
                     }}
                 >
                     <CloseIcon fontSize="medium" />
@@ -118,23 +156,20 @@ export default function MyDialog({
                             ? "background.default"
                             : "background.paper",
                     flexGrow: isMobile ? 1 : 0,
-
                     "& > *:first-of-type": {
-                        marginTop: 0,
+                        marginTop: 0
                     },
-
                     "& > *:last-of-type": {
-                        marginBottom: 0,
+                        marginBottom: 0
                     },
-
                     "&:last-child": {
-                        paddingBottom: `${theme.spacing(2.5)} !important`,
+                        paddingBottom: `${theme.spacing(2.5)} !important`
                     }
                 }}
             >
                 {renderContent?.({
-                    value,
-                    onChange
+                    value: draft,
+                    onChange: handleDraftChange
                 })}
             </DialogContent>
 
@@ -147,7 +182,7 @@ export default function MyDialog({
                     borderTop: `1px solid ${theme.palette.divider}`,
                     backgroundColor: theme.palette.background.paper,
                     flexShrink: 0,
-                    minHeight: "auto",
+                    minHeight: "auto"
                 }}
             >
                 <Button
@@ -168,7 +203,7 @@ export default function MyDialog({
 
                 <Button
                     variant="contained"
-                    onClick={() => onApply?.(value)}
+                    onClick={handleApply}
                     disabled={saveDisabled}
                     disableElevation
                     sx={{
@@ -177,7 +212,7 @@ export default function MyDialog({
                         px: 2.5,
                         py: 0.5,
                         borderRadius: isMobile ? 1.5 : 2,
-                        flex: isMobile ? 1 : "none",
+                        flex: isMobile ? 1 : "none"
                     }}
                 >
                     Save
