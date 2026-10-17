@@ -427,8 +427,6 @@ const SvgLineChart = memo(({ chart }) => {
 
     const chartData = useMemo(() => {
 
-        console.log("=== ДАННЫЕ ГРАФИКА (CHART) ===", chart);
-
 
         if (!chart || !Array.isArray(chart.graphs) || !chart.graphs.length) return null;
 
@@ -572,371 +570,36 @@ const SvgLineChart = memo(({ chart }) => {
         });
 
 
-        // --- Заливка областей между графиками ---
-        const fillsData = [];
+        // --- Подготовка готовых полигонов заливки ---
+        const fillPolygonsData = (Array.isArray(chart.fillPolygons) ? chart.fillPolygons : [])
+            .map((polygon, index) => {
+                if (!Array.isArray(polygon.points)) return null;
 
-        // 1. Точное определение грани (в пикселях)
-        const getEdgeType = (pt) => {
-            const EPS = 1e-2;
-            const xPix = xs(pt[0]);
-            const yPix = ys(pt[1]);
-            const pTop = pad.top;
-            const pBottom = pad.top + hPlot;
-            const pLeft = pad.left;
-            const pRight = pad.left + wPlot;
+                const points = polygon.points.filter(
+                    point =>
+                        Array.isArray(point) &&
+                        point.length >= 2 &&
+                        Number.isFinite(point[0]) &&
+                        Number.isFinite(point[1])
+                );
 
-            if (Math.abs(yPix - pTop) < EPS) return 'top';
-            if (Math.abs(xPix - pRight) < EPS) return 'right';
-            if (Math.abs(yPix - pBottom) < EPS) return 'bottom';
-            if (Math.abs(xPix - pLeft) < EPS) return 'left';
-            return 'none';
-        };
+                if (points.length < 3) return null;
 
-        // 2. Универсальный обход углов (прямой или реверсивный)
-// Теперь функция принимает четвертым аргументом объект с физическими границами в координатах данных
-        const getCornersBetween = (p1, p2, reverseCorners = false, bounds = null) => {
-            const edge1 = getEdgeType(p1);
-            const edge2 = getEdgeType(p2);
-
-            // Если точки не на границах или на одной и той же грани — углы не нужны
-            if (edge1 === 'none' || edge2 === 'none' || edge1 === edge2) return [];
-
-            const xLeft   = bounds ? bounds.xLeft   : (typeof xMin !== 'undefined' ? xMin : 0);
-            const xRight  = bounds ? bounds.xRight  : (typeof xMax !== 'undefined' ? xMax : 100);
-            const yTop    = bounds ? bounds.yTop    : (typeof tMax !== 'undefined' ? tMax : 100);
-            const yBottom = bounds ? bounds.yBottom : (typeof tMin !== 'undefined' ? tMin : 0);
-
-            // Порядок граней строго по часовой стрелке: Top -> Right -> Bottom -> Left
-            const edgeOrder = ['top', 'right', 'bottom', 'left'];
-
-            // Каждой грани соответствует угол, в который мы упираемся, двигаясь ПО часовой стрелке
-            const corners = {
-                'top':    [xRight, yTop],    // Конец верхней грани = Верхний Правый угол
-                'right':  [xRight, yBottom], // Конец правой грани = Нижний Правый угол
-                'bottom': [xLeft, yBottom],  // Конец нижней грани = Нижний Левый угол
-                'left':   [xLeft, yTop]      // Конец левой грани = Верхний Левый угол
-            };
-
-            let idx = edgeOrder.indexOf(edge1);
-            const endIdx = edgeOrder.indexOf(edge2);
-            const intermediate = [];
-
-            // Безопасный обход граней в зависимости от флага реверса
-            while (idx !== endIdx) {
-                if (!reverseCorners) {
-                    // Движение ПО часовой стрелке
-                    intermediate.push(corners[edgeOrder[idx]]);
-                    idx = (idx + 1) % 4;
-                } else {
-                    // Движение ПРОТИВ часовой стрелки
-                    idx = (idx - 1 + 4) % 4;
-                    // Берем противоположную угловую точку для движения назад
-                    intermediate.push(corners[edgeOrder[idx]]);
-                }
-            }
-
-            return intermediate;
-        };
-
-
-
-        // 3. Сегментация графика по null
-        const getFillSegments = (name) => {
-            if (name == null) return [];
-            const graph = graphData.find(g => g.name === name);
-            if (!graph) return [];
-
-            const segments = [];
-            let currentSeg = [];
-
-            graph.points.forEach(point => {
-                if (point === null) {
-                    if (currentSeg.length > 0) {
-                        segments.push(currentSeg);
-                        currentSeg = [];
-                    }
-                } else if (
-                    Array.isArray(point) &&
-                    point.length >= 2 &&
-                    Number.isFinite(point[0]) &&
-                    Number.isFinite(point[1])
-                ) {
-                    currentSeg.push(point);
-                }
-            });
-            if (currentSeg.length > 0) segments.push(currentSeg);
-            return segments;
-        };
-
-
-
-        // 4. Главный цикл построения полигонов заливки
-        const logPoint = (pt) => pt
-            ? `(${Number(pt[0]).toFixed(2)}, ${Number(pt[1]).toFixed(2)})`
-            : "—";
-
-
-        const getGraphName = (names, index) => {
-            if (names == null) return "Граница графика";
-            const list = Array.isArray(names) ? names : [names];
-            return list[index] ?? list.join(" + ");
-        };
-
-
-        if (Array.isArray(chart.fills)) {
-            chart.fills.forEach((fill, index) => {
-                if (fill.from == null && fill.to == null) return;
-
-                console.group(`FILL [${fill.name || index}]`);
-
-                const rawFromSegments = fill.from == null
-                    ? [[[xMin, tMin], [xMax, tMin], [xMax, tMax], [xMin, tMax], [xMin, tMin]]]
-                    : getFillSegments(fill.from);
-
-                const rawToSegments = fill.to == null
-                    ? []
-                    : getFillSegments(fill.to);
-
-                console.group(`FROM: ${fill.from ?? "Граница графика"}`);
-                console.groupEnd();
-
-                console.group(`TO: ${fill.to ?? "Нет"}`);
-                console.groupEnd();
-
-                if (!rawFromSegments.length && !rawToSegments.length) {
-                    console.warn("Нет данных для контура");
-                    console.groupEnd();
-                    return;
-                }
-
-                const splitSegments = (segments) => {
-                    const open = [];
-                    const loops = [];
-
-                    segments.forEach(seg => {
-                        if (!seg || seg.length < 2) return;
-
-                        const first = seg[0];
-                        const last = seg[seg.length - 1];
-                        const closed = Math.hypot(
-                            first[0] - last[0],
-                            first[1] - last[1]
-                        ) < 1e-4;
-
-                        (closed ? loops : open).push(seg);
-                    });
-
-                    return { open, loops };
+                return {
+                    id: polygon.key ?? `fill-polygon-${index}`,
+                    name: polygon.name,
+                    path: `${points
+                        .map((point, pointIndex) =>
+                            `${pointIndex === 0 ? "M" : "L"} ${xs(point[0])} ${ys(point[1])}`
+                        )
+                        .join(" ")} Z`,
+                    color: polygon.color || theme.palette.success.main,
+                    opacity: typeof polygon.opacity === "number"
+                        ? Math.max(0, Math.min(1, polygon.opacity))
+                        : 0.15,
                 };
-
-                const { open: fromOpen, loops: fromLoops } = splitSegments(rawFromSegments);
-                const { open: toOpen, loops: toLoops } = splitSegments(rawToSegments);
-
-
-                const buildContour = (segments, isReversed = false, names = null, bounds = null) => {
-                    if (!segments.length) return "";
-
-                    const orderedSegments = isReversed ? [...segments].reverse() : segments;
-                    const pointsSequence = [];
-                    let lastPoint = null;
-                    let lastGraphName = null;
-
-                    orderedSegments.forEach((seg, i) => {
-                        if (!seg.length) return;
-
-                        const points = isReversed ? [...seg].reverse() : seg;
-                        const start = points[0];
-                        const end = points[points.length - 1];
-                        const sourceIndex = isReversed ? segments.length - 1 - i : i;
-                        const graphName = getGraphName(names, sourceIndex);
-
-                        console.log(
-                            `${isReversed ? "TO" : "FROM"} — сегмент ${i + 1} [${graphName}]:`,
-                            `${logPoint(start)} → ${logPoint(end)}`
-                        );
-
-                        if (lastPoint) {
-                            const corners = getCornersBetween(lastPoint, start, isReversed, bounds);
-
-                            console.log(
-                                `  ↳ СОЕДИНЕНИЕ ${lastGraphName} → ${graphName}:`,
-                                `${logPoint(lastPoint)} → ${corners.map(logPoint).join(" → ") || "без промежуточных точек"} → ${logPoint(start)}`
-                            );
-
-                            pointsSequence.push(...corners);
-                        }
-
-                        pointsSequence.push(...points);
-                        lastPoint = end;
-                        lastGraphName = graphName;
-                    });
-
-                    return pointsSequence
-                        .map((pt, idx) => `${idx === 0 ? "M" : "L"} ${xs(pt[0])} ${ys(pt[1])}`)
-                        .join(" ");
-                };
-
-                const bounds = {
-                    xLeft: xMin,
-                    xRight: xMax,
-                    yTop: tMax,
-                    yBottom: tMin
-                };
-
-                console.log("━━━ 1. FROM ━━━");
-                const fromPath = buildContour(fromOpen, false, fill.from, bounds);
-
-                let dPath = "";
-
-                if (fromPath && toOpen.length) {
-                    const lastFromSegment = fromOpen[fromOpen.length - 1];
-                    const lastFromPt = lastFromSegment[lastFromSegment.length - 1];
-
-                    const lastToSegment = toOpen[toOpen.length - 1];
-                    const firstToPt = lastToSegment[lastToSegment.length - 1];
-
-                    // FROM → TO: обход границы вперёд.
-                    const connectPoints1 = getCornersBetween(
-                        lastFromPt,
-                        firstToPt,
-                        false,
-                        bounds
-                    );
-
-                    console.log("━━━ 2. ПЕРЕХОД FROM → TO ━━━");
-                    console.log(
-                        `FROM → TO: ${getGraphName(fill.from, fromOpen.length - 1)} → ${getGraphName(fill.to, toOpen.length - 1)}`,
-                        `${logPoint(lastFromPt)} → ${connectPoints1.map(logPoint).join(" → ") || "без промежуточных точек"} → ${logPoint(firstToPt)}`
-                    );
-
-                    console.log("━━━ 3. TO (обратный обход) ━━━");
-                    const toPath = buildContour(toOpen, true, fill.to, bounds);
-
-                    const firstToSegment = toOpen[0];
-                    const lastToPt = firstToSegment[0];
-
-                    const firstFromSegment = fromOpen[0];
-                    const firstFromPt = firstFromSegment[0];
-
-                    // TO → FROM: обход границы назад.
-                    const connectPoints2 = getCornersBetween(
-                        lastToPt,
-                        firstFromPt,
-                        false,
-                        bounds
-                    );
-
-                    console.log(
-                        `TO → FROM: ${getGraphName(fill.to, 0)} → ${getGraphName(fill.from, 0)}`,
-                        `${logPoint(lastToPt)} → ${connectPoints2.map(logPoint).join(" → ") || "без промежуточных точек"} → ${logPoint(firstFromPt)}`
-                    );
-
-                    const c1 = connectPoints1
-                        .map(pt => `L ${xs(pt[0])} ${ys(pt[1])}`)
-                        .join(" ");
-
-                    const c2 = connectPoints2
-                        .map(pt => `L ${xs(pt[0])} ${ys(pt[1])}`)
-                        .join(" ");
-
-                    dPath = `${fromPath} ${c1} ${toPath.replace(/^M/, "L")} ${c2} Z`;
-                } else if (fromPath) {
-                    console.log("━━━ 1. FROM (обход по периметру (нету TO)) ━━━");
-                    // 1. Извлекаем первый сегмент и его самую первую (левую) точку
-                    const firstFromSegment = fromOpen[0];
-                    const firstFromPt = firstFromSegment[0]; // Старт нижнего графика
-
-                    // 2. Извлекаем последний сегмент и его самую последнюю (правую) точку
-                    const lastFromSegment = fromOpen[fromOpen.length - 1];
-                    const lastFromPt = lastFromSegment[lastFromSegment.length - 1]; // Конец нижнего графика
-
-                    // 3. Используем вашу функцию getCornersBetween, чтобы безопасно собрать углы.
-                    // Мы передаем: (Конец_Линии, Старт_Линии, Направление_По_Часовой, Границы)
-                    // Так как верхней линии нет, функция проверит весь путь по периметру от правой точки к левой.
-                    const connectCorners = getCornersBetween(
-                        lastFromPt,
-                        firstFromPt,
-                        false,
-                        bounds
-                    );
-
-                    // 4. Переводим координаты полученных углов в SVG-команды линий "L"
-                    const cCorners = connectCorners
-                        .map(pt => `L ${xs(pt[0])} ${ys(pt[1])}`)
-                        .join(" ");
-
-                    // 5. Собираем путь: кривая FROM -> обход всех углов по периметру сетки -> замыкание Z
-                    dPath = `${fromPath} ${cCorners} Z`;
-
-                } else if (toOpen.length) {
-                    console.log("━━━ 3. TO (обратный обход по периметру (нету from)) ━━━");
-                    // 1. Генерируем реверсивный путь для TO (справа налево)
-                    const toPath = buildContour(toOpen, true, fill.to, bounds);
-
-                    // 2. Находим крайние точки исходного графика TO
-                    // Так как контур развернут, он ЗАКОНЧИТСЯ в физическом НАЧАЛЕ (левой точке)
-                    const lastToPt = toOpen[0][0]; // Точка, где перо стоит СЕЙЧАС (слева)
-
-                    // Контур НАЧИНАЛСЯ в физическом КОНЦЕ (правой точке)
-                    const lastToSegment = toOpen[toOpen.length - 1];
-                    const firstToPt = lastToSegment[lastToSegment.length - 1]; // Точка, куда надо ВЕРНУТЬСЯ (справа)
-
-                    // 3. Находим углы периметра от левой точки к правой ПО ЧАСОВОЙ СТРЕЛКЕ (false)
-                    // Функция сама проложит путь: Левый Нижний угол → Правый Нижний угол
-                    const connectCorners = getCornersBetween(
-                        lastToPt,
-                        firstToPt,
-                        true,
-                        bounds
-                    );
-
-                    // 4. Переводим координаты углов в SVG-команды линий "L"
-                    const cCorners = connectCorners
-                        .map(pt => `L ${xs(pt[0])} ${ys(pt[1])}`)
-                        .join(" ");
-
-                    // 5. Собираем путь: реверсивная кривая TO → обход нижнего периметра сетки → замыкание Z
-                    dPath = `${toPath} ${cCorners} Z`;
-                }
-
-                const renderLoops = (loops) =>
-                    loops.map(seg =>
-                        seg.map((pt, idx) =>
-                            `${idx === 0 ? "M" : "L"} ${xs(pt[0])} ${ys(pt[1])}`
-                        ).join(" ") + " Z"
-                    ).join(" ");
-
-                const fromLoopsPath = renderLoops(fromLoops);
-                const toLoopsPath = renderLoops(toLoops);
-
-                if (fromLoopsPath) dPath = `${dPath} ${fromLoopsPath}`.trim();
-                if (toLoopsPath) dPath = `${dPath} ${toLoopsPath}`.trim();
-
-                if (dPath) {
-                    fillsData.push({
-                        id: `fill-${fill.name || index}`,
-                        path: dPath,
-                        color: fill.color || theme.palette.success.main,
-                        opacity: typeof fill.opacity === "number" ? fill.opacity : 0.15,
-                    });
-                }
-
-                console.log("RESULT", {
-                    pathLength: dPath.length,
-                    closed: dPath.trim().endsWith("Z"),
-                    fromSegments: rawFromSegments.length,
-                    toSegments: rawToSegments.length,
-                    fromOpen: fromOpen.length,
-                    toOpen: toOpen.length,
-                    fromLoops: fromLoops.length,
-                    toLoops: toLoops.length,
-                    pathStart: dPath.slice(0, 100),
-                    pathEnd: dPath.slice(-100),
-                });
-
-                console.groupEnd();
-            });
-        }
+            })
+            .filter(Boolean);
 
         const isPlotRightEdge = (p) => {
             const graph = graphData[p.graphIndex];
@@ -1381,8 +1044,7 @@ const SvgLineChart = memo(({ chart }) => {
             width, height, pad, wPlot, hPlot, xMin, xMax, xCenter, tMin, tMax, gridLinesY,
             xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax,
             yLimitLineData, yLimitRangeData, xLimitLineData, xLimitRangeData,
-            yTopEdge: ys(tMax), yBottomEdge: ys(tMin), graphData, fillsData, placed,
-            placedMap,
+            yTopEdge: ys(tMax), yBottomEdge: ys(tMin), graphData, fillPolygonsData, placed, placedMap,
             yAxisLabels, rightAxisLabels, xAxisLabels,
             axes, hasLimitAtY, hasLimitAtX, showPoints, showLabels, xs, ys,
             borderColor: chart.status?.type === "error" ? theme.palette.error.main : chart.status?.type === "warning" ? theme.palette.warning.main : theme.palette.divider,
@@ -1395,7 +1057,7 @@ const SvgLineChart = memo(({ chart }) => {
         width, height, pad, wPlot, hPlot, xMin, tMin, gridLinesY,
         xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax,
         yLimitLineData, yLimitRangeData, xLimitLineData, xLimitRangeData,
-        graphData, fillsData,
+        graphData, fillPolygonsData,
         placedMap,
         yAxisLabels, rightAxisLabels, xAxisLabels,
         axes, showPoints, showLabels, borderColor, xs, ys,
@@ -1485,20 +1147,19 @@ const SvgLineChart = memo(({ chart }) => {
                 ))}
 
 
-                {/* Рендеринг вычтенных температурных зон с авто-обрезкой краев графика */}
-                {fillsData.map(fill => (
+                {/* Готовые полигоны температурных зон */}
+                {fillPolygonsData.map(polygon => (
                     <path
-                        key={fill.id}
-                        d={fill.path}
-                        fill={fill.color}
-                        opacity={fill.opacity}
+                        key={polygon.id}
+                        d={polygon.path}
+                        fill={polygon.color}
+                        fillOpacity={polygon.opacity}
                         fillRule="evenodd"
                         clipPath="url(#blank-clip-bounds)"
-                        stroke="none" // <-- ИЗМЕНИТЬ НА "none"
+                        stroke="none"
                         style={{ pointerEvents: "none" }}
                     />
                 ))}
-
 
                 {/* 9. Основной рендеринг кривых линий графиков */}
                 {graphData.map(graph => (

@@ -668,154 +668,242 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         const { xCoordinatesMm, yCoordinatesMm, Nx, Ny, heating, pause } = profileData;
         const gridConfig = { Nx, Ny, xCoordinatesMm, yCoordinatesMm };
 
-        const addTemperatureIsotherm = (targetTemp, T_flat, gridConfig, nameLabel, lineStyle = {}) => {
+        const boundaryPoints = (() => {
+            const points = [];
+            const maxWidth = yCoordinatesMm[Ny - 1];
+            const maxThickness = xCoordinatesMm[Nx - 1];
+
+            const addPoint = (i, j, position) => {
+                points.push({
+                    x: yCoordinatesMm[j],
+                    y: xCoordinatesMm[i],
+                    temperature: pause[i * Ny + j],
+                    position,
+                });
+            };
+
+            // Нижняя грань: слева направо.
+            for (let j = 0; j < Ny; j++) {
+                addPoint(0, j, yCoordinatesMm[j]);
+            }
+
+            // Правая грань: снизу вверх.
+            for (let i = 1; i < Nx; i++) {
+                addPoint(i, Ny - 1, maxWidth + xCoordinatesMm[i]);
+            }
+
+            // Верхняя грань: справа налево.
+            for (let j = Ny - 2; j >= 0; j--) {
+                addPoint(
+                    Nx - 1,
+                    j,
+                    maxWidth + maxThickness + maxWidth - yCoordinatesMm[j]
+                );
+            }
+
+            // Левая грань: сверху вниз, без повторения углов.
+            for (let i = Nx - 2; i > 0; i--) {
+                addPoint(
+                    i,
+                    0,
+                    2 * maxWidth + maxThickness + maxThickness - xCoordinatesMm[i]
+                );
+            }
+
+            return points;
+        })();
+
+        const findTemperatureIsothermSegments = (targetTemp, T_flat, gridConfig) => {
             if (!Number.isFinite(targetTemp) || !T_flat?.length || !gridConfig) return [];
 
             const { Nx, Ny, xCoordinatesMm, yCoordinatesMm } = gridConfig;
-            const maxSemiWidth = yCoordinatesMm[Ny - 1] || 0;
+            if (Nx < 1 || Ny < 2 || T_flat.length < Nx * Ny) return [];
+
+            const maxSemiWidth = yCoordinatesMm[Ny - 1];
+            const segmentsRight = [];
 
             const interpolateCoordinate = (t1, t2, c1, c2, target) => {
-                if (Math.abs(t2 - t1) >= 0.001) {
-                    return c1 + (target - t1) * (c2 - c1) / (t2 - t1);
+                const dt = t2 - t1;
+                if (Math.abs(dt) < 0.001) return c1;
+                return c1 + (target - t1) * (c2 - c1) / dt;
+            };
+
+            const crossesTarget = (t1, t2) =>
+                Number.isFinite(t1) &&
+                Number.isFinite(t2) &&
+                ((t1 <= targetTemp && t2 >= targetTemp) ||
+                    (t1 >= targetTemp && t2 <= targetTemp));
+
+            const addPoint = (segment, point) => {
+                if (!point || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) return;
+
+                const last = segment[segment.length - 1];
+                if (
+                    !last ||
+                    Math.abs(last[0] - point[0]) > 0.001 ||
+                    Math.abs(last[1] - point[1]) > 0.001
+                ) {
+                    segment.push(point);
                 }
-                return c1;
             };
 
-            // Точная линейная интерполяция толщины (y) на центральной оси x = 0 (столбец j = 0)
-            const getExactYAtCenter = (i1, i2) => {
-                const idx1 = Math.max(0, Math.min(i1, Nx - 1));
-                const idx2 = Math.max(0, Math.min(i2, Nx - 1));
+            // Ищем пересечение изотермы с границами по толщине.
+            // Возвращаем [ширина, толщина] либо null.
 
-                const t1 = T_flat[idx1 * Ny];
-                const t2 = T_flat[idx2 * Ny];
+            const getEdgePoint = (i1, i2) => {
+                if (i1 < 0 || i2 >= Nx) return null;
 
-                if (Math.abs(t2 - t1) < 0.0001) return xCoordinatesMm[idx1];
-                return interpolateCoordinate(t1, t2, xCoordinatesMm[idx1], xCoordinatesMm[idx2], targetTemp);
+                const interpolateBoundary = (j) => {
+                    const t1 = T_flat[i1 * Ny + j];
+                    const t2 = T_flat[i2 * Ny + j];
+
+                    if (!crossesTarget(t1, t2)) return null;
+
+                    const y1 = xCoordinatesMm[i1];
+                    const y2 = xCoordinatesMm[i2];
+
+                    return interpolateCoordinate(t1, t2, y1, y2, targetTemp);
+                };
+
+                // Сначала проверяем боковую границу.
+                const sideY = interpolateBoundary(Ny - 1);
+                if (sideY !== null && Number.isFinite(sideY)) {
+                    return [maxSemiWidth, sideY];
+                }
+
+                // Затем проверяем центральную границу.
+                const centerY = interpolateBoundary(0);
+                if (centerY !== null && Number.isFinite(centerY)) {
+                    return [0, centerY];
+                }
+
+                return null;
             };
 
-            const getLeftSideDirect = (seg) => {
-                return seg
-                    .filter(([x]) => x > 0.001)
-                    .map(([x, y]) => [-x, y]);
-            };
-
-            const segmentsRight = [];
-            let currentSegment = [];
-            let lastValidI = -2;
-
-            for (let i = 0; i < Nx; i++) {
-                const thicknessMm = xCoordinatesMm[i];
-                const rowOffset = i * Ny;
-                let interpolatedWidthMm = null;
+            const findWidthAtRow = (i) => {
+                const offset = i * Ny;
 
                 for (let j = 0; j < Ny - 1; j++) {
-                    const t1 = T_flat[rowOffset + j];
-                    const t2 = T_flat[rowOffset + j + 1];
+                    const t1 = T_flat[offset + j];
+                    const t2 = T_flat[offset + j + 1];
 
-                    if ((t1 >= targetTemp && t2 <= targetTemp) || (t1 <= targetTemp && t2 >= targetTemp)) {
-                        const w1 = yCoordinatesMm[j];
-                        const w2 = yCoordinatesMm[j + 1];
-                        const wMm = interpolateCoordinate(t1, t2, w1, w2, targetTemp);
+                    if (!crossesTarget(t1, t2)) continue;
 
-                        if (wMm >= 0) {
-                            interpolatedWidthMm = wMm;
-                            break;
-                        }
-                    }
+                    const width = interpolateCoordinate(
+                        t1,
+                        t2,
+                        yCoordinatesMm[j],
+                        yCoordinatesMm[j + 1],
+                        targetTemp
+                    );
+
+                    if (Number.isFinite(width) && width >= 0) return width;
                 }
 
-                if (interpolatedWidthMm !== null) {
-                    const getEdgePoint = (iStart, iEnd) => {
-                        const tS1 = T_flat[iStart * Ny + (Ny - 1)];
-                        const tS2 = T_flat[iEnd * Ny + (Ny - 1)];
+                return null;
+            };
 
-                        if ((tS1 >= targetTemp && tS2 <= targetTemp) || (tS1 <= targetTemp && tS2 >= targetTemp)) {
-                            const idx1 = Math.max(0, Math.min(iStart, Nx - 1));
-                            const idx2 = Math.max(0, Math.min(iEnd, Nx - 1));
-                            const sideY = interpolateCoordinate(T_flat[idx1 * Ny + (Ny - 1)], T_flat[idx2 * Ny + (Ny - 1)], xCoordinatesMm[idx1], xCoordinatesMm[idx2], targetTemp);
-                            return { point: [maxSemiWidth, sideY], sideY };
-                        }
-                        return { centerY: getExactYAtCenter(iStart, iEnd) };
-                    };
+            let currentSegment = [];
+            let lastValidI = -1;
 
-                    if (i !== lastValidI + 1 && currentSegment.length > 0) {
-                        const endEdge = getEdgePoint(lastValidI, lastValidI + 1);
-                        if (endEdge.sideY !== undefined) {
-                            currentSegment.push(endEdge.point);
-                            currentSegment.exactSideYEnd = endEdge.sideY;
-                        } else {
-                            currentSegment.exactCenterYEnd = endEdge.centerY;
-                        }
-
-                        segmentsRight.push(currentSegment);
-                        currentSegment = [];
-
-                        const startEdge = getEdgePoint(i - 1, i);
-                        if (startEdge.sideY !== undefined) {
-                            currentSegment.push(startEdge.point);
-                            currentSegment.exactSideYStart = startEdge.sideY;
-                        } else {
-                            currentSegment.exactCenterYStart = startEdge.centerY;
-                        }
-                    }
-                    else if (currentSegment.length === 0) {
-                        if (i > 0) {
-                            const startEdge = getEdgePoint(i - 1, i);
-                            if (startEdge.sideY !== undefined) {
-                                currentSegment.push(startEdge.point);
-                                currentSegment.exactSideYStart = startEdge.sideY;
-                            } else {
-                                currentSegment.exactCenterYStart = startEdge.centerY;
-                            }
-                        } else {
-                            currentSegment.exactCenterYStart = getExactYAtCenter(0, 0);
-                        }
-                    }
-
-                    currentSegment.push([interpolatedWidthMm, thicknessMm]);
-                    lastValidI = i;
+            const finishSegment = () => {
+                if (currentSegment.length > 0) {
+                    segmentsRight.push(currentSegment);
+                    currentSegment = [];
                 }
+            };
+
+            for (let i = 0; i < Nx; i++) {
+                const width = findWidthAtRow(i);
+
+                // Нет пересечения в этом сечении — завершаем текущий сегмент.
+                if (width === null) {
+                    if (currentSegment.length > 0) {
+                        if (lastValidI >= 0 && lastValidI < Nx - 1) {
+                            addPoint(
+                                currentSegment,
+                                getEdgePoint(lastValidI, lastValidI + 1)
+                            );
+                        }
+                        finishSegment();
+                    }
+
+                    lastValidI = -1;
+                    continue;
+                }
+
+                // Разрыв между соседними сечениями: начинаем новый сегмент.
+                if (lastValidI !== i - 1 && currentSegment.length > 0) {
+                    finishSegment();
+                }
+
+                if (currentSegment.length === 0 && i > 0) {
+                    addPoint(currentSegment, getEdgePoint(i - 1, i));
+                }
+
+                addPoint(currentSegment, [width, xCoordinatesMm[i]]);
+                lastValidI = i;
             }
 
+            // Завершаем последний сегмент.
             if (currentSegment.length > 0) {
-                if (lastValidI < Nx - 1) {
-                    const tSide1 = T_flat[lastValidI * Ny + (Ny - 1)];
-                    const tSide2 = T_flat[(lastValidI + 1) * Ny + (Ny - 1)];
-                    const isGoingToSide = (tSide1 >= targetTemp && tSide2 <= targetTemp) || (tSide1 <= targetTemp && tSide2 >= targetTemp);
-
-                    if (isGoingToSide) {
-                        const idx1 = Math.max(0, Math.min(lastValidI, Nx - 1));
-                        const idx2 = Math.max(0, Math.min(lastValidI + 1, Nx - 1));
-                        const sideY = interpolateCoordinate(T_flat[idx1 * Ny + (Ny - 1)], T_flat[idx2 * Ny + (Ny - 1)], xCoordinatesMm[idx1], xCoordinatesMm[idx2], targetTemp);
-                        currentSegment.push([maxSemiWidth, sideY]);
-                        currentSegment.exactSideYEnd = sideY;
-                    } else {
-                        currentSegment.exactCenterYEnd = getExactYAtCenter(lastValidI, lastValidI + 1);
-                    }
-                } else {
-                    currentSegment.exactCenterYEnd = getExactYAtCenter(Nx - 1, Nx - 1);
+                if (lastValidI >= 0 && lastValidI < Nx - 1) {
+                    addPoint(
+                        currentSegment,
+                        getEdgePoint(lastValidI, lastValidI + 1)
+                    );
                 }
-                segmentsRight.push(currentSegment);
+
+                finishSegment();
             }
 
-            if (segmentsRight.length === 0) return [];
+            segmentsRight.targetTemp = targetTemp;
+            return segmentsRight;
+        };
 
+        const buildSymmetricIsothermGraph = (
+            segmentsRight,
+            nameLabel,
+            lineStyle = {},
+            gridConfig
+        ) => {
+            if (!segmentsRight?.length || !gridConfig) return [];
+
+            const { Nx, Ny, xCoordinatesMm, yCoordinatesMm } = gridConfig;
+            const maxSemiWidth = yCoordinatesMm[Ny - 1] || 0;
             const baseProps = { showMarker: false, showPoints: false, ...lineStyle };
             const combinedIsothermPoints = [];
             const totalThickness = xCoordinatesMm[Nx - 1] || 0;
-
-            // Массив, в который мы соберем ВСЮ правую сторону для изолированных карманов
             const isolatedRightChain = [];
 
-            segmentsRight.forEach((segRight) => {
+            const getLeftSideDirect = seg => {
+                const EPS = 0.001;
+                const bothEndsAtCenter =
+                    Math.abs(seg[0][0]) < EPS &&
+                    Math.abs(seg[seg.length - 1][0]) < EPS;
+
+                return seg
+                    .filter(([x]) => bothEndsAtCenter || Math.abs(x) >= EPS)
+                    .map(([x, y]) => [-x, y]);
+            };
+
+
+            segmentsRight.forEach(segRight => {
                 const n = segRight.length;
                 if (n === 0) return;
 
                 if (n === 1) {
                     const [x, y] = segRight[0];
-                    const singlePart = x > 0.001 ? [[-x, y], [0, y], [x, y]] : [[0, y]];
-                    if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
-                    combinedIsothermPoints.push(...singlePart);
+
+                    if (combinedIsothermPoints.length > 0) {
+                        combinedIsothermPoints.push(null);
+                    }
+
+                    if (x > 0.001) {
+                        combinedIsothermPoints.push([-x, y]);
+                    }
+
+                    combinedIsothermPoints.push([x, y]);
                     return;
                 }
 
@@ -825,73 +913,109 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 const yEnd = segRight[n - 1][1];
 
                 const EDGE_EPS = 0.05;
-                const isStartOnSurface = Math.abs(yStart) < EDGE_EPS || Math.abs(yStart - totalThickness) < EDGE_EPS;
-                const isEndOnSurface   = Math.abs(yEnd - totalThickness) < EDGE_EPS || Math.abs(yEnd) < EDGE_EPS;
+                const isStartOnSurface =
+                    Math.abs(yStart) < EDGE_EPS ||
+                    Math.abs(yStart - totalThickness) < EDGE_EPS;
+                const isEndOnSurface =
+                    Math.abs(yEnd - totalThickness) < EDGE_EPS ||
+                    Math.abs(yEnd) < EDGE_EPS;
                 const isStartOnSideBorder = Math.abs(xStart - maxSemiWidth) < EDGE_EPS;
-                const isEndOnSideBorder   = Math.abs(xEnd - maxSemiWidth) < EDGE_EPS;
+                const isEndOnSideBorder = Math.abs(xEnd - maxSemiWidth) < EDGE_EPS;
 
                 const isStartOnAnyEdge = (isStartOnSurface || isStartOnSideBorder) && xStart > 0.01;
-                const isEndOnAnyEdge   = (isEndOnSurface || isEndOnSideBorder) && xEnd > 0.01;
+                const isEndOnAnyEdge = (isEndOnSurface || isEndOnSideBorder) && xEnd > 0.01;
 
-                // Проверяем условия связи с центром
                 const centerYStart = segRight.exactCenterYStart;
                 const centerYEnd = segRight.exactCenterYEnd;
                 const hasCenterStart = centerYStart !== undefined;
-                const hasCenterEnd   = centerYEnd !== undefined;
+                const hasCenterEnd = centerYEnd !== undefined;
 
-                // 🎯 Перехватываем изолированные карманы
-                const isIsolatedPocket = (isStartOnAnyEdge && isEndOnAnyEdge) || (isStartOnAnyEdge && !hasCenterStart && !hasCenterEnd);
+                const isIsolatedPocket =
+                    (isStartOnAnyEdge && isEndOnAnyEdge) ||
+                    (isStartOnAnyEdge && !hasCenterStart && !hasCenterEnd);
 
                 if (isIsolatedPocket) {
-                    // Просто собираем ПРАВУЮ сторону последовательно через null
                     if (isolatedRightChain.length > 0) isolatedRightChain.push(null);
                     isolatedRightChain.push(...segRight);
                     return;
                 }
 
-                // --- Оригинальная логика для сквозных пластов (остается без изменений) ---
                 const leftSideDirect = getLeftSideDirect(segRight);
                 const leftSideReversed = [...leftSideDirect].reverse();
-                let branchPoints;
-
                 const rightSideReversed = [...segRight].reverse();
 
-                // СЛУЧАЙ 1: Линия идет от оси X=0 к внешнему краю заготовки (к низу y=max)
+                let branchPoints;
+
                 if (isEndOnAnyEdge && !isStartOnAnyEdge) {
-                    branchPoints = [...rightSideReversed, [0, centerYStart], ...leftSideDirect];
-                }
-                // СЛУЧАЙ 2: Линия идет от внешнего края заготовки к оси X=0 (к верху y=0)
-                else if (isStartOnAnyEdge && !isEndOnAnyEdge) {
-                    branchPoints = [...leftSideDirect, [0, centerYEnd], ...rightSideReversed];
-                }
-                // СЛУЧАЙ 3: Замкнутое кольцо/петля вокруг центра (не касается внешних краев)
-                else if (!isStartOnAnyEdge && !isEndOnAnyEdge) {
-                    branchPoints = [[0, centerYStart], ...segRight, [0, centerYEnd], ...leftSideReversed, [0, centerYStart]];
-                }
-                // СЛУЧАЙ 4: Резервный (нетипичная геометрия без четких границ)
-                else {
+                    branchPoints = [...rightSideReversed, ...leftSideDirect];
+                } else if (isStartOnAnyEdge && !isEndOnAnyEdge) {
+                    branchPoints = [...leftSideDirect, ...rightSideReversed];
+                } else if (!isStartOnAnyEdge && !isEndOnAnyEdge) {
+                    branchPoints = [
+                        ...segRight,
+                        ...leftSideReversed
+                    ];
+                } else {
                     branchPoints = [...leftSideReversed, ...segRight];
                 }
 
-                // Разделитель между независимыми графиками, чтобы не было линий в воздухе
                 if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
                 combinedIsothermPoints.push(...branchPoints);
             });
 
-// 🎯 ВАША ЛОГИКА: Отражение всей собранной стороны для карманов
+
             if (isolatedRightChain.length > 0) {
-                // 1. Создаем левую сторону: зеркалим X и полностью разворачиваем массив задом наперед
-                const isolatedLeftChain = isolatedRightChain
-                    .map(pt => pt === null ? null : [-pt[0], pt[1]])
-                    .reverse();
+                const splitSegments = chain => {
+                    const segments = [];
+                    let segment = [];
 
-                // 2. Добавляем в общий график: сначала ЛЕВУЮ цепочку целиком (она пойдет сверху вниз)
-                if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
-                combinedIsothermPoints.push(...isolatedLeftChain);
+                    chain.forEach(point => {
+                        if (point === null) {
+                            if (segment.length) segments.push(segment);
+                            segment = [];
+                        } else {
+                            segment.push(point);
+                        }
+                    });
 
-                // 3. Затем ПРАВУЮ цепочку целиком (она пойдет снизу вверх благодаря структуре общего обхода)
-                combinedIsothermPoints.push(null);
-                combinedIsothermPoints.push(...isolatedRightChain);
+                    if (segment.length) segments.push(segment);
+                    return segments;
+                };
+
+                const rightSegments = splitSegments(isolatedRightChain);
+
+                rightSegments.forEach(segRight => {
+                    const segLeft = segRight
+                        .map(([x, y]) => [-x, y])
+                        .reverse();
+
+                    const EPS = 0.001;
+                    const isCenter = point => Math.abs(point[0]) < EPS;
+
+                    const startsAtCenter = isCenter(segRight[0]);
+                    const endsAtCenter = isCenter(segRight[segRight.length - 1]);
+
+                    let branchPoints;
+
+                    if (startsAtCenter) {
+                        // Левая сторона приходит к общей точке,
+                        // затем продолжаем по правой, не дублируя её.
+                        branchPoints = [...segLeft, ...segRight.slice(1)];
+                    } else if (endsAtCenter) {
+                        // Правая сторона приходит к общей точке,
+                        // затем продолжаем по левой, не дублируя её.
+                        branchPoints = [...segRight, ...segLeft.slice(1)];
+                    } else {
+                        // Нет общей точки на оси — стороны не соединяем.
+                        branchPoints = [...segLeft, null, ...segRight];
+                    }
+
+                    if (combinedIsothermPoints.length > 0) {
+                        combinedIsothermPoints.push(null);
+                    }
+
+                    combinedIsothermPoints.push(...branchPoints);
+                });
             }
 
             if (combinedIsothermPoints.length === 0) return [];
@@ -905,19 +1029,556 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         };
 
 
-// Переведенные названия графиков на английский язык
-        const graphs = [
-            ...addTemperatureIsotherm(Tg, heating, gridConfig, "Tg Heating", { color: theme.palette.warning.main, lineWidth: 1, opacity: 0.7  }),
-            ...addTemperatureIsotherm(Tmin, heating, gridConfig, "T min Heating", { color: theme.palette.success.main, lineWidth: 1 , opacity: 0.7 }),
-            ...addTemperatureIsotherm(Tmax, heating, gridConfig, "T max Heating", { color: theme.palette.success.main, lineWidth: 1, opacity: 0.7  }),
-            ...addTemperatureIsotherm(Tdecomp, heating, gridConfig, "Decomposition Heating", { color: theme.palette.error.main, lineWidth: 1, opacity: 0.7  }),
 
-            ...addTemperatureIsotherm(Tg, pause, gridConfig, "Tg Pause", { color: theme.palette.warning.dark, lineWidth: 1.6}),
-            ...addTemperatureIsotherm(Tmin, pause, gridConfig, "T min Pause", { color: theme.palette.success.dark, lineWidth: 1.6}),
-            ...addTemperatureIsotherm(Tmax, pause, gridConfig, "T max Pause", { color: theme.palette.success.main, lineWidth: 1.6}),
-            ...addTemperatureIsotherm(Tdecomp, pause, gridConfig, "Decomposition Pause", { color: theme.palette.error.dark, lineWidth: 1.6})
+        const buildIsothermFillPolygons = (fills, boundaryPoints = []) => {
+            const EPS = 0.001;
+
+            const splitSegments = segments => {
+                if (!Array.isArray(segments)) return [];
+
+                if (
+                    segments.length &&
+                    Array.isArray(segments[0]) &&
+                    Number.isFinite(segments[0][0]) &&
+                    Number.isFinite(segments[0][1])
+                ) {
+                    segments = [segments];
+                }
+
+                const result = [];
+
+                segments.forEach(item => {
+                    if (!Array.isArray(item)) return;
+
+                    let segment = [];
+
+                    item.forEach(point => {
+                        if (
+                            !Array.isArray(point) ||
+                            !Number.isFinite(point[0]) ||
+                            !Number.isFinite(point[1])
+                        ) {
+                            if (segment.length >= 2) result.push(segment);
+                            segment = [];
+                        } else {
+                            segment.push(point);
+                        }
+                    });
+
+                    if (segment.length >= 2) result.push(segment);
+                });
+
+                return result;
+            };
+
+            const samePoint = (a, b) =>
+                !!a && !!b &&
+                Math.abs(a[0] - b[0]) < EPS &&
+                Math.abs(a[1] - b[1]) < EPS;
+
+            const closePolygon = points => {
+                const result = [];
+
+                points.forEach(point => {
+                    if (
+                        point &&
+                        Number.isFinite(point[0]) &&
+                        Number.isFinite(point[1]) &&
+                        (!result.length || !samePoint(result[result.length - 1], point))
+                    ) {
+                        result.push([...point]);
+                    }
+                });
+
+                if (result.length < 3) return null;
+
+                if (!samePoint(result[0], result[result.length - 1])) {
+                    result.push([...result[0]]);
+                }
+
+                return result.length >= 4 ? result : null;
+            };
+
+            if (!Array.isArray(boundaryPoints) || boundaryPoints.length < 4) {
+                return [];
+            }
+
+            const xMin = Math.min(...boundaryPoints.map(p => p.x));
+            const xMax = Math.max(...boundaryPoints.map(p => p.x));
+            const yMin = Math.min(...boundaryPoints.map(p => p.y));
+            const yMax = Math.max(...boundaryPoints.map(p => p.y));
+
+            const width = xMax - xMin;
+            const height = yMax - yMin;
+            const perimeter = 2 * (width + height);
+
+            if (!(perimeter > 0)) return [];
+
+            // Позиция точки на периметре: верх -> право -> низ -> лево.
+            const toPerimeterPosition = point => {
+                if (!Array.isArray(point)) return null;
+
+                const [x, y] = point;
+
+                if (Math.abs(y - yMin) < EPS) return x - xMin;
+
+                if (Math.abs(x - xMax) < EPS) {
+                    return width + y - yMin;
+                }
+
+                if (Math.abs(y - yMax) < EPS) {
+                    return width + height + xMax - x;
+                }
+
+                if (Math.abs(x - xMin) < EPS) {
+                    return 2 * width + height + yMax - y;
+                }
+
+                return null;
+            };
+
+            const getDirectedDistance = (start, end, direction) => {
+                const startPos = toPerimeterPosition(start);
+                const endPos = toPerimeterPosition(end);
+
+                if (startPos == null || endPos == null) return null;
+
+                return direction > 0
+                    ? (endPos - startPos + perimeter) % perimeter
+                    : (startPos - endPos + perimeter) % perimeter;
+            };
+
+            const corners = [
+                { x: xMin, y: yMin, position: 0 },
+                { x: xMax, y: yMin, position: width },
+                { x: xMax, y: yMax, position: width + height },
+                { x: xMin, y: yMax, position: 2 * width + height },
+            ];
+
+            // Универсальный обход периметра до точки или ближайшего кандидата.
+            const walkPerimeter = ({
+                                       start,
+                                       direction,
+                                       target = null,
+                                       candidates = null,
+                                       isExcluded = () => false,
+                                   }) => {
+                const startPos = toPerimeterPosition(start);
+                if (startPos == null) return null;
+
+                let end = target;
+                let selected = null;
+
+                if (target == null) {
+                    if (!Array.isArray(candidates)) return null;
+
+                    candidates.forEach(candidate => {
+                        if (
+                            !candidate ||
+                            !Array.isArray(candidate.point) ||
+                            isExcluded(candidate)
+                        ) {
+                            return;
+                        }
+
+                        const offset = getDirectedDistance(
+                            start,
+                            candidate.point,
+                            direction
+                        );
+
+                        if (offset == null || offset < EPS) return;
+
+                        if (!selected || offset < selected.offset) {
+                            selected = { ...candidate, offset };
+                        }
+                    });
+
+                    if (!selected) return null;
+                    end = selected.point;
+                }
+
+                const endPos = toPerimeterPosition(end);
+                if (endPos == null) return null;
+
+                const endOffset = getDirectedDistance(start, end, direction);
+                if (endOffset == null) return null;
+
+                const intermediate = corners
+                    .map(corner => {
+                        const offset = direction > 0
+                            ? (corner.position - startPos + perimeter) % perimeter
+                            : (startPos - corner.position + perimeter) % perimeter;
+
+                        return { corner, offset };
+                    })
+                    .filter(({ offset }) =>
+                        offset > EPS && offset < endOffset - EPS
+                    )
+                    .sort((a, b) => a.offset - b.offset)
+                    .map(({ corner }) => [corner.x, corner.y]);
+
+                return {
+                    ...selected,
+                    point: end,
+                    path: [start, ...intermediate, end],
+                    offset: endOffset,
+                };
+            };
+
+
+            // Выбираем направление по температуре на участке периметра,
+            // а не по принадлежности сегмента к from или to.
+            const getBoundaryDirection = (point, minTemp, maxTemp) => {
+                const startPos = toPerimeterPosition(point);
+
+                if (
+                    startPos == null ||
+                    minTemp > maxTemp
+                ) {
+                    return null;
+                }
+
+                const samples = boundaryPoints
+                    .map(p => ({
+                        position: toPerimeterPosition([p.x, p.y]),
+                        temperature: p.temperature,
+                    }))
+                    .filter(p =>
+                        p.position != null &&
+                        Number.isFinite(p.temperature)
+                    );
+
+                const inside = temperature =>
+                    temperature >= minTemp - EPS &&
+                    temperature <= maxTemp + EPS;
+
+                const scoreDirection = direction => {
+                    const ordered = samples
+                        .map(sample => ({
+                            ...sample,
+                            distance: direction > 0
+                                ? (sample.position - startPos + perimeter) % perimeter
+                                : (startPos - sample.position + perimeter) % perimeter,
+                        }))
+                        .filter(sample => sample.distance > EPS)
+                        .sort((a, b) => a.distance - b.distance);
+
+                    if (!ordered.length) return null;
+
+                    // Проверяем температуру на первом участке в выбранном направлении.
+                    const first = ordered[0];
+
+                    if (!inside(first.temperature)) return null;
+
+                    // Ищем, сколько последовательных точек остаются в диапазоне.
+                    let validDistance = 0;
+
+                    for (const sample of ordered) {
+                        if (!inside(sample.temperature)) break;
+                        validDistance = sample.distance;
+                    }
+
+                    return validDistance;
+                };
+
+                const forward = scoreDirection(1);
+                const backward = scoreDirection(-1);
+
+                if (forward == null && backward == null) return null;
+                if (forward != null && backward == null) return 1;
+                if (backward != null && forward == null) return -1;
+
+                return forward >= backward ? 1 : -1;
+            };
+
+            const result = [];
+
+            fills.forEach(fill => {
+                const fromSegments = splitSegments(fill.fromSegments);
+                const toSegments = splitSegments(fill.toSegments);
+
+                if (!fromSegments.length && !toSegments.length) return;
+
+                const minTemp = fill.minTemp ?? -Infinity;
+                const maxTemp = fill.maxTemp ?? Infinity;
+
+                const allSegments = [
+                    ...fromSegments.map((segment, segmentIndex) => ({
+                        graphName: "from",
+                        segmentIndex,
+                        segment,
+                        used: false,
+                    })),
+                    ...toSegments.map((segment, segmentIndex) => ({
+                        graphName: "to",
+                        segmentIndex,
+                        segment,
+                        used: false,
+                    })),
+                ];
+
+                const addPolygon = points => {
+                    const polygon = closePolygon(points);
+                    if (!polygon) return;
+
+                    result.push({
+                        name: fill.name,
+                        points: polygon,
+                        color: fill.color,
+                        opacity: fill.opacity ?? 0.15,
+                    });
+                };
+
+                const getEndpoints = () =>
+                    allSegments
+                        .filter(item => !item.used)
+                        .flatMap(item => [
+                            {
+                                item,
+                                endpointIndex: 0,
+                                point: item.segment[0],
+                            },
+                            {
+                                item,
+                                endpointIndex: item.segment.length - 1,
+                                point: item.segment[item.segment.length - 1],
+                            },
+                        ]);
+
+                // Находим сегмент, чей конец непосредственно соединяется с точкой.
+                // Проверяются все сегменты, независимо от from/to.
+                const findConnectedEndpoint = (point, excludedItems) =>
+                    getEndpoints().find(candidate =>
+                        !excludedItems.has(candidate.item) &&
+                        samePoint(candidate.point, point)
+                    ) ?? null;
+
+                // Основной обход контура.
+                allSegments.forEach(initialSegment => {
+                    if (initialSegment.used) return;
+
+                    const startPoint = [...initialSegment.segment[0]];
+                    const chain = [...initialSegment.segment];
+                    const chainSegments = new Set([initialSegment]);
+
+                    let currentItem = initialSegment;
+                    let currentEndpoint = [...initialSegment.segment.at(-1)];
+                    let closed = false;
+
+                    while (chainSegments.size <= allSegments.length) {
+                        // 1. Сначала пробуем продолжить непосредственно от конца сегмента.
+                        const connected = findConnectedEndpoint(
+                            currentEndpoint,
+                            chainSegments
+                        );
+
+                        if (connected) {
+                            const nextItem = connected.item;
+                            const nextSegment = connected.endpointIndex === 0
+                                ? nextItem.segment
+                                : [...nextItem.segment].reverse();
+
+                            chain.push(...nextSegment.slice(1));
+                            chainSegments.add(nextItem);
+
+                            currentItem = nextItem;
+                            currentEndpoint = [...nextSegment.at(-1)];
+
+                            // Контур замкнулся через соединение графиков.
+                            if (samePoint(currentEndpoint, startPoint)) {
+                                closed = true;
+                                break;
+                            }
+
+                            continue;
+                        }
+
+                        // 2. Если конец не на периметре, продолжить нечем.
+                        if (toPerimeterPosition(currentEndpoint) == null) {
+                            break;
+                        }
+
+                        // 3. Выбираем направление по температурному диапазону.
+                        const direction = getBoundaryDirection(
+                            currentEndpoint,
+                            minTemp,
+                            maxTemp
+                        );
+
+                        if (direction == null) break;
+
+                        const endpoints = getEndpoints()
+                            .filter(candidate =>
+                                !chainSegments.has(candidate.item) &&
+                                toPerimeterPosition(candidate.point) != null
+                            )
+                            .map(candidate => ({
+                                ...candidate,
+                                segment: candidate.item.segment,
+                            }));
+
+                        // Стартовая точка тоже является кандидатом для замыкания.
+                        const closureCandidate = {
+                            item: initialSegment,
+                            endpointIndex: 0,
+                            point: startPoint,
+                            segment: initialSegment.segment,
+                            isClosure: true,
+                        };
+
+                        const next = walkPerimeter({
+                            start: currentEndpoint,
+                            direction,
+                            candidates: [...endpoints, closureCandidate],
+                            isExcluded: candidate =>
+                                candidate.point &&
+                                samePoint(candidate.point, currentEndpoint),
+                        });
+
+                        if (!next) break;
+
+                        chain.push(...next.path.slice(1));
+
+                        // 4. Если дошли до начальной точки, контур замкнут.
+                        if (
+                            next.isClosure ||
+                            samePoint(next.point, startPoint)
+                        ) {
+                            closed = true;
+                            break;
+                        }
+
+                        // 5. Переходим на найденный сегмент и продолжаем от его конца.
+                        const nextItem = next.item;
+
+                        if (!nextItem || chainSegments.has(nextItem)) break;
+
+                        const nextSegment = next.endpointIndex === 0
+                            ? nextItem.segment
+                            : [...nextItem.segment].reverse();
+
+                        // Точка на периметре уже добавлена через next.path.
+                        // Пропускаем повтор первого узла сегмента.
+                        chain.push(...nextSegment.slice(1));
+                        chainSegments.add(nextItem);
+
+                        currentItem = nextItem;
+                        currentEndpoint = [...nextSegment.at(-1)];
+
+                        if (samePoint(currentEndpoint, startPoint)) {
+                            closed = true;
+                            break;
+                        }
+                    }
+
+                    if (closed) {
+                        addPolygon(chain);
+                        chainSegments.forEach(item => {
+                            item.used = true;
+                        });
+                    } else {
+                        // Не оставляем сегменты бесконечно доступными для повторного обхода.
+                        initialSegment.used = true;
+                    }
+                });
+            });
+
+            return result;
+        };
+        // 1. Находим сегменты изотерм правой половины
+        const tgHeatingSegments = findTemperatureIsothermSegments(Tg, heating, gridConfig);
+        const tminHeatingSegments = findTemperatureIsothermSegments(Tmin, heating, gridConfig);
+        const tmaxHeatingSegments = findTemperatureIsothermSegments(Tmax, heating, gridConfig);
+        const tdecompHeatingSegments = findTemperatureIsothermSegments(Tdecomp, heating, gridConfig);
+
+        const tgPauseSegments = findTemperatureIsothermSegments(Tg, pause, gridConfig);
+        const tminPauseSegments = findTemperatureIsothermSegments(Tmin, pause, gridConfig);
+        const tmaxPauseSegments = findTemperatureIsothermSegments(Tmax, pause, gridConfig);
+        const tdecompPauseSegments = findTemperatureIsothermSegments(Tdecomp, pause, gridConfig);
+
+
+// 2. Строим симметричные графики из найденных сегментов
+        const graphs = [
+            ...buildSymmetricIsothermGraph(tgHeatingSegments, "Tg Heating", {
+                color: theme.palette.warning.main, lineWidth: 0.7, opacity: 0.7
+            }, gridConfig),
+            ...buildSymmetricIsothermGraph(tminHeatingSegments, "T min Heating", {
+                color: theme.palette.success.main, lineWidth: 0.7, opacity: 0.7
+            }, gridConfig),
+            ...buildSymmetricIsothermGraph(tmaxHeatingSegments, "T max Heating", {
+                color: theme.palette.success.main, lineWidth: 0.7, opacity: 0.7
+            }, gridConfig),
+            ...buildSymmetricIsothermGraph(tdecompHeatingSegments, "Decomposition Heating", {
+                color: theme.palette.error.main, lineWidth: 0.7, opacity: 1
+            }, gridConfig),
+
+            ...buildSymmetricIsothermGraph(tgPauseSegments, "Tg Pause", {
+                color: theme.palette.warning.dark, lineWidth: 1.6, opacity: 0.7
+            }, gridConfig),
+            ...buildSymmetricIsothermGraph(tminPauseSegments, "T min Pause", {
+                color: theme.palette.success.dark, lineWidth: 1.6
+            }, gridConfig),
+            ...buildSymmetricIsothermGraph(tmaxPauseSegments, "T max Pause", {
+                color: theme.palette.success.main, lineWidth: 1.6
+            }, gridConfig),
+            ...buildSymmetricIsothermGraph(tdecompPauseSegments, "Decomposition Pause", {
+                color: theme.palette.error.dark, lineWidth: 1.6
+            }, gridConfig)
         ];
 
+        const fillPolygons = buildIsothermFillPolygons(
+            [
+                {
+                    name: "Solid Plastic — Pause",
+                    fromSegments: null,
+                    toSegments: tgPauseSegments,
+                    minTemp: -Infinity,
+                    maxTemp: Tg,
+                    color: theme.palette.info.main,
+                    opacity: 0.08,
+                },
+                {
+                    name: "High Elastic — Pause",
+                    fromSegments: tgPauseSegments,
+                    toSegments: tminPauseSegments,
+                    minTemp: Tg,
+                    maxTemp: Tmin,
+                    color: theme.palette.success.main,
+                    opacity: 0.05,
+                },
+                {
+                    name: "Optimal Bending — Pause",
+                    fromSegments: tminPauseSegments,
+                    toSegments: tmaxPauseSegments,
+                    minTemp: Tmin,
+                    maxTemp: Tmax,
+                    color: theme.palette.success.main,
+                    opacity: 0.15,
+                },
+                {
+                    name: "High Temperature — Pause",
+                    fromSegments: tmaxPauseSegments,
+                    toSegments: tdecompPauseSegments,
+                    minTemp: Tmax,
+                    maxTemp: Tdecomp,
+                    color: theme.palette.warning.main,
+                    opacity: 0.1,
+                },
+                {
+                    name: "Decomposition Risk — Pause",
+                    fromSegments: tdecompPauseSegments,
+                    toSegments: null,
+                    minTemp: Tdecomp,
+                    maxTemp: Infinity,
+                    color: theme.palette.error.main,
+                    opacity: 0.3,
+                },
+            ],
+            boundaryPoints
+        );
+
+        console.log("fillPolygons", fillPolygons)
 
         const xLines = [{ value: 0, color: theme.palette.text.secondary, label: "Центр" }];
         if (width > 0) {
@@ -931,7 +1592,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 // Находим максимальную длину по оси X из существующих графиков (например, толщину профиля)
 
         return {
-            graphs,
+            graphs: graphs,
             axes: {
                 x: { unit: "mm", lines: xLines, ranges: [] },
                 y: {
@@ -948,43 +1609,8 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     ranges: []
                 }
             },
-            fills: [
-                {
-                    name: "Solid Plastic",
-                    from: null,
-                    to: "Tg Pause",
-                    color: theme.palette.info.main,
-                    opacity: 0.08,
-                },
-                {
-                    name: "High Elastic",
-                    from: "Tg Pause",
-                    to: "T min Pause",
-                    color: theme.palette.success.main,
-                    opacity: 0.05,
-                },
-                {
-                    name: "Optimal Bending",
-                    from: "T min Pause",
-                    to: "T max Pause",
-                    color: theme.palette.success.main,
-                    opacity: 0.15,
-                },
-                {
-                    name: "High Temperature",
-                    from: "T max Pause",
-                    to: "Decomposition Pause",
-                    color: theme.palette.warning.main,
-                    opacity: 0.1,
-                },
-                {
-                    name: "Decomposition Risk",
-                    from: "Decomposition Pause",
-                    to: null,
-                    color: theme.palette.error.main,
-                    opacity: 0.3,
-                },
-            ]
+
+            fillPolygons: fillPolygons
         };
 
     }, [result2D, theme, profile?.thickness, profile?.width, profile?.material, showContours2D]);
