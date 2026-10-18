@@ -769,80 +769,90 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     />
                 </Box>
 
-                <Box sx={{ display: "flex", flexWrap: "wrap", mx: "auto", gap: 1 }}>
-                    {showVerticalSlice && chart1And2?.chart1 && (
-                        <Box mx="auto">
-                            <SvgLineChart chart={chart1And2.chart1} />
+                <Box
+                    sx={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        mx: "auto",
+                        gap: 1,
+                        position: "relative" // База для абсолютного позиционирования серого оверлея
+                    }}
+                >
+                    {/* НАКРЫВАЕМ ЭФФЕКТОМ РАЗМЫТИЯ И ПРОЗРАЧНОСТИ ВСЕ ВНУТРЕННИЕ ГРАФИКИ СРАЗУ */}
+                    <Box
+                        sx={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 1,
+                            width: "100%",
+                            opacity: isCalculating ? 0.4 : 1, // Мягко приглушаем яркость линий под оверлеем
+                            filter: isCalculating ? "blur(1px)" : "none", // Аппаратное размытие SVG на 1px (можно поставить 0.5px)
+                            transition: "all 0.3s ease",
+                            pointerEvents: isCalculating ? "none" : "auto"
+                        }}
+                    >
+                        {showVerticalSlice && chart1And2?.chart1 && (
+                            <Box mx="auto">
+                                <SvgLineChart chart={chart1And2.chart1} />
+                            </Box>
+                        )}
+
+                        {showTimeDynamics && chart1And2?.chart2 && (
+                            <Box mx="auto">
+                                <SvgLineChart chart={chart1And2.chart2} />
+                            </Box>
+                        )}
+
+                        {showHorizontalWidth && chart3Data && (
+                            <Box mx="auto">
+                                <SvgLineChart chart={chart3Data} />
+                            </Box>
+                        )}
+
+                        {showContours2D && chartContourData && (
+                            <Box mx="auto">
+                                <SvgLineChart chart={chartContourData} />
+                            </Box>
+                        )}
+                    </Box>
+
+                    {/* ЕДИНЫЙ ОБЩИЙ ОВЕРЛЕЙ ЗАГРУЗКИ ПОВЕРХ ВСЕЙ ПАНЕЛИ ГРАФИКОВ */}
+                    {isCalculating && (
+                        <Box
+                            sx={{
+                                position: "absolute",
+                                inset: 0,
+                                // Используем легкий полупрозрачный серый фон из палитры MUI
+                                backgroundColor: alpha(theme.palette.action.disabledBackground, 0.1),
+                                borderRadius: 1,
+                                zIndex: 10,
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: 1.5,
+                                px: 3,
+                                minHeight: 200 // Защита от схлопывания контейнера до монтирования графиков
+                            }}
+                        >
+                            <Typography variant="body2" fontWeight={600} color="text.secondary">
+                                2D simulation in progress...
+                            </Typography>
+
+                            <Box sx={{ width: '100%', maxWidth: 220, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                <LinearProgress
+                                    variant="determinate"
+                                    value={progress}
+                                    sx={{ flexGrow: 1, height: 6, borderRadius: 3 }}
+                                />
+                                <Typography variant="body2" color="text.secondary" fontWeight={700} sx={{ minWidth: 35 }}>
+                                    {progress}%
+                                </Typography>
+                            </Box>
                         </Box>
                     )}
-
-                    {showTimeDynamics && chart1And2?.chart2 && (
-                        <Box mx="auto">
-                            <SvgLineChart chart={chart1And2.chart2} />
-                        </Box>
-                    )}
-
-                    {showHorizontalWidth && chart3Data && (
-                        <Box mx="auto">
-                            <SvgLineChart chart={chart3Data} />
-                        </Box>
-                    )}
-
-                    {showContours2D && (chartContourData || isCalculating) && (
-                        <Box sx={{ position: "relative" }} mx="auto">
-
-                            {/* Сам прозрачный график */}
-                            {chartContourData && (
-                                <Box sx={{
-                                    opacity: isCalculating ? 0.35 : 1,
-                                    filter: isCalculating ? "blur(1px)" : "none",
-                                    transition: "all 0.3s ease"
-                                }}>
-                                    <SvgLineChart chart={chartContourData} />
-                                </Box>
-                            )}
-
-                            {/* Аккуратный информационный слой с индикатором процентов вместо спиннера */}
-                            {isCalculating && (
-                                <Box
-                                    sx={{
-                                        position: "absolute",
-                                        inset: 0,
-                                        backgroundColor: chartContourData
-                                            ? theme.palette.action.disabledBackground
-                                            : "transparent",
-                                        minHeight: chartContourData ? "auto" : 150,
-                                        minWidth: chartContourData ? "auto" : 300,
-                                        zIndex: 10,
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        gap: 1.5,
-                                        px: 3
-                                    }}
-                                >
-                                    <Typography variant="body2" fontWeight={600} color="text.secondary">
-                                        2D simulation in progress...
-                                    </Typography>
-
-                                    <Box sx={{ width: '100%', maxWidth: 220, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                        <LinearProgress
-                                            variant="determinate"
-                                            value={progress}
-                                            sx={{ flexGrow: 1, height: 6, borderRadius: 3 }}
-                                        />
-                                        <Typography variant="body2" color="text.secondary" fontWeight={700} sx={{ minWidth: 35 }}>
-                                            {progress}%
-                                        </Typography>
-                                    </Box>
-                                </Box>
-                            )}
-                        </Box>
-                    )}
-
-
                 </Box>
+
             </Box>
         </Box>
     );
