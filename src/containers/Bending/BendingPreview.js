@@ -666,6 +666,8 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             buildIsothermFillPolygons(polygonFillsConfig, boundaryPoints, isotherms, heating, pause)
         );
 
+        //console.log(fillPolygons)
+
         const xLines = [{ value: 0, color: themeColors.textSecondary, label: "Центр" }];
         if (width > 0) {
             const maxVal = width / 2;
