@@ -1,5 +1,5 @@
-import React, { memo, useMemo } from "react";
-import { Paper, useTheme } from "@mui/material";
+import React, {useMemo } from "react";
+import { Paper, useTheme} from "@mui/material";
 
 // --- Константы конфигурации ---
 const GRID_STEP_C = 10;                     // Шаг сетки по оси Y (например, каждые 10 градусов)
@@ -422,7 +422,8 @@ const getOrderedDirections = (p, graphData, isPlotRightEdgeCheck, ys) => {
 
 // --- Основной графический компонент ---
 
-const SvgLineChart = memo(({ chart }) => {
+const SvgLineChart = ({ chart }) => {
+
     const theme = useTheme();
 
     const chartData = useMemo(() => {
@@ -1082,9 +1083,9 @@ const SvgLineChart = memo(({ chart }) => {
 
     return (
         <Paper sx={{ border: "1px solid", borderColor, p: 0.5, fontFamily: '"Roboto Mono","SF Mono",monospace', boxShadow: "none" }}>
-            <svg width={width} height={height} style={{ display: "block" }} shapeRendering="geometricPrecision">
 
-                <defs>
+                <svg width={width} height={height} style={{ display: "block" }} shapeRendering="geometricPrecision">
+                    <defs>
                     <clipPath id="blank-clip-bounds">
                         <rect
                             x={pad.left}
@@ -1251,9 +1252,10 @@ const SvgLineChart = memo(({ chart }) => {
 
 
             </svg>
+
         </Paper>
-    );
-});
+    )
+};
 
 SvgLineChart.displayName = "SvgLineChart";
 

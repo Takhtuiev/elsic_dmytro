@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Box, Typography, useTheme } from "@mui/material";
+import {Box, LinearProgress, Typography, useTheme} from "@mui/material";
 import { alpha } from "@mui/material/styles";
 
 import BendProfileRender from "./BendProfileRender";
 import { prepareSvgLayers } from "./prepareSvgLayers";
 import SvgLineChart from "./SvgLineChart";
-import { getHorizontalSlicePoints, getVerticalSlicePoints, simulate2DHeating } from "./heating2DModel";
+import { getHorizontalSlicePoints, getVerticalSlicePoints } from "./heating2DModel";
 
 // ============================================================================
 // !!! БЛОК 1D СИМУЛЯЦИИ (ДЛЯ УДАЛЕНИЯ) !!!
@@ -295,6 +295,10 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
     const containerRef = useRef(null);
     const [containerSize, setContainerSize] = useState({ width: 800, height: 500 });
 
+    const [result2D, setResult2D] = useState(null);
+    const [isCalculating, setIsCalculating] = useState(false); // Для будущего спиннера по желанию
+    const [progress, setProgress] = useState(0);
+
     const showVerticalSlice = profile?.simulation?.ui?.showVerticalSlice ?? true;
     const showHorizontalWidth = profile?.simulation?.ui?.showHorizontalWidth ?? true;
     const showTimeDynamics = profile?.simulation?.ui?.showTimeDynamics ?? true;
@@ -325,19 +329,43 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         };
     }, []);
 
-    const result2D = useMemo(() => {
+    useEffect(() => {
         if (!profile?.thickness || !profile?.material || !profile?.machine || !profile.simulation) {
-            return null;
+            setResult2D(null);
+            return;
         }
 
-        return simulate2DHeating({
-            thicknessMm: profile.thickness,
-            material: profile.material,
-            machine: profile.machine,
-            simulation: profile.simulation,
-            storeHistory: profile.simulation?.recordHistory ?? false
-        });
-    }, [profile?.thickness, profile?.material, profile?.machine, profile?.simulation]);
+        setIsCalculating(true);
+        setProgress(0); // Сбрасываем перед новым расчетом
+
+        const worker = new Worker(
+            new URL("./heating.worker.js", import.meta.url),
+            { type: "module" }
+        );
+
+        worker.onmessage = (event) => {
+            const { type, percent, result2D, error } = event.data;
+
+            if (type === "PROGRESS") {
+                setProgress(percent); // Получаем проценты от модели
+            } else {
+                if (error) {
+                    console.error("Worker error:", error);
+                } else {
+                    setResult2D(result2D);
+                    setProgress(100);
+                }
+                setIsCalculating(false);
+            }
+        };
+
+        worker.postMessage({ profile });
+
+        return () => {
+            worker.terminate();
+        };
+    }, [profile]);
+
 
     // Атомарное кеширование цветов палитры для снижения триггеров пересчета у детей
     const themeColors = useMemo(() => ({
@@ -682,7 +710,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             axes: {
                 x: { unit: "mm", lines: xLines, ranges: [] },
                 y: {
-                    unit: "mm", min: thickness, max: 0,
+                    unit: "mm", min: xCoordinatesMm[Nx - 1], max: 0,
                     lines: [
                         { value: 0, color: themeColors.textPrimary, label: "Верх" },
                         { value: thickness / 2, color: alpha(themeColors.divider, 0.3) },
@@ -760,11 +788,60 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                         </Box>
                     )}
 
-                    {showContours2D && chartContourData && (
-                        <Box mx="auto">
-                            <SvgLineChart chart={chartContourData} />
+                    {showContours2D && (chartContourData || isCalculating) && (
+                        <Box sx={{ position: "relative" }} mx="auto">
+
+                            {/* Сам прозрачный график */}
+                            {chartContourData && (
+                                <Box sx={{
+                                    opacity: isCalculating ? 0.35 : 1,
+                                    filter: isCalculating ? "blur(1px)" : "none",
+                                    transition: "all 0.3s ease"
+                                }}>
+                                    <SvgLineChart chart={chartContourData} />
+                                </Box>
+                            )}
+
+                            {/* Аккуратный информационный слой с индикатором процентов вместо спиннера */}
+                            {isCalculating && (
+                                <Box
+                                    sx={{
+                                        position: "absolute",
+                                        inset: 0,
+                                        backgroundColor: chartContourData
+                                            ? theme.palette.action.disabledBackground
+                                            : "transparent",
+                                        minHeight: chartContourData ? "auto" : 150,
+                                        minWidth: chartContourData ? "auto" : 300,
+                                        zIndex: 10,
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: 1.5,
+                                        px: 3
+                                    }}
+                                >
+                                    <Typography variant="body2" fontWeight={600} color="text.secondary">
+                                        2D simulation in progress...
+                                    </Typography>
+
+                                    <Box sx={{ width: '100%', maxWidth: 220, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                        <LinearProgress
+                                            variant="determinate"
+                                            value={progress}
+                                            sx={{ flexGrow: 1, height: 6, borderRadius: 3 }}
+                                        />
+                                        <Typography variant="body2" color="text.secondary" fontWeight={700} sx={{ minWidth: 35 }}>
+                                            {progress}%
+                                        </Typography>
+                                    </Box>
+                                </Box>
+                            )}
                         </Box>
                     )}
+
+
                 </Box>
             </Box>
         </Box>

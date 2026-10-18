@@ -534,26 +534,24 @@ export const buildSymmetricFillPolygons = polygons => {
         const pts = poly.points;
         const n = pts.length;
 
-        // Проверяем, является ли полигон замкнутым (первая точка равна последней)
+        // Проверяем замкнутость контура
         const isClosed = n >= 2 &&
             Math.abs(pts[0][0] - pts[n - 1][0]) < 0.001 &&
             Math.abs(pts[0][1] - pts[n - 1][1]) < 0.001;
 
-        // Работаем с незамкнутым базовым контуром для удобства склейки
         const corePoints = isClosed ? pts.slice(0, n - 1) : pts;
         const coreLen = corePoints.length;
 
-        // Строим зеркальную левую половину (разворачиваем порядок и инвертируем X)
+        // Зеркалим и разворачиваем порядок обхода левой части
         const leftHalf = [];
         for (let j = coreLen - 1; j >= 0; j--) {
             const pt = corePoints[j];
             leftHalf.push(pt === null ? null : [-pt[0], pt[1]]);
         }
 
-        // Соединяем левую и правую части в один цельный контур
         const combinedPoints = leftHalf.concat(corePoints);
 
-        // Фильтруем дубликаты точек, которые могли возникнуть на стыке X = 0
+        // Убираем дубликаты на оси X=0
         const uniquePoints = [];
         for (let j = 0; j < combinedPoints.length; j++) {
             const pt = combinedPoints[j];
@@ -568,13 +566,12 @@ export const buildSymmetricFillPolygons = polygons => {
                 if (last !== null &&
                     Math.abs(last[0] - pt[0]) < 0.001 &&
                     Math.abs(last[1] - pt[1]) < 0.001) {
-                    continue; // Пропускаем дубликат
+                    continue;
                 }
             }
             uniquePoints.push(pt);
         }
 
-        // Если полигон изначально должен быть замкнутым, закрываем его
         if (isClosed && uniquePoints.length >= 3) {
             const first = uniquePoints[0];
             const last = uniquePoints[uniquePoints.length - 1];
@@ -583,7 +580,6 @@ export const buildSymmetricFillPolygons = polygons => {
             }
         }
 
-        // Добавляем один цельный полигон вместо двух раздельных
         result.push({
             ...poly,
             points: uniquePoints

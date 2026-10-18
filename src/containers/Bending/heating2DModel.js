@@ -397,23 +397,32 @@ function solveBandMatrixOptimized(A, N, bandWidth, r, x, precalc) {
     return true;
 }
 
-function isTargetReached2D(T, Nx, Ny, target, targetK) {
+function isTargetReached2D(T, Nx, Ny, target, targetK, outCurrentValue) {
     if (!target) return false;
     if (target.type === "time") return false;
+
     if (target.type === "minTemperature") {
+        let minValK = Infinity;
         for (let i = 0; i < Nx; i++) {
-            if (T[i * Ny] < targetK) return false;
+            const nodeTempK = T[i * Ny];
+            if (nodeTempK < minValK) minValK = nodeTempK;
         }
-        return true;
+        if (outCurrentValue) outCurrentValue.v = minValK; // Ловим минимум
+        return minValK >= targetK;
     }
+
     if (target.type === "surfaceTemperature") {
-        return T[0] >= targetK || T[(Nx - 1) * Ny] >= targetK;
+        const topK = T[0];
+        const botK = T[(Nx - 1) * Ny];
+        const maxSurfaceK = topK > botK ? topK : botK;
+        if (outCurrentValue) outCurrentValue.v = maxSurfaceK; // Ловим максимум поверхностей
+        return maxSurfaceK >= targetK;
     }
+
     return false;
 }
 
-export function simulate2DHeating({ thicknessMm, material, machine, simulation, dtSeconds, storeHistory = false }) {
-    const calculationStart = performance.now();
+export function simulate2DHeating({ thicknessMm, material, machine, simulation, dtSeconds, storeHistory = false, onProgress }) {    const calculationStart = performance.now();
     const mach = normalizeMachine(machine);
     if (!mach) return makeError("Invalid machine.");
 
@@ -553,6 +562,9 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const invDyH = gridY.invDyH;
     const invDyL = gridY.invDyL;
     const invDyR = gridY.invDyR;
+
+    let lastReportedPercent = -1;
+    const totalCoolingTime = simulation.cooling?.timeSeconds || 0;
 
     // ========================================================
     // ФАЗА 1: ИНТЕНСИВНЫЙ НАГРЕВ
@@ -754,7 +766,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             }
             forceStop = true;
         }
-
         let maxStepTempChange = 0;
         for (let k = 0; k < size2D; k++) {
             const stepChange = Math.abs(currentIterT[k] - T[k]);
@@ -765,8 +776,82 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         time += dt;
         logHistory(false);
 
+        // 🌟 1. ОПТИМИЗАЦИЯ: ОДИН ЕДИНСТВЕННЫЙ ВЫЗОВ НА ШАГ (Ловушка наполняется значениями)
+        const currentThermalState = { v: initT + 273.15 };
+        let isReached = false;
+
+        if (targetK != null && (targetType === "minTemperature" || targetType === "surfaceTemperature")) {
+            isReached = isTargetReached2D(currentIterT, Nx, Ny, target, targetK, currentThermalState);
+        }
+
+        // 🌟 2. ВЫЧИСЛЯЕМ ПРОГРЕСС БЕЗ ПОВТОРНЫХ ЦИКЛОВ (Сложность O(1) — мгновенный доступ)
+        if (onProgress) {
+            let heatingProgressFraction = 0;
+
+            if (targetType === "minTemperature") {
+                const centerC = currentThermalState.v - 273.15; // Истинный минимум из ловушки
+                const surfaceC = currentIterT[0] - 273.15;     // Мгновенный верхний узел
+                const effectiveCurrentC = (centerC + surfaceC) / 2.0;
+
+                const totalRange = targetValue - initT;
+                if (totalRange > 0) {
+                    heatingProgressFraction = (effectiveCurrentC - initT) / totalRange;
+                }
+            } else if (targetType === "surfaceTemperature") {
+                const currentC = currentThermalState.v - 273.15; // Истинный максимум из ловушки
+                const totalRange = targetValue - initT;
+                if (totalRange > 0) {
+                    heatingProgressFraction = (currentC - initT) / totalRange;
+                }
+            } else if (targetType === "time") {
+                if (targetValue > 0) {
+                    heatingProgressFraction = time / targetValue;
+                }
+            }
+
+            heatingProgressFraction = Math.max(0, Math.min(1.0, heatingProgressFraction));
+            const maxHeatingPercent = totalCoolingTime > 0 ? 95 : 99;
+            let currentPercent = Math.floor(heatingProgressFraction * maxHeatingPercent);
+
+            if (currentPercent > lastReportedPercent && currentPercent <= maxHeatingPercent) {
+                onProgress(currentPercent);
+                lastReportedPercent = currentPercent;
+            }
+        }
+
+        // 🌟 3. БЛОК СУБШАГОВОГО ОТКАТА (Использует флаг из единой проверки выше)
+        if (isReached) {
+            let criticalNodeIdx = 0;
+            if (targetType === "minTemperature") {
+                let minVal = Infinity;
+                for (let i = 0; i < Nx; i++) {
+                    if (currentIterT[i * Ny] < minVal) {
+                        minVal = currentIterT[i * Ny];
+                        criticalNodeIdx = i * Ny;
+                    }
+                }
+            } else if (targetType === "surfaceTemperature") {
+                criticalNodeIdx = currentIterT[0] >= targetK ? 0 : (lastX * Ny);
+            }
+
+            const oldNodeT = oldT[criticalNodeIdx];
+            const newNodeT = currentIterT[criticalNodeIdx];
+
+            if (newNodeT - oldNodeT > 0.02 && oldNodeT < targetK) {
+                const fraction = (targetK - oldNodeT) / (newNodeT - oldNodeT);
+                const nextDt = dt * clamp(fraction, 0.05, 0.95);
+                if (nextDt >= 1e-5) {
+                    dt = nextDt;
+                    T.set(oldT);
+                    continue; // Мгновенный перезапуск шага с идеальным суб-dt
+                }
+            }
+            forceStop = true;
+        }
+
         if (forceStop) break;
 
+        // Расчет следующего адаптивного шага времени
         if (isAdaptive) {
             if (maxStepTempChange > 0) {
                 const stepRatio = TARGET_DELTA_T / maxStepTempChange;
@@ -780,6 +865,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 dt = ADAPTIVE_MAX_DT;
             }
         }
+
+
     }
 
     logHistory(true);
@@ -937,6 +1024,19 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         T.set(currentIterT);
         coolingTimeElapsed += coolingDt;
         logCoolingHistory(false);
+
+        // === ДОБАВИТЬ ЭТОТ БЛОК ДЛЯ ТРЕКИНГА ОХЛАЖДЕНИЯ ===
+        if (onProgress && coolingTime > 0) {
+            const coolingFraction = Math.max(0, Math.min(1.0, coolingTimeElapsed / coolingTime));
+
+            // Распределяем остаток шкалы от 90% до 99%
+            let currentPercent = Math.floor(95 + (coolingFraction * 4.5));
+
+            if (currentPercent > lastReportedPercent && currentPercent <= 99) {
+                onProgress(currentPercent);
+                lastReportedPercent = currentPercent;
+            }
+        }
 
         if (isAdaptive) {
             if (maxStepCoolingChange > 0) {
