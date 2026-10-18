@@ -1183,12 +1183,12 @@ const SvgLineChart = ({ chart }) => {
                                     cx={xs(pt[0])}
                                     cy={ys(pt[1])}
                                     r={graph.lineWidth * 0.5}
+                                    fill={theme.palette.text.primary}
                                     stroke={theme.palette.background.paper}
                                     strokeWidth={graph.lineWidth * 0.25}
-                                    opacity={graph.opacity}
+                                    opacity={graph.opacity * 0.5}
                                 />
-                            </g>
-                        );
+                            </g>                        );
                     });
                 })}
 

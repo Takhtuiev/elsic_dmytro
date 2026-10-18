@@ -87,7 +87,7 @@ const INITIAL_STATE={
             type: "minTemperature",
             value: (MATERIALS["PVC_CAW_RED"]?.minFormingTemp + MATERIALS["PVC_CAW_RED"]?.maxFormingTemp) / 2
         },
-        widthHalfMm: 15,
+        widthHalfMm: 20,
         temperatures: { ambientC: 20, ambientRadiationC: 20, initialC: 20 },
         cooling: { timeSeconds: 10, convectiveHeatTransferCoefficient: 8 },
         stopAtMaxTemperature: true,
