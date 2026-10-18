@@ -1,0 +1,540 @@
+// isothermsModel.js
+
+const EPS = 0.001;
+const EDGE_EPS = 0.05;
+
+// Вынесенные чистые хелперы для предотвращения создания замыканий в циклах
+const interpolateCoordinate = (t1, t2, c1, c2, target) => {
+    const dt = t2 - t1;
+    if (Math.abs(dt) < 0.001) return c1;
+    return c1 + (target - t1) * (c2 - c1) / dt;
+};
+
+const crossesTarget = (t1, t2, targetTemp) =>
+    Number.isFinite(t1) &&
+    Number.isFinite(t2) &&
+    ((t1 <= targetTemp && t2 >= targetTemp) || (t1 >= targetTemp && t2 <= targetTemp));
+
+export const findTemperatureIsothermSegments = (targetTemp, T_flat, gridConfig) => {
+    if (!Number.isFinite(targetTemp) || !T_flat?.length || !gridConfig) return [];
+
+    const { Nx, Ny, xCoordinatesMm, yCoordinatesMm } = gridConfig;
+    if (Nx < 1 || Ny < 2 || T_flat.length < Nx * Ny) return [];
+
+    const maxSemiWidth = yCoordinatesMm[Ny - 1];
+    const segmentsRight = [];
+
+    const addPoint = (segment, point) => {
+        if (!point || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) return;
+
+        const len = segment.length;
+        if (len > 0) {
+            const last = segment[len - 1];
+            if (Math.abs(last[0] - point[0]) < EPS && Math.abs(last[1] - point[1]) < EPS) {
+                return;
+            }
+        }
+        segment.push(point);
+    };
+
+    const getEdgePoint = (i1, i2) => {
+        if (i1 < 0 || i2 >= Nx) return null;
+
+        const idx1_base = i1 * Ny;
+        const idx2_base = i2 * Ny;
+
+        // 1. Боковая граница
+        const t1_side = T_flat[idx1_base + Ny - 1];
+        const t2_side = T_flat[idx2_base + Ny - 1];
+        if (crossesTarget(t1_side, t2_side, targetTemp)) {
+            const sideY = interpolateCoordinate(t1_side, t2_side, xCoordinatesMm[i1], xCoordinatesMm[i2], targetTemp);
+            if (Number.isFinite(sideY)) return [maxSemiWidth, sideY];
+        }
+
+        // 2. Центральная граница
+        const t1_cent = T_flat[idx1_base];
+        const t2_cent = T_flat[idx2_base];
+        if (crossesTarget(t1_cent, t2_cent, targetTemp)) {
+            const centerY = interpolateCoordinate(t1_cent, t2_cent, xCoordinatesMm[i1], xCoordinatesMm[i2], targetTemp);
+            if (Number.isFinite(centerY)) return [0, centerY];
+        }
+
+        return null;
+    };
+
+    const findWidthAtRow = (i) => {
+        const offset = i * Ny;
+        for (let j = 0; j < Ny - 1; j++) {
+            const t1 = T_flat[offset + j];
+            const t2 = T_flat[offset + j + 1];
+
+            if (!crossesTarget(t1, t2, targetTemp)) continue;
+
+            const width = interpolateCoordinate(t1, t2, yCoordinatesMm[j], yCoordinatesMm[j + 1], targetTemp);
+            if (Number.isFinite(width) && width >= 0) return width;
+        }
+        return null;
+    };
+
+    let currentSegment = [];
+    let lastValidI = -1;
+
+    const finishSegment = () => {
+        if (currentSegment.length > 0) {
+            segmentsRight.push(currentSegment);
+            currentSegment = [];
+        }
+    };
+
+    for (let i = 0; i < Nx; i++) {
+        const width = findWidthAtRow(i);
+
+        if (width === null) {
+            if (currentSegment.length > 0) {
+                if (lastValidI >= 0 && lastValidI < Nx - 1) {
+                    addPoint(currentSegment, getEdgePoint(lastValidI, lastValidI + 1));
+                }
+                finishSegment();
+            }
+            lastValidI = -1;
+            continue;
+        }
+
+        if (lastValidI !== i - 1 && currentSegment.length > 0) {
+            finishSegment();
+        }
+
+        if (currentSegment.length === 0 && i > 0) {
+            addPoint(currentSegment, getEdgePoint(i - 1, i));
+        }
+
+        addPoint(currentSegment, [width, xCoordinatesMm[i]]);
+        lastValidI = i;
+    }
+
+    if (currentSegment.length > 0) {
+        if (lastValidI >= 0 && lastValidI < Nx - 1) {
+            addPoint(currentSegment, getEdgePoint(lastValidI, lastValidI + 1));
+        }
+        finishSegment();
+    }
+
+    segmentsRight.targetTemp = targetTemp;
+    return segmentsRight;
+};
+
+export const buildSymmetricIsothermGraph = (segmentsRight, name, phase, lineStyle = {}, gridConfig) => {
+    if (!segmentsRight?.length || !gridConfig) return [];
+
+    const { Nx, Ny, xCoordinatesMm, yCoordinatesMm } = gridConfig;
+    const maxSemiWidth = yCoordinatesMm[Ny - 1] || 0;
+    const baseProps = { showMarker: false, showPoints: false, ...lineStyle };
+    const combinedIsothermPoints = [];
+    const totalThickness = xCoordinatesMm[Nx - 1] || 0;
+    const isolatedRightChain = [];
+
+    const getLeftSideDirect = seg => {
+        const bothEndsAtCenter = Math.abs(seg[0][0]) < EPS && Math.abs(seg[seg.length - 1][0]) < EPS;
+        const result = [];
+        for (let i = 0; i < seg.length; i++) {
+            const p = seg[i];
+            if (bothEndsAtCenter || Math.abs(p[0]) >= EPS) {
+                result.push([-p[0], p[1]]);
+            }
+        }
+        return result;
+    };
+
+    segmentsRight.forEach(segRight => {
+        const n = segRight.length;
+        if (n === 0) return;
+
+        if (n === 1) {
+            const p = segRight[0];
+            if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
+            if (p[0] > 0.001) combinedIsothermPoints.push([-p[0], p[1]]);
+            combinedIsothermPoints.push([p[0], p[1]]);
+            return;
+        }
+
+        const xStart = segRight[0][0];
+        const yStart = segRight[0][1];
+        const xEnd = segRight[n - 1][0];
+        const yEnd = segRight[n - 1][1];
+
+        const isStartOnSurface = Math.abs(yStart) < EDGE_EPS || Math.abs(yStart - totalThickness) < EDGE_EPS;
+        const isEndOnSurface = Math.abs(yEnd - totalThickness) < EDGE_EPS || Math.abs(yEnd) < EDGE_EPS;
+        const isStartOnSideBorder = Math.abs(xStart - maxSemiWidth) < EDGE_EPS;
+        const isEndOnSideBorder = Math.abs(xEnd - maxSemiWidth) < EDGE_EPS;
+
+        const isStartOnAnyEdge = (isStartOnSurface || isStartOnSideBorder) && xStart > 0.01;
+        const isEndOnAnyEdge = (isEndOnSurface || isEndOnSideBorder) && xEnd > 0.01;
+
+        const isIsolatedPocket = (isStartOnAnyEdge && isEndOnAnyEdge) ||
+            (isStartOnAnyEdge && segRight.exactCenterYStart === undefined && segRight.exactCenterYEnd === undefined);
+
+        if (isIsolatedPocket) {
+            if (isolatedRightChain.length > 0) isolatedRightChain.push(null);
+            for (let i = 0; i < segRight.length; i++) isolatedRightChain.push(segRight[i]);
+            return;
+        }
+
+        const leftSideDirect = getLeftSideDirect(segRight);
+        let branchPoints;
+
+        if (isEndOnAnyEdge && !isStartOnAnyEdge) {
+            branchPoints = [...segRight].reverse().concat(leftSideDirect);
+        } else if (isStartOnAnyEdge && !isEndOnAnyEdge) {
+            branchPoints = leftSideDirect.concat([...segRight].reverse());
+        } else if (!isStartOnAnyEdge && !isEndOnAnyEdge) {
+            branchPoints = segRight.concat([...leftSideDirect].reverse());
+        } else {
+            branchPoints = [...leftSideDirect].reverse().concat(segRight);
+        }
+
+        if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
+        for (let i = 0; i < branchPoints.length; i++) combinedIsothermPoints.push(branchPoints[i]);
+    });
+
+    if (isolatedRightChain.length > 0) {
+        let segment = [];
+        const rightSegments = [];
+        for (let i = 0; i < isolatedRightChain.length; i++) {
+            const p = isolatedRightChain[i];
+            if (p === null) {
+                if (segment.length) { rightSegments.push(segment); segment = []; }
+            } else {
+                segment.push(p);
+            }
+        }
+        if (segment.length) rightSegments.push(segment);
+
+        rightSegments.forEach(segRight => {
+            const segLeft = segRight.map(([x, y]) => [-x, y]).reverse();
+            const startsAtCenter = Math.abs(segRight[0][0]) < EPS;
+            const endsAtCenter = Math.abs(segRight[segRight.length - 1][0]) < EPS;
+
+            let branchPoints;
+            if (startsAtCenter) {
+                branchPoints = segLeft.concat(segRight.slice(1));
+            } else if (endsAtCenter) {
+                branchPoints = segRight.concat(segLeft.slice(1));
+            } else {
+                branchPoints = segLeft.concat([null], segRight);
+            }
+
+            if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
+            for (let i = 0; i < branchPoints.length; i++) combinedIsothermPoints.push(branchPoints[i]);
+        });
+    }
+
+    if (combinedIsothermPoints.length === 0) return [];
+
+    return [{ name, phase, points: combinedIsothermPoints, ...baseProps }];
+};
+
+export const buildIsothermFillPolygons = (fills, boundaryPoints = [], isotherms = [], heating, pause) => {
+    if (!Array.isArray(boundaryPoints) || boundaryPoints.length < 4) return [];
+
+    const xMin = Math.min(...boundaryPoints.map(p => p.x));
+    const xMax = Math.max(...boundaryPoints.map(p => p.x));
+    const yMin = Math.min(...boundaryPoints.map(p => p.y));
+    const yMax = Math.max(...boundaryPoints.map(p => p.y));
+
+    const width = xMax - xMin;
+    const height = yMax - yMin;
+    const perimeter = 2 * (width + height);
+    if (!(perimeter > 0)) return [];
+
+    const toPerimeterPosition = point => {
+        if (!point) return null;
+        const x = point[0];
+        const y = point[1];
+        if (Math.abs(y - yMin) < EPS) return x - xMin;
+        if (Math.abs(x - xMax) < EPS) return width + y - yMin;
+        if (Math.abs(y - yMax) < EPS) return width + height + xMax - x;
+        if (Math.abs(x - xMin) < EPS) return 2 * width + height + yMax - y;
+        return null;
+    };
+
+    const samePoint = (a, b) => !!a && !!b && Math.abs(a[0] - b[0]) < EPS && Math.abs(a[1] - b[1]) < EPS;
+
+    const splitSegments = segments => {
+        if (!Array.isArray(segments) || !segments.length) return [];
+        if (Number.isFinite(segments[0])) segments = [segments];
+
+        const result = [];
+        for (let i = 0; i < segments.length; i++) {
+            const item = segments[i];
+            let segment = [];
+            for (let j = 0; j < item.length; j++) {
+                const pt = item[j];
+                if (!pt || !Number.isFinite(pt[0]) || !Number.isFinite(pt[1])) {
+                    if (segment.length >= 2) result.push(segment);
+                    segment = [];
+                } else {
+                    segment.push(pt);
+                }
+            }
+            if (segment.length >= 2) result.push(segment);
+        }
+        return result;
+    };
+
+    const closePolygon = points => {
+        const result = [];
+        for (let i = 0; i < points.length; i++) {
+            const pt = points[i];
+            if (pt && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
+                if (!result.length || !samePoint(result[result.length - 1], pt)) {
+                    result.push([pt[0], pt[1]]);
+                }
+            }
+        }
+        if (result.length < 3) return null;
+        if (!samePoint(result[0], result[result.length - 1])) {
+            result.push([result[0][0], result[0][1]]);
+        }
+        return result.length >= 4 ? result : null;
+    };
+
+    const walkPerimeter = (start, direction, candidates, closurePoint) => {
+        const startPos = toPerimeterPosition(start);
+        if (startPos == null) return null;
+
+        let selected = null;
+        let minOffset = Infinity;
+
+        // Поиск ближайшего кандидата в один проход
+        for (let i = 0; i < candidates.length; i++) {
+            const cand = candidates[i];
+            if (!cand?.point) continue;
+            const pos = cand.position ?? toPerimeterPosition(cand.point);
+            if (pos == null) continue;
+
+            const offset = direction > 0
+                ? (pos - startPos + perimeter) % perimeter
+                : (startPos - pos + perimeter) % perimeter;
+
+            if (offset > EPS && offset < minOffset) {
+                minOffset = offset;
+                selected = { ...cand, position: pos, offset };
+            }
+        }
+
+        if (closurePoint) {
+            const closPos = toPerimeterPosition(closurePoint);
+            if (closPos != null) {
+                const offset = direction > 0
+                    ? (closPos - startPos + perimeter) % perimeter
+                    : (startPos - closPos + perimeter) % perimeter;
+                if (offset > EPS && offset < minOffset) {
+                    selected = { point: closurePoint, position: closPos, isClosure: true, offset };
+                }
+            }
+        }
+
+        if (!selected) return null;
+
+        const intermediate = [];
+        const cornerPositions = [0, width, width + height, 2 * width + height];
+        const cornerCoords = [[xMin, yMin], [xMax, yMin], [xMax, yMax], [xMin, yMax]];
+
+        for (let i = 0; i < 4; i++) {
+            const offset = direction > 0
+                ? (cornerPositions[i] - startPos + perimeter) % perimeter
+                : (startPos - cornerPositions[i] + perimeter) % perimeter;
+            if (offset > EPS && offset < selected.offset - EPS) {
+                intermediate.push({ coords: cornerCoords[i], offset });
+            }
+        }
+        intermediate.sort((a, b) => a.offset - b.offset);
+
+        const path = [start];
+        for (let i = 0; i < intermediate.length; i++) path.push(intermediate[i].coords);
+        path.push(selected.point);
+
+        return { ...selected, path };
+    };
+
+    const getBoundaryDirection = (point, minTemp, maxTemp, phase) => {
+        const startPos = toPerimeterPosition(point);
+        if (startPos == null || minTemp > maxTemp) return null;
+
+        const temperatures = phase === "Heating" ? heating : pause;
+
+        let bestDistanceForward = Infinity;
+        let bestDistanceBackward = Infinity;
+        let forwardSampleTemp = null;
+        let backwardSampleTemp = null;
+
+        // Линейный проход вместо фильтрации
+        for (let i = 0; i < boundaryPoints.length; i++) {
+            const p = boundaryPoints[i];
+            if (!Number.isFinite(p.position) || !Number.isInteger(p.index)) continue;
+            const t = temperatures[p.index];
+            if (!Number.isFinite(t) || Math.abs(t - maxTemp) <= EPS) continue;
+
+            const distF = (p.position - startPos + perimeter) % perimeter;
+            if (distF > EPS && distF < bestDistanceForward) {
+                bestDistanceForward = distF;
+                forwardSampleTemp = t;
+            }
+
+            const distB = (startPos - p.position + perimeter) % perimeter;
+            if (distB > EPS && distB < bestDistanceBackward) {
+                bestDistanceBackward = distB;
+                backwardSampleTemp = t;
+            }
+        }
+
+        const isOk = temp => temp !== null && temp < maxTemp && temp >= minTemp - EPS;
+        const fOk = isOk(forwardSampleTemp);
+        const bOk = isOk(backwardSampleTemp);
+
+        if (fOk && !bOk) return 1;
+        if (bOk && !fOk) return -1;
+        return null;
+    };
+
+    const getIsothermSegments = (name, phase) => {
+        if (!name) return [];
+        for (let i = 0; i < isotherms.length; i++) {
+            if (isotherms[i].name === name && isotherms[i].phase === phase) return isotherms[i].segments || [];
+        }
+        return [];
+    };
+
+    const result = [];
+
+    fills.forEach(fill => {
+        const phase = fill.phase ?? "Pause";
+        const fromSegments = splitSegments(getIsothermSegments(fill.fromIsotherm, phase));
+        const toSegments = splitSegments(getIsothermSegments(fill.toIsotherm, phase));
+        if (!fromSegments.length && !toSegments.length) return;
+
+        const allSegments = [];
+        for (let i = 0; i < fromSegments.length; i++) allSegments.push({ graphName: "from", segment: fromSegments[i], used: false });
+        for (let i = 0; i < toSegments.length; i++) allSegments.push({ graphName: "to", segment: toSegments[i], used: false });
+
+        const addPolygon = points => {
+            const polygon = closePolygon(points);
+            if (!polygon) return;
+            result.push({ name: fill.name, points: polygon, color: fill.color, opacity: fill.opacity ?? 0.15 });
+        };
+
+        const getEndpoints = () => {
+            const endpoints = [];
+            for (let i = 0; i < allSegments.length; i++) {
+                const item = allSegments[i];
+                if (item.used) continue;
+                endpoints.push({ item, endpointIndex: 0, point: item.segment[0] });
+                endpoints.push({ item, endpointIndex: item.segment.length - 1, point: item.segment[item.segment.length - 1] });
+            }
+            return endpoints;
+        };
+
+        const findConnectedEndpoint = (point, excludedItems) => {
+            const endpoints = getEndpoints();
+            for (let i = 0; i < endpoints.length; i++) {
+                const cand = endpoints[i];
+                if (!excludedItems.has(cand.item) && samePoint(cand.point, point)) return cand;
+            }
+            return null;
+        };
+
+        allSegments.forEach(initialSegment => {
+            if (initialSegment.used) return;
+
+            const startPoint = initialSegment.segment[0];
+            const chain = [...initialSegment.segment];
+            const chainSegments = new Set([initialSegment]);
+
+            let currentEndpoint = initialSegment.segment[initialSegment.segment.length - 1];
+            let closed = false;
+
+            while (chainSegments.size <= allSegments.length) {
+                const connected = findConnectedEndpoint(currentEndpoint, chainSegments);
+                if (connected) {
+                    const nextItem = connected.item;
+                    const nextSeg = nextItem.segment;
+                    if (connected.endpointIndex === 0) {
+                        for (let i = 1; i < nextSeg.length; i++) chain.push(nextSeg[i]);
+                    } else {
+                        for (let i = nextSeg.length - 2; i >= 0; i--) chain.push(nextSeg[i]);
+                    }
+                    chainSegments.add(nextItem);
+                    currentEndpoint = chain[chain.length - 1];
+
+                    if (samePoint(currentEndpoint, startPoint)) { closed = true; break; }
+                    continue;
+                }
+
+                if (toPerimeterPosition(currentEndpoint) == null) break;
+
+                const direction = getBoundaryDirection(currentEndpoint, fill.minTemp, fill.maxTemp, phase);
+                if (direction == null) break;
+
+                const endpoints = getEndpoints();
+                const candidates = [];
+                for (let i = 0; i < endpoints.length; i++) {
+                    const c = endpoints[i];
+                    if (!chainSegments.has(c.item) && !samePoint(c.point, currentEndpoint)) {
+                        const pos = toPerimeterPosition(c.point);
+                        if (pos !== null) candidates.push({ ...c, position: pos });
+                    }
+                }
+
+                const next = walkPerimeter(currentEndpoint, direction, candidates, startPoint);
+                if (!next) break;
+
+                for (let i = 1; i < next.path.length; i++) chain.push(next.path[i]);
+
+                if (next.isClosure) {
+                    closed = samePoint(chain[chain.length - 1], startPoint);
+                    break;
+                }
+
+                const nextItem = next.item;
+                if (!nextItem || chainSegments.has(nextItem)) break;
+
+                const nextSeg = nextItem.segment;
+                if (next.endpointIndex === 0) {
+                    for (let i = 1; i < nextSeg.length; i++) chain.push(nextSeg[i]);
+                } else {
+                    for (let i = nextSeg.length - 2; i >= 0; i--) chain.push(nextSeg[i]);
+                }
+                chainSegments.add(nextItem);
+                currentEndpoint = chain[chain.length - 1];
+
+                if (samePoint(currentEndpoint, startPoint)) { closed = true; break; }
+            }
+
+            if (closed) {
+                addPolygon(chain);
+                chainSegments.forEach(item => { item.used = true; });
+            }
+        });
+    });
+
+    return result;
+};
+
+export const buildSymmetricFillPolygons = polygons => {
+    if (!Array.isArray(polygons)) return [];
+    const result = [];
+    for (let i = 0; i < polygons.length; i++) {
+        const poly = polygons[i];
+        result.push(poly);
+
+        if (poly.points) {
+            const symmetricPoints = [];
+            for (let j = poly.points.length - 1; j >= 0; j--) {
+                const pt = poly.points[j];
+                symmetricPoints.push(pt === null ? null : [-pt[0], pt[1]]);
+            }
+            result.push({ ...poly, points: symmetricPoints });
+        }
+    }
+    return result;
+};
