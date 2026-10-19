@@ -510,25 +510,25 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                         }}
                     >
                         {showVerticalSlice && chartsBundle?.chart1 && (
-                            <Box sx={{ display: "flex", justifyContent: "center", flexGrow: 1, minWidth: 0 }}>
+                            <Box sx={{ display: "flex", justifyContent: "center", flex: { xs: "1 1 100%", sm: "1 1 auto" }, minWidth: 0 }}>
                                 <SvgLineChart chart={chartsBundle.chart1} />
                             </Box>
                         )}
 
                         {showTimeDynamics && chart2Data && (
-                            <Box sx={{ display: "flex", justifyContent: "center", flexGrow: 1, minWidth: 0 }}>
+                            <Box sx={{ display: "flex", justifyContent: "center", flex: { xs: "1 1 100%", sm: "1 1 auto" }, minWidth: 0 }}>
                                 <SvgLineChart chart={chart2Data} />
                             </Box>
                         )}
 
                         {showHorizontalWidth && chartsBundle?.chart3 && (
-                            <Box sx={{ display: "flex", justifyContent: "center", flexGrow: 1, minWidth: 0 }}>
+                            <Box sx={{ display: "flex", justifyContent: "center", flex: { xs: "1 1 100%", sm: "1 1 auto" }, minWidth: 0 }}>
                                 <SvgLineChart chart={chartsBundle.chart3} />
                             </Box>
                         )}
 
                         {showContours2D && chartsBundle?.chart4 && (
-                            <Box sx={{ display: "flex", justifyContent: "center", flexGrow: 1, minWidth: 0 }}>
+                            <Box sx={{ display: "flex", justifyContent: "center", flex: { xs: "1 1 100%", sm: "1 1 auto" }, minWidth: 0 }}>
                                 <SvgLineChart chart={chartsBundle.chart4} />
                             </Box>
                         )}
@@ -550,6 +550,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     )}
                 </Box>
             </Box>
+
         </Box>
     );
 };
