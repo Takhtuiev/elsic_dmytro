@@ -369,7 +369,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         });
 
         const polygonStyleMap = {
-            "Solid Plastic":       { color: themeColors.infoMain,    opacity: 0.08 },
+            "Solid Plastic":       { color: themeColors.infoMain,    opacity: 0.3 },
             "High Elastic":        { color: themeColors.successMain, opacity: 0.05 },
             "Optimal Bending":     { color: themeColors.successMain, opacity: 0.15 },
             "High Temperature":    { color: themeColors.warningMain, opacity: 0.1 },
