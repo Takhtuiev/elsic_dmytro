@@ -1,25 +1,20 @@
-// isothermsModel.js
+// IsothermsModel.js
 
 const EPS = 0.001;
 
-// Вынесенные чистые хелперы для предотвращения создания замыканий в циклах
+// Добавлена отсечка машинного нуля для предотвращения бесконечных координат графиков
 const interpolateCoordinate = (t1, t2, c1, c2, target) => {
     const dt = t2 - t1;
-    if (Math.abs(dt) < 0.001) return c1;
+    if (Math.abs(dt) < 1e-6) return c1;
     return c1 + (target - t1) * (c2 - c1) / dt;
 };
 
-const crossesTarget = (t1, t2, targetTemp) =>
-    Number.isFinite(t1) &&
-    Number.isFinite(t2) &&
-    ((t1 <= targetTemp && t2 >= targetTemp) || (t1 >= targetTemp && t2 <= targetTemp));
+// Быстрая проверка знака разности без использования Number.isFinite
+// Подразумевается, что на вход идут валидные числа из симуляции
+const crossesTarget = (t1, t2, targetTemp) => (t1 - targetTemp) * (t2 - targetTemp) <= 0;
 
 /**
  * Пакетный расчет нескольких изотерм за ОДИН проход по массиву температур T_flat
- * @param {Array<{targetTemp: number, key: string}>} targets - Массив целевых температур с ключами для идентификации
- * @param {Float32Array|Array<number>} T_flat - Плоский массив температур всей сетки
- * @param {Object} gridConfig - Конфигурация сетки (Nx, Ny, xCoordinatesMm, yCoordinatesMm)
- * @returns {Object} Объект, где ключи — это переданные key, а значения — массивы сегментов segmentsRight
  */
 export const findMultipleIsothermsBatch = (targets, T_flat, gridConfig) => {
     const result = {};
@@ -31,7 +26,6 @@ export const findMultipleIsothermsBatch = (targets, T_flat, gridConfig) => {
     const maxSemiWidth = yCoordinatesMm[Ny - 1];
     const lenTargets = targets.length;
 
-    // Инициализируем структуры данных для каждой изотермы
     const states = new Array(lenTargets);
     for (let t = 0; t < lenTargets; t++) {
         const target = targets[t];
@@ -46,9 +40,8 @@ export const findMultipleIsothermsBatch = (targets, T_flat, gridConfig) => {
         };
     }
 
-    // Хелпер добавления точки (инлайненный для скорости)
     const addPoint = (segment, point) => {
-        if (!point || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) return;
+        if (!point) return;
         const len = segment.length;
         if (len > 0) {
             const last = segment[len - 1];
@@ -57,7 +50,6 @@ export const findMultipleIsothermsBatch = (targets, T_flat, gridConfig) => {
         segment.push(point);
     };
 
-    // Хелпер для получения граничных точек
     const getEdgePoint = (i1, i2, targetTemp) => {
         if (i1 < 0 || i2 >= Nx) return null;
         const idx1_base = i1 * Ny;
@@ -65,47 +57,43 @@ export const findMultipleIsothermsBatch = (targets, T_flat, gridConfig) => {
         const x1 = xCoordinatesMm[i1];
         const x2 = xCoordinatesMm[i2];
 
-        // 1. Боковая граница
         const t1_side = T_flat[idx1_base + Ny - 1];
         const t2_side = T_flat[idx2_base + Ny - 1];
         if (crossesTarget(t1_side, t2_side, targetTemp)) {
             const sideY = interpolateCoordinate(t1_side, t2_side, x1, x2, targetTemp);
-            if (Number.isFinite(sideY)) return [maxSemiWidth, sideY];
+            return [maxSemiWidth, sideY];
         }
 
-        // 2. Центральная граница
         const t1_cent = T_flat[idx1_base];
         const t2_cent = T_flat[idx2_base];
         if (crossesTarget(t1_cent, t2_cent, targetTemp)) {
             const centerY = interpolateCoordinate(t1_cent, t2_cent, x1, x2, targetTemp);
-            if (Number.isFinite(centerY)) return [0, centerY];
+            return [0, centerY];
         }
         return null;
     };
 
-    // Идем по строкам сетки (координата X)
+    // Оптимизация: выделили буферный массив ДО цикла i, чтобы не забивать Heap мусором
+    const widthsAtRow = new Array(lenTargets);
+
     for (let i = 0; i < Nx; i++) {
         const offset = i * Ny;
         const xCoord = xCoordinatesMm[i];
 
-        // Массив, в который соберем ширину для каждой изотермы на ТЕКУЩЕЙ строке i
-        // Инициализируем null
-        const widthsAtRow = new Array(lenTargets).fill(null);
+        // Быстрый сброс значений буфера в цикле i
+        for (let t = 0; t < lenTargets; t++) widthsAtRow[t] = null;
 
-        // Вложенный цикл по Y: считываем температуры ячеек ОДИН раз
         let t1 = T_flat[offset];
         for (let j = 0; j < Ny - 1; j++) {
             const t2 = T_flat[offset + j + 1];
 
-            // Проверяем эту пару температур сразу для ВСЕХ изотерм
             for (let t = 0; t < lenTargets; t++) {
-                // Если для этой изотермы на этой строке уже нашли ширину — пропускаем
                 if (widthsAtRow[t] !== null) continue;
 
                 const targetTemp = states[t].targetTemp;
                 if (crossesTarget(t1, t2, targetTemp)) {
                     const width = interpolateCoordinate(t1, t2, yCoordinatesMm[j], yCoordinatesMm[j + 1], targetTemp);
-                    if (Number.isFinite(width) && width >= 0) {
+                    if (width >= 0) {
                         widthsAtRow[t] = width;
                     }
                 }
@@ -113,7 +101,6 @@ export const findMultipleIsothermsBatch = (targets, T_flat, gridConfig) => {
             t1 = t2;
         }
 
-        // Теперь обрабатываем сегменты для каждой изотермы на основе полученных ширин
         for (let t = 0; t < lenTargets; t++) {
             const state = states[t];
             const width = widthsAtRow[t];
@@ -144,7 +131,6 @@ export const findMultipleIsothermsBatch = (targets, T_flat, gridConfig) => {
         }
     }
 
-    // Финализируем оставшиеся сегменты в самом конце
     for (let t = 0; t < lenTargets; t++) {
         const state = states[t];
         if (state.currentSegment.length > 0) {
@@ -158,18 +144,15 @@ export const findMultipleIsothermsBatch = (targets, T_flat, gridConfig) => {
     return result;
 };
 
-
 export const buildSymmetricIsothermGraph = (segmentsRight, name, phase, lineStyle = {}, gridConfig) => {
     if (!segmentsRight?.length || !gridConfig) return [];
 
-    const baseProps = { showMarker: false, showPoints: false, ...lineStyle };
     const combinedIsothermPoints = [];
 
-    // Замена .forEach на классический цикл для минимизации замыканий и оверхеда
     for (let s = 0; s < segmentsRight.length; s++) {
         const segRight = segmentsRight[s];
         const n = segRight.length;
-        if (n === 0) return;
+        if (n === 0) continue;
 
         const startsAtCenter = Math.abs(segRight[0][0]) < EPS;
         const endsAtCenter = Math.abs(segRight[n - 1][0]) < EPS;
@@ -178,7 +161,6 @@ export const buildSymmetricIsothermGraph = (segmentsRight, name, phase, lineStyl
             combinedIsothermPoints.push(null);
         }
 
-        // Вместо concat и slice пушим элементы напрямую в результирующий массив (нет лишней аллокации памяти)
         if (startsAtCenter) {
             for (let i = n - 1; i >= 0; i--) {
                 combinedIsothermPoints.push([-segRight[i][0], segRight[i][1]]);
@@ -205,13 +187,12 @@ export const buildSymmetricIsothermGraph = (segmentsRight, name, phase, lineStyl
     }
 
     if (combinedIsothermPoints.length === 0) return [];
-    return [{ name, phase, points: combinedIsothermPoints, ...baseProps }];
+    return [{ name, phase, points: combinedIsothermPoints }];
 };
 
 export const buildIsothermFillPolygons = (fills, boundaryPoints = [], isotherms = [], heating, pause) => {
     if (!Array.isArray(boundaryPoints) || boundaryPoints.length < 4) return [];
 
-    // Оптимизация 1: Поиск экстремумов за один проход вместо четырех .map()
     let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
     for (let i = 0; i < boundaryPoints.length; i++) {
         const p = boundaryPoints[i];
@@ -398,10 +379,9 @@ export const buildIsothermFillPolygons = (fills, boundaryPoints = [], isotherms 
         const addPolygon = points => {
             const polygon = closePolygon(points);
             if (!polygon) return;
-            result.push({ name: fill.name, points: polygon, color: fill.color, opacity: fill.opacity ?? 0.15 });
+            result.push({ name: fill.name, points: polygon });
         };
 
-        // Оптимизация 2: Кэшируем эндпоинты в плоскую структуру для быстрого поиска связей вместо O(N^2)
         const getEndpoints = () => {
             const endpoints = [];
             for (let i = 0; i < allSegments.length; i++) {
@@ -529,7 +509,6 @@ export const buildSymmetricFillPolygons = polygons => {
 
         if (touchesCenter) {
             const combinedPoints = [];
-            // Разворачиваем и зеркалим налету (без лишнего выделения памяти)
             for (let j = coreLen - 1; j >= 0; j--) {
                 const pt = pts[j];
                 combinedPoints.push(pt === null ? null : [-pt[0], pt[1]]);
@@ -568,7 +547,6 @@ export const buildSymmetricFillPolygons = polygons => {
 
             result.push({ ...poly, points: uniquePoints });
         } else {
-            // Оптимизация 3: Строим левые точки «на лету» без метода .map()
             const leftPoints = new Array(n);
             for (let j = 0; j < n; j++) {
                 const pt = pts[j];

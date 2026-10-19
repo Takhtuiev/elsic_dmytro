@@ -179,6 +179,8 @@ const getRectGapPenalty = (a, b) => {
     return gapX < 4 && gapY < 4 ? LABEL_PENALTIES.placedNear : 0;
 };
 
+// --- SvgLineChart.jsx ---
+
 const getCurveOverlap = (graph, rect, xs, ys) => {
     const curve = graph.points;
     let totalPixelsInside = 0;
@@ -186,12 +188,29 @@ const getCurveOverlap = (graph, rect, xs, ys) => {
     const rLeft = rect.left; const rRight = rect.right;
     const rTop = rect.top; const rBottom = rect.bottom;
 
-    if (!curve.length) return 0;
+    if (!curve || !curve.length) return 0;
 
-    let x1 = xs(curve[0][0]);
-    let y1 = ys(curve[0][1]);
+    // Ищем первую валидную (не null) точку для старта
+    let startIdx = 0;
+    while (startIdx < curve.length && (!curve[startIdx] || !Array.isArray(curve[startIdx]))) {
+        startIdx++;
+    }
+    if (startIdx >= curve.length - 1) return 0;
 
-    for (let i = 0; i < curve.length - 1; i++) {
+    let x1 = xs(curve[startIdx][0]);
+    let y1 = ys(curve[startIdx][1]);
+
+    for (let i = startIdx; i < curve.length - 1; i++) {
+        // 🌟 ИСПРАВЛЕНИЕ: Если текущая или следующая точка — null (разделитель), пропускаем итерацию
+        if (!curve[i] || !curve[i + 1] || !Array.isArray(curve[i]) || !Array.isArray(curve[i + 1])) {
+            // Переинициализируем x1, y1 следующей валидной точкой, если она есть
+            if (curve[i + 1] && Array.isArray(curve[i + 1])) {
+                x1 = xs(curve[i + 1][0]);
+                y1 = ys(curve[i + 1][1]);
+            }
+            continue;
+        }
+
         const x2 = xs(curve[i + 1][0]);
         const y2 = ys(curve[i + 1][1]);
 
@@ -572,11 +591,17 @@ const SvgLineChart = ({ chart }) => {
 
 
         // --- Подготовка готовых полигонов заливки ---
+        // --- SvgLineChart.jsx ---
+
+// --- Подготовка готовых полигонов заливки из последовательности точек ---
+        // --- SvgLineChart.jsx -> блок fillPolygonsData ---
+
         const fillPolygonsData = (Array.isArray(chart.fillPolygons) ? chart.fillPolygons : [])
             .map((polygon, index) => {
                 if (!Array.isArray(polygon.points)) return null;
 
-                const points = polygon.points.filter(
+                // 🌟 ИСПРАВЛЕНИЕ: Корректно проверяем элементы массива [0] и [1]
+                const validPoints = polygon.points.filter(
                     point =>
                         Array.isArray(point) &&
                         point.length >= 2 &&
@@ -584,23 +609,26 @@ const SvgLineChart = ({ chart }) => {
                         Number.isFinite(point[1])
                 );
 
-                if (points.length < 3) return null;
+                if (validPoints.length < 3) return null;
+
+                const pathString = validPoints
+                    .map((point, pointIndex) => {
+                        const tx = xs(point[0]); // 🌟 [0]
+                        const ty = ys(point[1]); // 🌟 [1]
+                        return `${pointIndex === 0 ? "M" : "L"} ${tx} ${ty}`;
+                    })
+                    .join(" ") + " Z";
 
                 return {
                     id: polygon.key ?? `fill-polygon-${index}`,
                     name: polygon.name,
-                    path: `${points
-                        .map((point, pointIndex) =>
-                            `${pointIndex === 0 ? "M" : "L"} ${xs(point[0])} ${ys(point[1])}`
-                        )
-                        .join(" ")} Z`,
+                    path: pathString,
                     color: polygon.color || theme.palette.success.main,
-                    opacity: typeof polygon.opacity === "number"
-                        ? Math.max(0, Math.min(1, polygon.opacity))
-                        : 0.15,
+                    opacity: typeof polygon.opacity === "number" ? polygon.opacity : 0.15,
                 };
             })
             .filter(Boolean);
+
 
         const isPlotRightEdge = (p) => {
             const graph = graphData[p.graphIndex];
@@ -622,10 +650,11 @@ const SvgLineChart = ({ chart }) => {
             const raw = [];
 
             // Добавляем строгую проверку Array.isArray(points[idx])
-            if (graph.maxIdx >= 0 && points[graph.maxIdx] && Array.isArray(points[graph.maxIdx]) && points[graph.maxIdx][0] >= xAbsoluteMin && points[graph.maxIdx][0] <= xAbsoluteMax) {
+            // --- Внутри useMemo -> makeLabels ---
+            if (graph.maxIdx >= 0 && points[graph.maxIdx] && Array.isArray(points[graph.maxIdx])) { // 🌟 Добавлено Array.isArray
                 raw.push({ id: graph.maxIdx, val: graph.maxV, p: 4 });
             }
-            if (graph.minIdx >= 0 && points[graph.minIdx] && Array.isArray(points[graph.minIdx]) && points[graph.minIdx][0] >= xAbsoluteMin && points[graph.minIdx][0] <= xAbsoluteMax && graph.minIdx !== graph.maxIdx) {
+            if (graph.minIdx >= 0 && points[graph.minIdx] && Array.isArray(points[graph.minIdx]) && graph.minIdx !== graph.maxIdx) { // 🌟 Добавлено Array.isArray
                 raw.push({ id: graph.minIdx, val: graph.minV, p: 4 });
             }
             if (points[0] && Array.isArray(points[0]) && points[0][0] >= xAbsoluteMin && points[0][0] <= xAbsoluteMax) {
@@ -780,12 +809,18 @@ const SvgLineChart = ({ chart }) => {
                 score += penaltyPointInside;
                 if (score >= bestScore) return null;
 
+                // --- SvgLineChart.jsx -> внутри evaluateCandidate ---
+
                 let ownSegmentOverlapPixels = 0;
                 const selfStart = Math.max(0, p.id - 1);
                 const selfEnd = Math.min(currentCurve.length - 2, p.id + 1);
 
                 for (let i = selfStart; i <= selfEnd; i++) {
-                    if (!currentCurve[i] || !currentCurve[i+1]) continue;
+                    // 🌟 ИСПРАВЛЕНИЕ: Проверяем, что обе соседние точки существуют и являются массивами
+                    if (!currentCurve[i] || !currentCurve[i+1] || !Array.isArray(currentCurve[i]) || !Array.isArray(currentCurve[i+1])) {
+                        continue;
+                    }
+
                     const x1 = xs(currentCurve[i][0]); const y1 = ys(currentCurve[i][1]);
                     const x2 = xs(currentCurve[i + 1][0]); const y2 = ys(currentCurve[i + 1][1]);
                     const segmentLength = getSegmentLength(x1, y1, x2, y2);
@@ -793,6 +828,7 @@ const SvgLineChart = ({ chart }) => {
                     if (segmentLength <= 0) continue;
                     ownSegmentOverlapPixels += segmentLength * getSegmentRectOverlapRatio(x1, y1, x2, y2, rect);
                 }
+
 
                 if (ownSegmentOverlapPixels > 0) {
                     score += getSegmentRectOverlapPenalty(ownSegmentOverlapPixels, rect, LABEL_PENALTIES.curveOverlap);
@@ -820,6 +856,11 @@ const SvgLineChart = ({ chart }) => {
                     let rayCrosses = false;
 
                     for (let i = 0; i < otherCurve.length - 1; i++) {
+                        // 🌟 ИСПРАВЛЕНИЕ: Пропускаем null-разделители в чужих изотермах
+                        if (!otherCurve[i] || !otherCurve[i+1] || !Array.isArray(otherCurve[i]) || !Array.isArray(otherCurve[i+1])) {
+                            continue;
+                        }
+
                         if (segmentIntersectsSegment(p.x, p.y, labelCenter.x, labelCenter.y, xs(otherCurve[i][0]), ys(otherCurve[i][1]), xs(otherCurve[i + 1][0]), ys(otherCurve[i + 1][1]))) {
                             rayCrosses = true;
                             break;
@@ -831,6 +872,7 @@ const SvgLineChart = ({ chart }) => {
                         break;
                     }
                 }
+
 
                 const ownOverlapPixels = getCurveOverlap(currentGraph, rect, xs, ys);
                 if (ownOverlapPixels > 0) {

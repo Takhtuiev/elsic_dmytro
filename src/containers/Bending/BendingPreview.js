@@ -1,16 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import {Box, LinearProgress, Typography, useTheme} from "@mui/material";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Box, LinearProgress, Typography, useTheme } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 
 import BendProfileRender from "./BendProfileRender";
 import { prepareSvgLayers } from "./prepareSvgLayers";
 import SvgLineChart from "./SvgLineChart";
-import {
-    buildIsothermFillPolygons,
-    buildSymmetricFillPolygons,
-    buildSymmetricIsothermGraph,
-    findMultipleIsothermsBatch
-} from "./IsothermsModel";
 
 const PARAMETER_TEXT_COLOR = "text.primary";
 const PARAMETER_TEXT_SIZE = "0.8rem";
@@ -53,7 +47,7 @@ export const formatTime = (seconds) => {
     return `${minutes}m ${String(secs).padStart(2, "0")}s`;
 };
 
-const PartHeader = React.memo(({ profile }) => (
+const PartHeader = React.memo(({ partName, materialName, thickness }) => (
     <Box
         className="bend-preview-header"
         sx={{
@@ -62,35 +56,33 @@ const PartHeader = React.memo(({ profile }) => (
         }}
     >
         <Typography variant="body2" fontWeight={600}>
-            Part: <strong>{profile?.name || "—"}</strong>
+            Part: <strong>{partName || "—"}</strong>
         </Typography>
         <Typography variant="body2">
-            Material: <strong>{profile?.material?.name || "—"}</strong>
+            Material: <strong>{materialName || "—"}</strong>
         </Typography>
         <Typography variant="body2">
-            Thickness: <strong>{profile?.thickness ?? "—"} mm</strong>
+            Thickness: <strong>{thickness ?? "—"} mm</strong>
         </Typography>
     </Box>
 ));
 PartHeader.displayName = "PartHeader";
 
 const Parameters = React.memo(({
-                                   profile,
+                                   width,
+                                   thickness,
+                                   density,
                                    blankLength,
                                    machineParams,
                                    heatingTimeSeconds,
                                    coolingTimeSeconds,
                                    calculationTimeMs,
                                    status,
-                                   temperatureProfile,
+                                   heatingDeltaT,
+                                   pauseDeltaT,
                                    plasticZoneWidth,
                                    maxRadius
                                }) => {
-    const material = profile?.material;
-    const width = Number(profile?.width);
-    const thickness = Number(profile?.thickness);
-    const density = Number(material?.density);
-
     const mass = useMemo(() => {
         if (Number.isFinite(blankLength) && Number.isFinite(width) && Number.isFinite(thickness) && Number.isFinite(density)) {
             return (blankLength * width * thickness * density) / 1e9;
@@ -99,37 +91,6 @@ const Parameters = React.memo(({
     }, [blankLength, width, thickness, density]);
 
     const statusColor = status?.type === "error" ? "error" : status?.type === "warning" ? "warning" : "text.secondary";
-
-    const getDeltaTForVerticalSlice = useCallback((tempProfile, phase) => {
-        if (!tempProfile) return null;
-        const { Nx, Ny, heating, pause } = tempProfile;
-        if (Nx < 1 || Ny < 1) return null;
-
-        const temperatures = phase === "heating" ? heating : pause;
-        let maxT = -Infinity;
-        let minT = Infinity;
-        let hasValid = false;
-
-        for (let i = 0; i < Nx; i++) {
-            const val = temperatures[i * Ny];
-            if (Number.isFinite(val)) {
-                if (val > maxT) maxT = val;
-                if (val < minT) minT = val;
-                hasValid = true;
-            }
-        }
-        return hasValid ? maxT - minT : null;
-    }, []);
-
-    const heatingDeltaT = useMemo(() =>
-            getDeltaTForVerticalSlice(temperatureProfile, "heating"),
-        [temperatureProfile, getDeltaTForVerticalSlice]
-    );
-
-    const pauseDeltaT = useMemo(() =>
-            getDeltaTForVerticalSlice(temperatureProfile, "pause"),
-        [temperatureProfile, getDeltaTForVerticalSlice]
-    );
 
     return (
         <Box className="bend-preview-parameters">
@@ -141,34 +102,34 @@ const Parameters = React.memo(({
                     Width: <strong>{Number.isFinite(width) ? width : "—"} mm</strong>
                 </Typography>
                 <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
-                    Mass: <strong>{mass !== null ? mass.toFixed(3) : "—"} kg</strong>
+                    Mass: <strong>{mass !== null && Number.isFinite(mass) ? mass.toFixed(3) : "—"} kg</strong>
                 </Typography>
             </Box>
 
             {machineParams && (
                 <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
                     <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
-                        Stop pos: <strong>{machineParams.stopPosition} mm</strong>
+                        Stop pos: <strong>{machineParams.stopPosition ?? "—"} mm</strong>
                     </Typography>
                     <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
-                        Bar low: <strong>{machineParams.barLowering} mm</strong>
+                        Bar low: <strong>{machineParams.barLowering ?? "—"} mm</strong>
                     </Typography>
                     <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
-                        Angle: <strong>{machineParams.bendAngle}°</strong>
+                        Angle: <strong>{machineParams.bendAngle ?? "—"}°</strong>
                     </Typography>
                 </Box>
             )}
 
             <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
-                Heating: <strong>{formatTime(heatingTimeSeconds)}</strong> (ΔT = {heatingDeltaT !== null ? heatingDeltaT.toFixed(1) : "—"}°C)
+                Heating: <strong>{formatTime(heatingTimeSeconds)}</strong> (ΔT = {Number.isFinite(heatingDeltaT) ? heatingDeltaT.toFixed(1) : "—"}°C)
                 {Number.isFinite(Number(coolingTimeSeconds)) && (
                     <>
-                        , Pause: <strong>{coolingTimeSeconds}s</strong> (ΔT = {pauseDeltaT !== null ? pauseDeltaT.toFixed(1) : "—"}°C)
+                        , Pause: <strong>{coolingTimeSeconds}s</strong> (ΔT = {Number.isFinite(pauseDeltaT) ? pauseDeltaT.toFixed(1) : "—"}°C)
                     </>
                 )}
             </Typography>
 
-            {plasticZoneWidth !== null && (
+            {Number.isFinite(plasticZoneWidth) && (
                 <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
                     <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
                         Plastic zone: <strong>{plasticZoneWidth.toFixed(1)} mm</strong>
@@ -176,7 +137,7 @@ const Parameters = React.memo(({
 
                     {maxRadius !== null && (
                         <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
-                            Max inRadius: <strong>{maxRadius > 0 ? `${maxRadius.toFixed(1)} mm` : "0.0 mm"}</strong>
+                            Max inRadius: <strong>{maxRadius > 0 && Number.isFinite(maxRadius) ? `${maxRadius.toFixed(1)} mm` : "0.0 mm"}</strong>
                         </Typography>
                     )}
                 </Box>
@@ -188,7 +149,7 @@ const Parameters = React.memo(({
             )}
 
             <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.8)`}>
-                Simulation calculation time: {calculationTimeMs?.toFixed(1)} ms
+                Simulation calculation time: {Number.isFinite(calculationTimeMs) ? calculationTimeMs.toFixed(1) : "—"} ms
             </Typography>
         </Box>
     );
@@ -251,13 +212,17 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         setIsCalculating(true);
         setProgress(0);
 
+        // Флаг отмены для предотвращения гонки состояний при быстром вводе данных
+        let isCancelled = false;
+
         const worker = new Worker(
             new URL("./heating.worker.js", import.meta.url),
             { type: "module" }
         );
 
         worker.onmessage = (event) => {
-            const { type, percent, result2D: workerResult, error } = event.data;
+            if (isCancelled) return; // Игнорируем сообщения, если хук размонтирован
+            const { type, percent, result2D: workerResult, geometryData, error } = event.data;
 
             if (type === "PROGRESS") {
                 setProgress(percent);
@@ -265,7 +230,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 if (error) {
                     console.error("Worker error:", error);
                 } else {
-                    setResult2D(workerResult);
+                    setResult2D({ ...workerResult, geometryData });
                     setProgress(100);
                 }
                 setIsCalculating(false);
@@ -275,28 +240,29 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         worker.postMessage({ profile });
 
         return () => {
-            worker.terminate();
+            isCancelled = true;
+            worker.terminate(); // Принудительно завершаем поток воркера
         };
     }, [profile]);
 
-    // 1. Деструктурируем только те палитры, которые реально используем
-    const { text, primary, warning, error, success, info, divider } = theme.palette;
 
-    // 2. Оформляем хук с честными атомарными зависимостями для ESLint
-    const themeColors = useMemo(() => ({
-        textPrimary: text.primary,
-        textSecondary: text.secondary,
-        textDisabled: text.disabled,
-        primaryMain: primary.main,
-        warningMain: warning.main,
-        warningDark: warning.dark,
-        errorMain: error.main,
-        errorDark: error.dark,
-        successMain: success.main,
-        successDark: success.dark,
-        infoMain: info.main,
-        divider: divider
-    }), [text, primary, warning, error, success, info, divider]);
+    const themeColors = useMemo(() => {
+        const { text, primary, warning, error, success, info, divider } = theme.palette;
+        return {
+            textPrimary: text.primary,
+            textSecondary: text.secondary,
+            textDisabled: text.disabled,
+            primaryMain: primary.main,
+            warningMain: warning.main,
+            warningDark: warning.dark,
+            errorMain: error.main,
+            errorDark: error.dark,
+            successMain: success.main,
+            successDark: success.dark,
+            infoMain: info.main,
+            divider: divider
+        };
+    }, [theme.palette]);
 
     const colors = useMemo(() => ({
         active: { line: themeColors.textPrimary, fill: alpha(themeColors.textPrimary, 0.1), annotation: alpha(themeColors.textPrimary, 0.75) },
@@ -334,190 +300,87 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         };
     }, [matGlassTransitionTemp, matDecompositionTemp, matMinFormingTemp, matMaxFormingTemp, themeColors]);
 
-    const profileData = result2D?.temperatureProfile;
-    const hasHistory = !!result2D?.history;
-    const heatingTimeSeconds = result2D?.heatingTimeSeconds;
-
     const chart2Data = useMemo(() => {
-        if (!result2D || !hasHistory || !showTimeDynamics) return null;
+        const rawData = result2D?.geometryData;
+        if (!rawData || !rawData.graphsChart2Raw || !showTimeDynamics) return null;
 
-        const heatTimeSec = Number(heatingTimeSeconds || 0);
-        const graphsChart2 = [];
+        const heatTimeSec = Number(result2D?.heatingTimeSeconds || 0);
 
-        const { history: hist2D } = result2D;
-        const times = hist2D.time || [];
+        const styleMap = {
+            frontHeat:  { color: themeColors.errorMain,   opacity: 1, lineWidth: 1, showMarker: false },
+            centerHeat: { color: themeColors.successMain, opacity: 1, lineWidth: 1, showMarker: false },
+            backHeat:   { color: themeColors.primaryMain, opacity: 1, lineWidth: 1, showMarker: false },
+            frontCool:  { color: themeColors.errorMain,   opacity: 1, lineWidth: 1, showMarker: true },
+            centerCool: { color: themeColors.successMain, opacity: 1, lineWidth: 1, showMarker: true },
+            backCool:   { color: themeColors.primaryMain, opacity: 1, lineWidth: 1, showMarker: true },
+        };
 
-        const heatFront = [], heatCenter = [], heatBack = [];
-        const coolFront = [], coolCenter = [], coolBack = [];
-
-        let lastHeatPoint = null;
-
-        for (let i = 0; i < times.length; i++) {
-            const t = times[i];
-            const fC = Number(hist2D.frontSurfaceC[i]);
-            const cC = Number(hist2D.centerC[i]);
-            const bC = Number(hist2D.backSurfaceC[i]);
-
-            if (t <= heatTimeSec) {
-                heatFront.push([t, fC]);
-                heatCenter.push([t, cC]);
-                heatBack.push([t, bC]);
-                lastHeatPoint = [t, fC, cC, bC];
-            } else {
-                if (coolFront.length === 0 && lastHeatPoint !== null) {
-                    coolFront.push([lastHeatPoint[0], lastHeatPoint[1]]);
-                    coolCenter.push([lastHeatPoint[0], lastHeatPoint[2]]);
-                    coolBack.push([lastHeatPoint[0], lastHeatPoint[3]]);
-                }
-                coolFront.push([t, fC]);
-                coolCenter.push([t, cC]);
-                coolBack.push([t, bC]);
-            }
-        }
-
-        graphsChart2.push(
-            { name: "Front Surface (2D) - Heating", points: heatFront, color: themeColors.errorMain, opacity: 1, lineWidth: 1, showMarker: false },
-            { name: "Center (2D) - Heating", points: heatCenter, color: themeColors.successMain, opacity: 1, lineWidth: 1, showMarker: false },
-            { name: "Back Surface (2D) - Heating", points: heatBack, color: themeColors.primaryMain, opacity: 1, lineWidth: 1, showMarker: false },
-            { name: "Front Surface (2D) - Cooling", points: coolFront, color: themeColors.errorMain, opacity: 1, lineWidth: 1, showMarker: true },
-            { name: "Center (2D) - Cooling", points: coolCenter, color: themeColors.successMain, opacity: 1, lineWidth: 1, showMarker: true },
-            { name: "Back Surface (2D) - Cooling", points: coolBack, color: themeColors.primaryMain, opacity: 1, lineWidth: 1, showMarker: true }
-        );
+        const graphs = rawData.graphsChart2Raw.map(g => ({
+            ...g,
+            ...styleMap[g.typeKey]
+        }));
 
         return {
-            graphs: graphsChart2,
+            graphs,
             axes: {
                 x: { unit: "s", lines: [{ value: heatTimeSec, color: themeColors.textSecondary }], ranges: [] },
                 y: commonYAxis
             }
         };
-    }, [result2D, hasHistory, heatingTimeSeconds, showTimeDynamics, themeColors, commonYAxis]);
+    }, [result2D, showTimeDynamics, themeColors, commonYAxis]);
 
     const chartsBundle = useMemo(() => {
-        if (!profileData) return null;
+        const rawData = result2D?.geometryData;
+        if (!rawData) return null;
 
-        const { xCoordinatesMm, yCoordinatesMm, Nx, Ny, heating, pause } = profileData;
-        const thickness = xCoordinatesMm[Nx - 1] || profileThickness;
-        const width = (yCoordinatesMm[Ny - 1] * 2) || profileWidth;
+        const {
+            thickness, width, finalXTgPauseValue,
+            vertPointsHeating, vertPointsPause,
+            rawHorTopH, rawHorMidH, rawHorBotH,
+            rawHorTopP, rawHorMidP, rawHorBotP,
+            contourGraphsRaw, fillPolygonsRaw,
+            xCoordinatesMm
+        } = rawData;
 
-        const vertPointsHeating = [];
-        const vertPointsPause = [];
+        const contourGraphs = contourGraphsRaw.map(g => {
+            let dynamicStyle = { lineWidth: 0.7, opacity: 0.7, color: themeColors.textPrimary };
 
-        for (let i = 0; i < Nx; i++) {
-            const xCoord = xCoordinatesMm[i];
-            const baseIdx = i * Ny;
-            vertPointsHeating.push([xCoord, heating[baseIdx]]);
-            vertPointsPause.push([xCoord, pause[baseIdx]]);
-        }
-
-        const rawHorTopH = [], rawHorMidH = [], rawHorBotH = [];
-        const rawHorTopP = [], rawHorMidP = [], rawHorBotP = [];
-
-        // Индексы слоев по толщине листа
-        const midXIdx = Math.floor(Nx / 2);
-        const botXIdx = Nx - 1;
-
-        // 1. Сначала идем СПРАВА НАЛЕВО (от Ny - 1 до 1) и пушим ОТРИЦАТЕЛЬНЫЕ координаты для левой половины
-        for (let j = Ny - 1; j > 0; j--) {
-            const yCoord = yCoordinatesMm[j];
-            if (yCoord > 0) {
-                const negY = -yCoord;
-                rawHorTopH.push([negY, heating[j]]);
-                rawHorMidH.push([negY, heating[midXIdx * Ny + j]]);
-                rawHorBotH.push([negY, heating[botXIdx * Ny + j]]);
-
-                rawHorTopP.push([negY, pause[j]]);
-                rawHorMidP.push([negY, pause[midXIdx * Ny + j]]);
-                rawHorBotP.push([negY, pause[botXIdx * Ny + j]]);
+            if (g.name === "Tg") {
+                dynamicStyle.color = g.phase === "Heating" ? themeColors.warningMain : themeColors.warningDark;
+            } else if (g.name === "T min") {
+                dynamicStyle.color = g.phase === "Heating" ? themeColors.successMain : themeColors.successDark;
+            } else if (g.name === "T max") {
+                dynamicStyle.color = themeColors.successMain;
+            } else if (g.name === "Decomposition") {
+                dynamicStyle.color = g.phase === "Heating" ? themeColors.errorMain : themeColors.errorDark;
+                dynamicStyle.opacity = 1;
             }
-        }
 
-        // 2. Затем идем СЛЕВА НАПРАВО (от 0 до Ny - 1) и пушим ПОЛОЖИТЕЛЬНЫЕ координаты для правой половины
-        for (let j = 0; j < Ny; j++) {
-            const yCoord = yCoordinatesMm[j];
-            rawHorTopH.push([yCoord, heating[j]]);
-            rawHorMidH.push([yCoord, heating[midXIdx * Ny + j]]);
-            rawHorBotH.push([yCoord, heating[botXIdx * Ny + j]]);
-
-            rawHorTopP.push([yCoord, pause[j]]);
-            rawHorMidP.push([yCoord, pause[midXIdx * Ny + j]]);
-            rawHorBotP.push([yCoord, pause[botXIdx * Ny + j]]);
-        }
-
-        const glassTransition = Number(matGlassTransitionTemp);
-        const kFactorPoints = rawHorTopP;
-        let xTgPause = null;
-
-        if (Number.isFinite(glassTransition) && kFactorPoints.length > 1) {
-            for (let i = 0; i < kFactorPoints.length - 1; i++) {
-                const p1 = kFactorPoints[i];
-                const p2 = kFactorPoints[i + 1];
-                if (!p1 || !p2) continue;
-
-                const x1 = p1[0], t1 = p1[1];
-                const x2 = p2[0], t2 = p2[1];
-
-                if ((t1 >= glassTransition && t2 <= glassTransition) || (t1 <= glassTransition && t2 >= glassTransition)) {
-                    xTgPause = Math.abs(t2 - t1) < 0.001 ? x1 : x1 + (glassTransition - t1) * (x2 - x1) / (t2 - t1);
-                    break;
-                }
+            if (g.phase === "Pause") {
+                dynamicStyle.lineWidth = 1.6;
             }
-        }
-        const finalXTgPauseValue = (xTgPause !== null && xTgPause <= width / 2) ? xTgPause : null;
 
-        const Tg = Number(matGlassTransitionTemp);
-        const Tmin = Number(matMinFormingTemp);
-        const Tmax = Number(matMaxFormingTemp);
-        const Tdecomp = Number(matDecompositionTemp);
-        const gridConfig = { Nx, Ny, xCoordinatesMm, yCoordinatesMm };
-
-        const boundaryPoints = (() => {
-            const points = [];
-            const maxWidth = yCoordinatesMm[Ny - 1];
-            const maxThickness = xCoordinatesMm[Nx - 1];
-            const addPoint = (i, j, position) => {
-                const index = i * Ny + j;
-                points.push({ x: yCoordinatesMm[j], y: xCoordinatesMm[i], temperature: pause[index], index, position });
+            return {
+                ...g,
+                color: dynamicStyle.color,
+                opacity: dynamicStyle.opacity,
+                lineWidth: dynamicStyle.lineWidth
             };
-            for (let j = 0; j < Ny; j++) addPoint(0, j, yCoordinatesMm[j]);
-            for (let i = 1; i < Nx; i++) addPoint(i, Ny - 1, maxWidth + xCoordinatesMm[i]);
-            for (let j = Ny - 2; j >= 0; j--) addPoint(Nx - 1, j, maxWidth + maxThickness + maxWidth - yCoordinatesMm[j]);
-            for (let i = Nx - 2; i > 0; i--) addPoint(i, 0, 2 * maxWidth + maxThickness + maxThickness - xCoordinatesMm[i]);
-            return points;
-        })();
+        });
 
-        const heatingTargets = [{ targetTemp: Tg, key: "tg" }, { targetTemp: Tmin, key: "tmin" }, { targetTemp: Tmax, key: "tmax" }, { targetTemp: Tdecomp, key: "tdecomp" }];
-        const pauseTargets = [{ targetTemp: Tg, key: "tg" }, { targetTemp: Tmin, key: "tmin" }, { targetTemp: Tmax, key: "tmax" }, { targetTemp: Tdecomp, key: "tdecomp" }];
+        const polygonStyleMap = {
+            "Solid Plastic":       { color: themeColors.infoMain,    opacity: 0.08 },
+            "High Elastic":        { color: themeColors.successMain, opacity: 0.05 },
+            "Optimal Bending":     { color: themeColors.successMain, opacity: 0.15 },
+            "High Temperature":    { color: themeColors.warningMain, opacity: 0.1 },
+            "Decomposition Risk":  { color: themeColors.errorMain,   opacity: 0.3 }
+        };
 
-        const heatingBatch = findMultipleIsothermsBatch(heatingTargets, heating, gridConfig);
-        const pauseBatch = findMultipleIsothermsBatch(pauseTargets, pause, gridConfig);
-
-        const isotherms = [
-            { name: "Tg", phase: "Heating", segments: heatingBatch.tg, style: { color: themeColors.warningMain, lineWidth: 0.7, opacity: 0.7 } },
-            { name: "T min", phase: "Heating", segments: heatingBatch.tmin, style: { color: themeColors.successMain, lineWidth: 0.7, opacity: 0.7 } },
-            { name: "T max", phase: "Heating", segments: heatingBatch.tmax, style: { color: themeColors.successMain, lineWidth: 0.7, opacity: 0.7 } },
-            { name: "Decomposition", phase: "Heating", segments: heatingBatch.tdecomp, style: { color: themeColors.errorMain, lineWidth: 0.7, opacity: 1 } },
-            { name: "Tg", phase: "Pause", segments: pauseBatch.tg, style: { color: themeColors.warningDark, lineWidth: 1.6, opacity: 0.7 } },
-            { name: "T min", phase: "Pause", segments: pauseBatch.tmin, style: { color: themeColors.successDark, lineWidth: 1.6 } },
-            { name: "T max", phase: "Pause", segments: pauseBatch.tmax, style: { color: themeColors.successMain, lineWidth: 1.6 } },
-            { name: "Decomposition", phase: "Pause", segments: pauseBatch.tdecomp, style: { color: themeColors.errorDark, lineWidth: 1.6 } },
-        ];
-
-        const contourGraphs = isotherms.flatMap(({ name, phase, segments, style }) =>
-            buildSymmetricIsothermGraph(segments, name, phase, style, gridConfig)
-        );
-
-        const polygonFillsConfig = [
-            { name: "Solid Plastic", fromIsotherm: "Tg", toIsotherm: null, minTemp: -Infinity, maxTemp: Tg, phase: "Pause", color: themeColors.infoMain, opacity: 0.08 },
-            { name: "High Elastic", fromIsotherm: "Tg", toIsotherm: "T min", minTemp: Tg, maxTemp: Tmin, phase: "Pause", color: themeColors.successMain, opacity: 0.05 },
-            { name: "Optimal Bending", fromIsotherm: "T min", toIsotherm: "T max", minTemp: Tmin, maxTemp: Tmax, phase: "Pause", color: themeColors.successMain, opacity: 0.15 },
-            { name: "High Temperature", fromIsotherm: "T max", toIsotherm: "Decomposition", minTemp: Tmax, maxTemp: Tdecomp, phase: "Pause", color: themeColors.warningMain, opacity: 0.1 },
-            { name: "Decomposition Risk", fromIsotherm: "Decomposition", toIsotherm: null, minTemp: Tdecomp, maxTemp: Infinity, phase: "Heating", color: themeColors.errorMain, opacity: 0.3 }
-        ];
-
-        const fillPolygons = buildSymmetricFillPolygons(
-            buildIsothermFillPolygons(polygonFillsConfig, boundaryPoints, isotherms, heating, pause)
-        );
+        const fillPolygons = fillPolygonsRaw.map(p => ({
+            ...p,
+            color: polygonStyleMap[p.name]?.color || themeColors.successMain,
+            opacity: polygonStyleMap[p.name]?.opacity || 0.15
+        }));
 
         const xLinesHor = [{ value: 0, color: themeColors.textSecondary }];
         const xLinesCont = [{ value: 0, color: themeColors.textSecondary, label: "Центр" }];
@@ -537,15 +400,13 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             xLinesHor.push(bZoneLine, bZoneLineNeg);
         }
 
-        const graphsChart1 = [
-            { name: "Heating (Vertical Slice)", points: vertPointsHeating, color: themeColors.textSecondary, opacity: 1, lineWidth: 1 },
-            { name: "Cooling (Vertical Slice)", points: vertPointsPause, color: themeColors.textPrimary, opacity: 1, lineWidth: 1.6 }
-        ];
-
         return {
             xTgPauseValue: finalXTgPauseValue,
             chart1: {
-                graphs: graphsChart1,
+                graphs: [
+                    { name: "Heating (Vertical Slice)", points: vertPointsHeating, color: themeColors.textSecondary, opacity: 1, lineWidth: 1 },
+                    { name: "Cooling (Vertical Slice)", points: vertPointsPause, color: themeColors.textPrimary, opacity: 1, lineWidth: 1.6 }
+                ],
                 axes: { x: { unit: "mm", lines: [{ value: thickness / 2, color: themeColors.textSecondary }, { value: thickness * matKFactor, color: themeColors.infoMain }], ranges: [] }, y: commonYAxis }
             },
             chart3: {
@@ -561,11 +422,16 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             },
             chart4: {
                 graphs: contourGraphs,
-                axes: { x: { unit: "mm", lines: xLinesCont, ranges: [] }, y: { unit: "mm", min: xCoordinatesMm[Nx - 1], max: 0, lines: [{ value: xCoordinatesMm[Nx - 1] / 2, color: alpha(themeColors.divider, 0.3) }, { value: xCoordinatesMm[Nx - 1] * matKFactor, color: themeColors.infoMain, label: `K = ${matKFactor}` }], ranges: [] } },
+                showLabels: false,
+                showPoints: false,
+                axes: {
+                    x: { unit: "mm", lines: xLinesCont, ranges: [] },
+                    y: { unit: "mm", min: xCoordinatesMm[xCoordinatesMm.length - 1], max: 0, lines: [{ value: xCoordinatesMm[xCoordinatesMm.length - 1] / 2, color: alpha(themeColors.divider, 0.3) }, { value: xCoordinatesMm[xCoordinatesMm.length - 1] * matKFactor, color: themeColors.infoMain, label: `K = ${matKFactor}` }], ranges: [] }
+                },
                 fillPolygons: fillPolygons
             }
         };
-    }, [profileData, profileWidth, profileThickness, matGlassTransitionTemp, matMinFormingTemp, matMaxFormingTemp, matDecompositionTemp, matKFactor, themeColors, commonYAxis]);
+    }, [result2D, themeColors, commonYAxis, matKFactor]);
 
     const plasticZoneWidthCalculated = useMemo(() => {
         return chartsBundle?.xTgPauseValue !== undefined && chartsBundle?.xTgPauseValue !== null
@@ -583,7 +449,11 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 
     return (
         <Box className="bend-preview" sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
-            <PartHeader profile={profile} />
+            <PartHeader
+                partName={profile?.name}
+                materialName={profile?.material?.name}
+                thickness={profile?.thickness}
+            />
 
             <Box
                 ref={containerRef}
@@ -613,14 +483,17 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             <Box className="bend-preview-bottom" sx={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", width: "100%", flexShrink: 0, gap: 1, mt: 1 }}>
                 <Box sx={{ flex: "1 1 18rem" }}>
                     <Parameters
-                        profile={profile}
+                        width={profileWidth}
+                        thickness={profileThickness}
+                        density={profile?.material?.density}
                         blankLength={blankLength}
                         machineParams={machineParams}
                         heatingTimeSeconds={result2D?.heatingTimeSeconds}
                         coolingTimeSeconds={result2D?.coolingTimeSeconds}
                         calculationTimeMs={result2D?.calculationTimeMs}
                         status={result2D?.status}
-                        temperatureProfile={result2D?.temperatureProfile}
+                        heatingDeltaT={result2D?.geometryData?.heatingDeltaT}
+                        pauseDeltaT={result2D?.geometryData?.pauseDeltaT}
                         plasticZoneWidth={plasticZoneWidthCalculated}
                         maxRadius={maxRadiusCalculated}
                     />
