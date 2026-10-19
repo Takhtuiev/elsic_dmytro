@@ -499,10 +499,24 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     />
                 </Box>
 
-                <Box sx={{ display: "flex", flexWrap: "wrap", mx: "auto", gap: 1, position: "relative" }}>
+                <Box sx={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    width: "100%",
+                    minWidth: 0,
+                    mx: "auto",
+                    gap: 1,
+                    position: "relative",
+                    justifyContent: "center"
+                }}>
                     <Box
                         sx={{
-                            display: "flex", flexWrap: "wrap", gap: 1, width: "100%",
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 1,
+                            width: "100%",
+                            minWidth: 0,
+                            justifyContent: "center",
                             opacity: isCalculating ? 0.4 : 1,
                             filter: isCalculating ? "blur(1px)" : "none",
                             transition: "all 0.3s ease",
