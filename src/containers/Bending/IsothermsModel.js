@@ -1,7 +1,6 @@
 // isothermsModel.js
 
 const EPS = 0.001;
-const EDGE_EPS = 0.05;
 
 // Вынесенные чистые хелперы для предотвращения создания замыканий в циклах
 const interpolateCoordinate = (t1, t2, c1, c2, target) => {
@@ -14,6 +13,150 @@ const crossesTarget = (t1, t2, targetTemp) =>
     Number.isFinite(t1) &&
     Number.isFinite(t2) &&
     ((t1 <= targetTemp && t2 >= targetTemp) || (t1 >= targetTemp && t2 <= targetTemp));
+
+/**
+ * Пакетный расчет нескольких изотерм за ОДИН проход по массиву температур T_flat
+ * @param {Array<{targetTemp: number, key: string}>} targets - Массив целевых температур с ключами для идентификации
+ * @param {Float32Array|Array<number>} T_flat - Плоский массив температур всей сетки
+ * @param {Object} gridConfig - Конфигурация сетки (Nx, Ny, xCoordinatesMm, yCoordinatesMm)
+ * @returns {Object} Объект, где ключи — это переданные key, а значения — массивы сегментов segmentsRight
+ */
+export const findMultipleIsothermsBatch = (targets, T_flat, gridConfig) => {
+    const result = {};
+    if (!targets?.length || !T_flat?.length || !gridConfig) return result;
+
+    const { Nx, Ny, xCoordinatesMm, yCoordinatesMm } = gridConfig;
+    if (Nx < 1 || Ny < 2 || T_flat.length < Nx * Ny) return result;
+
+    const maxSemiWidth = yCoordinatesMm[Ny - 1];
+    const lenTargets = targets.length;
+
+    // Инициализируем структуры данных для каждой изотермы
+    const states = new Array(lenTargets);
+    for (let t = 0; t < lenTargets; t++) {
+        const target = targets[t];
+        result[target.key] = [];
+        result[target.key].targetTemp = target.targetTemp;
+
+        states[t] = {
+            targetTemp: target.targetTemp,
+            segmentsRight: result[target.key],
+            currentSegment: [],
+            lastValidI: -1
+        };
+    }
+
+    // Хелпер добавления точки (инлайненный для скорости)
+    const addPoint = (segment, point) => {
+        if (!point || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) return;
+        const len = segment.length;
+        if (len > 0) {
+            const last = segment[len - 1];
+            if (Math.abs(last[0] - point[0]) < EPS && Math.abs(last[1] - point[1]) < EPS) return;
+        }
+        segment.push(point);
+    };
+
+    // Хелпер для получения граничных точек
+    const getEdgePoint = (i1, i2, targetTemp) => {
+        if (i1 < 0 || i2 >= Nx) return null;
+        const idx1_base = i1 * Ny;
+        const idx2_base = i2 * Ny;
+        const x1 = xCoordinatesMm[i1];
+        const x2 = xCoordinatesMm[i2];
+
+        // 1. Боковая граница
+        const t1_side = T_flat[idx1_base + Ny - 1];
+        const t2_side = T_flat[idx2_base + Ny - 1];
+        if (crossesTarget(t1_side, t2_side, targetTemp)) {
+            const sideY = interpolateCoordinate(t1_side, t2_side, x1, x2, targetTemp);
+            if (Number.isFinite(sideY)) return [maxSemiWidth, sideY];
+        }
+
+        // 2. Центральная граница
+        const t1_cent = T_flat[idx1_base];
+        const t2_cent = T_flat[idx2_base];
+        if (crossesTarget(t1_cent, t2_cent, targetTemp)) {
+            const centerY = interpolateCoordinate(t1_cent, t2_cent, x1, x2, targetTemp);
+            if (Number.isFinite(centerY)) return [0, centerY];
+        }
+        return null;
+    };
+
+    // Идем по строкам сетки (координата X)
+    for (let i = 0; i < Nx; i++) {
+        const offset = i * Ny;
+        const xCoord = xCoordinatesMm[i];
+
+        // Массив, в который соберем ширину для каждой изотермы на ТЕКУЩЕЙ строке i
+        // Инициализируем null
+        const widthsAtRow = new Array(lenTargets).fill(null);
+
+        // Вложенный цикл по Y: считываем температуры ячеек ОДИН раз
+        let t1 = T_flat[offset];
+        for (let j = 0; j < Ny - 1; j++) {
+            const t2 = T_flat[offset + j + 1];
+
+            // Проверяем эту пару температур сразу для ВСЕХ изотерм
+            for (let t = 0; t < lenTargets; t++) {
+                // Если для этой изотермы на этой строке уже нашли ширину — пропускаем
+                if (widthsAtRow[t] !== null) continue;
+
+                const targetTemp = states[t].targetTemp;
+                if (crossesTarget(t1, t2, targetTemp)) {
+                    const width = interpolateCoordinate(t1, t2, yCoordinatesMm[j], yCoordinatesMm[j + 1], targetTemp);
+                    if (Number.isFinite(width) && width >= 0) {
+                        widthsAtRow[t] = width;
+                    }
+                }
+            }
+            t1 = t2;
+        }
+
+        // Теперь обрабатываем сегменты для каждой изотермы на основе полученных ширин
+        for (let t = 0; t < lenTargets; t++) {
+            const state = states[t];
+            const width = widthsAtRow[t];
+
+            if (width === null) {
+                if (state.currentSegment.length > 0) {
+                    if (state.lastValidI >= 0 && state.lastValidI < Nx - 1) {
+                        addPoint(state.currentSegment, getEdgePoint(state.lastValidI, state.lastValidI + 1, state.targetTemp));
+                    }
+                    state.segmentsRight.push(state.currentSegment);
+                    state.currentSegment = [];
+                }
+                state.lastValidI = -1;
+                continue;
+            }
+
+            if (state.lastValidI !== i - 1 && state.currentSegment.length > 0) {
+                state.segmentsRight.push(state.currentSegment);
+                state.currentSegment = [];
+            }
+
+            if (state.currentSegment.length === 0 && i > 0) {
+                addPoint(state.currentSegment, getEdgePoint(i - 1, i, state.targetTemp));
+            }
+
+            addPoint(state.currentSegment, [width, xCoord]);
+            state.lastValidI = i;
+        }
+    }
+
+    // Финализируем оставшиеся сегменты в самом конце
+    for (let t = 0; t < lenTargets; t++) {
+        const state = states[t];
+        if (state.currentSegment.length > 0) {
+            if (state.lastValidI >= 0 && state.lastValidI < Nx - 1) {
+                addPoint(state.currentSegment, getEdgePoint(state.lastValidI, state.lastValidI + 1, state.targetTemp));
+            }
+            state.segmentsRight.push(state.currentSegment);
+        }
+    }
+
+    return result;
+};
 
 export const findTemperatureIsothermSegments = (targetTemp, T_flat, gridConfig) => {
     if (!Number.isFinite(targetTemp) || !T_flat?.length || !gridConfig) return [];
@@ -42,12 +185,14 @@ export const findTemperatureIsothermSegments = (targetTemp, T_flat, gridConfig) 
 
         const idx1_base = i1 * Ny;
         const idx2_base = i2 * Ny;
+        const x1 = xCoordinatesMm[i1];
+        const x2 = xCoordinatesMm[i2];
 
         // 1. Боковая граница
         const t1_side = T_flat[idx1_base + Ny - 1];
         const t2_side = T_flat[idx2_base + Ny - 1];
         if (crossesTarget(t1_side, t2_side, targetTemp)) {
-            const sideY = interpolateCoordinate(t1_side, t2_side, xCoordinatesMm[i1], xCoordinatesMm[i2], targetTemp);
+            const sideY = interpolateCoordinate(t1_side, t2_side, x1, x2, targetTemp);
             if (Number.isFinite(sideY)) return [maxSemiWidth, sideY];
         }
 
@@ -55,23 +200,23 @@ export const findTemperatureIsothermSegments = (targetTemp, T_flat, gridConfig) 
         const t1_cent = T_flat[idx1_base];
         const t2_cent = T_flat[idx2_base];
         if (crossesTarget(t1_cent, t2_cent, targetTemp)) {
-            const centerY = interpolateCoordinate(t1_cent, t2_cent, xCoordinatesMm[i1], xCoordinatesMm[i2], targetTemp);
+            const centerY = interpolateCoordinate(t1_cent, t2_cent, x1, x2, targetTemp);
             if (Number.isFinite(centerY)) return [0, centerY];
         }
 
         return null;
     };
 
-    const findWidthAtRow = (i) => {
-        const offset = i * Ny;
+    const findWidthAtRow = (offset) => {
+        let t1 = T_flat[offset];
         for (let j = 0; j < Ny - 1; j++) {
-            const t1 = T_flat[offset + j];
             const t2 = T_flat[offset + j + 1];
 
-            if (!crossesTarget(t1, t2, targetTemp)) continue;
-
-            const width = interpolateCoordinate(t1, t2, yCoordinatesMm[j], yCoordinatesMm[j + 1], targetTemp);
-            if (Number.isFinite(width) && width >= 0) return width;
+            if (crossesTarget(t1, t2, targetTemp)) {
+                const width = interpolateCoordinate(t1, t2, yCoordinatesMm[j], yCoordinatesMm[j + 1], targetTemp);
+                if (Number.isFinite(width) && width >= 0) return width;
+            }
+            t1 = t2; // Избегаем повторного чтения T_flat[offset + j] на следующей итерации
         }
         return null;
     };
@@ -79,29 +224,24 @@ export const findTemperatureIsothermSegments = (targetTemp, T_flat, gridConfig) 
     let currentSegment = [];
     let lastValidI = -1;
 
-    const finishSegment = () => {
-        if (currentSegment.length > 0) {
-            segmentsRight.push(currentSegment);
-            currentSegment = [];
-        }
-    };
-
     for (let i = 0; i < Nx; i++) {
-        const width = findWidthAtRow(i);
+        const width = findWidthAtRow(i * Ny);
 
         if (width === null) {
             if (currentSegment.length > 0) {
                 if (lastValidI >= 0 && lastValidI < Nx - 1) {
                     addPoint(currentSegment, getEdgePoint(lastValidI, lastValidI + 1));
                 }
-                finishSegment();
+                segmentsRight.push(currentSegment);
+                currentSegment = [];
             }
             lastValidI = -1;
             continue;
         }
 
         if (lastValidI !== i - 1 && currentSegment.length > 0) {
-            finishSegment();
+            segmentsRight.push(currentSegment);
+            currentSegment = [];
         }
 
         if (currentSegment.length === 0 && i > 0) {
@@ -116,7 +256,7 @@ export const findTemperatureIsothermSegments = (targetTemp, T_flat, gridConfig) 
         if (lastValidI >= 0 && lastValidI < Nx - 1) {
             addPoint(currentSegment, getEdgePoint(lastValidI, lastValidI + 1));
         }
-        finishSegment();
+        segmentsRight.push(currentSegment);
     }
 
     segmentsRight.targetTemp = targetTemp;
@@ -126,120 +266,64 @@ export const findTemperatureIsothermSegments = (targetTemp, T_flat, gridConfig) 
 export const buildSymmetricIsothermGraph = (segmentsRight, name, phase, lineStyle = {}, gridConfig) => {
     if (!segmentsRight?.length || !gridConfig) return [];
 
-    const { Nx, Ny, xCoordinatesMm, yCoordinatesMm } = gridConfig;
-    const maxSemiWidth = yCoordinatesMm[Ny - 1] || 0;
     const baseProps = { showMarker: false, showPoints: false, ...lineStyle };
     const combinedIsothermPoints = [];
-    const totalThickness = xCoordinatesMm[Nx - 1] || 0;
-    const isolatedRightChain = [];
 
-    const getLeftSideDirect = seg => {
-        const bothEndsAtCenter = Math.abs(seg[0][0]) < EPS && Math.abs(seg[seg.length - 1][0]) < EPS;
-        const result = [];
-        for (let i = 0; i < seg.length; i++) {
-            const p = seg[i];
-            if (bothEndsAtCenter || Math.abs(p[0]) >= EPS) {
-                result.push([-p[0], p[1]]);
-            }
-        }
-        return result;
-    };
-
-    segmentsRight.forEach(segRight => {
+    // Замена .forEach на классический цикл для минимизации замыканий и оверхеда
+    for (let s = 0; s < segmentsRight.length; s++) {
+        const segRight = segmentsRight[s];
         const n = segRight.length;
         if (n === 0) return;
 
-        if (n === 1) {
-            const p = segRight[0];
-            if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
-            if (p[0] > 0.001) combinedIsothermPoints.push([-p[0], p[1]]);
-            combinedIsothermPoints.push([p[0], p[1]]);
-            return;
+        const startsAtCenter = Math.abs(segRight[0][0]) < EPS;
+        const endsAtCenter = Math.abs(segRight[n - 1][0]) < EPS;
+
+        if (combinedIsothermPoints.length > 0) {
+            combinedIsothermPoints.push(null);
         }
 
-        const xStart = segRight[0][0];
-        const yStart = segRight[0][1];
-        const xEnd = segRight[n - 1][0];
-        const yEnd = segRight[n - 1][1];
-
-        const isStartOnSurface = Math.abs(yStart) < EDGE_EPS || Math.abs(yStart - totalThickness) < EDGE_EPS;
-        const isEndOnSurface = Math.abs(yEnd - totalThickness) < EDGE_EPS || Math.abs(yEnd) < EDGE_EPS;
-        const isStartOnSideBorder = Math.abs(xStart - maxSemiWidth) < EDGE_EPS;
-        const isEndOnSideBorder = Math.abs(xEnd - maxSemiWidth) < EDGE_EPS;
-
-        const isStartOnAnyEdge = (isStartOnSurface || isStartOnSideBorder) && xStart > 0.01;
-        const isEndOnAnyEdge = (isEndOnSurface || isEndOnSideBorder) && xEnd > 0.01;
-
-        const isIsolatedPocket = (isStartOnAnyEdge && isEndOnAnyEdge) ||
-            (isStartOnAnyEdge && segRight.exactCenterYStart === undefined && segRight.exactCenterYEnd === undefined);
-
-        if (isIsolatedPocket) {
-            if (isolatedRightChain.length > 0) isolatedRightChain.push(null);
-            for (let i = 0; i < segRight.length; i++) isolatedRightChain.push(segRight[i]);
-            return;
-        }
-
-        const leftSideDirect = getLeftSideDirect(segRight);
-        let branchPoints;
-
-        if (isEndOnAnyEdge && !isStartOnAnyEdge) {
-            branchPoints = [...segRight].reverse().concat(leftSideDirect);
-        } else if (isStartOnAnyEdge && !isEndOnAnyEdge) {
-            branchPoints = leftSideDirect.concat([...segRight].reverse());
-        } else if (!isStartOnAnyEdge && !isEndOnAnyEdge) {
-            branchPoints = segRight.concat([...leftSideDirect].reverse());
+        // Вместо concat и slice пушим элементы напрямую в результирующий массив (нет лишней аллокации памяти)
+        if (startsAtCenter) {
+            for (let i = n - 1; i >= 0; i--) {
+                combinedIsothermPoints.push([-segRight[i][0], segRight[i][1]]);
+            }
+            for (let i = 1; i < n; i++) {
+                combinedIsothermPoints.push(segRight[i]);
+            }
+        } else if (endsAtCenter) {
+            for (let i = 0; i < n; i++) {
+                combinedIsothermPoints.push(segRight[i]);
+            }
+            for (let i = n - 2; i >= 0; i--) {
+                combinedIsothermPoints.push([-segRight[i][0], segRight[i][1]]);
+            }
         } else {
-            branchPoints = [...leftSideDirect].reverse().concat(segRight);
-        }
-
-        if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
-        for (let i = 0; i < branchPoints.length; i++) combinedIsothermPoints.push(branchPoints[i]);
-    });
-
-    if (isolatedRightChain.length > 0) {
-        let segment = [];
-        const rightSegments = [];
-        for (let i = 0; i < isolatedRightChain.length; i++) {
-            const p = isolatedRightChain[i];
-            if (p === null) {
-                if (segment.length) { rightSegments.push(segment); segment = []; }
-            } else {
-                segment.push(p);
+            for (let i = 0; i < n; i++) {
+                combinedIsothermPoints.push([-segRight[i][0], segRight[i][1]]);
+            }
+            combinedIsothermPoints.push(null);
+            for (let i = 0; i < n; i++) {
+                combinedIsothermPoints.push(segRight[i]);
             }
         }
-        if (segment.length) rightSegments.push(segment);
-
-        rightSegments.forEach(segRight => {
-            const segLeft = segRight.map(([x, y]) => [-x, y]).reverse();
-            const startsAtCenter = Math.abs(segRight[0][0]) < EPS;
-            const endsAtCenter = Math.abs(segRight[segRight.length - 1][0]) < EPS;
-
-            let branchPoints;
-            if (startsAtCenter) {
-                branchPoints = segLeft.concat(segRight.slice(1));
-            } else if (endsAtCenter) {
-                branchPoints = segRight.concat(segLeft.slice(1));
-            } else {
-                branchPoints = segLeft.concat([null], segRight);
-            }
-
-            if (combinedIsothermPoints.length > 0) combinedIsothermPoints.push(null);
-            for (let i = 0; i < branchPoints.length; i++) combinedIsothermPoints.push(branchPoints[i]);
-        });
     }
 
     if (combinedIsothermPoints.length === 0) return [];
-
     return [{ name, phase, points: combinedIsothermPoints, ...baseProps }];
 };
 
 export const buildIsothermFillPolygons = (fills, boundaryPoints = [], isotherms = [], heating, pause) => {
     if (!Array.isArray(boundaryPoints) || boundaryPoints.length < 4) return [];
 
-    const xMin = Math.min(...boundaryPoints.map(p => p.x));
-    const xMax = Math.max(...boundaryPoints.map(p => p.x));
-    const yMin = Math.min(...boundaryPoints.map(p => p.y));
-    const yMax = Math.max(...boundaryPoints.map(p => p.y));
+    // Оптимизация 1: Поиск экстремумов за один проход вместо четырех .map()
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+    for (let i = 0; i < boundaryPoints.length; i++) {
+        const p = boundaryPoints[i];
+        if (p.x < xMin) xMin = p.x;
+        if (p.x > xMax) xMax = p.x;
+        if (p.y < yMin) yMin = p.y;
+        if (p.y > yMax) yMax = p.y;
+    }
 
     const width = xMax - xMin;
     const height = yMax - yMin;
@@ -305,7 +389,6 @@ export const buildIsothermFillPolygons = (fills, boundaryPoints = [], isotherms 
         let selected = null;
         let minOffset = Infinity;
 
-        // Поиск ближайшего кандидата в один проход
         for (let i = 0; i < candidates.length; i++) {
             const cand = candidates[i];
             if (!cand?.point) continue;
@@ -368,7 +451,6 @@ export const buildIsothermFillPolygons = (fills, boundaryPoints = [], isotherms 
         let forwardSampleTemp = null;
         let backwardSampleTemp = null;
 
-        // Линейный проход вместо фильтрации
         for (let i = 0; i < boundaryPoints.length; i++) {
             const p = boundaryPoints[i];
             if (!Number.isFinite(p.position) || !Number.isInteger(p.index)) continue;
@@ -423,6 +505,7 @@ export const buildIsothermFillPolygons = (fills, boundaryPoints = [], isotherms 
             result.push({ name: fill.name, points: polygon, color: fill.color, opacity: fill.opacity ?? 0.15 });
         };
 
+        // Оптимизация 2: Кэшируем эндпоинты в плоскую структуру для быстрого поиска связей вместо O(N^2)
         const getEndpoints = () => {
             const endpoints = [];
             for (let i = 0; i < allSegments.length; i++) {
@@ -534,56 +617,71 @@ export const buildSymmetricFillPolygons = polygons => {
         const pts = poly.points;
         const n = pts.length;
 
-        // Проверяем замкнутость контура
         const isClosed = n >= 2 &&
             Math.abs(pts[0][0] - pts[n - 1][0]) < 0.001 &&
             Math.abs(pts[0][1] - pts[n - 1][1]) < 0.001;
 
-        const corePoints = isClosed ? pts.slice(0, n - 1) : pts;
-        const coreLen = corePoints.length;
+        const coreLen = isClosed ? n - 1 : n;
 
-        // Зеркалим и разворачиваем порядок обхода левой части
-        const leftHalf = [];
-        for (let j = coreLen - 1; j >= 0; j--) {
-            const pt = corePoints[j];
-            leftHalf.push(pt === null ? null : [-pt[0], pt[1]]);
+        let touchesCenter = false;
+        for (let j = 0; j < coreLen; j++) {
+            if (pts[j] !== null && Math.abs(pts[j][0]) < 0.001) {
+                touchesCenter = true;
+                break;
+            }
         }
 
-        const combinedPoints = leftHalf.concat(corePoints);
-
-        // Убираем дубликаты на оси X=0
-        const uniquePoints = [];
-        for (let j = 0; j < combinedPoints.length; j++) {
-            const pt = combinedPoints[j];
-            if (pt === null) {
-                uniquePoints.push(null);
-                continue;
+        if (touchesCenter) {
+            const combinedPoints = [];
+            // Разворачиваем и зеркалим налету (без лишнего выделения памяти)
+            for (let j = coreLen - 1; j >= 0; j--) {
+                const pt = pts[j];
+                combinedPoints.push(pt === null ? null : [-pt[0], pt[1]]);
+            }
+            for (let j = 0; j < coreLen; j++) {
+                combinedPoints.push(pts[j]);
             }
 
-            const uLen = uniquePoints.length;
-            if (uLen > 0) {
-                const last = uniquePoints[uLen - 1];
-                if (last !== null &&
-                    Math.abs(last[0] - pt[0]) < 0.001 &&
-                    Math.abs(last[1] - pt[1]) < 0.001) {
+            const uniquePoints = [];
+            for (let j = 0; j < combinedPoints.length; j++) {
+                const pt = combinedPoints[j];
+                if (pt === null) {
+                    uniquePoints.push(null);
                     continue;
                 }
-            }
-            uniquePoints.push(pt);
-        }
 
-        if (isClosed && uniquePoints.length >= 3) {
-            const first = uniquePoints[0];
-            const last = uniquePoints[uniquePoints.length - 1];
-            if (Math.abs(first[0] - last[0]) > 0.001 || Math.abs(first[1] - last[1]) > 0.001) {
-                uniquePoints.push([first[0], first[1]]);
+                const uLen = uniquePoints.length;
+                if (uLen > 0) {
+                    const last = uniquePoints[uLen - 1];
+                    if (last !== null &&
+                        Math.abs(last[0] - pt[0]) < 0.001 &&
+                        Math.abs(last[1] - pt[1]) < 0.001) {
+                        continue;
+                    }
+                }
+                uniquePoints.push(pt);
             }
-        }
 
-        result.push({
-            ...poly,
-            points: uniquePoints
-        });
+            if (isClosed && uniquePoints.length >= 3) {
+                const first = uniquePoints[0];
+                const last = uniquePoints[uniquePoints.length - 1];
+                if (Math.abs(first[0] - last[0]) > 0.001 || Math.abs(first[1] - last[1]) > 0.001) {
+                    uniquePoints.push([first[0], first[1]]);
+                }
+            }
+
+            result.push({ ...poly, points: uniquePoints });
+        } else {
+            // Оптимизация 3: Строим левые точки «на лету» без метода .map()
+            const leftPoints = new Array(n);
+            for (let j = 0; j < n; j++) {
+                const pt = pts[j];
+                leftPoints[j] = pt === null ? null : [-pt[0], pt[1]];
+            }
+
+            result.push({ ...poly, points: leftPoints });
+            result.push(poly);
+        }
     }
 
     return result;

@@ -5,106 +5,12 @@ import { alpha } from "@mui/material/styles";
 import BendProfileRender from "./BendProfileRender";
 import { prepareSvgLayers } from "./prepareSvgLayers";
 import SvgLineChart from "./SvgLineChart";
-import { getHorizontalSlicePoints, getVerticalSlicePoints } from "./heating2DModel";
-
-// ============================================================================
-// !!! БЛОК 1D СИМУЛЯЦИИ (ДЛЯ УДАЛЕНИЯ) !!!
-// ============================================================================
-import { simulate1DHeating } from "./pvc-1d-transient-heating";
 import {
     buildIsothermFillPolygons,
     buildSymmetricFillPolygons,
     buildSymmetricIsothermGraph,
-    findTemperatureIsothermSegments
+    findMultipleIsothermsBatch
 } from "./IsothermsModel";
-
-const isDev = process.env.REACT_APP_DEVELOPMENT === 'true';
-
-const getChartPoints = (valuesArray, step, xOffset = 0) => {
-    return Array.from(valuesArray || [], (value, index) => [
-        xOffset + index * step,
-        Number(value)
-    ]);
-};
-
-const get1DChartsData = (profile, themeColors, graphsChart1, graphsChart2, showVerticalSlice, showTimeDynamics) => {
-    if (!isDev || !profile?.thickness || !profile?.material || !profile?.machine || !profile.simulation) {
-        return;
-    }
-
-    const dataSimulate = simulate1DHeating({
-        thicknessMm: profile.thickness,
-        material: profile.material,
-        machine: profile.machine,
-        simulation: profile.simulation,
-        storeHistory: profile.simulation?.recordHistory ?? false
-    });
-
-    if (!dataSimulate) return;
-
-    if (showVerticalSlice && dataSimulate.temperatureProfile) {
-        const dxMm1D = dataSimulate.temperatureProfile.dxMm || 0;
-        graphsChart1.push(
-            {
-                name: "Heating (1D)",
-                points: getChartPoints(dataSimulate.temperatureProfile?.temperaturesC, dxMm1D),
-                color: themeColors.textPrimary, opacity: 0.4, lineWidth: 1,
-            },
-            {
-                name: "Cooling (1D)",
-                points: getChartPoints(dataSimulate.temperatureProfile?.cooldownProfileC, dxMm1D),
-                color: themeColors.textSecondary, opacity: 0.4, lineWidth: 1,
-            }
-        );
-    }
-
-    if (showTimeDynamics && dataSimulate.history) {
-        const { history: hist1D, heatingTimeSeconds: heatTime1D } = dataSimulate;
-        const heatHist = hist1D?.heating;
-        const coolHist = hist1D?.cooling;
-        const heatStep = heatHist?.stepSeconds || 0;
-        const coolStep = coolHist?.stepSeconds || heatStep || 0;
-
-        graphsChart2.push(
-            {
-                name: "Front Surface (1D) - Heating",
-                points: getChartPoints(heatHist?.frontSurfaceC, heatStep),
-                color: themeColors.textSecondary, opacity: 0.4, lineWidth: 1, showMarker: false,
-            },
-            {
-                name: "Center (1D) - Heating",
-                points: getChartPoints(heatHist?.centerC, heatStep),
-                color: themeColors.textSecondary, opacity: 0.4, lineWidth: 1, showMarker: false,
-            },
-            {
-                name: "Back Surface (1D) - Heating",
-                points: getChartPoints(heatHist?.backSurfaceC, heatStep),
-                color: themeColors.textSecondary, opacity: 0.4, lineWidth: 1, showMarker: false,
-            }
-        );
-
-        graphsChart2.push(
-            {
-                name: "Front Surface (1D) - Cooling",
-                points: getChartPoints(coolHist?.frontSurfaceC, coolStep, Number(heatTime1D)),
-                color: themeColors.textSecondary, opacity: 0.4, lineWidth: 1, showMarker: false,
-            },
-            {
-                name: "Center (1D) - Cooling",
-                points: getChartPoints(coolHist?.centerC, coolStep, Number(heatTime1D)),
-                color: themeColors.textSecondary, opacity: 0.4, lineWidth: 1, showMarker: false,
-            },
-            {
-                name: "Back Surface (1D) - Cooling",
-                points: getChartPoints(coolHist?.backSurfaceC, coolStep, Number(heatTime1D)),
-                color: themeColors.textSecondary, opacity: 0.4, lineWidth: 1, showMarker: false,
-            }
-        );
-    }
-};
-// ============================================================================
-// !!! КОНЕЦ БЛОКА 1D СИМУЛЯЦИИ !!!
-// ============================================================================
 
 const PARAMETER_TEXT_COLOR = "text.primary";
 const PARAMETER_TEXT_SIZE = "0.8rem";
@@ -138,9 +44,6 @@ const validateProfile = (profile) => {
 
     return null;
 };
-
-// Константа-заглушка для предотвращения создания новых ссылок при рендере
-const EMPTY_ARRAY = [];
 
 export const formatTime = (seconds) => {
     if (!seconds || seconds < 0) return "0m 00s";
@@ -199,23 +102,22 @@ const Parameters = React.memo(({
 
     const getDeltaTForVerticalSlice = useCallback((tempProfile, phase) => {
         if (!tempProfile) return null;
+        const { Nx, Ny, heating, pause } = tempProfile;
+        if (Nx < 1 || Ny < 1) return null;
 
-        const points = getVerticalSlicePoints(tempProfile, 0, phase);
-        if (!points || !points.length) return null;
-
+        const temperatures = phase === "heating" ? heating : pause;
         let maxT = -Infinity;
         let minT = Infinity;
         let hasValid = false;
 
-        for (let i = 0; i < points.length; i++) {
-            const val = Number(points[i]?.[1]);
+        for (let i = 0; i < Nx; i++) {
+            const val = temperatures[i * Ny];
             if (Number.isFinite(val)) {
                 if (val > maxT) maxT = val;
                 if (val < minT) minT = val;
                 hasValid = true;
             }
         }
-
         return hasValid ? maxT - minT : null;
     }, []);
 
@@ -261,7 +163,7 @@ const Parameters = React.memo(({
                 Heating: <strong>{formatTime(heatingTimeSeconds)}</strong> (ΔT = {heatingDeltaT !== null ? heatingDeltaT.toFixed(1) : "—"}°C)
                 {Number.isFinite(Number(coolingTimeSeconds)) && (
                     <>
-                        , Pause: <strong>{formatTime(coolingTimeSeconds)}</strong> (ΔT = {pauseDeltaT !== null ? pauseDeltaT.toFixed(1) : "—"}°C)
+                        , Pause: <strong>{coolingTimeSeconds}s</strong> (ΔT = {pauseDeltaT !== null ? pauseDeltaT.toFixed(1) : "—"}°C)
                     </>
                 )}
             </Typography>
@@ -309,6 +211,14 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 
     const validationError = useMemo(() => validateProfile(profile), [profile]);
     const view = profile?.view;
+
+    const matGlassTransitionTemp = profile?.material?.glassTransitionTemp;
+    const matMinFormingTemp = profile?.material?.minFormingTemp;
+    const matMaxFormingTemp = profile?.material?.maxFormingTemp;
+    const matDecompositionTemp = profile?.material?.decompositionTemp;
+    const matKFactor = profile?.material?.kFactor ?? 0;
+    const profileWidth = Number(profile?.width || 0);
+    const profileThickness = Number(profile?.thickness || 0);
 
     useEffect(() => {
         let animationFrameId;
@@ -369,20 +279,24 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         };
     }, [profile]);
 
+    // 1. Деструктурируем только те палитры, которые реально используем
+    const { text, primary, warning, error, success, info, divider } = theme.palette;
+
+    // 2. Оформляем хук с честными атомарными зависимостями для ESLint
     const themeColors = useMemo(() => ({
-        textPrimary: theme.palette.text.primary,
-        textSecondary: theme.palette.text.secondary,
-        textDisabled: theme.palette.text.disabled,
-        primaryMain: theme.palette.primary.main,
-        warningMain: theme.palette.warning.main,
-        warningDark: theme.palette.warning.dark,
-        errorMain: theme.palette.error.main,
-        errorDark: theme.palette.error.dark,
-        successMain: theme.palette.success.main,
-        successDark: theme.palette.success.dark,
-        infoMain: theme.palette.info.main,
-        divider: theme.palette.divider
-    }), [theme.palette.text, theme.palette.primary, theme.palette.warning, theme.palette.error, theme.palette.success, theme.palette.info, theme.palette.divider]);
+        textPrimary: text.primary,
+        textSecondary: text.secondary,
+        textDisabled: text.disabled,
+        primaryMain: primary.main,
+        warningMain: warning.main,
+        warningDark: warning.dark,
+        errorMain: error.main,
+        errorDark: error.dark,
+        successMain: success.main,
+        successDark: success.dark,
+        infoMain: info.main,
+        divider: divider
+    }), [text, primary, warning, error, success, info, divider]);
 
     const colors = useMemo(() => ({
         active: { line: themeColors.textPrimary, fill: alpha(themeColors.textPrimary, 0.1), annotation: alpha(themeColors.textPrimary, 0.75) },
@@ -406,83 +320,29 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
     }, [viewBoxValues]);
 
     const commonYAxis = useMemo(() => {
-        const tg = profile?.material?.glassTransitionTemp;
-        const decomp = profile?.material?.decompositionTemp;
-        const minForm = profile?.material?.minFormingTemp;
-        const maxForm = profile?.material?.maxFormingTemp;
-
-        if (tg == null || decomp == null) return { unit: "°", lines: [], ranges: [] };
+        if (matGlassTransitionTemp == null || matDecompositionTemp == null) return { unit: "°", lines: [], ranges: [] };
 
         return {
             unit: "°",
             lines: [
-                { value: Number(tg), color: themeColors.warningMain },
-                { value: Number(decomp), color: themeColors.errorMain }
+                { value: Number(matGlassTransitionTemp), color: themeColors.warningMain },
+                { value: Number(matDecompositionTemp), color: themeColors.errorMain }
             ],
             ranges: [
-                { from: Number(minForm ?? 0), to: Number(maxForm ?? 0), color: themeColors.successMain }
+                { from: Number(matMinFormingTemp ?? 0), to: Number(matMaxFormingTemp ?? 0), color: themeColors.successMain }
             ]
         };
-    }, [
-        profile?.material?.glassTransitionTemp,
-        profile?.material?.decompositionTemp,
-        profile?.material?.minFormingTemp,
-        profile?.material?.maxFormingTemp,
-        themeColors
-    ]);
+    }, [matGlassTransitionTemp, matDecompositionTemp, matMinFormingTemp, matMaxFormingTemp, themeColors]);
 
-    // Деструктурируем стабильные атомарные значения
     const profileData = result2D?.temperatureProfile;
     const hasHistory = !!result2D?.history;
     const heatingTimeSeconds = result2D?.heatingTimeSeconds;
 
-    // 🌟 ХУК ДЛЯ 1-ГО ГРАФИКА: Вертикальный срез по толщине листа
-    const chart1Data = useMemo(() => {
-        if (!profileData || !showVerticalSlice) return null;
-
-        const thickness = profileData.xCoordinatesMm
-            ? profileData.xCoordinatesMm[profileData.xCoordinatesMm.length - 1]
-            : Number(profile?.material?.name ? (profile.thickness || 0) : 0);
-
-        const graphsChart1 = [];
-
-        get1DChartsData(profile, themeColors, graphsChart1, EMPTY_ARRAY, showVerticalSlice, false);
-
-        graphsChart1.push(
-            {
-                name: "Heating (Vertical Slice)",
-                points: getVerticalSlicePoints(profileData, 0, "heating"),
-                color: themeColors.textSecondary, opacity: 1, lineWidth: 1,
-            },
-            {
-                name: "Cooling (Vertical Slice)",
-                points: getVerticalSlicePoints(profileData, 0, "pause"),
-                color: themeColors.textPrimary, opacity: 1, lineWidth: 1.6,
-            }
-        );
-
-        const currentKFactor = profile?.material?.kFactor || 0;
-
-        return {
-            graphs: graphsChart1,
-            axes: {
-                x: { unit: "mm", lines: [
-                        { value: thickness / 2, color: themeColors.textSecondary },
-                        { value: thickness * currentKFactor, color: themeColors.infoMain }
-                    ], ranges: [] },
-                y: commonYAxis
-            }
-        };
-    }, [profileData, showVerticalSlice, profile, themeColors, commonYAxis]);
-
-    // 🌟 ХУК ДЛЯ 2-ГО ГРАФИКА: Временная динамика нагрева и охлаждения
     const chart2Data = useMemo(() => {
         if (!result2D || !hasHistory || !showTimeDynamics) return null;
 
         const heatTimeSec = Number(heatingTimeSeconds || 0);
         const graphsChart2 = [];
-
-        get1DChartsData(profile, themeColors, EMPTY_ARRAY, graphsChart2, false, showTimeDynamics);
 
         const { history: hist2D } = result2D;
         const times = hist2D.time || [];
@@ -531,178 +391,119 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 y: commonYAxis
             }
         };
-    }, [result2D, hasHistory, heatingTimeSeconds, showTimeDynamics, profile, themeColors, commonYAxis]);
+    }, [result2D, hasHistory, heatingTimeSeconds, showTimeDynamics, themeColors, commonYAxis]);
 
-    // 🌟 ХУК РАСЧЕТА ГИБОЧНОЙ ЗОНЫ
-    const xTgPauseValue = useMemo(() => {
+    const chartsBundle = useMemo(() => {
         if (!profileData) return null;
 
-        const { xCoordinatesMm, yCoordinatesMm, Nx, Ny } = profileData;
-        const thickness = xCoordinatesMm[Nx - 1] || Number(profile?.thickness || 0);
-        const width = (yCoordinatesMm[Ny - 1] * 2) || Number(profile?.width || 0);
+        const { xCoordinatesMm, yCoordinatesMm, Nx, Ny, heating, pause } = profileData;
+        const thickness = xCoordinatesMm[Nx - 1] || profileThickness;
+        const width = (yCoordinatesMm[Ny - 1] * 2) || profileWidth;
 
-        const glassTransition = Number(profile?.material?.glassTransitionTemp);
-        const kFactor = typeof profile?.material?.kFactor === "number" ? profile.material.kFactor : 0.5;
+        const vertPointsHeating = [];
+        const vertPointsPause = [];
 
-        if (!Number.isFinite(glassTransition)) return null;
+        for (let i = 0; i < Nx; i++) {
+            const xCoord = xCoordinatesMm[i];
+            const baseIdx = i * Ny;
+            vertPointsHeating.push([xCoord, heating[baseIdx]]);
+            vertPointsPause.push([xCoord, pause[baseIdx]]);
+        }
 
-        const kFactorPoints = getHorizontalSlicePoints(profileData, thickness * kFactor, "pause") || [];
+        const rawHorTopH = [], rawHorMidH = [], rawHorBotH = [];
+        const rawHorTopP = [], rawHorMidP = [], rawHorBotP = [];
+
+        // Индексы слоев по толщине листа
+        const midXIdx = Math.floor(Nx / 2);
+        const botXIdx = Nx - 1;
+
+        // 1. Сначала идем СПРАВА НАЛЕВО (от Ny - 1 до 1) и пушим ОТРИЦАТЕЛЬНЫЕ координаты для левой половины
+        for (let j = Ny - 1; j > 0; j--) {
+            const yCoord = yCoordinatesMm[j];
+            if (yCoord > 0) {
+                const negY = -yCoord;
+                rawHorTopH.push([negY, heating[j]]);
+                rawHorMidH.push([negY, heating[midXIdx * Ny + j]]);
+                rawHorBotH.push([negY, heating[botXIdx * Ny + j]]);
+
+                rawHorTopP.push([negY, pause[j]]);
+                rawHorMidP.push([negY, pause[midXIdx * Ny + j]]);
+                rawHorBotP.push([negY, pause[botXIdx * Ny + j]]);
+            }
+        }
+
+        // 2. Затем идем СЛЕВА НАПРАВО (от 0 до Ny - 1) и пушим ПОЛОЖИТЕЛЬНЫЕ координаты для правой половины
+        for (let j = 0; j < Ny; j++) {
+            const yCoord = yCoordinatesMm[j];
+            rawHorTopH.push([yCoord, heating[j]]);
+            rawHorMidH.push([yCoord, heating[midXIdx * Ny + j]]);
+            rawHorBotH.push([yCoord, heating[botXIdx * Ny + j]]);
+
+            rawHorTopP.push([yCoord, pause[j]]);
+            rawHorMidP.push([yCoord, pause[midXIdx * Ny + j]]);
+            rawHorBotP.push([yCoord, pause[botXIdx * Ny + j]]);
+        }
+
+        const glassTransition = Number(matGlassTransitionTemp);
+        const kFactorPoints = rawHorTopP;
         let xTgPause = null;
 
-        for (let i = 0; i < kFactorPoints.length - 1; i++) {
-            const p1 = kFactorPoints[i];
-            const p2 = kFactorPoints[i + 1];
+        if (Number.isFinite(glassTransition) && kFactorPoints.length > 1) {
+            for (let i = 0; i < kFactorPoints.length - 1; i++) {
+                const p1 = kFactorPoints[i];
+                const p2 = kFactorPoints[i + 1];
+                if (!p1 || !p2) continue;
 
-            if (!p1 || !p2 || p1[0] == null || p1[1] == null || p2[0] == null || p2[1] == null) continue;
+                const x1 = p1[0], t1 = p1[1];
+                const x2 = p2[0], t2 = p2[1];
 
-            const x1 = p1[0];
-            const t1 = p1[1];
-            const x2 = p2[0];
-            const t2 = p2[1];
-
-            if ((t1 >= glassTransition && t2 <= glassTransition) || (t1 <= glassTransition && t2 >= glassTransition)) {
-                if (Math.abs(t2 - t1) < 0.001) {
-                    xTgPause = x1;
-                } else {
-                    xTgPause = x1 + (glassTransition - t1) * (x2 - x1) / (t2 - t1);
+                if ((t1 >= glassTransition && t2 <= glassTransition) || (t1 <= glassTransition && t2 >= glassTransition)) {
+                    xTgPause = Math.abs(t2 - t1) < 0.001 ? x1 : x1 + (glassTransition - t1) * (x2 - x1) / (t2 - t1);
+                    break;
                 }
-                break;
             }
         }
+        const finalXTgPauseValue = (xTgPause !== null && xTgPause <= width / 2) ? xTgPause : null;
 
-        return (xTgPause !== null && xTgPause <= width / 2) ? xTgPause : null;
-    }, [profileData, profile?.thickness, profile?.width, profile?.material?.glassTransitionTemp, profile?.material?.kFactor]);
-
-    const plasticZoneWidthCalculated = useMemo(() => {
-        return xTgPauseValue !== null ? xTgPauseValue * 2 : null;
-    }, [xTgPauseValue]);
-
-    const maxRadiusCalculated = useMemo(() => {
-        if (machineParams?.bendAngle == null || plasticZoneWidthCalculated == null) {
-            return null;
-        }
-        const bendAngle = Number(machineParams?.bendAngle);
-        const thickness = Number(profile?.thickness || 0);
-        const kFactor = profile?.material?.kFactor ?? 0;
-
-        const turnAngleRad = (bendAngle * Math.PI) / 180;
-        if (turnAngleRad <= 0) return 0;
-
-        const rInnerMax = (plasticZoneWidthCalculated / turnAngleRad) - (kFactor * thickness);
-        return rInnerMax > 0 ? rInnerMax : 0;
-    }, [plasticZoneWidthCalculated, machineParams?.bendAngle, profile?.thickness, profile?.material?.kFactor]);
-
-    // 🌟 ХУК ДЛЯ 3-ГО ГРАФИКА: Горизонтальный срез температуры
-// 1. Выносим примитивы НАВЕРХ (перед хуками графиков)
-    const fallbackThickness = Number(profile?.thickness || 0);
-    const fallbackWidth = Number(profile?.width || 0);
-
-// 🌟 ХУК 3-ГО ГРАФИКА
-    const chart3Data = useMemo(() => {
-        if (!showHorizontalWidth || !profileData) return null;
-
-        const { xCoordinatesMm, yCoordinatesMm, Nx, Ny } = profileData;
-
-        // Используем локальные переменные вместо обращения к объекту profile
-        const thickness = xCoordinatesMm[Nx - 1] || fallbackThickness;
-        const width = (yCoordinatesMm[Ny - 1] * 2) || fallbackWidth;
-
-        const makeSymmetric = (points) => {
-            if (!points || !points.length) return [];
-            const leftSide = points.filter(p => p && p[0] > 0).map(p => [-p[0], p[1]]);
-            const leftSideReversed = [...leftSide].reverse();
-            return [...leftSideReversed, ...points];
-        };
-
-        const xLines = [{ value: 0, color: themeColors.textSecondary }];
-        if (width > 0) {
-            const maxVal = width / 2;
-            for (let val = 5; val <= maxVal; val += 5) {
-                xLines.push({ value: val, color: alpha(themeColors.divider, 0.25) });
-                xLines.push({ value: -val, color: alpha(themeColors.divider, 0.25) });
-            }
-        }
-
-        if (xTgPauseValue !== null) {
-            xLines.push({
-                value: xTgPauseValue,
-                color: themeColors.warningMain,
-                lineWidth: 1.5,
-                dashArray: "4 4",
-                label: `Гибочная зона (${(xTgPauseValue * 2).toFixed(1)} мм)`
-            });
-            xLines.push({ value: -xTgPauseValue, color: themeColors.warningMain, lineWidth: 1.5, dashArray: "4 4" });
-        }
-
-        return {
-            graphs: [
-                { name: "Верхняя поверхность", points: makeSymmetric(getHorizontalSlicePoints(profileData, 0)), color: themeColors.errorMain, opacity: 0.8, lineWidth: 0.6 },
-                { name: "Середина листа", points: makeSymmetric(getHorizontalSlicePoints(profileData, thickness / 2)), color: themeColors.successMain, opacity: 0.8, lineWidth: 0.6 },
-                { name: "Нижняя поверхность", points: makeSymmetric(getHorizontalSlicePoints(profileData, thickness)), color: themeColors.primaryMain, opacity: 0.8, lineWidth: 0.6 },
-                { name: "Верхняя поверхность пауза", points: makeSymmetric(getHorizontalSlicePoints(profileData, 0, "pause")), color: themeColors.errorMain, opacity: 1, lineWidth: 1.2 },
-                { name: "Середина листа пауза", points: makeSymmetric(getHorizontalSlicePoints(profileData, thickness / 2, "pause")), color: themeColors.successMain, opacity: 1, lineWidth: 1.2 },
-                { name: "Нижняя поверхность пауза", points: makeSymmetric(getHorizontalSlicePoints(profileData, thickness, "pause")), color: themeColors.primaryMain, opacity: 1, lineWidth: 1.2 }
-            ],
-            axes: { x: { unit: "mm", lines: xLines, ranges: [] }, y: commonYAxis }
-        };
-// Добавляем fallbackThickness и fallbackWidth в зависимости — они не вызовут loop, так как это просто числа
-    }, [showHorizontalWidth, profileData, themeColors, xTgPauseValue, commonYAxis, fallbackThickness, fallbackWidth]);
-
-
-    // 🌟 ХУК ДЛЯ КОНТУРНОГО ГРАФИКА
-    const chart4Data = useMemo(() => {
-        if (!showContours2D || !profileData) return null;
-
-        const width = Number(profile?.width || 0);
-
-        const Tg = Number(profile?.material?.glassTransitionTemp);
-        const Tmin = Number(profile?.material?.minFormingTemp);
-        const Tmax = Number(profile?.material?.maxFormingTemp);
-        const Tdecomp = Number(profile?.material?.decompositionTemp);
-
-        const { xCoordinatesMm, yCoordinatesMm, Nx, Ny, heating, pause } = profileData;
+        const Tg = Number(matGlassTransitionTemp);
+        const Tmin = Number(matMinFormingTemp);
+        const Tmax = Number(matMaxFormingTemp);
+        const Tdecomp = Number(matDecompositionTemp);
         const gridConfig = { Nx, Ny, xCoordinatesMm, yCoordinatesMm };
 
         const boundaryPoints = (() => {
             const points = [];
             const maxWidth = yCoordinatesMm[Ny - 1];
             const maxThickness = xCoordinatesMm[Nx - 1];
-
             const addPoint = (i, j, position) => {
                 const index = i * Ny + j;
                 points.push({ x: yCoordinatesMm[j], y: xCoordinatesMm[i], temperature: pause[index], index, position });
             };
-
             for (let j = 0; j < Ny; j++) addPoint(0, j, yCoordinatesMm[j]);
             for (let i = 1; i < Nx; i++) addPoint(i, Ny - 1, maxWidth + xCoordinatesMm[i]);
             for (let j = Ny - 2; j >= 0; j--) addPoint(Nx - 1, j, maxWidth + maxThickness + maxWidth - yCoordinatesMm[j]);
             for (let i = Nx - 2; i > 0; i--) addPoint(i, 0, 2 * maxWidth + maxThickness + maxThickness - xCoordinatesMm[i]);
-
             return points;
         })();
 
-        const tgHeatingSegments = findTemperatureIsothermSegments(Tg, heating, gridConfig);
-        const tminHeatingSegments = findTemperatureIsothermSegments(Tmin, heating, gridConfig);
-        const tmaxHeatingSegments = findTemperatureIsothermSegments(Tmax, heating, gridConfig);
-        const tdecompHeatingSegments = findTemperatureIsothermSegments(Tdecomp, heating, gridConfig);
+        const heatingTargets = [{ targetTemp: Tg, key: "tg" }, { targetTemp: Tmin, key: "tmin" }, { targetTemp: Tmax, key: "tmax" }, { targetTemp: Tdecomp, key: "tdecomp" }];
+        const pauseTargets = [{ targetTemp: Tg, key: "tg" }, { targetTemp: Tmin, key: "tmin" }, { targetTemp: Tmax, key: "tmax" }, { targetTemp: Tdecomp, key: "tdecomp" }];
 
-        const tgPauseSegments = findTemperatureIsothermSegments(Tg, pause, gridConfig);
-        const tminPauseSegments = findTemperatureIsothermSegments(Tmin, pause, gridConfig);
-        const tmaxPauseSegments = findTemperatureIsothermSegments(Tmax, pause, gridConfig);
-        const tdecompPauseSegments = findTemperatureIsothermSegments(Tdecomp, pause, gridConfig);
+        const heatingBatch = findMultipleIsothermsBatch(heatingTargets, heating, gridConfig);
+        const pauseBatch = findMultipleIsothermsBatch(pauseTargets, pause, gridConfig);
 
         const isotherms = [
-            { name: "Tg", phase: "Heating", segments: tgHeatingSegments, style: { color: themeColors.warningMain, lineWidth: 0.7, opacity: 0.7 } },
-            { name: "T min", phase: "Heating", segments: tminHeatingSegments, style: { color: themeColors.successMain, lineWidth: 0.7, opacity: 0.7 } },
-            { name: "T max", phase: "Heating", segments: tmaxHeatingSegments, style: { color: themeColors.successMain, lineWidth: 0.7, opacity: 0.7 } },
-            { name: "Decomposition", phase: "Heating", segments: tdecompHeatingSegments, style: { color: themeColors.errorMain, lineWidth: 0.7, opacity: 1 } },
-            { name: "Tg", phase: "Pause", segments: tgPauseSegments, style: { color: themeColors.warningDark, lineWidth: 1.6, opacity: 0.7 } },
-            { name: "T min", phase: "Pause", segments: tminPauseSegments, style: { color: themeColors.successDark, lineWidth: 1.6 } },
-            { name: "T max", phase: "Pause", segments: tmaxPauseSegments, style: { color: themeColors.successMain, lineWidth: 1.6 } },
-            { name: "Decomposition", phase: "Pause", segments: tdecompPauseSegments, style: { color: themeColors.errorDark, lineWidth: 1.6 } },
+            { name: "Tg", phase: "Heating", segments: heatingBatch.tg, style: { color: themeColors.warningMain, lineWidth: 0.7, opacity: 0.7 } },
+            { name: "T min", phase: "Heating", segments: heatingBatch.tmin, style: { color: themeColors.successMain, lineWidth: 0.7, opacity: 0.7 } },
+            { name: "T max", phase: "Heating", segments: heatingBatch.tmax, style: { color: themeColors.successMain, lineWidth: 0.7, opacity: 0.7 } },
+            { name: "Decomposition", phase: "Heating", segments: heatingBatch.tdecomp, style: { color: themeColors.errorMain, lineWidth: 0.7, opacity: 1 } },
+            { name: "Tg", phase: "Pause", segments: pauseBatch.tg, style: { color: themeColors.warningDark, lineWidth: 1.6, opacity: 0.7 } },
+            { name: "T min", phase: "Pause", segments: pauseBatch.tmin, style: { color: themeColors.successDark, lineWidth: 1.6 } },
+            { name: "T max", phase: "Pause", segments: pauseBatch.tmax, style: { color: themeColors.successMain, lineWidth: 1.6 } },
+            { name: "Decomposition", phase: "Pause", segments: pauseBatch.tdecomp, style: { color: themeColors.errorDark, lineWidth: 1.6 } },
         ];
 
-        const graphs = isotherms.flatMap(({ name, phase, segments, style }) =>
+        const contourGraphs = isotherms.flatMap(({ name, phase, segments, style }) =>
             buildSymmetricIsothermGraph(segments, name, phase, style, gridConfig)
         );
 
@@ -718,31 +519,67 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             buildIsothermFillPolygons(polygonFillsConfig, boundaryPoints, isotherms, heating, pause)
         );
 
-        const xLines = [{ value: 0, color: themeColors.textSecondary, label: "Центр" }];
+        const xLinesHor = [{ value: 0, color: themeColors.textSecondary }];
+        const xLinesCont = [{ value: 0, color: themeColors.textSecondary, label: "Центр" }];
         if (width > 0) {
             const maxVal = width / 2;
             for (let val = 5; val <= maxVal; val += 5) {
-                xLines.push({ value: val, color: alpha(themeColors.divider, 0.25) });
-                xLines.push({ value: -val, color: alpha(themeColors.divider, 0.25) });
+                const lineGrid = { value: val, color: alpha(themeColors.divider, 0.25) };
+                const lineGridNeg = { value: -val, color: alpha(themeColors.divider, 0.25) };
+                xLinesHor.push(lineGrid, lineGridNeg);
+                xLinesCont.push(lineGrid, lineGridNeg);
             }
         }
 
+        if (finalXTgPauseValue !== null) {
+            const bZoneLine = { value: finalXTgPauseValue, color: themeColors.warningMain, lineWidth: 1.5, dashArray: "4 4", label: `Гибочная зона (${(finalXTgPauseValue * 2).toFixed(1)} мм)` };
+            const bZoneLineNeg = { value: -finalXTgPauseValue, color: themeColors.warningMain, lineWidth: 1.5, dashArray: "4 4" };
+            xLinesHor.push(bZoneLine, bZoneLineNeg);
+        }
+
+        const graphsChart1 = [
+            { name: "Heating (Vertical Slice)", points: vertPointsHeating, color: themeColors.textSecondary, opacity: 1, lineWidth: 1 },
+            { name: "Cooling (Vertical Slice)", points: vertPointsPause, color: themeColors.textPrimary, opacity: 1, lineWidth: 1.6 }
+        ];
+
         return {
-            graphs: graphs,
-            axes: {
-                x: { unit: "mm", lines: xLines, ranges: [] },
-                y: {
-                    unit: "mm", min: xCoordinatesMm[Nx - 1], max: 0,
-                    lines: [
-                        { value: xCoordinatesMm[Nx - 1] / 2, color: alpha(themeColors.divider, 0.3) },
-                        { value: xCoordinatesMm[Nx - 1] * (profile?.material?.kFactor || 0), color: themeColors.infoMain, label: `K = ${profile?.material?.kFactor || 0}` }
-                    ],
-                    ranges: []
-                }
+            xTgPauseValue: finalXTgPauseValue,
+            chart1: {
+                graphs: graphsChart1,
+                axes: { x: { unit: "mm", lines: [{ value: thickness / 2, color: themeColors.textSecondary }, { value: thickness * matKFactor, color: themeColors.infoMain }], ranges: [] }, y: commonYAxis }
             },
-            fillPolygons: fillPolygons
+            chart3: {
+                graphs: [
+                    { name: "Верхняя поверхность", points: rawHorTopH, color: themeColors.errorMain, opacity: 0.8, lineWidth: 0.6 },
+                    { name: "Середина листа", points: rawHorMidH, color: themeColors.successMain, opacity: 0.8, lineWidth: 0.6 },
+                    { name: "Нижняя поверхность", points: rawHorBotH, color: themeColors.primaryMain, opacity: 0.8, lineWidth: 0.6 },
+                    { name: "Верхняя поверхность пауза", points: rawHorTopP, color: themeColors.errorMain, opacity: 1, lineWidth: 1.2 },
+                    { name: "Середина листа пауза", points: rawHorMidP, color: themeColors.successMain, opacity: 1, lineWidth: 1.2 },
+                    { name: "Нижняя поверхность пауза", points: rawHorBotP, color: themeColors.primaryMain, opacity: 1, lineWidth: 1.2 }
+                ],
+                axes: { x: { unit: "mm", lines: xLinesHor, ranges: [] }, y: commonYAxis }
+            },
+            chart4: {
+                graphs: contourGraphs,
+                axes: { x: { unit: "mm", lines: xLinesCont, ranges: [] }, y: { unit: "mm", min: xCoordinatesMm[Nx - 1], max: 0, lines: [{ value: xCoordinatesMm[Nx - 1] / 2, color: alpha(themeColors.divider, 0.3) }, { value: xCoordinatesMm[Nx - 1] * matKFactor, color: themeColors.infoMain, label: `K = ${matKFactor}` }], ranges: [] } },
+                fillPolygons: fillPolygons
+            }
         };
-    }, [profileData, profile?.width, profile?.material, showContours2D, themeColors]);
+    }, [profileData, profileWidth, profileThickness, matGlassTransitionTemp, matMinFormingTemp, matMaxFormingTemp, matDecompositionTemp, matKFactor, themeColors, commonYAxis]);
+
+    const plasticZoneWidthCalculated = useMemo(() => {
+        return chartsBundle?.xTgPauseValue !== undefined && chartsBundle?.xTgPauseValue !== null
+            ? chartsBundle.xTgPauseValue * 2
+            : null;
+    }, [chartsBundle?.xTgPauseValue]);
+
+    const maxRadiusCalculated = useMemo(() => {
+        if (machineParams?.bendAngle == null || plasticZoneWidthCalculated == null) return null;
+        const turnAngleRad = (Number(machineParams.bendAngle) * Math.PI) / 180;
+        if (turnAngleRad <= 0) return 0;
+        const rInnerMax = (plasticZoneWidthCalculated / turnAngleRad) - (matKFactor * profileThickness);
+        return rInnerMax > 0 ? rInnerMax : 0;
+    }, [plasticZoneWidthCalculated, machineParams?.bendAngle, profileThickness, matKFactor]);
 
     return (
         <Box className="bend-preview" sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -789,81 +626,44 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     />
                 </Box>
 
-                <Box
-                    sx={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        mx: "auto",
-                        gap: 1,
-                        position: "relative"
-                    }}
-                >
+                <Box sx={{ display: "flex", flexWrap: "wrap", mx: "auto", gap: 1, position: "relative" }}>
                     <Box
                         sx={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            gap: 1,
-                            width: "100%",
+                            display: "flex", flexWrap: "wrap", gap: 1, width: "100%",
                             opacity: isCalculating ? 0.4 : 1,
                             filter: isCalculating ? "blur(1px)" : "none",
                             transition: "all 0.3s ease",
                             pointerEvents: isCalculating ? "none" : "auto"
                         }}
                     >
-                        {showVerticalSlice && chart1Data && (
-                            <Box mx="auto">
-                                <SvgLineChart chart={chart1Data} />
-                            </Box>
+                        {showVerticalSlice && chartsBundle?.chart1 && (
+                            <Box mx="auto"><SvgLineChart chart={chartsBundle.chart1} /></Box>
                         )}
 
                         {showTimeDynamics && chart2Data && (
-                            <Box mx="auto">
-                                <SvgLineChart chart={chart2Data} />
-                            </Box>
-                        )}
-                        {showHorizontalWidth && chart3Data && (
-                            <Box mx="auto">
-                                <SvgLineChart chart={chart3Data} />
-                            </Box>
+                            <Box mx="auto"><SvgLineChart chart={chart2Data} /></Box>
                         )}
 
-                        {showContours2D && chart4Data && (
-                            <Box mx="auto">
-                                <SvgLineChart chart={chart4Data} />
-                            </Box>
+                        {showHorizontalWidth && chartsBundle?.chart3 && (
+                            <Box mx="auto"><SvgLineChart chart={chartsBundle.chart3} /></Box>
+                        )}
+
+                        {showContours2D && chartsBundle?.chart4 && (
+                            <Box mx="auto"><SvgLineChart chart={chartsBundle.chart4} /></Box>
                         )}
                     </Box>
 
                     {isCalculating && (
                         <Box
                             sx={{
-                                position: "absolute",
-                                inset: 0,
-                                backgroundColor: alpha(theme.palette.action.disabledBackground, 0.1),
-                                borderRadius: 1,
-                                zIndex: 10,
-                                display: "flex",
-                                flexDirection: "column",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                gap: 1.5,
-                                px: 3,
-                                minHeight: 200
+                                position: "absolute", inset: 0, backgroundColor: alpha(theme.palette.action.disabledBackground, 0.1),
+                                borderRadius: 1, zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1.5, px: 3, minHeight: 200
                             }}
                         >
-                            <Typography variant="body2" fontWeight={600} color="text.secondary">
-                                2D simulation in progress...
-                            </Typography>
-
+                            <Typography variant="body2" fontWeight={600} color="text.secondary">2D simulation in progress...</Typography>
                             <Box sx={{ width: '100%', maxWidth: 220, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                <LinearProgress
-                                    variant="determinate"
-                                    value={progress}
-                                    sx={{ flexGrow: 1, height: 6, borderRadius: 3 }}
-                                />
-                                <Typography variant="body2" color="text.secondary" fontWeight={700} sx={{ minWidth: 35 }}>
-                                    {progress}%
-                                </Typography>
+                                <LinearProgress variant="determinate" value={progress} sx={{ flexGrow: 1, height: 6, borderRadius: 3 }} />
+                                <Typography variant="body2" color="text.secondary" fontWeight={700} sx={{ minWidth: 35 }}>{progress}%</Typography>
                             </Box>
                         </Box>
                     )}
