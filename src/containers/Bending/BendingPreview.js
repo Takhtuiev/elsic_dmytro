@@ -417,45 +417,9 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     { name: "Верхняя поверхность пауза", points: rawHorTopP, color: themeColors.errorMain, opacity: 1, lineWidth: 1.2 },
                     { name: "Середина листа пауза", points: rawHorMidP, color: themeColors.successMain, opacity: 1, lineWidth: 1.2 },
                     { name: "Нижняя поверхность пауза", points: rawHorBotP, color: themeColors.primaryMain, opacity: 1, lineWidth: 1.2 }
-                ].map(graph => {
-                    // 1. Получаем исходные точки графика. Если их нет, возвращаем пустой массив
-                    const points = graph.points || [];
-                    if (points.length === 0) return graph;
-
-                    // 2. Определяем температуру окружающей среды (дефолт 20°C, если в объекте нет явного поля)
-                    const ambientTemp = Number(profile?.simulation?.ambientTemp ?? profile?.material?.initialTemp ?? 20);
-
-                    // 3. Рассчитываем физическую границу листа по оси X (половина ширины)
-                    const maxSheetX = width > 0 ? width / 2 : points[points.length - 1].x;
-
-                    // Сортируем точки по возрастанию X на случай, если воркер отдал их зеркально
-                    const sortedPoints = [...points].sort((a, b) => a.x - b.x);
-                    const firstPoint = sortedPoints[0];
-                    const lastPoint = sortedPoints[sortedPoints.length - 1];
-
-                    const extendedPoints = [];
-
-                    // 4. Добавляем точку старта на краю листа с комнатной температурой
-                    if (firstPoint.x > -maxSheetX) {
-                        extendedPoints.push({ x: -maxSheetX, y: ambientTemp });
-                    }
-
-                    // Вставляем все рассчитанные симуляцией точки
-                    extendedPoints.push(...sortedPoints);
-
-                    // 5. Добавляем точку финиша на противоположном краю листа
-                    if (lastPoint.x < maxSheetX) {
-                        extendedPoints.push({ x: maxSheetX, y: ambientTemp });
-                    }
-
-                    return {
-                        ...graph,
-                        points: extendedPoints
-                    };
-                }),
+                ],
                 axes: { x: { unit: "mm", lines: xLinesHor, ranges: [] }, y: commonYAxis }
             },
-
             chart4: {
                 graphs: contourGraphs,
                 showLabels: false,
@@ -467,7 +431,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 fillPolygons: fillPolygons
             }
         };
-    }, [result2D?.geometryData, themeColors.infoMain, themeColors.successMain, themeColors.warningMain, themeColors.errorMain, themeColors.textSecondary, themeColors.textPrimary, themeColors.primaryMain, themeColors.divider, themeColors.warningDark, themeColors.successDark, themeColors.errorDark, matKFactor, commonYAxis, profile?.simulation?.ambientTemp, profile?.material?.initialTemp]);
+    }, [result2D, themeColors, commonYAxis, matKFactor]);
 
     const plasticZoneWidthCalculated = useMemo(() => {
         return chartsBundle?.xTgPauseValue !== undefined && chartsBundle?.xTgPauseValue !== null
