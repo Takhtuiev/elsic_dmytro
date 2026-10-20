@@ -480,8 +480,18 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 )}
             </Box>
 
-            <Box className="bend-preview-bottom" sx={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", width: "100%", flexShrink: 0, gap: 1, mt: 1 }}>
-                <Box sx={{ flex: "1 1 18rem" }}>
+            <Box
+                className="bend-preview-bottom"
+                sx={{
+                    display: "flex",
+                    flexDirection: "column", // ВСЕГДА в столбик: параметры сверху, графики снизу
+                    width: "100%",
+                    gap: 3, // Увеличил отступ между параметрами и графиками для читаемости
+                    mt: 1
+                }}
+            >
+                {/* ВЕРХНИЙ БЛОК: ПАРАМЕТРЫ */}
+                <Box sx={{ width: "100%" }}>
                     <Parameters
                         width={profileWidth}
                         thickness={profileThickness}
@@ -499,10 +509,20 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     />
                 </Box>
 
-                <Box sx={{ display: "flex", flexWrap: "wrap", mx: "auto", gap: 1, position: "relative" }}>
+                {/* НИЖНИЙ БЛОК: ГРАФИКИ И ЗАГРУЗКА */}
+                <Box sx={{ width: "100%", position: "relative" }}>
+
+                    {/* Контейнер для графиков */}
                     <Box
                         sx={{
-                            display: "flex", flexWrap: "wrap", gap: 1, width: "100%",
+                            display: "flex",
+                            flexWrap: "wrap",
+                            // На ПК (md) графики стоят в ряд, на мобильных (xs) — строго в столбик по центру
+                            flexDirection: { xs: "column", md: "row" },
+                            alignItems: { xs: "center", md: "flex-start" },
+                            justifyContent: "center", // Центрируем графики по ширине на любых экранах
+                            gap: 2,
+                            width: "100%",
                             opacity: isCalculating ? 0.4 : 1,
                             filter: isCalculating ? "blur(1px)" : "none",
                             transition: "all 0.3s ease",
@@ -510,46 +530,61 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                         }}
                     >
                         {showVerticalSlice && chartsBundle?.chart1 && (
-                            <Box sx={{ display: "flex", justifyContent: "center", flex: { xs: "1 1 100%", sm: "1 1 auto" }, minWidth: 0 }}>
+                            <Box sx={{ width: { xs: "100%", md: "auto" }, display: "flex", justifyContent: "center" }}>
                                 <SvgLineChart chart={chartsBundle.chart1} />
-                            </Box>
-                        )}
+                            </Box> )}
 
                         {showTimeDynamics && chart2Data && (
-                            <Box sx={{ display: "flex", justifyContent: "center", flex: { xs: "1 1 100%", sm: "1 1 auto" }, minWidth: 0 }}>
+                            <Box sx={{ width: { xs: "100%", md: "auto" }, display: "flex", justifyContent: "center" }}>
                                 <SvgLineChart chart={chart2Data} />
                             </Box>
                         )}
 
                         {showHorizontalWidth && chartsBundle?.chart3 && (
-                            <Box sx={{ display: "flex", justifyContent: "center", flex: { xs: "1 1 100%", sm: "1 1 auto" }, minWidth: 0 }}>
+                            <Box sx={{ width: { xs: "100%", md: "auto" }, display: "flex", justifyContent: "center" }}>
                                 <SvgLineChart chart={chartsBundle.chart3} />
                             </Box>
                         )}
 
                         {showContours2D && chartsBundle?.chart4 && (
-                            <Box sx={{ display: "flex", justifyContent: "center", flex: { xs: "1 1 100%", sm: "1 1 auto" }, minWidth: 0 }}>
+                            <Box sx={{ width: { xs: "100%", md: "auto" }, display: "flex", justifyContent: "center" }}>
                                 <SvgLineChart chart={chartsBundle.chart4} />
                             </Box>
                         )}
                     </Box>
 
+                    {/* ИНДИКАТОР ЗАГРУЗКИ */}
                     {isCalculating && (
                         <Box
                             sx={{
-                                position: "absolute", inset: 0, backgroundColor: alpha(theme.palette.action.disabledBackground, 0.1),
-                                borderRadius: 1, zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1.5, px: 3, minHeight: 200
+                                position: "absolute",
+                                inset: 0,
+                                backgroundColor: alpha(theme.palette.action.disabledBackground, 0.1),
+                                borderRadius: 1,
+                                zIndex: 10,
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: 1.5,
+                                px: 3,
+                                minHeight: 200
                             }}
                         >
-                            <Typography variant="body2" fontWeight={600} color="text.secondary">2D simulation in progress...</Typography>
+                            <Typography variant="body2" fontWeight={600} color="text.secondary">
+                                2D simulation in progress...
+                            </Typography>
                             <Box sx={{ width: '100%', maxWidth: 220, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                                 <LinearProgress variant="determinate" value={progress} sx={{ flexGrow: 1, height: 6, borderRadius: 3 }} />
-                                <Typography variant="body2" color="text.secondary" fontWeight={700} sx={{ minWidth: 35 }}>{progress}%</Typography>
+                                <Typography variant="body2" color="text.secondary" fontWeight={700} sx={{ minWidth: 35 }}>
+                                    {progress}%
+                                </Typography>
                             </Box>
                         </Box>
                     )}
                 </Box>
             </Box>
+
 
         </Box>
     );
