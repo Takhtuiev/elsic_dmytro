@@ -784,21 +784,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             isReached = isTargetReached2D(currentIterT, Nx, Ny, target, targetK, currentThermalState);
         }
 
-        // 🌟 2. ВЫЧИСЛЯЕМ ПРОГРЕСС БЕЗ ПОВТОРНЫХ ЦИКЛОВ (Сложность O(1) — мгновенный доступ)
+        // 🌟 ВЫЧИСЛЯЕМ ПРОГРЕСС НАГРЕВА
         if (onProgress) {
             let heatingProgressFraction = 0;
 
-            if (targetType === "minTemperature") {
-                const centerC = currentThermalState.v - 273.15; // Истинный минимум из ловушки
-                const surfaceC = currentIterT[0] - 273.15;     // Мгновенный верхний узел
-                const effectiveCurrentC = (centerC + surfaceC) / 2.0;
-
-                const totalRange = targetValue - initT;
-                if (totalRange > 0) {
-                    heatingProgressFraction = (effectiveCurrentC - initT) / totalRange;
-                }
-            } else if (targetType === "surfaceTemperature") {
-                const currentC = currentThermalState.v - 273.15; // Истинный максимум из ловушки
+            if (targetType === "minTemperature" || targetType === "surfaceTemperature") {
+                const currentC = currentThermalState.v - 273.15;
                 const totalRange = targetValue - initT;
                 if (totalRange > 0) {
                     heatingProgressFraction = (currentC - initT) / totalRange;
@@ -810,7 +801,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             }
 
             heatingProgressFraction = Math.max(0, Math.min(1.0, heatingProgressFraction));
-            const maxHeatingPercent = totalCoolingTime > 0 ? 95 : 99;
+
+            const maxHeatingPercent = simulation.maxHeatingPercent ?? (totalCoolingTime > 0 ? 95 : 99);
             let currentPercent = Math.floor(heatingProgressFraction * maxHeatingPercent);
 
             if (currentPercent > lastReportedPercent && currentPercent <= maxHeatingPercent) {
@@ -818,6 +810,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 lastReportedPercent = currentPercent;
             }
         }
+
 
         // 🌟 3. БЛОК СУБШАГОВОГО ОТКАТА (Использует флаг из единой проверки выше)
         if (isReached) {
@@ -1025,18 +1018,20 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         coolingTimeElapsed += coolingDt;
         logCoolingHistory(false);
 
-        // === ДОБАВИТЬ ЭТОТ БЛОК ДЛЯ ТРЕКИНГА ОХЛАЖДЕНИЯ ===
         if (onProgress && coolingTime > 0) {
             const coolingFraction = Math.max(0, Math.min(1.0, coolingTimeElapsed / coolingTime));
 
-            // Распределяем остаток шкалы от 90% до 99%
-            let currentPercent = Math.floor(95 + (coolingFraction * 4.5));
+            // Здесь всё отлично: стартуем ровно там, где планировали закончить нагрев
+            const startPercent = simulation.maxHeatingPercent ?? 95;
+            const remainingRange = 99 - startPercent;
+            let currentPercent = Math.floor(startPercent + (coolingFraction * remainingRange));
 
             if (currentPercent > lastReportedPercent && currentPercent <= 99) {
                 onProgress(currentPercent);
                 lastReportedPercent = currentPercent;
             }
         }
+
 
         if (isAdaptive) {
             if (maxStepCoolingChange > 0) {
@@ -1075,51 +1070,4 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         },
         history
     };
-}
-
-export function getVerticalSlicePoints(profile, yMm, phase = "heating") {
-    if (!profile || !profile[phase]) return [];
-    const { xCoordinatesMm, yCoordinatesMm, Nx, Ny } = profile;
-    const temperaturesC = profile[phase];
-
-    const targetY = clamp(yMm, yCoordinatesMm[0], yCoordinatesMm[Ny - 1]);
-    let minDiff = Infinity;
-    let targetJ = 0;
-    for (let j = 0; j < Ny; j++) {
-        const diff = Math.abs(yCoordinatesMm[j] - targetY);
-        if (diff < minDiff) {
-            minDiff = diff;
-            targetJ = j;
-        }
-    }
-
-    const points = new Array(Nx);
-    for (let i = 0; i < Nx; i++) {
-        points[i] = [xCoordinatesMm[i], Number(temperaturesC[i * Ny + targetJ])];
-    }
-    return points;
-}
-
-export function getHorizontalSlicePoints(profile, xMm, phase = "heating") {
-    if (!profile || !profile[phase]) return [];
-    const { xCoordinatesMm, yCoordinatesMm, Nx, Ny } = profile;
-    const temperaturesC = profile[phase];
-
-    const targetX = clamp(xMm, xCoordinatesMm[0], xCoordinatesMm[Nx - 1]);
-    let minDiff = Infinity;
-    let targetI = 0;
-    for (let i = 0; i < Nx; i++) {
-        const diff = Math.abs(xCoordinatesMm[i] - targetX);
-        if (diff < minDiff) {
-            minDiff = diff;
-            targetI = i;
-        }
-    }
-
-    const points = new Array(Ny);
-    const rowOffset = targetI * Ny;
-    for (let j = 0; j < Ny; j++) {
-        points[j] = [yCoordinatesMm[j], Number(temperaturesC[rowOffset + j])];
-    }
-    return points;
 }
