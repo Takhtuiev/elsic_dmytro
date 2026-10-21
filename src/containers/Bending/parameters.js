@@ -9,10 +9,10 @@ export const MACHINES = {
             {
                 // top
                 regulatorTemperatureC: 200,
-                heaterTemperatureFactor: 1.3,
+                heaterTemperatureFactor: 1.4,
                 heaterEmissivity: 0.90,
-                viewFactor: 0.8,
-                radiationGain: 1.00,
+                viewFactor: 1,
+                radiationGain: 0.9,
                 convectiveHeatTransferCoefficient: 8,
            },
             {

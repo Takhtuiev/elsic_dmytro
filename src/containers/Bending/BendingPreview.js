@@ -203,8 +203,30 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         };
     }, []);
 
+    // 1. Извлекаем только физические свойства, чтобы избавить хук от зависимости от самого объекта profile
+    const profileThicknessProp = profile?.thickness;
+    const profileMaterialProp = profile?.material;
+    const profileMachineProp = profile?.machine;
+    const profileSimulationProp = profile?.simulation;
+
+    // 🌟 Оптимизация: Собираем профиль ТОЛЬКО из физических параметров.
+    // Игнорируем изменения в profile.view (rotation, mirrored), чтобы воркер не перезапускался.
+    const physicsProfile = useMemo(() => {
+        if (!profileThicknessProp || !profileMaterialProp || !profileMachineProp || !profileSimulationProp) {
+            return null;
+        }
+        return {
+            thickness: profileThicknessProp,
+            material: profileMaterialProp,
+            machine: profileMachineProp,
+            simulation: profileSimulationProp,
+        };
+    }, [profileThicknessProp, profileMaterialProp, profileMachineProp, profileSimulationProp]);
+
+
     useEffect(() => {
-        if (!profile?.thickness || !profile?.material || !profile?.machine || !profile.simulation) {
+        // Так как physicsProfile теперь возвращает null при отсутствии любого из свойств, достаточно одной проверки
+        if (!physicsProfile) {
             setResult2D(null);
             return;
         }
@@ -237,13 +259,14 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             }
         };
 
-        worker.postMessage({ profile });
+        // Отправляем в воркер изолированный физический профиль
+        worker.postMessage({ profile: physicsProfile });
 
         return () => {
             isCancelled = true;
             worker.terminate(); // Принудительно завершаем поток воркера
         };
-    }, [profile]);
+    }, [physicsProfile]); // 🌟 В зависимости передаем physicsProfile вместо исходного profile
 
 
     const themeColors = useMemo(() => {
