@@ -7,24 +7,6 @@
  * while thermal fields are split into 'heating' (after oven) and 'pause' (after transfer cooling).
  */
 
-/* ========================================================
- * ГЛОБАЛЬНЫЙ БЛОК НАСТРОЕК ТОЧНОСТИ (ОБЪЕКТНАЯ СТРУКТУРА ПРЕСЕТОВ)
- * ======================================================== */
-
-/**
- * ВЫБОР РЕЖИМА ТОЧНОСТИ
- * "fast"      — Быстрый (крупная сетка, мгновенный черновик)
- * "optimal"   — Оптимальный (ВАШИ ПЕРВЫЕ ИСХОДНЫЕ ПАРАМЕТРЫ НА 100%)
- * "accurate"  — Точный (плотная сетка для детального анализа)
- */
-export const ACCURACY_MODE = "fast";
-
-/**
- * ФЛАГ ОЦЕНКИ ПОГРЕШНОСТИ (Вкл/Выкл анализа неточности)
- * true  — собирает полную ошибку (Пикар + dt + сетка), тратит чуть больше ресурсов.
- * false — полностью отключает трекинг ошибок, работает с максимальной скоростью.
- */
-export const CALCULATE_ACCURACY_ERROR = true;
 
 /* ========================================================
  * МАТРИЦА НАСТРОЕК ТОЧНОСТИ (ОБЪЕКТНАЯ СТРУКТУРА ПРЕСЕТОВ)
@@ -453,9 +435,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const validation = validateSimulationParams({ thicknessMm, material, machine: mach, simulation, dtSeconds });
     if (!validation.isValid) return makeError(validation.error);
 
-    // 👇 ДОБАВИТЬ ЭТОТ БЛОК ДИНАМИЧЕСКОГО РАСЧЕТА ПАРАМЕТРОВ ЯДРА
+    // БЛОК ДИНАМИЧЕСКОГО РАСЧЕТА ПАРАМЕТРОВ ЯДРА
     const userMode = simulation.accuracyMode;
     const mode = ["fast", "optimal", "accurate"].includes(userMode) ? userMode : "optimal";
+
+    // (считываем флаг динамически из интерфейса)
+    const shouldCalculateAccuracyError = simulation.calculateAccuracyError !== false;
 
     const GRID_X_STEP_MM = LIMITS.gridX[mode];
     const GRID_Y_STEP_MM = LIMITS.gridY[mode];
@@ -576,20 +561,23 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
     let time = 0;
     const simulationMaxTime = targetType === "time" ? (maxTimeSeconds < targetValue ? maxTimeSeconds : targetValue) : maxTimeSeconds;
-    let history = storeHistory ? { time: [], frontSurfaceC: [], centerC: [], backSurfaceC: [] } : null;
+    let history = storeHistory ? { time: [], frontSurfaceC: [], centerC: [], backSurfaceC: [] } : undefined;
 
     let lastLoggedTime = -1;
     const logHistory = (force = false) => {
-        if (!storeHistory) return;
+        if (!storeHistory || !history) return;
         if (history.time.length > 0 && history.time[history.time.length - 1] === time) return;
+        // 👇 УБЕДИТЕСЬ, ЧТО ЭТА СТРОКА ВЫГЛЯДИТ ТАК (здесь используется lastLoggedTime):
         if (!force && (time - lastLoggedTime < 1.0) && time < simulationMaxTime) return;
 
         history.time.push(time);
         history.frontSurfaceC.push(T[0] - 273.15);
         history.centerC.push(T[((Nx - 1) >> 1) * Ny] - 273.15);
         history.backSurfaceC.push(T[lastX * Ny] - 273.15);
+
         lastLoggedTime = time;
     };
+
 
     logHistory(true);
 
@@ -858,7 +846,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         }
 
 // --- СТРОГИЙ ДВУХТОЧЕЧНЫЙ АНАЛИЗ ОШИБКИ ВРЕМЕНИ (ВЕРХ И НИЗ) ---
-        if (CALCULATE_ACCURACY_ERROR && nonlinearConverged) {
+        if (shouldCalculateAccuracyError  && nonlinearConverged) {
             accumulatedSolverError += lastIterMaxSignedDiff;
 
             const idxBot = lastX * Ny; // Индекс нижнего центрального узла
@@ -925,7 +913,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let lastCoolingLoggedTime = -1.0;
 
     const logCoolingHistory = (force = false) => {
-        if (!storeHistory) return;
+        if (!storeHistory || !history) return; // Добавили проверку !history
         const currentAbsoluteTime = time + coolingTimeElapsed;
 
         if (history.time.length > 0 && history.time[history.time.length - 1] === currentAbsoluteTime) return;
@@ -1065,7 +1053,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         }
 
 // --- СТРОГИЙ ДВУХТОЧЕЧНЫЙ АНАЛИЗ ОШИБКИ ВРЕМЕНИ НА ФАЗЕ ПАУЗЫ ---
-        if (CALCULATE_ACCURACY_ERROR && coolingConverged) {
+        if (shouldCalculateAccuracyError  && coolingConverged) {
             accumulatedSolverError += coolingLastIterMaxSignedDiff;
 
             const idxBot = lastX * Ny;
@@ -1131,7 +1119,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     // ========================================================
     let accuracyMetrics = null;
 
-    if (CALCULATE_ACCURACY_ERROR) {
+    if (shouldCalculateAccuracyError ) {
         const finalTimeError = accumulatedTimeErrorSum;
        // 2. Погрешность аппроксимации пространственной сетки по толщине X
         const localDx = gridX.x[1] - gridX.x[0]; // Физическое расстояние между слоями 0 и 1
@@ -1156,15 +1144,14 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         coolingTimeSeconds: coolingTimeElapsed,
         calculationTimeMs: performance.now() - calculationStart,
         reachedTarget,
-        status,
-        accuracyMetrics,
+        status: status || { type: "ok" },
+        ...(shouldCalculateAccuracyError && { accuracyMetrics }),
+        ...(storeHistory && { history }),
         temperatureProfile: {
             xCoordinatesMm: Array.from(gridX.x),
             yCoordinatesMm: Array.from(gridY.y),
             Nx, Ny,
             heating: heatingProfileC,
             pause: pauseProfileC
-        },
-        history
-    };
-}
+        }
+    };}

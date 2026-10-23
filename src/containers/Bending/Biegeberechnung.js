@@ -100,10 +100,10 @@ const INITIAL_STATE={
 
         // ПАРАМЕТРЫ ДЛЯ ДВИЖКА ТОЧНОСТИ ВЫЧИСЛЕНИЙ
         accuracyMode: "optimal",          // Режим по умолчанию ("fast", "optimal", "accurate")
-        calculateAccuracyError: true,     // Включен ли расчет погрешности по умолчанию
+        calculateAccuracyError: false,     // Включен ли расчет погрешности по умолчанию
 
         // --- Флаг движка (управляется автоматически через ui.showTimeDynamics) ---
-        recordHistory: true,              // Выставили true, так как ниже showTimeDynamics: true
+        recordHistory: false,              // Выставили true, так как ниже showTimeDynamics: true
 
         // --- Флаги отображения графиков (управление из интерфейса) ---
         ui: {
