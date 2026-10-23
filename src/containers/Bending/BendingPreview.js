@@ -47,7 +47,8 @@ const Parameters = React.memo(({
                                    heatingDeltaT,
                                    pauseDeltaT,
                                    plasticZoneWidth,
-                                   maxRadius
+                                   maxRadius,
+                                   accuracyMetrics // 👈 Добавили новый пропс из ядра симуляции
                                }) => {
     const mass = useMemo(
         () => calculateMass(blankLength, width, thickness, density),
@@ -112,9 +113,44 @@ const Parameters = React.memo(({
                 </Typography>
             )}
 
-            <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.8)`}>
+            <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.8)`} sx={{ mt: 0.25 }}>
                 Simulation calculation time: {Number.isFinite(calculationTimeMs) ? calculationTimeMs.toFixed(1) : "—"} ms
             </Typography>
+
+            {/* 👇 БЛОК С МЕЛКИМИ ДАННЫМИ ПО ПОГРЕШНОСТЯМ ЯДРА */}
+            {accuracyMetrics && (
+                <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, mt: 0.5, opacity: 0.85 }}>
+                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
+                        Uncertainty: <strong>{accuracyMetrics.formatted ?? "—"}</strong>
+                    </Typography>
+
+                    {/* Открывающая скобка для группы внутренних ошибок */}
+                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`} sx={{ ml: 0.5 }}>
+                        (
+                    </Typography>
+
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+                        <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
+                            Time: <strong>{Number.isFinite(accuracyMetrics.timeIntegrationErrorC) ? `${accuracyMetrics.timeIntegrationErrorC.toFixed(3)}°C` : "—"}</strong>
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
+                            Grid: <strong>{Number.isFinite(accuracyMetrics.spatialGridErrorC) ? `${accuracyMetrics.spatialGridErrorC.toFixed(3)}°C` : "—"}</strong>
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
+                            Solver: <strong>{Number.isFinite(accuracyMetrics.solverErrorC) ? `${Math.abs(accuracyMetrics.solverErrorC).toFixed(3)}°C` : "—"}</strong>
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
+                            Mode: <strong style={{ textTransform: 'capitalize' }}>{accuracyMetrics.accuracyMode ?? "—"}</strong>
+                        </Typography>
+                    </Box>
+
+                    {/* Закрывающая скобка */}
+                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
+                        )
+                    </Typography>
+                </Box>
+            )}
+
         </Box>
     );
 });
@@ -484,6 +520,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
                         pauseDeltaT={result2D?.geometryData?.pauseDeltaT}
                         plasticZoneWidth={plasticZoneWidthCalculated}
                         maxRadius={maxRadiusCalculated}
+                        accuracyMetrics={result2D?.accuracyMetrics}
                     />
                 </Box>
 

@@ -88,14 +88,13 @@ self.onmessage = (event) => {
             }
         });
 
-        //console.log(result2D)
-
         // Формируем легкий объект ответа БЕЗ свойства temperatureProfile
         const metaData = {
             heatingTimeSeconds: result2D?.heatingTimeSeconds,
             coolingTimeSeconds: result2D?.coolingTimeSeconds,
             calculationTimeMs: result2D?.calculationTimeMs,
-            status: result2D?.status
+            status: result2D?.status,
+            accuracyMetrics: result2D?.accuracyMetrics // 🌟 ИСПРАВЛЕНО: Теперь пробрасываем данные погрешностей наружу в UI
         };
 
         const geometryData = prepareGeometryData(profile.material, result2D);
@@ -105,6 +104,7 @@ self.onmessage = (event) => {
             result2D: metaData,
             geometryData
         });
+
 
     } catch (error) {
         self.postMessage({ type: "ERROR", error: error.message, result2D: null, geometryData: null });

@@ -427,6 +427,23 @@ function isTargetReached2D(T, Nx, Ny, target, targetK, outCurrentValue) {
     return false;
 }
 
+function accumulateTimeErrorStep(currentT, prevT, oldT, Nx, Ny, lastX) {
+    const idxTop = 0;                        // x = 0, y = 0
+    const idxMid = ((Nx - 1) >> 1) * Ny;     // x = center, y = 0
+    const idxBot = lastX * Ny;               // x = thickness, y = 0
+
+    // Схема трех временных слоев: 0.5 * (T_new - 2*T_current + T_old)
+    const errTop = 0.5 * (currentT[idxTop] - 2 * prevT[idxTop] + oldT[idxTop]);
+    const errMid = 0.5 * (currentT[idxMid] - 2 * prevT[idxMid] + oldT[idxMid]);
+    const errBot = 0.5 * (currentT[idxBot] - 2 * prevT[idxBot] + oldT[idxBot]);
+
+    return {
+        topSq: errTop * errTop,
+        midSq: errMid * errMid,
+        botSq: errBot * errBot
+    };
+}
+
 export function simulate2DHeating({ thicknessMm, material, machine, simulation, dtSeconds, storeHistory = false, onProgress }) {
     const calculationStart = performance.now();
     const mach = normalizeMachine(machine);
@@ -491,10 +508,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let T = new Float64Array(size2D).fill(initT + 273.15);
     let oldT = new Float64Array(size2D).fill(initT + 273.15);
     let currentIterT = new Float64Array(size2D);
-
-// Память скоростей для двух главных точек: верх (0) и низ (lastX * Ny)
-    let prevTopRate = 0.0;
-    let prevBotRate = 0.0;
 
     const bandWidth = Ny;
     const abRowStride = bandWidth + bandWidth + 1;
@@ -578,7 +591,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         lastLoggedTime = time;
     };
 
-
     logHistory(true);
 
     let status = null;
@@ -594,9 +606,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let lastReportedPercent = -1;
     const totalCoolingTime = simulation.cooling?.timeSeconds || 0;
 
-    // --- ПЕРЕМЕННЫЕ ДЛЯ АНАЛИЗА ПОГРЕШНОСТЕЙ ---
+    // --- ПЕРЕМЕННЫЕ ДЛЯ СТРОГОГО RMS АНАЛИЗА ПОГРЕШНОСТЕЙ ---
     let accumulatedSolverError = 0.0;
-    let accumulatedTimeErrorSum = 0.0;
+    let globalTimeErrTopSq = 0.0;
+    let globalTimeErrMidSq = 0.0;
+    let globalTimeErrBotSq = 0.0;
+    let totalTimeStepsCount = 0;
 
     // ========================================================
     // ФАЗА 1: ИНТЕНСИВНЫЙ НАГРЕВ
@@ -845,32 +860,18 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             if (stepChange > maxStepTempChange) maxStepTempChange = stepChange;
         }
 
-// --- СТРОГИЙ ДВУХТОЧЕЧНЫЙ АНАЛИЗ ОШИБКИ ВРЕМЕНИ (ВЕРХ И НИЗ) ---
-        if (shouldCalculateAccuracyError  && nonlinearConverged) {
-            accumulatedSolverError += lastIterMaxSignedDiff;
+        // --- СТРОГИЙ АНАЛИЗ ОШИБКИ ВРЕМЕНИ (ФАЗА НАГРЕВА) ---
+        if (shouldCalculateAccuracyError && nonlinearConverged) {
+            accumulatedSolverError += lastIterMaxSignedDiff; // Строго суммируем погрешность Пикара
 
-            const idxBot = lastX * Ny; // Индекс нижнего центрального узла
+            const stepErr = accumulateTimeErrorStep(currentIterT, T, oldT, Nx, Ny, lastX);
 
-            // Вычисляем текущие скорости нагрева (градусы в секунду)
-            const currentTopRate = (currentIterT[0] - T[0]) / dt;
-            const currentBotRate = (currentIterT[idxBot] - T[idxBot]) / dt;
-
-            // Вычисляем ускорения процесса (изменение скорости)
-            const accelTop = Math.abs(currentTopRate - prevTopRate);
-            const accelBot = Math.abs(currentBotRate - prevBotRate);
-
-            // Считаем ошибку для каждой точки по формуле (dt^2 / 2) * acceleration
-            const errorTop = (dt * dt * 0.5) * accelTop;
-            const errorBot = (dt * dt * 0.5) * accelBot;
-
-            // Выбираем худший вариант
-            const maxLocalTimeError = errorTop > errorBot ? errorTop : errorBot;
-            accumulatedTimeErrorSum += maxLocalTimeError;
-
-            // Сохраняем скорости для следующего временного шага
-            prevTopRate = currentTopRate;
-            prevBotRate = currentBotRate;
+            globalTimeErrTopSq += stepErr.topSq;
+            globalTimeErrMidSq += stepErr.midSq;
+            globalTimeErrBotSq += stepErr.botSq;
+            totalTimeStepsCount++;
         }
+
 
         T.set(currentIterT);
 
@@ -1052,26 +1053,16 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             if (stepChange > maxStepCoolingChange) maxStepCoolingChange = stepChange;
         }
 
-// --- СТРОГИЙ ДВУХТОЧЕЧНЫЙ АНАЛИЗ ОШИБКИ ВРЕМЕНИ НА ФАЗЕ ПАУЗЫ ---
-        if (shouldCalculateAccuracyError  && coolingConverged) {
-            accumulatedSolverError += coolingLastIterMaxSignedDiff;
+        // --- СТРОГИЙ АНАЛИЗ ОШИБКИ ВРЕМЕНИ (ФАЗА ПАУЗЫ) ---
+        if (shouldCalculateAccuracyError && coolingConverged) {
+            accumulatedSolverError += coolingLastIterMaxSignedDiff; // Строго суммируем погрешность Пикара
 
-            const idxBot = lastX * Ny;
+            const stepErr = accumulateTimeErrorStep(currentIterT, T, oldT, Nx, Ny, lastX);
 
-            const currentTopRate = (currentIterT[0] - T[0]) / coolingDt;
-            const currentBotRate = (currentIterT[idxBot] - T[idxBot]) / coolingDt;
-
-            const accelTop = Math.abs(currentTopRate - prevTopRate);
-            const accelBot = Math.abs(currentBotRate - prevBotRate);
-
-            const errorTop = (coolingDt * coolingDt * 0.5) * accelTop;
-            const errorBot = (coolingDt * coolingDt * 0.5) * accelBot;
-
-            const maxLocalTimeError = errorTop > errorBot ? errorTop : errorBot;
-            accumulatedTimeErrorSum += maxLocalTimeError;
-
-            prevTopRate = currentTopRate;
-            prevBotRate = currentBotRate;
+            globalTimeErrTopSq += stepErr.topSq;
+            globalTimeErrMidSq += stepErr.midSq;
+            globalTimeErrBotSq += stepErr.botSq;
+            totalTimeStepsCount++;
         }
 
         T.set(currentIterT);
@@ -1119,15 +1110,55 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     // ========================================================
     let accuracyMetrics = null;
 
-    if (shouldCalculateAccuracyError ) {
-        const finalTimeError = accumulatedTimeErrorSum;
-       // 2. Погрешность аппроксимации пространственной сетки по толщине X
-        const localDx = gridX.x[1] - gridX.x[0]; // Физическое расстояние между слоями 0 и 1
-        const gradX = localDx > 0 ? (Math.abs(pauseProfileC[Ny] - pauseProfileC[0]) / localDx) : 0;
+    if (shouldCalculateAccuracyError) {
+        // Гарантируем, что переменная для центра определена, даже если шагов не было
+        const safeMidSq = typeof globalTimeErrMidSq !== 'undefined' ? globalTimeErrMidSq : 0.0;
 
-        // Умножаем локальный градиент на квадрат ЛОКАЛЬНОГО шага, а не глобального GRID_X_STEP_MM
-        const finalGridError = gradX * Math.pow(localDx, 2) * 0.25;
-        const totalUncertaintyC = Math.abs(accumulatedSolverError) + Math.sqrt(Math.pow(finalTimeError, 2) + Math.pow(finalGridError, 2));
+        // Вычисляем глобальную RMS (среднеквадратичную) ошибку по времени для трех точек
+        const rmsErrTop = totalTimeStepsCount > 0 ? Math.sqrt(globalTimeErrTopSq / totalTimeStepsCount) : 0;
+        const rmsErrMid = totalTimeStepsCount > 0 ? Math.sqrt(safeMidSq / totalTimeStepsCount) : 0;
+        const rmsErrBot = totalTimeStepsCount > 0 ? Math.sqrt(globalTimeErrBotSq / totalTimeStepsCount) : 0;
+
+        // Теперь выбираем худший (максимальный) результат из трех критических зон
+        const finalTimeError = Math.max(rmsErrTop, rmsErrMid, rmsErrBot);
+
+        // 2. Погрешность аппроксимации пространственной нелинейной сетки по толщине X при y = 0
+        let maxGridError = 0.0;
+
+        // Проверяем только приграничные узлы, где градиент максимален
+        const criticalNodes = [
+            1, 2,                         // Верхняя поверхность
+            (Nx - 1) >> 1,                 // Центр толщины
+            Nx - 3, Nx - 2                 // Нижняя поверхность
+        ];
+
+        for (let k = 0; k < criticalNodes.length; k++) {
+            const i = criticalNodes[k];
+            if (i <= 0 || i >= Nx - 1) continue; // защита от выхода за границы при малых Nx
+
+            const idxCurrent = i * Ny;
+            const idxLeft = (i - 1) * Ny;
+            const idxRight = (i + 1) * Ny;
+
+            const dxL = gridX.x[i] - gridX.x[i - 1];
+            const dxR = gridX.x[i + 1] - gridX.x[i];
+            const dxMean = 0.5 * (dxL + dxR);
+
+            const d2Tdx2 = Math.abs((pauseProfileC[idxRight] - pauseProfileC[idxCurrent]) / dxR -
+                (pauseProfileC[idxCurrent] - pauseProfileC[idxLeft]) / dxL) / dxMean;
+
+            const localGridError = d2Tdx2 * (dxMean * dxMean) * 0.125;
+            if (localGridError > maxGridError) {
+                maxGridError = localGridError;
+            }
+        }
+
+
+        const finalGridError = maxGridError;
+
+        // Полностью избавились от Math.pow для ускорения расчета
+        const totalUncertaintyC = Math.abs(accumulatedSolverError) +
+            Math.sqrt((finalTimeError * finalTimeError) + (finalGridError * finalGridError));
 
         accuracyMetrics = {
             accuracyMode: mode,
@@ -1138,6 +1169,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             formatted: `± ${totalUncertaintyC.toFixed(2)} °C`
         };
     }
+
 
     return {
         heatingTimeSeconds: time,
