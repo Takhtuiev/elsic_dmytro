@@ -428,9 +428,9 @@ function isTargetReached2D(T, Nx, Ny, target, targetK, outCurrentValue) {
 }
 
 function accumulateTimeErrorStep(currentT, prevT, oldT, Nx, Ny, lastX) {
-    const idxTop = 0;                        // x = 0, y = 0
-    const idxMid = ((Nx - 1) >> 1) * Ny;     // x = center, y = 0
-    const idxBot = lastX * Ny;               // x = thickness, y = 0
+    const idxTop = 0;                                // x = 0, y = 0
+    const idxMid = ((Nx - 1) >> 1) * Ny;    // x = center, y = 0
+    const idxBot = lastX * Ny;              // x = thickness, y = 0
 
     // Схема трех временных слоев: 0.5 * (T_new - 2*T_current + T_old)
     const errTop = 0.5 * (currentT[idxTop] - 2 * prevT[idxTop] + oldT[idxTop]);

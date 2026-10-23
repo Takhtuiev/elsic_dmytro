@@ -441,7 +441,7 @@ const getOrderedDirections = (p, graphData, isPlotRightEdgeCheck, ys) => {
 
 // --- Основной графический компонент ---
 
-const SvgLineChart = ({ chart }) => {
+const SvgLineChart = ({ chart, minWidth = 300, minHeight = 150 }) => {
 
     const theme = useTheme();
 
@@ -1124,10 +1124,29 @@ const SvgLineChart = ({ chart }) => {
 
 
     return (
-        <Paper sx={{ border: "1px solid", borderColor, p: 0.5, fontFamily: '"Roboto Mono","SF Mono",monospace', boxShadow: "none" }}>
-
-                <svg width={width} height={height} style={{ display: "block" }} shapeRendering="geometricPrecision">
-                    <defs>
+        <Paper
+            sx={{
+                border: "1px solid",
+                borderColor,
+                p: 0.5,
+                fontFamily: '"Roboto Mono","SF Mono",monospace',
+                boxShadow: "none",
+                // Управляем размерами прямо на уровне Paper
+                width: "100%",
+                height: "100%",
+                minWidth: minWidth,
+                minHeight: minHeight,
+            }}
+        >
+            <svg
+                width="100%"
+                height="100%"
+                viewBox={`0 0 ${width} ${height}`}   // Превращает фиксированные 300х150 в пропорции сетки
+                preserveAspectRatio="xMidYMid meet"   // Центрирует и адаптирует график без искажений
+                style={{ display: "block" }}
+                shapeRendering="geometricPrecision"
+            >
+                <defs>
                     <clipPath id="blank-clip-bounds">
                         <rect
                             x={pad.left}
