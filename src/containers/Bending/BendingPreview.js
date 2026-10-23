@@ -5,47 +5,13 @@ import { alpha } from "@mui/material/styles";
 import BendProfileRender from "./BendProfileRender";
 import { prepareSvgLayers } from "./prepareSvgLayers";
 import SvgLineChart from "./SvgLineChart";
+import { validateProfile } from "./profileValidation";
+import { formatTime } from "./formatters";
+import { calculateMass, calculatePlasticZoneWidth, calculateMaxInnerRadius } from "./bendingMetrics";
+import {useHeatingSimulation} from "./useHeatingSimulation";
 
 const PARAMETER_TEXT_COLOR = "text.primary";
 const PARAMETER_TEXT_SIZE = "0.8rem";
-
-const validateProfile = (profile) => {
-    if (!profile) return "Profile is missing";
-
-    const thickness = Number(profile.thickness);
-    if (!Number.isFinite(thickness) || thickness <= 0) return "Thickness must be greater than 0 mm";
-    if (!Array.isArray(profile.shelves) || !profile.shelves.length) return "At least one leg is required";
-    if (!Array.isArray(profile.bends)) return "Bends are missing";
-    if (profile.shelves.length !== profile.bends.length + 1) return "Invalid profile geometry";
-
-    const invalidShelfIndex = profile.shelves.findIndex(({ length }) => {
-        const value = Number(length);
-        return !Number.isFinite(value) || value < thickness;
-    });
-    if (invalidShelfIndex >= 0) {
-        const length = profile.shelves[invalidShelfIndex]?.length;
-        return `Leg ${invalidShelfIndex + 1}: ${length} mm — must be at least ${thickness} mm`;
-    }
-
-    const invalidAngleIndex = profile.bends.findIndex(({ angle }) => {
-        const value = Number(angle);
-        return !Number.isFinite(value) || value < 90 || value > 180;
-    });
-    if (invalidAngleIndex >= 0) {
-        const angle = profile.bends[invalidAngleIndex]?.angle;
-        return `Angle ${invalidAngleIndex + 1}: ${angle}° — allowed range is 90°–180°`;
-    }
-
-    return null;
-};
-
-export const formatTime = (seconds) => {
-    if (!seconds || seconds < 0) return "0m 00s";
-    const totalSeconds = Math.round(seconds);
-    const minutes = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
-    return `${minutes}m ${String(secs).padStart(2, "0")}s`;
-};
 
 const PartHeader = React.memo(({ partName, materialName, thickness }) => (
     <Box
@@ -83,12 +49,10 @@ const Parameters = React.memo(({
                                    plasticZoneWidth,
                                    maxRadius
                                }) => {
-    const mass = useMemo(() => {
-        if (Number.isFinite(blankLength) && Number.isFinite(width) && Number.isFinite(thickness) && Number.isFinite(density)) {
-            return (blankLength * width * thickness * density) / 1e9;
-        }
-        return null;
-    }, [blankLength, width, thickness, density]);
+    const mass = useMemo(
+        () => calculateMass(blankLength, width, thickness, density),
+        [blankLength, width, thickness, density]
+    );
 
     const statusColor = status?.type === "error" ? "error" : status?.type === "warning" ? "warning" : "text.secondary";
 
@@ -156,19 +120,19 @@ const Parameters = React.memo(({
 });
 Parameters.displayName = "Parameters";
 
-const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotationPreview }) => {
+const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulation, rotationPreview }) => {
     const theme = useTheme();
     const containerRef = useRef(null);
     const [containerSize, setContainerSize] = useState({ width: 800, height: 500 });
 
-    const [result2D, setResult2D] = useState(null);
-    const [isCalculating, setIsCalculating] = useState(false);
-    const [progress, setProgress] = useState(0);
 
-    const showVerticalSlice = profile?.simulation?.ui?.showVerticalSlice ?? true;
-    const showHorizontalWidth = profile?.simulation?.ui?.showHorizontalWidth ?? true;
-    const showTimeDynamics = profile?.simulation?.ui?.showTimeDynamics ?? true;
-    const showContours2D = profile?.simulation?.ui?.showContours2D ?? true;
+    const simulationUi = simulation?.ui ?? profile?.simulation?.ui ?? {};
+
+    const showVerticalSlice = simulationUi.showVerticalSlice ?? true;
+    const showHorizontalWidth = simulationUi.showHorizontalWidth && simulation?.widthHalfMm !== 0;
+    const showTimeDynamics = simulationUi.showTimeDynamics && simulation?.recordHistory;
+    const showContours2D = simulationUi.showContours2D && simulation?.widthHalfMm !== 0;
+
 
     const validationError = useMemo(() => validateProfile(profile), [profile]);
     const view = profile?.view;
@@ -203,14 +167,11 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         };
     }, []);
 
-    // 1. Извлекаем только физические свойства, чтобы избавить хук от зависимости от самого объекта profile
     const profileThicknessProp = profile?.thickness;
     const profileMaterialProp = profile?.material;
     const profileMachineProp = profile?.machine;
     const profileSimulationProp = profile?.simulation;
 
-    // 🌟 Оптимизация: Собираем профиль ТОЛЬКО из физических параметров.
-    // Игнорируем изменения в profile.view (rotation, mirrored), чтобы воркер не перезапускался.
     const physicsProfile = useMemo(() => {
         if (!profileThicknessProp || !profileMaterialProp || !profileMachineProp || !profileSimulationProp) {
             return null;
@@ -223,51 +184,10 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
         };
     }, [profileThicknessProp, profileMaterialProp, profileMachineProp, profileSimulationProp]);
 
-
-    useEffect(() => {
-        // Так как physicsProfile теперь возвращает null при отсутствии любого из свойств, достаточно одной проверки
-        if (!physicsProfile) {
-            setResult2D(null);
-            return;
-        }
-
-        setIsCalculating(true);
-        setProgress(0);
-
-        // Флаг отмены для предотвращения гонки состояний при быстром вводе данных
-        let isCancelled = false;
-
-        const worker = new Worker(
-            new URL("./heating.worker.js", import.meta.url),
-            { type: "module" }
-        );
-
-        worker.onmessage = (event) => {
-            if (isCancelled) return; // Игнорируем сообщения, если хук размонтирован
-            const { type, percent, result2D: workerResult, geometryData, error } = event.data;
-
-            if (type === "PROGRESS") {
-                setProgress(percent);
-            } else {
-                if (error) {
-                    console.error("Worker error:", error);
-                } else {
-                    setResult2D({ ...workerResult, geometryData });
-                    setProgress(100);
-                }
-                setIsCalculating(false);
-            }
-        };
-
-        // Отправляем в воркер изолированный физический профиль
-        worker.postMessage({ profile: physicsProfile });
-
-        return () => {
-            isCancelled = true;
-            worker.terminate(); // Принудительно завершаем поток воркера
-        };
-    }, [physicsProfile]); // 🌟 В зависимости передаем physicsProfile вместо исходного profile
-
+    const { result2D, isCalculating, progress } = useHeatingSimulation(
+        physicsProfile,
+        validationError
+    );
 
     const themeColors = useMemo(() => {
         const { text, primary, warning, error, success, info, divider } = theme.palette;
@@ -325,10 +245,19 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 
     const chart2Data = useMemo(() => {
         const rawData = result2D?.geometryData;
-        if (!rawData || !rawData.graphsChart2Raw || !showTimeDynamics) return null;
+        if (!showTimeDynamics) return null;
+
+        if (!rawData || !rawData.graphsChart2Raw) {
+            return {
+                graphs: [],
+                axes: {
+                    x: { unit: "s", lines: [], ranges: [] },
+                    y: commonYAxis
+                }
+            };
+        }
 
         const heatTimeSec = Number(result2D?.heatingTimeSeconds || 0);
-
         const styleMap = {
             frontHeat:  { color: themeColors.errorMain,   opacity: 1, lineWidth: 1, showMarker: false },
             centerHeat: { color: themeColors.successMain, opacity: 1, lineWidth: 1, showMarker: false },
@@ -354,8 +283,30 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
 
     const chartsBundle = useMemo(() => {
         const rawData = result2D?.geometryData;
-        if (!rawData) return null;
 
+        if (!rawData) {
+            return {
+                xTgPauseValue: null,
+                chart1: {
+                    graphs: [],
+                    axes: { x: { unit: "mm", lines: [], ranges: [] }, y: commonYAxis }
+                },
+                chart3: {
+                    graphs: [],
+                    axes: { x: { unit: "mm", lines: [], ranges: [] }, y: commonYAxis }
+                },
+                chart4: {
+                    graphs: [],
+                    showLabels: false,
+                    showPoints: false,
+                    axes: {
+                        x: { unit: "mm", lines: [], ranges: [] },
+                        y: { unit: "mm", min: -10, max: 0, lines: [], ranges: [] }
+                    },
+                    fillPolygons: []
+                }
+            };
+        }
         const {
             thickness, width, finalXTgPauseValue,
             vertPointsHeating, vertPointsPause,
@@ -365,7 +316,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             xCoordinatesMm
         } = rawData;
 
-        const contourGraphs = contourGraphsRaw.map(g => {
+        const contourGraphs = (contourGraphsRaw || []).map(g => {
             let dynamicStyle = { lineWidth: 0.7, opacity: 0.7, color: themeColors.textPrimary };
 
             if (g.name === "Tg") {
@@ -399,7 +350,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             "Decomposition Risk":  { color: themeColors.errorMain,   opacity: 0.3 }
         };
 
-        const fillPolygons = fillPolygonsRaw.map(p => ({
+        const fillPolygons = (fillPolygonsRaw || []).map(p => ({
             ...p,
             color: polygonStyleMap[p.name]?.color || themeColors.successMain,
             opacity: polygonStyleMap[p.name]?.opacity || 0.15
@@ -417,29 +368,33 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
             }
         }
 
-        if (finalXTgPauseValue !== null) {
+        if (finalXTgPauseValue !== null && finalXTgPauseValue !== undefined) {
             const bZoneLine = { value: finalXTgPauseValue, color: themeColors.warningMain, lineWidth: 1.5, dashArray: "4 4", label: `Гибочная зона (${(finalXTgPauseValue * 2).toFixed(1)} мм)` };
             const bZoneLineNeg = { value: -finalXTgPauseValue, color: themeColors.warningMain, lineWidth: 1.5, dashArray: "4 4" };
             xLinesHor.push(bZoneLine, bZoneLineNeg);
         }
 
+        const lastXCoord = Array.isArray(xCoordinatesMm) && xCoordinatesMm.length > 0
+            ? xCoordinatesMm[xCoordinatesMm.length - 1]
+            : -10;
+
         return {
             xTgPauseValue: finalXTgPauseValue,
             chart1: {
                 graphs: [
-                    { name: "Heating (Vertical Slice)", points: vertPointsHeating, color: themeColors.textSecondary, opacity: 1, lineWidth: 1 },
-                    { name: "Cooling (Vertical Slice)", points: vertPointsPause, color: themeColors.textPrimary, opacity: 1, lineWidth: 1.6 }
+                    { name: "Heating (Vertical Slice)", points: vertPointsHeating || [], color: themeColors.textSecondary, opacity: 1, lineWidth: 1 },
+                    { name: "Cooling (Vertical Slice)", points: vertPointsPause || [], color: themeColors.textPrimary, opacity: 1, lineWidth: 1.6 }
                 ],
                 axes: { x: { unit: "mm", lines: [{ value: thickness / 2, color: themeColors.textSecondary }, { value: thickness * matKFactor, color: themeColors.infoMain }], ranges: [] }, y: commonYAxis }
             },
             chart3: {
                 graphs: [
-                    { name: "Верхняя поверхность", points: rawHorTopH, color: themeColors.errorMain, opacity: 0.8, lineWidth: 0.6 },
-                    { name: "Середина листа", points: rawHorMidH, color: themeColors.successMain, opacity: 0.8, lineWidth: 0.6 },
-                    { name: "Нижняя поверхность", points: rawHorBotH, color: themeColors.primaryMain, opacity: 0.8, lineWidth: 0.6 },
-                    { name: "Верхняя поверхность пауза", points: rawHorTopP, color: themeColors.errorMain, opacity: 1, lineWidth: 1.2 },
-                    { name: "Середина листа пауза", points: rawHorMidP, color: themeColors.successMain, opacity: 1, lineWidth: 1.2 },
-                    { name: "Нижняя поверхность пауза", points: rawHorBotP, color: themeColors.primaryMain, opacity: 1, lineWidth: 1.2 }
+                    { name: "Верхняя поверхность", points: rawHorTopH || [], color: themeColors.errorMain, opacity: 0.8, lineWidth: 0.6 },
+                    { name: "Середина листа", points: rawHorMidH || [], color: themeColors.successMain, opacity: 0.8, lineWidth: 0.6 },
+                    { name: "Нижняя поверхность", points: rawHorBotH || [], color: themeColors.primaryMain, opacity: 0.8, lineWidth: 0.6 },
+                    { name: "Верхняя поверхность пауза", points: rawHorTopP || [], color: themeColors.errorMain, opacity: 1, lineWidth: 1.2 },
+                    { name: "Середина листа пауза", points: rawHorMidP || [], color: themeColors.successMain, opacity: 1, lineWidth: 1.2 },
+                    { name: "Нижняя поверхность пауза", points: rawHorBotP || [], color: themeColors.primaryMain, opacity: 1, lineWidth: 1.2 }
                 ],
                 axes: { x: { unit: "mm", lines: xLinesHor, ranges: [] }, y: commonYAxis }
             },
@@ -449,26 +404,27 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 showPoints: false,
                 axes: {
                     x: { unit: "mm", lines: xLinesCont, ranges: [] },
-                    y: { unit: "mm", min: xCoordinatesMm[xCoordinatesMm.length - 1], max: 0, lines: [{ value: xCoordinatesMm[xCoordinatesMm.length - 1] / 2, color: alpha(themeColors.divider, 0.3) }, { value: xCoordinatesMm[xCoordinatesMm.length - 1] * matKFactor, color: themeColors.infoMain, label: `K = ${matKFactor}` }], ranges: [] }
+                    y: { unit: "mm", min: lastXCoord, max: 0, lines: [{ value: lastXCoord / 2, color: alpha(themeColors.divider, 0.3) }, { value: lastXCoord * matKFactor, color: themeColors.infoMain, label: `K = ${matKFactor}` }], ranges: [] }
                 },
                 fillPolygons: fillPolygons
             }
         };
     }, [result2D, themeColors, commonYAxis, matKFactor]);
 
-    const plasticZoneWidthCalculated = useMemo(() => {
-        return chartsBundle?.xTgPauseValue !== undefined && chartsBundle?.xTgPauseValue !== null
-            ? chartsBundle.xTgPauseValue * 2
-            : null;
-    }, [chartsBundle?.xTgPauseValue]);
+    const plasticZoneWidthCalculated = useMemo(
+        () => calculatePlasticZoneWidth(chartsBundle?.xTgPauseValue),
+        [chartsBundle?.xTgPauseValue]
+    );
 
-    const maxRadiusCalculated = useMemo(() => {
-        if (machineParams?.bendAngle == null || plasticZoneWidthCalculated == null) return null;
-        const turnAngleRad = (Number(machineParams.bendAngle) * Math.PI) / 180;
-        if (turnAngleRad <= 0) return 0;
-        const rInnerMax = (plasticZoneWidthCalculated / turnAngleRad) - (matKFactor * profileThickness);
-        return rInnerMax > 0 ? rInnerMax : 0;
-    }, [plasticZoneWidthCalculated, machineParams?.bendAngle, profileThickness, matKFactor]);
+    const maxRadiusCalculated = useMemo(
+        () => calculateMaxInnerRadius(
+            plasticZoneWidthCalculated,
+            machineParams?.bendAngle,
+            profileThickness,
+            matKFactor
+        ),
+        [plasticZoneWidthCalculated, machineParams?.bendAngle, profileThickness, matKFactor]
+    );
 
     return (
         <Box className="bend-preview" sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -507,13 +463,12 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                 className="bend-preview-bottom"
                 sx={{
                     display: "flex",
-                    flexDirection: "column", // ВСЕГДА в столбик: параметры сверху, графики снизу
+                    flexDirection: "column",
                     width: "100%",
-                    gap: 3, // Увеличил отступ между параметрами и графиками для читаемости
+                    gap: 3,
                     mt: 1
                 }}
             >
-                {/* ВЕРХНИЙ БЛОК: ПАРАМЕТРЫ */}
                 <Box sx={{ width: "100%" }}>
                     <Parameters
                         width={profileWidth}
@@ -532,18 +487,14 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     />
                 </Box>
 
-                {/* НИЖНИЙ БЛОК: ГРАФИКИ И ЗАГРУЗКА */}
                 <Box sx={{ width: "100%", position: "relative" }}>
-
-                    {/* Контейнер для графиков */}
                     <Box
                         sx={{
                             display: "flex",
                             flexWrap: "wrap",
-                            // На ПК (md) графики стоят в ряд, на мобильных (xs) — строго в столбик по центру
                             flexDirection: { xs: "column", md: "row" },
                             alignItems: { xs: "center", md: "flex-start" },
-                            justifyContent: "center", // Центрируем графики по ширине на любых экранах
+                            justifyContent: "center",
                             gap: 2,
                             width: "100%",
                             opacity: isCalculating ? 0.4 : 1,
@@ -555,7 +506,8 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                         {showVerticalSlice && chartsBundle?.chart1 && (
                             <Box sx={{ width: { xs: "100%", md: "auto" }, display: "flex", justifyContent: "center" }}>
                                 <SvgLineChart chart={chartsBundle.chart1} />
-                            </Box> )}
+                            </Box>
+                        )}
 
                         {showTimeDynamics && chart2Data && (
                             <Box sx={{ width: { xs: "100%", md: "auto" }, display: "flex", justifyContent: "center" }}>
@@ -576,7 +528,6 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                         )}
                     </Box>
 
-                    {/* ИНДИКАТОР ЗАГРУЗКИ */}
                     {isCalculating && (
                         <Box
                             sx={{
@@ -607,8 +558,6 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, rotatio
                     )}
                 </Box>
             </Box>
-
-
         </Box>
     );
 };

@@ -30,6 +30,11 @@ import {
 } from "./Calculations";
 import buildProfileGeometry from "./BuildProfileGeometry";
 import {
+    getShelfVector,
+    getPreferredSide,
+    calculateBendView
+} from "./profileViewMath";
+import {
     setProfile
 } from "../../Store/bendingSlice";
 import {
@@ -93,8 +98,12 @@ const INITIAL_STATE={
         stopAtMaxTemperature: true,
         maxTimeSeconds: 1800,
 
+        // ПАРАМЕТРЫ ДЛЯ ДВИЖКА ТОЧНОСТИ ВЫЧИСЛЕНИЙ
+        accuracyMode: "optimal",          // Режим по умолчанию ("fast", "optimal", "accurate")
+        calculateAccuracyError: true,     // Включен ли расчет погрешности по умолчанию
+
         // --- Флаг движка (управляется автоматически через ui.showTimeDynamics) ---
-        recordHistory: false,
+        recordHistory: true,              // Выставили true, так как ниже showTimeDynamics: true
 
         // --- Флаги отображения графиков (управление из интерфейса) ---
         ui: {
@@ -134,178 +143,6 @@ const setByPath=(object,path,value)=>{
     current[path[path.length-1]]=value;
 
     return result;
-};
-
-
-const getShelfVector=(geometry,index,fromEnd=false)=>{
-    const p1=geometry.sideA?.[index];
-    const p2=geometry.sideA?.[index+1];
-
-    if(!p1||!p2){
-        return null;
-    }
-
-    return fromEnd
-        ?{
-            x:p1.x-p2.x,
-            y:p1.y-p2.y
-        }
-        :{
-            x:p2.x-p1.x,
-            y:p2.y-p1.y
-        };
-};
-
-
-const getPreferredSide=(shelves,index)=>{
-    const before=shelves.slice(0,index+1);
-    const after=shelves.slice(index+1);
-
-    const beforeLength=before.reduce(
-        (sum,s)=>sum+Number(s.length||0),
-        0
-    );
-
-    const afterLength=after.reduce(
-        (sum,s)=>sum+Number(s.length||0),
-        0
-    );
-
-    if(beforeLength<afterLength){
-        return "fromStart";
-    }
-
-    if(beforeLength>afterLength){
-        return "toEnd";
-    }
-
-    return before.length<=after.length
-        ?"fromStart"
-        :"toEnd";
-};
-
-
-const getViewRotation=(
-    geometry,
-    index,
-    side,
-    mirrored,
-    currentRotation
-)=>{
-    const shelfIndex=
-        side==="fromStart"
-            ?index
-            :index+1;
-
-    let vector=getShelfVector(
-        geometry,
-        shelfIndex
-    );
-
-    if(!vector){
-        return currentRotation;
-    }
-
-    if(mirrored){
-        vector={
-            x:-vector.x,
-            y:vector.y
-        };
-    }
-
-    let angle=
-        Math.atan2(
-            vector.y,
-            vector.x
-        )*180/Math.PI;
-
-    if(side==="fromStart"){
-        angle+=180;
-    }
-
-    return-angle;
-};
-
-
-const isOppositeShelfDown=(
-    geometry,
-    index,
-    side,
-    mirrored,
-    rotation
-)=>{
-    const oppositeIndex=
-        side==="fromStart"
-            ?index+1
-            :index;
-
-    let vector=getShelfVector(
-        geometry,
-        oppositeIndex,
-        side==="toEnd"
-    );
-
-    if(!vector){
-        return false;
-    }
-
-    if(mirrored){
-        vector={
-            x:-vector.x,
-            y:vector.y
-        };
-    }
-
-    const rad=
-        rotation*Math.PI/180;
-
-    const y=
-        vector.x*Math.sin(rad)+
-        vector.y*Math.cos(rad);
-
-    return y>0;
-};
-
-
-const calculateBendView=(
-    geometry,
-    index,
-    side,
-    mirrored,
-    currentRotation
-)=>{
-    let rotation=getViewRotation(
-        geometry,
-        index,
-        side,
-        mirrored,
-        currentRotation
-    );
-
-    if(
-        isOppositeShelfDown(
-            geometry,
-            index,
-            side,
-            mirrored,
-            rotation
-        )
-    ){
-        mirrored=!mirrored;
-
-        rotation=getViewRotation(
-            geometry,
-            index,
-            side,
-            mirrored,
-            currentRotation
-        );
-    }
-
-    return{
-        rotation,
-        mirrored
-    };
 };
 
 
@@ -1086,7 +923,6 @@ export default function Biegeberechnung(){
                     <BendingPreview
                         profile={geometryProfile}
                         geometry={builtGeometry}
-                        machine={machine}
                         blankLength={blankLength}
                         machineParams={machineParams}
                         simulation={simulation}

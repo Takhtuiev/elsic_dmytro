@@ -88,6 +88,8 @@ self.onmessage = (event) => {
             }
         });
 
+        //console.log(result2D)
+
         // Формируем легкий объект ответа БЕЗ свойства temperatureProfile
         const metaData = {
             heatingTimeSeconds: result2D?.heatingTimeSeconds,

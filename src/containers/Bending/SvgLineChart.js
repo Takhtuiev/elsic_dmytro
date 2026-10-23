@@ -448,7 +448,7 @@ const SvgLineChart = ({ chart }) => {
     const chartData = useMemo(() => {
 
 
-        if (!chart || !Array.isArray(chart.graphs) || !chart.graphs.length) return null;
+        if (!chart) return null;
 
         const xAxis = chart.axes?.x || {};
         const yAxis = chart.axes?.y || {};
@@ -473,7 +473,7 @@ const SvgLineChart = ({ chart }) => {
                 showMarker: graph.showMarker !== false,
             }));
 
-        if (!graphs.length) return null;
+        //if (!graphs.length) return null;
 
         const width = 300;
         const height = 150;
