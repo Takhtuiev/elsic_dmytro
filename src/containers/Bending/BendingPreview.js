@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Box, LinearProgress, Typography, useTheme } from "@mui/material";
+import {Box, LinearProgress, Typography, useTheme} from "@mui/material";
 import { alpha } from "@mui/material/styles";
 
 import BendProfileRender from "./BendProfileRender";
@@ -525,45 +525,38 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
                 </Box>
 
                 <Box sx={{ width: "100%", position: "relative" }}>
-                    <Box
-                        sx={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            flexDirection: "row", // Убираем переключение на column, работаем через ширину элементов
-                            alignItems: "stretch", // Графики в одном ряду будут одинаковой высоты
-                            justifyContent: "center",
-                            gap: 2,
-                            width: "100%",
-                            opacity: isCalculating ? 0.4 : 1,
-                            filter: isCalculating ? "blur(1px)" : "none",
-                            transition: "all 0.3s ease",
-                            pointerEvents: isCalculating ? "none" : "auto"
-                        }}
-                    >
-                        {showVerticalSlice && chartsBundle?.chart1 && (
-                            <Box sx={{ width: { xs: "100%", md: "calc(50% - 8px)" }, display: "flex", justifyContent: "center" }}>
-                                <SvgLineChart chart={chartsBundle.chart1} minWidth={320} minHeight={160} />
-                            </Box>
-                        )}
 
-                        {showTimeDynamics && chart2Data && (
-                            <Box sx={{ width: { xs: "100%", md: "calc(50% - 8px)" }, display: "flex", justifyContent: "center" }}>
-                                <SvgLineChart chart={chart2Data} minWidth={320} minHeight={160} />
-                            </Box>
-                        )}
+                    <Box sx={{ width: "100%", position: "relative" }}>
+                        <Box
+                            sx={{
+                                display: "grid",
+                                gridTemplateColumns: { xs: "100%", md: "repeat(2, 1fr)" },
+                                gap: 2,
+                                width: "100%",
+                                opacity: isCalculating ? 0.4 : 1,
+                                filter: isCalculating ? "blur(1px)" : "none",
+                                transition: "all 0.3s ease",
+                                pointerEvents: isCalculating ? "none" : "auto"
+                            }}
+                        >
+                            {showVerticalSlice && chartsBundle?.chart1 && (
+                                <SvgLineChart chart={chartsBundle.chart1} maxHeight={150} />
+                            )}
 
-                        {showHorizontalWidth && chartsBundle?.chart3 && (
-                            <Box sx={{ width: { xs: "100%", md: "calc(50% - 8px)" }, display: "flex", justifyContent: "center" }}>
-                                <SvgLineChart chart={chartsBundle.chart3} minWidth={320} minHeight={160} />
-                            </Box>
-                        )}
+                            {showTimeDynamics && chart2Data && (
+                                <SvgLineChart chart={chart2Data} maxHeight={150} />
+                            )}
 
-                        {showContours2D && chartsBundle?.chart4 && (
-                            <Box sx={{ width: { xs: "100%", md: "calc(50% - 8px)" }, display: "flex", justifyContent: "center" }}>
-                                <SvgLineChart chart={chartsBundle.chart4} minWidth={320} minHeight={160} />
-                            </Box>
-                        )}
+                            {showHorizontalWidth && chartsBundle?.chart3 && (
+                                <SvgLineChart chart={chartsBundle.chart3} maxHeight={150} />
+                            )}
+
+                            {showContours2D && chartsBundle?.chart4 && (
+                                <SvgLineChart chart={chartsBundle.chart4} maxHeight={150} />
+                            )}
+                        </Box>
                     </Box>
+
 
 
                     {isCalculating && (

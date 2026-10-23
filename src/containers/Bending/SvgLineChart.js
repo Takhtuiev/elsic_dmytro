@@ -1,39 +1,25 @@
-import React, {useMemo } from "react";
-import { Paper, useTheme} from "@mui/material";
+import React, { useMemo, useState, useEffect, useRef } from "react";
+import { Paper, useTheme } from "@mui/material";
 
 // --- Константы конфигурации ---
-const GRID_STEP_C = 10;                     // Шаг сетки по оси Y (например, каждые 10 градусов)
-const LABEL_DISTANCES = [5, 9, 13];         // Набор базовых дистанций для поиска оптимального положения метки
-const LABEL_RAY_DISTANCE = 4;               // Модификатор дистанции в зависимости от угла наклона выноски
-const LABEL_ACCEPTABLE_SCORE = 30;          // Порог штрафных баллов, при котором положение метки считается идеальным и поиск прекращается
-const Y_AXIS_LABEL_MIN_DISTANCE = 8;       // Минимальный вертикальный зазор между подписями на оси Y во избежание наложения
-const X_AXIS_LABEL_MIN_DISTANCE = 18;       // Минимальный горизонтальный зазор между подписями на оси X
-const X_AXIS_LABEL_OFFSET = 5;             // Смещение подписей оси X относительно нижней границы графика
-const Y_AXIS_LABEL_OFFSET = 5;             // Смещение подписей оси Y относительно левой/правой границы графика
-const LIMIT_RANGE_OPACITY = 0.06;           // Прозрачность фоновых прямоугольников ограничивающих зон (Ranges)
+const GRID_STEP_C = 10;
+const LABEL_DISTANCES = [5, 9, 13];
+const LABEL_RAY_DISTANCE = 4;
+const LABEL_ACCEPTABLE_SCORE = 30;
+const Y_AXIS_LABEL_MIN_DISTANCE = 12;
+const X_AXIS_LABEL_MIN_DISTANCE = 35;
+const X_AXIS_LABEL_OFFSET = 5;
+const Y_AXIS_LABEL_OFFSET = 5;
+const LIMIT_RANGE_OPACITY = 0.06;
+const SHOW_ALL_POINTS = true;
 
-const SHOW_ALL_POINTS = true; // true — показывать все точки, false — только крайние, минимум и максимум
-
-// --- Коэффициенты штрафов (Жадный алгоритм авторазмещения меток) ---
 const LABEL_PENALTIES = {
-    placedOverlap: 10000,       // Пересечение с уже размещенной меткой (критическая ошибка)
-    placedNear: 50,             // Нахождение слишком близко к другой метке (менее 4px)
-    curveOverlap: 5000,         // Пересечение прямоугольника метки с линиями графиков
-    pointInside: 1000,          // Точка данных оказалась внутри текста самой метки
-    leftOverflow: 3000,         // Выход за левую границу координатовой сетки графика
-    rightOverflow: 4000,           // Выход за правую границу координатовой сетки графика
-    topOverflow: 200,           // Выход за верхнюю границу сетки
-    bottomOverflow: 300,        // Выход за нижнюю границу сетки
-    labelAreaOverflow: 10000,   // Выход метки за физические пределы самого SVG-контейнера
-    direction: 20,              // Отклонение от предпочтительного (оптимального) угла выноски
-    oppositeDirection: 100,     // Разворот выноски в противоположную от оптимальной сторону
-    rayDistance: 3,             // Слишком длинная линия выноски (штрафуется квадрат расстояния)
-    distance: 5,                // Штраф за выбор большего расстояния из LABEL_DISTANCES
-    rayCross: 400,              // Пересечение линии текущей выноски с линией уже существующей выноски
-    rayGraphCross: 2500,        // Пересечение линии выноски с чужими (другими) линиями графиков
+    placedOverlap: 10000, placedNear: 50, curveOverlap: 5000, pointInside: 1000,
+    leftOverflow: 3000, rightOverflow: 4000, topOverflow: 200, bottomOverflow: 300,
+    labelAreaOverflow: 10000, direction: 20, oppositeDirection: 100, rayDistance: 3,
+    distance: 5, rayCross: 400, rayGraphCross: 2500,
 };
 
-// --- Векторы направлений (16 радиальных направлений для выносок меток) ---
 const STATIC_DIRECTIONS = [
     { idx: 0, angle: 0, vx: 1, vy: 0 },
     { idx: 1, angle: 22.5, vx: 0.92387953251128, vy: 0.38268343236508 },
@@ -46,23 +32,17 @@ const STATIC_DIRECTIONS = [
     { idx: 8, angle: 180, vx: -1, vy: 0 },
     { idx: 9, angle: -157.5, vx: -0.92387953251128, vy: -0.38268343236508 },
     { idx: 10, angle: -135, vx: -0.70710678118654, vy: -0.70710678118654 },
-    { idx: 11, angle: -112.5, vx: -0.38268343251128, vy: -0.92387953251128 },
+    { idx: 11, angle: -112.5, vx: -0.38268343251128, vy: -0.92387953236508 },
     { idx: 12, angle: -90, vx: 0, vy: -1 },
     { idx: 13, angle: -67.5, vx: 0.38268343251128, vy: -0.92387953236508 },
     { idx: 14, angle: -45, vx: 0.70710678118654, vy: -0.70710678118654 },
     { idx: 15, angle: -22.5, vx: 0.92387953236508, vy: -0.38268343236508 },
 ];
 
-// --- Вспомогательные математические функции ---
-
 const getLabelSize = (p, yAxisUnit = "°") => {
     const fontSize = 9;
     const text = `${Math.round(p.val)}${yAxisUnit}`;
-    return {
-        fontSize,
-        textWidth: text.length * fontSize * 0.52,
-        textHeight: fontSize,
-    };
+    return { fontSize, textWidth: text.length * fontSize * 0.52, textHeight: fontSize };
 };
 
 const getRectWidth = (rect) => Math.max(0, rect.right - rect.left);
@@ -71,122 +51,127 @@ const getRectArea = (rect) => getRectWidth(rect) * getRectHeight(rect);
 const getRectDiagonal = (rect) => Math.hypot(getRectWidth(rect), getRectHeight(rect));
 const getSegmentLength = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
 
-const segmentIntersectsSegment = (x1, y1, x2, y2, x3, y3, x4, y4) => {
-    const cross = (ax, ay, bx, by) => ax * by - ay * bx;
-    const rX = x2 - x1; const rY = y2 - y1;
-    const sX = x4 - x3; const sY = y4 - y3;
-
-    const denominator = cross(rX, rY, sX, sY);
-    if (Math.abs(denominator) < 0.00001) return false;
-
-    const qpx = x3 - x1; const qpy = y3 - y1;
-    const t = cross(qpx, qpy, sX, sY) / denominator;
-    const u = cross(qpx, qpy, rX, rY) / denominator;
-
-    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
-};
 
 const getRayToRectPerimeterDistance = (point, rect) => {
     const centerX = (rect.left + rect.right) * 0.5;
     const centerY = (rect.top + rect.bottom) * 0.5;
-    const rayX = centerX - point.x;
-    const rayY = centerY - point.y;
+    const rayX = centerX - point.x; const rayY = centerY - point.y;
     const rayLength = Math.hypot(rayX, rayY);
-
     if (rayLength < 0.00001) return 0;
-
-    const ux = rayX / rayLength;
-    const uy = rayY / rayLength;
+    const ux = rayX / rayLength; const uy = rayY / rayLength;
     let minT = Infinity;
-
     if (Math.abs(ux) > 0.00001) {
         const tLeft = (rect.left - point.x) / ux;
-        if (tLeft >= 0) {
-            const y = point.y + uy * tLeft;
-            if (y >= rect.top - 0.1 && y <= rect.bottom + 0.1) minT = Math.min(minT, tLeft);
-        }
+        if (tLeft >= 0) { const y = point.y + uy * tLeft; if (y >= rect.top - 0.1 && y <= rect.bottom + 0.1) minT = Math.min(minT, tLeft); }
         const tRight = (rect.right - point.x) / ux;
-        if (tRight >= 0) {
-            const y = point.y + uy * tRight;
-            if (y >= rect.top - 0.1 && y <= rect.bottom + 0.1) minT = Math.min(minT, tRight);
-        }
+        if (tRight >= 0) { const y = point.y + uy * tRight; if (y >= rect.top - 0.1 && y <= rect.bottom + 0.1) minT = Math.min(minT, tRight); }
     }
-
     if (Math.abs(uy) > 0.00001) {
         const tTop = (rect.top - point.y) / uy;
-        if (tTop >= 0) {
-            const x = point.x + ux * tTop;
-            if (x >= rect.left - 0.1 && x <= rect.right + 0.1) minT = Math.min(minT, tTop);
-        }
+        if (tTop >= 0) { const x = point.x + ux * tTop; if (x >= rect.left - 0.1 && x <= rect.right + 0.1) minT = Math.min(minT, tTop); }
         const tBottom = (rect.bottom - point.y) / uy;
-        if (tBottom >= 0) {
-            const x = point.x + ux * tBottom;
-            if (x >= rect.left - 0.1 && x <= rect.right + 0.1) minT = Math.min(minT, tBottom);
-        }
+        if (tBottom >= 0) { const x = point.x + ux * tBottom; if (x >= rect.left - 0.1 && x <= rect.right + 0.1) minT = Math.min(minT, tBottom); }
     }
-
     return Number.isFinite(minT) ? minT : rayLength;
 };
 
 const getSegmentRectOverlapRatio = (x1, y1, x2, y2, rect) => {
     const dx = x2 - x1; const dy = y2 - y1;
     if (Math.hypot(dx, dy) <= 0) return 0;
-
     let t0 = 0; let t1 = 1;
     const clip = (p, q) => {
         if (Math.abs(p) < 0.00001) return q >= 0;
         const r = q / p;
-        if (p < 0) {
-            if (r > t1) return false;
-            if (r > t0) t0 = r;
-        } else {
-            if (r < t0) return false;
-            if (r < t1) t1 = r;
-        }
+        if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+        else { if (r < t0) return false; if (r < t1) t1 = r; }
         return true;
     };
-
-    if (
-        !clip(-dx, x1 - rect.left) || !clip(dx, rect.right - x1) ||
-        !clip(-dy, y1 - rect.top) || !clip(dy, rect.bottom - y1)
-    ) {
-        return 0;
-    }
+    if (!clip(-dx, x1 - rect.left) || !clip(dx, rect.right - x1) || !clip(-dy, y1 - rect.top) || !clip(dy, rect.bottom - y1)) return 0;
     return Math.max(0, t1 - t0);
 };
 
 const getRectOverlapRatio = (a, b) => {
     const overlapWidth = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
     if (overlapWidth <= 0) return 0;
-
     const overlapHeight = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
     if (overlapHeight <= 0) return 0;
-
-    const overlapArea = overlapWidth * overlapHeight;
     const referenceArea = Math.min(getRectArea(a), getRectArea(b));
-
     if (referenceArea <= 0) return 0;
-    return Math.min(1, overlapArea / referenceArea);
+    return Math.min(1, (overlapWidth * overlapHeight) / referenceArea);
 };
 
 const getRectGapPenalty = (a, b) => {
     const overlapRatio = getRectOverlapRatio(a, b);
     if (overlapRatio > 0) return overlapRatio * LABEL_PENALTIES.placedOverlap;
-
-    const gapX = Math.max(b.left - a.right, a.left - b.right, 0);
-    const gapY = Math.max(b.top - a.bottom, a.top - b.bottom, 0);
-
-    return gapX < 4 && gapY < 4 ? LABEL_PENALTIES.placedNear : 0;
+    return Math.max(b.left - a.right, a.left - b.right, 0) < 4 && Math.max(b.top - a.bottom, a.top - b.bottom, 0) < 4 ? LABEL_PENALTIES.placedNear : 0;
 };
 
-// --- SvgLineChart.jsx ---
+const getSegmentRectOverlapPenalty = (overlapPixels, rect, penalty) => {
+    if (overlapPixels <= 0) return 0;
+    const referenceLength = getRectDiagonal(rect);
+    if (referenceLength <= 0) return 0;
+
+    return Math.min(1, overlapPixels / referenceLength) * penalty;
+};
+
+const getOverflowRatio = (rect, side, boundary) => {
+    let overflow = 0; let reference = 0;
+    if (side === "left") { overflow = Math.max(0, boundary - rect.left); reference = getRectWidth(rect); }
+    else if (side === "right") { overflow = Math.max(0, rect.right - boundary); reference = getRectWidth(rect); }
+    else if (side === "top") { overflow = Math.max(0, boundary - rect.top); reference = getRectHeight(rect); }
+    else if (side === "bottom") { overflow = Math.max(0, rect.bottom - boundary); reference = getRectHeight(rect); }
+    if (reference <= 0) return 0;
+    return Math.min(1, overflow / reference);
+};
+
+const getOverflowPenalty = (rect, plotLeft, plotRight, plotTop, plotBottom) => {
+    return (
+        getOverflowRatio(rect, "left", plotLeft) * LABEL_PENALTIES.leftOverflow +
+        getOverflowRatio(rect, "right", plotRight) * LABEL_PENALTIES.rightOverflow +
+        getOverflowRatio(rect, "top", plotTop) * LABEL_PENALTIES.topOverflow +
+        getOverflowRatio(rect, "bottom", plotBottom) * LABEL_PENALTIES.bottomOverflow
+    );
+};
+
+const segmentIntersectsSegment = (a, b, c, d, eps = 1e-9) => {
+    const cross = (p, q, r) =>
+        (q[0] - p[0]) * (r[1] - p[1]) -
+        (q[1] - p[1]) * (r[0] - p[0]);
+
+    const onSegment = (p, q, r) =>
+        r[0] >= Math.min(p[0], q[0]) - eps &&
+        r[0] <= Math.max(p[0], q[0]) + eps &&
+        r[1] >= Math.min(p[1], q[1]) - eps &&
+        r[1] <= Math.max(p[1], q[1]) + eps;
+
+    const o1 = cross(a, b, c);
+    const o2 = cross(a, b, d);
+    const o3 = cross(c, d, a);
+    const o4 = cross(c, d, b);
+
+    if (
+        ((o1 > eps && o2 < -eps) || (o1 < -eps && o2 > eps)) &&
+        ((o3 > eps && o4 < -eps) || (o3 < -eps && o4 > eps))
+    ) {
+        return true;
+    }
+
+    return (
+        (Math.abs(o1) <= eps && onSegment(a, b, c)) ||
+        (Math.abs(o2) <= eps && onSegment(a, b, d)) ||
+        (Math.abs(o3) <= eps && onSegment(c, d, a)) ||
+        (Math.abs(o4) <= eps && onSegment(c, d, b))
+    );
+};
 
 const getCurveOverlap = (graph, rect, xs, ys) => {
     const curve = graph.points;
     let totalPixelsInside = 0;
 
-    const rLeft = rect.left; const rRight = rect.right;
-    const rTop = rect.top; const rBottom = rect.bottom;
+    const rLeft = rect.left;
+    const rRight = rect.right;
+    const rTop = rect.top;
+    const rBottom = rect.bottom;
 
     if (!curve || !curve.length) return 0;
 
@@ -201,9 +186,8 @@ const getCurveOverlap = (graph, rect, xs, ys) => {
     let y1 = ys(curve[startIdx][1]);
 
     for (let i = startIdx; i < curve.length - 1; i++) {
-        // 🌟 ИСПРАВЛЕНИЕ: Если текущая или следующая точка — null (разделитель), пропускаем итерацию
+        // Если текущая или следующая точка — null (разделитель), пропускаем итерацию
         if (!curve[i] || !curve[i + 1] || !Array.isArray(curve[i]) || !Array.isArray(curve[i + 1])) {
-            // Переинициализируем x1, y1 следующей валидной точкой, если она есть
             if (curve[i + 1] && Array.isArray(curve[i + 1])) {
                 x1 = xs(curve[i + 1][0]);
                 y1 = ys(curve[i + 1][1]);
@@ -219,8 +203,10 @@ const getCurveOverlap = (graph, rect, xs, ys) => {
         const segTop = y1 < y2 ? y1 : y2;
         const segBottom = y1 > y2 ? y1 : y2;
 
+        // Быстрый отсекающий тест по ограничивающему боксу (bounding box) сегмента
         if (segRight < rLeft || segLeft > rRight || segBottom < rTop || segTop > rBottom) {
-            x1 = x2; y1 = y2;
+            x1 = x2;
+            y1 = y2;
             continue;
         }
 
@@ -228,7 +214,8 @@ const getCurveOverlap = (graph, rect, xs, ys) => {
         if (length > 0) {
             totalPixelsInside += length * getSegmentRectOverlapRatio(x1, y1, x2, y2, rect);
         }
-        x1 = x2; y1 = y2;
+        x1 = x2;
+        y1 = y2;
     }
     return totalPixelsInside;
 };
@@ -241,214 +228,100 @@ const getCurveOverlapPenalty = (overlapPixels, rect) => {
     return Math.min(1, overlapPixels / referenceLength) * LABEL_PENALTIES.curveOverlap;
 };
 
-const getSegmentRectOverlapPenalty = (overlapPixels, rect, penalty) => {
-    if (overlapPixels <= 0) return 0;
-    const referenceLength = getRectDiagonal(rect);
-    if (referenceLength <= 0) return 0;
-
-    return Math.min(1, overlapPixels / referenceLength) * penalty;
-};
-
-const getOverflowRatio = (rect, side, boundary) => {
-    let overflow = 0; let reference = 0;
-
-    if (side === "left") {
-        overflow = Math.max(0, boundary - rect.left);
-        reference = getRectWidth(rect);
-    } else if (side === "right") {
-        overflow = Math.max(0, rect.right - boundary);
-        reference = getRectWidth(rect);
-    } else if (side === "top") {
-        overflow = Math.max(0, boundary - rect.top);
-        reference = getRectHeight(rect);
-    } else if (side === "bottom") {
-        overflow = Math.max(0, rect.bottom - boundary);
-        reference = getRectHeight(rect);
-    }
-
-    if (reference <= 0) return 0;
-    return Math.min(1, overflow / reference);
-};
-
-const getOverflowPenalty = (rect, plotLeft, plotRight, plotTop, plotBottom) => {
-    const leftRatio = getOverflowRatio(rect, "left", plotLeft);
-    const rightRatio = getOverflowRatio(rect, "right", plotRight);
-    const topRatio = getOverflowRatio(rect, "top", plotTop);
-    const bottomRatio = getOverflowRatio(rect, "bottom", plotBottom);
-
-    return (
-        leftRatio * LABEL_PENALTIES.leftOverflow +
-        rightRatio * LABEL_PENALTIES.rightOverflow +
-        topRatio * LABEL_PENALTIES.topOverflow +
-        bottomRatio * LABEL_PENALTIES.bottomOverflow
-    );
-};
-
 const buildLimitData = ({ axis, lines, ranges, mapValue, minValue, maxValue, plotStart, plotEnd }) => {
-
-
     const limitLines = [
         ...(Array.isArray(lines) ? lines : []),
-        ...(Array.isArray(ranges) ? ranges.flatMap(range => [
-            { value: range.from, color: range.color },
-            { value: range.to, color: range.color }
-        ]) : []),
+        ...(Array.isArray(ranges) ? ranges.flatMap(range => [{ value: range.from, color: range.color }, { value: range.to, color: range.color }]) : []),
     ].filter(line => typeof line?.value === "number" && Number.isFinite(line.value));
 
-    if (!limitLines.some(line => line.value === minValue)) {
-        limitLines.push({ value: minValue });
-    }
-    if (!limitLines.some(line => line.value === maxValue)) {
-        limitLines.push({ value: maxValue });
-    }
+    if (!limitLines.some(line => line.value === minValue)) limitLines.push({ value: minValue });
+    if (!limitLines.some(line => line.value === maxValue)) limitLines.push({ value: maxValue });
 
-    const limitRanges = Array.isArray(ranges)
-        ? ranges.filter(range => typeof range?.from === "number" && typeof range?.to === "number" && Number.isFinite(range.from) && Number.isFinite(range.to) && range.from !== range.to)
-        : [];
+    const limitRanges = Array.isArray(ranges) ? ranges.filter(range => typeof range?.from === "number" && typeof range?.to === "number" && Number.isFinite(range.from) && Number.isFinite(range.to) && range.from !== range.to) : [];
 
-    const lineData = limitLines
-        .map((line, index) => {
-            const coordinate = mapValue(line.value);
-            return {
-                ...line,
-                index,
-                x: axis === "x" ? coordinate : undefined,
-                y: axis === "y" ? coordinate : undefined,
-                visible: Number.isFinite(coordinate) && line.value >= minValue && line.value <= maxValue,
-            };
-        })
-        .filter(line => line.visible);
+    const lineData = limitLines.map((line, index) => {
+        const coordinate = mapValue(line.value);
+        return { ...line, index, x: axis === "x" ? coordinate : undefined, y: axis === "y" ? coordinate : undefined, visible: Number.isFinite(coordinate) && line.value >= minValue && line.value <= maxValue };
+    }).filter(line => line.visible);
 
-    const rangeData = limitRanges
-        .map((range, index) => {
-            const lowValue = Math.min(range.from, range.to);
-            const highValue = Math.max(range.from, range.to);
-            const rawStart = mapValue(lowValue);
-            const rawEnd = mapValue(highValue);
-
-            const start = Math.max(plotStart, Math.min(plotEnd, Math.min(rawStart, rawEnd)));
-            const end = Math.max(plotStart, Math.min(plotEnd, Math.max(rawStart, rawEnd)));
-
-            return {
-                ...range,
-                index,
-                lowValue,
-                highValue,
-                start,
-                end,
-                visible: lowValue <= maxValue && highValue >= minValue,
-            };
-        })
-        .filter(range => range.visible && range.end > range.start);
+    const rangeData = limitRanges.map((range, index) => {
+        const lowValue = Math.min(range.from, range.to); const highValue = Math.max(range.from, range.to);
+        const rawStart = mapValue(lowValue); const rawEnd = mapValue(highValue);
+        const start = Math.max(plotStart, Math.min(plotEnd, Math.min(rawStart, rawEnd)));
+        const end = Math.max(plotStart, Math.min(plotEnd, Math.max(rawStart, rawEnd)));
+        return { ...range, index, lowValue, highValue, start, end, visible: lowValue <= maxValue && highValue >= minValue };
+    }).filter(range => range.visible && range.end > range.start);
 
     return { lines: lineData, ranges: rangeData };
 };
 
 const makePath = (graph, xs, ys, xAbsoluteMin, xAbsoluteMax) => {
     if (!graph || !Array.isArray(graph.points) || !graph.points.length) return "";
-
-    // Распиливаем массив точек на независимые сегменты по разделителю null
-    const segments = [];
-    let currentSegment = [];
-
+    const segments = []; let currentSegment = [];
     graph.points.forEach(p => {
-        if (p === null) {
-            if (currentSegment.length >= 2) segments.push(currentSegment);
-            currentSegment = [];
-        } else {
-            currentSegment.push(p);
-        }
+        if (p === null) { if (currentSegment.length >= 2) segments.push(currentSegment); currentSegment = []; }
+        else { currentSegment.push(p); }
     });
     if (currentSegment.length >= 2) segments.push(currentSegment);
 
-    // Внутренний хелпер для генерации плавной кривой одной изолированной части
     const renderSegmentPath = (pointsList) => {
         const points = pointsList.filter(p => p && p[0] >= xAbsoluteMin && p[0] <= xAbsoluteMax);
         if (points.length < 2) return "";
-
-        const n = points.length;
-        const px = points.map(p => xs(p[0]));
-        const py = points.map(p => ys(p[1]));
-
-        const dx = new Array(n).fill(0);
-        const dy = new Array(n).fill(0);
-
+        const n = points.length; const px = points.map(p => xs(p[0])); const py = points.map(p => ys(p[1]));
+        const dx = new Array(n).fill(0); const dy = new Array(n).fill(0);
         for (let i = 0; i < n; i++) {
-            if (i === 0 || i === n - 1) {
-                dx[i] = 0; dy[i] = 0;
-            } else {
-                dx[i] = (px[i + 1] - px[i - 1]) / 2;
-                dy[i] = (py[i + 1] - py[i - 1]) / 2;
-            }
+            if (i === 0 || i === n - 1) { dx[i] = 0; dy[i] = 0; }
+            else { dx[i] = (px[i + 1] - px[i - 1]) / 2; dy[i] = (py[i + 1] - py[i - 1]) / 2; }
         }
-
         let d = `M ${px[0]} ${py[0]}`;
         for (let i = 0; i < n - 1; i++) {
-            let cp1x = px[i] + dx[i] / 3;
-            let cp1y = py[i] + dy[i] / 3;
-            let cp2x = px[i + 1] - dx[i + 1] / 3;
-            let cp2y = py[i + 1] - dy[i + 1] / 3;
-
-            const minX = Math.min(px[i], px[i + 1]);
-            const maxX = Math.max(px[i], px[i + 1]);
-            cp1x = Math.max(minX, Math.min(maxX, cp1x));
-            cp2x = Math.max(minX, Math.min(maxX, cp2x));
-
+            let cp1x = px[i] + dx[i] / 3; let cp1y = py[i] + dy[i] / 3;
+            let cp2x = px[i + 1] - dx[i + 1] / 3; let cp2y = py[i + 1] - dy[i + 1] / 3;
+            const minX = Math.min(px[i], px[i + 1]); const maxX = Math.max(px[i], px[i + 1]);
+            cp1x = Math.max(minX, Math.min(maxX, cp1x)); cp2x = Math.max(minX, Math.min(maxX, cp2x));
             d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${px[i + 1]},${py[i + 1]}`;
         }
         return d;
     };
-
-    // Склеиваем пути частей через пробел. SVG-команда "M" сбросит перо и начнет контур заново
-    return segments
-        .map(seg => renderSegmentPath(seg))
-        .filter(Boolean)
-        .join(" ")
-        .trim();
+    return segments.map(seg => renderSegmentPath(seg)).filter(Boolean).join(" ").trim();
 };
 
 const getOrderedDirections = (p, graphData, isPlotRightEdgeCheck, ys) => {
-    const currentGraph = graphData[p.graphIndex];
-    const currentCurve = currentGraph.points;
-    const isLeftEdge = p.id === 0;
-    const isRightEdge = isPlotRightEdgeCheck(p);
+    const currentGraph = graphData[p.graphIndex]; const currentCurve = currentGraph.points;
+    const isLeftEdge = p.id === 0; const isRightEdge = isPlotRightEdgeCheck(p);
     let preferredAngle = 0;
-
-    // Добавляем проверки Array.isArray для соседних точек, чтобы исключить null-разделители
-    if (!isLeftEdge && !isRightEdge &&
-        currentCurve[p.id - 1] && Array.isArray(currentCurve[p.id - 1]) &&
-        currentCurve[p.id + 1] && Array.isArray(currentCurve[p.id + 1])) {
-
-        const prevY = ys(currentCurve[p.id - 1][1]);
-        const nextY = ys(currentCurve[p.id + 1][1]);
-        const isPeak = p.y < prevY && p.y < nextY;
-        const isPit = p.y > prevY && p.y > nextY;
-
-        preferredAngle = isPeak ? -90 : isPit ? 90 : 0;
+    if (!isLeftEdge && !isRightEdge && currentCurve[p.id - 1] && Array.isArray(currentCurve[p.id - 1]) && currentCurve[p.id + 1] && Array.isArray(currentCurve[p.id + 1])) {
+        const prevY = ys(currentCurve[p.id - 1][1]); const nextY = ys(currentCurve[p.id + 1][1]);
+        preferredAngle = p.y < prevY && p.y < nextY ? -90 : p.y > prevY && p.y > nextY ? 90 : 0;
     }
-
     return [...STATIC_DIRECTIONS].sort((a, b) => {
-        let diffA = Math.abs(a.angle - preferredAngle);
-        let diffB = Math.abs(b.angle - preferredAngle);
-
-        if (diffA > 180) diffA = 360 - diffA;
-        if (diffB > 180) diffB = 360 - diffB;
-
-        return diffA - diffB;
+        let diffA = Math.abs(a.angle - preferredAngle); let diffB = Math.abs(b.angle - preferredAngle);
+        return (diffA > 180 ? 360 - diffA : diffA) - (diffB > 180 ? 360 - diffB : diffB);
     });
 };
 
-
-// --- Основной графический компонент ---
-
-const SvgLineChart = ({ chart, minWidth = 300, minHeight = 150 }) => {
-
+const SvgLineChart = ({ chart, maxHeight }) => {
     const theme = useTheme();
+    const containerRef = useRef(null);
+    const [dimensions, setDimensions] = useState({ width: 300, height: 150 });
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+        const observer = new ResizeObserver((entries) => {
+            if (!entries || !entries.length) return;
+            const { width, height } = entries[0].contentRect;
+            if (width && height) {
+                setDimensions({ width, height });
+            }
+        });
+        observer.observe(containerRef.current);
+        return () => observer.disconnect();
+    }, []);
 
     const chartData = useMemo(() => {
-
-
         if (!chart) return null;
+
+        const { width, height } = dimensions;
 
         const xAxis = chart.axes?.x || {};
         const yAxis = chart.axes?.y || {};
@@ -461,638 +334,308 @@ const SvgLineChart = ({ chart, minWidth = 300, minHeight = 150 }) => {
             .map((graph, index) => ({
                 ...graph,
                 index,
-                points: graph.points.map(point => {
-                    // 🔴 Если точка — разделитель null, возвращаем null в массив как есть
-                    if (point === null) return null;
-                    // Очищаем только реальные массивы координат [x, y]
-                    return [Number(point[0]), Number(point[1])];
-                }),
+                points: graph.points.map(point => point === null ? null : [Number(point[0]), Number(point[1])]),
                 color: graph.color || theme.palette.text.primary,
                 opacity: typeof graph.opacity === "number" ? Math.max(0, Math.min(1, graph.opacity)) : 1,
                 lineWidth: typeof graph.lineWidth === "number" && graph.lineWidth > 0 ? graph.lineWidth : 2,
                 showMarker: graph.showMarker !== false,
             }));
 
-        //if (!graphs.length) return null;
-
-        const width = 300;
-        const height = 150;
-        const pad = { left: 26, right: 26, top: 22, bottom: 22 };
+        const pad = { left: 32, right: 32, top: 16, bottom: 20 };
         const wPlot = width - pad.left - pad.right;
         const hPlot = height - pad.top - pad.bottom;
 
-        const xMinRaw = typeof xAxis.min === "number" ? xAxis.min : null;
-        const xMaxRaw = typeof xAxis.max === "number" ? xAxis.max : null;
-
-        let xMin = xMinRaw;
-        let xMax = xMaxRaw;
+        let xMin = typeof xAxis.min === "number" ? xAxis.min : null;
+        let xMax = typeof xAxis.max === "number" ? xAxis.max : null;
 
         if (xMin === null || xMax === null) {
             const graphXRanges = graphs.map(graph => {
-                // 👇 ДОБАВЛЕН ФИЛЬТР: оставляем только реальные массивы точек, игнорируя null
                 const validPoints = (graph.points || []).filter(p => p && Array.isArray(p));
-
                 if (validPoints.length === 0) return { start: 0, end: 0 };
-
-                const xValues = validPoints.map(p => p[0]);
-                return { start: Math.min(...xValues), end: Math.max(...xValues) };
+                return { start: Math.min(...validPoints.map(p => p[0])), end: Math.max(...validPoints.map(p => p[0])) };
             });
-
             if (xMin === null) xMin = Math.min(...graphXRanges.map(r => r.start));
             if (xMax === null) xMax = Math.max(...graphXRanges.map(r => r.end));
         }
 
         const xAbsoluteMin = Math.min(xMin, xMax);
         const xAbsoluteMax = Math.max(xMin, xMax);
-
         const xs = (x) => pad.left + ((x - xMin) / (xMax - xMin || 1)) * wPlot;
-        const xCenter = xs((xMin + xMax) * 0.5);
 
         let tMin = typeof yAxis.min === "number" ? yAxis.min : null;
         let tMax = typeof yAxis.max === "number" ? yAxis.max : null;
 
         if (tMin === null || tMax === null) {
-            // 👇 БЕЗОПАСНЫЙ ВАРИАНТ: фильтруем null-точки перед чтением p[1]
-            const allValues = graphs.flatMap(graph =>
-                (graph.points || [])
-                    .filter(p => p && Array.isArray(p))
-                    .map(p => p[1])
-            );
+            const allValues = graphs.flatMap(graph => (graph.points || []).filter(p => p && Array.isArray(p)).map(p => p[1]));
             const yRanges = Array.isArray(yAxis.ranges) ? yAxis.ranges : [];
             const rangeValues = [...allValues, ...yRanges.flatMap(r => [r.from, r.to])].filter(Number.isFinite);
 
             if (rangeValues.length > 0) {
-                // Учитываем, что изначальные min/max из настроек осей могут быть инвертированы (например, min: thickness, max: 0)
-                const rawMin = Math.min(...rangeValues);
-                const rawMax = Math.max(...rangeValues);
-
-                tMin = typeof yAxis.min === "number" ? yAxis.min : Math.floor(rawMin / GRID_STEP_C) * GRID_STEP_C;
-                tMax = typeof yAxis.max === "number" ? yAxis.max : Math.ceil(rawMax / GRID_STEP_C) * GRID_STEP_C;
+                tMin = typeof yAxis.min === "number" ? yAxis.min : Math.floor(Math.min(...rangeValues) / GRID_STEP_C) * GRID_STEP_C;
+                tMax = typeof yAxis.max === "number" ? yAxis.max : Math.ceil(Math.max(...rangeValues) / GRID_STEP_C) * GRID_STEP_C;
             } else {
-                // Дефолтные значения на случай пустых графиков контуров
                 tMin = typeof yAxis.min === "number" ? yAxis.min : 0;
                 tMax = typeof yAxis.max === "number" ? yAxis.max : 100;
             }
         }
 
-// Корректно определяем границы для математических вычислений, даже если tMin > tMax
         const tAbsoluteMin = Math.min(tMin, tMax);
         const tAbsoluteMax = Math.max(tMin, tMax);
-
         const ys = (t) => pad.top + ((tMax - t) / (tMax - tMin || 1)) * hPlot;
 
-        const yLimits = buildLimitData({
-            axis: "y", lines: yAxis.lines, ranges: yAxis.ranges, mapValue: ys,
-            minValue: tAbsoluteMin, maxValue: tAbsoluteMax, plotStart: pad.top, plotEnd: pad.top + hPlot
-        });
-        const xLimits = buildLimitData({
-            axis: "x", lines: xAxis.lines, ranges: xAxis.ranges, mapValue: xs,
-            minValue: xAbsoluteMin, maxValue: xAbsoluteMax, plotStart: pad.left, plotEnd: pad.left + wPlot
-        });
+        const yLimits = buildLimitData({ axis: "y", lines: yAxis.lines, ranges: yAxis.ranges, mapValue: ys, minValue: tAbsoluteMin, maxValue: tAbsoluteMax, plotStart: pad.top, plotEnd: pad.top + hPlot });
+        const xLimits = buildLimitData({ axis: "x", lines: xAxis.lines, ranges: xAxis.ranges, mapValue: xs, minValue: xAbsoluteMin, maxValue: xAbsoluteMax, plotStart: pad.left, plotEnd: pad.left + wPlot });
 
-        const yLimitLineData = yLimits.lines;
-        const yLimitRangeData = yLimits.ranges;
-        const xLimitLineData = xLimits.lines;
-        const xLimitRangeData = xLimits.ranges;
-
-        const yLimitValues = [
-            ...(Array.isArray(yAxis.lines) ? yAxis.lines.map(l => l.value) : []),
-            ...(Array.isArray(yAxis.ranges) ? yAxis.ranges.flatMap(r => [r.from, r.to]) : [])
-        ];
-        const isSpecialTemperature = (t) => yLimitValues.some(v => Number.isFinite(v) && Math.abs(v - t) < 0.1);
+        const isSpecialTemperature = (t) => [...(Array.isArray(yAxis.lines) ? yAxis.lines.map(l => l.value) : []), ...(Array.isArray(yAxis.ranges) ? yAxis.ranges.flatMap(r => [r.from, r.to]) : [])].some(v => Number.isFinite(v) && Math.abs(v - t) < 0.1);
 
         const graphData = graphs.map(graph => {
             let minIdx = -1, maxIdx = -1, minV = Infinity, maxV = -Infinity;
-
             for (let i = 0; i < graph.points.length; i++) {
-                const p = graph.points[i];
-                // Добавлена строгая проверка структуры точки
-                if (!p || !Array.isArray(p) || p.length < 2) continue;
+                const p = graph.points[i]; if (!p || !Array.isArray(p)) continue;
                 if (p[0] < xAbsoluteMin || p[0] > xAbsoluteMax) continue;
-
-                const v = p[1];
-                if (v < minV) { minV = v; minIdx = i; }
-                if (v > maxV) { maxV = v; maxIdx = i; }
+                if (p[1] < minV) { minV = p[1]; minIdx = i; }
+                if (p[1] > maxV) { maxV = p[1]; maxIdx = i; }
             }
-
-            // Если валидных точек не найдено, ставим дефолтные безопасные индексы
-            if (minIdx === -1) minIdx = 0;
-            if (maxIdx === -1) maxIdx = 0;
-
-            return {
-                ...graph,
-                minIdx,
-                maxIdx,
-                minV: minV === Infinity ? Math.min(tMin, tMax) : minV,
-                maxV: maxV === -Infinity ? Math.max(tMin, tMax) : maxV,
-                path: makePath(graph, xs, ys, xAbsoluteMin, xAbsoluteMax)
-            };
+            if (minIdx === -1) minIdx = 0; if (maxIdx === -1) maxIdx = 0;
+            return { ...graph, minIdx, maxIdx, minV: minV === Infinity ? Math.min(tMin, tMax) : minV, maxV: maxV === -Infinity ? Math.max(tMin, tMax) : maxV, path: makePath(graph, xs, ys, xAbsoluteMin, xAbsoluteMax) };
         });
-
-
-        // --- Подготовка готовых полигонов заливки ---
-        // --- SvgLineChart.jsx ---
-
-// --- Подготовка готовых полигонов заливки из последовательности точек ---
-        // --- SvgLineChart.jsx -> блок fillPolygonsData ---
 
         const fillPolygonsData = (Array.isArray(chart.fillPolygons) ? chart.fillPolygons : [])
             .map((polygon, index) => {
                 if (!Array.isArray(polygon.points)) return null;
-
-                // 🌟 ИСПРАВЛЕНИЕ: Корректно проверяем элементы массива [0] и [1]
-                const validPoints = polygon.points.filter(
-                    point =>
-                        Array.isArray(point) &&
-                        point.length >= 2 &&
-                        Number.isFinite(point[0]) &&
-                        Number.isFinite(point[1])
-                );
-
+                const validPoints = polygon.points.filter(pt => Array.isArray(pt) && pt.length >= 2 && Number.isFinite(pt[0]) && Number.isFinite(pt[1]));
                 if (validPoints.length < 3) return null;
-
-                const pathString = validPoints
-                    .map((point, pointIndex) => {
-                        const tx = xs(point[0]); // 🌟 [0]
-                        const ty = ys(point[1]); // 🌟 [1]
-                        return `${pointIndex === 0 ? "M" : "L"} ${tx} ${ty}`;
-                    })
-                    .join(" ") + " Z";
-
-                return {
-                    id: polygon.key ?? `fill-polygon-${index}`,
-                    name: polygon.name,
-                    path: pathString,
-                    color: polygon.color || theme.palette.success.main,
-                    opacity: typeof polygon.opacity === "number" ? polygon.opacity : 0.15,
-                };
-            })
-            .filter(Boolean);
-
+                return { id: polygon.key ?? `fill-polygon-${index}`, name: polygon.name, path: validPoints.map((pt, ptIdx) => `${ptIdx === 0 ? "M" : "L"} ${xs(pt[0])} ${ys(pt[1])}`).join(" ") + " Z", color: polygon.color || theme.palette.success.main, opacity: typeof polygon.opacity === "number" ? polygon.opacity : 0.15 };
+            }).filter(Boolean);
 
         const isPlotRightEdge = (p) => {
             const graph = graphData[p.graphIndex];
-            if (!graph || !Array.isArray(graph.points)) return false;
-
-            const point = graph.points[p.id];
-            return point && Array.isArray(point) && point.length >= 2
-                ? Math.abs(point[0] - xMax) < 1e-6
-                : false;
+            return graph && Array.isArray(graph.points) && graph.points[p.id] ? Math.abs(graph.points[p.id][0] - xMax) < 1e-6 : false;
         };
 
         const rightEdgeLabelsRaw = [];
-
         const makeLabels = (graph) => {
-            const points = graph.points;
-            if (!points || !points.length) return [];
-            const lastId = points.length - 1;
+            const points = graph.points; if (!points || !points.length) return [];
+            const lastId = points.length - 1; const raw = [];
+            if (graph.maxIdx >= 0 && points[graph.maxIdx]) raw.push({ id: graph.maxIdx, val: graph.maxV, p: 4 });
+            if (graph.minIdx >= 0 && points[graph.minIdx] && graph.minIdx !== graph.maxIdx) raw.push({ id: graph.minIdx, val: graph.minV, p: 4 });
+            if (points[0] && points[0][0] >= xAbsoluteMin && points[0][0] <= xAbsoluteMax) raw.push({ id: 0, val: points[0][1], p: 2 });
+            if (points[lastId] && points[lastId][0] >= xAbsoluteMin && points[lastId][0] <= xAbsoluteMax && lastId !== 0) raw.push({ id: lastId, val: points[lastId][1], p: 2 });
 
-            const raw = [];
-
-            // Добавляем строгую проверку Array.isArray(points[idx])
-            // --- Внутри useMemo -> makeLabels ---
-            if (graph.maxIdx >= 0 && points[graph.maxIdx] && Array.isArray(points[graph.maxIdx])) { // 🌟 Добавлено Array.isArray
-                raw.push({ id: graph.maxIdx, val: graph.maxV, p: 4 });
-            }
-            if (graph.minIdx >= 0 && points[graph.minIdx] && Array.isArray(points[graph.minIdx]) && graph.minIdx !== graph.maxIdx) { // 🌟 Добавлено Array.isArray
-                raw.push({ id: graph.minIdx, val: graph.minV, p: 4 });
-            }
-            if (points[0] && Array.isArray(points[0]) && points[0][0] >= xAbsoluteMin && points[0][0] <= xAbsoluteMax) {
-                raw.push({ id: 0, val: points[0][1], p: 2 });
-            }
-            if (points[lastId] && Array.isArray(points[lastId]) && points[lastId][0] >= xAbsoluteMin && points[lastId][0] <= xAbsoluteMax && lastId !== 0) {
-                raw.push({ id: lastId, val: points[lastId][1], p: 2 });
-            }
-
-            const result = [];
-            const seen = new Set();
-            raw.sort((a, b) => b.p - a.p);
-
+            const result = []; const seen = new Set(); raw.sort((a, b) => b.p - a.p);
             for (const p of raw) {
-                if (seen.has(p.id)) continue;
-                seen.add(p.id);
-
-                const point = points[p.id];
-                if (!point || !Array.isArray(point)) continue;
-
-                const pointX = xs(point[0]);
-                const pointY = ys(p.val);
-
+                if (seen.has(p.id)) continue; seen.add(p.id);
+                const pt = points[p.id]; if (!pt) continue;
                 if (p.val < tAbsoluteMin || p.val > tAbsoluteMax) continue;
+                if (Math.abs(xs(pt[0]) - pad.left) < 0.01 && Math.abs(ys(p.val) - (height - pad.bottom)) < 0.01) continue;
 
-                const isOrigin = Math.abs(pointX - pad.left) < 0.01 && Math.abs(pointY - (height - pad.bottom)) < 0.01;
-                if (isOrigin) continue;
-
-                const labelObj = {
-                    ...p,
-                    type: graph.index === 0 ? "main" : "cooldown",
-                    graphIndex: graph.index,
-                    order: (p.id === 0 || p.id === lastId) ? 0 : 1,
-                    color: graph.color,
-                    opacity: graph.opacity,
-                    x: pointX,
-                    y: pointY
-                };
-
-                if (p.id === lastId || Math.abs(point[0] - xMax) < 1e-6) {
-                    rightEdgeLabelsRaw.push(labelObj);
-                } else {
-                    result.push(labelObj);
-                }
+                const labelObj = { ...p, type: graph.index === 0 ? "main" : "cooldown", graphIndex: graph.index, order: (p.id === 0 || p.id === lastId) ? 0 : 1, color: graph.color, opacity: graph.opacity, x: xs(pt[0]), y: ys(p.val) };
+                if (p.id === lastId || Math.abs(pt[0] - xMax) < 1e-6) rightEdgeLabelsRaw.push(labelObj);
+                else result.push(labelObj);
             }
             return result;
         };
 
-
         const labels = showLabels ? graphData.filter(g => g.showMarker).flatMap(g => makeLabels(g)) : [];
-
         const sortedLabels = [...labels].sort((a, b) => {
             const getPriority = (p) => isPlotRightEdge(p) ? 0 : (p.id === 0 ? 1 : 2);
-            const aP = getPriority(a); const bP = getPriority(b);
-            return aP !== bP ? aP - bP : a.y - b.y || a.graphIndex - b.graphIndex;
+            return getPriority(a) !== getPriority(b) ? getPriority(a) - getPriority(b) : a.y - b.y || a.graphIndex - b.graphIndex;
         });
 
-        const plotTop = pad.top; const plotBottom = height - pad.bottom;
-        const plotLeft = pad.left; const plotRight = width - pad.right;
-
-        const createEvaluator = (p, externalPlaced = []) => {
-            const { textWidth, textHeight } = getLabelSize(p, axes.y);
-            const halfWidth = textWidth / 2;
-            const currentGraph = graphData[p.graphIndex];
-            const currentCurve = currentGraph.points;
-
-            const isLeftEdge = p.id === 0;
-            const isStrictlyAtLeftBorder = isLeftEdge && Math.abs(p.x - plotLeft) < 0.1;
-            const isRightEdge = isPlotRightEdge(p);
-
-            const otherGraphs = graphData.filter(g => g.index !== p.graphIndex);
-            const orderedDirections = getOrderedDirections(p, graphData, isPlotRightEdge, ys);
-            const preferredDirection = orderedDirections[0] || { angle: 0, vx: 1, vy: 0 };
-
-            const normalizeAngle = (angle) => ((angle % 360) + 360) % 360;
-            const getAngleDiff = (a, b) => {
-                let diff = Math.abs(normalizeAngle(a) - normalizeAngle(b));
-                return diff > 180 ? 360 - diff : diff;
-            };
-
-            const preferredAngle = normalizeAngle(preferredDirection.angle);
-            const oppositeAngle = normalizeAngle(preferredAngle + 180);
-
-            const getCandidatePhase = (direction) => {
-                const diffFromPreferred = getAngleDiff(direction.angle, preferredAngle);
-                const diffFromOpposite = getAngleDiff(direction.angle, oppositeAngle);
-
-                if (diffFromPreferred <= 90) return { phase: "preferred", rotation: diffFromPreferred, oppositePenalty: 0 };
-                if (diffFromOpposite <= 90) return { phase: "opposite", rotation: diffFromOpposite, oppositePenalty: LABEL_PENALTIES.oppositeDirection };
-                return null;
-            };
-
-            const getCandidate = (direction, distance) => {
-                const dx = direction.vx * distance;
-                const dy = direction.vy * distance;
-                let textAnchor = "middle";
-
-                if (isStrictlyAtLeftBorder && dx > 0.01) textAnchor = "start";
-                if (isRightEdge) textAnchor = dx >= 0 ? "start" : "end";
-
-                const tx = p.x + dx; const ty = p.y + dy;
-                let left, right;
-
-                if (textAnchor === "start") {
-                    left = tx; right = tx + textWidth;
-                } else if (textAnchor === "end") {
-                    right = tx; left = tx - textWidth;
-                } else {
-                    left = tx - halfWidth; right = tx + halfWidth;
-                }
-
-                return {
-                    angleDeg: direction.angle, dx, dy, labelCenter: { x: tx, y: ty }, textAnchor,
-                    rect: { left: left - 1, right: right + 1, top: ty - textHeight / 2 - 0.5, bottom: ty + textHeight / 2 + 0.5 }
-                };
-            };
-
-            const evaluateCandidate = (direction, distance, directionRank, distanceRank, bestScore = Infinity) => {
-                const candidate = getCandidate(direction, distance);
-                if (!candidate) return null;
-
-                const { rect, labelCenter } = candidate;
-                const phaseInfo = getCandidatePhase(direction);
-                if (!phaseInfo) return null;
-
-                const { rotation, oppositePenalty } = phaseInfo;
-
-                const penaltyDirection = (rotation / 22.5) * LABEL_PENALTIES.direction;
-                const penaltyOppositeDirection = oppositePenalty;
-                const rayDistance = getRayToRectPerimeterDistance(p, rect);
-                const penaltyRayDistance = Math.pow(Math.max(0, rayDistance - 6), 2) * LABEL_PENALTIES.rayDistance;
-                const penaltyDistanceRank = distanceRank * LABEL_PENALTIES.distance;
-
-                let score = penaltyDirection + penaltyOppositeDirection + penaltyRayDistance + penaltyDistanceRank;
-                if (score >= bestScore) return null;
-
-                const penaltyOverflow = getOverflowPenalty(rect, plotLeft, plotRight, plotTop, plotBottom);
-                score += penaltyOverflow;
-                if (score >= bestScore) return null;
-
-                const visibleWidth = Math.max(0, Math.min(rect.right, width) - Math.max(rect.left, 0));
-                const visibleHeight = Math.max(0, Math.min(rect.bottom, height) - Math.max(rect.top, 0));
-                const totalArea = getRectArea(rect);
-                const visibleArea = visibleWidth * visibleHeight;
-                const overflowRatio = totalArea > 0 ? Math.min(1, Math.max(0, 1 - visibleArea / totalArea)) : 0;
-                const penaltyLabelAreaOverflow = overflowRatio * LABEL_PENALTIES.labelAreaOverflow;
-
-                score += penaltyLabelAreaOverflow;
-                if (score >= bestScore) return null;
-
-                let penaltyPointInside = (p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom) ? LABEL_PENALTIES.pointInside : 0;
-                score += penaltyPointInside;
-                if (score >= bestScore) return null;
-
-                // --- SvgLineChart.jsx -> внутри evaluateCandidate ---
-
-                let ownSegmentOverlapPixels = 0;
-                const selfStart = Math.max(0, p.id - 1);
-                const selfEnd = Math.min(currentCurve.length - 2, p.id + 1);
-
-                for (let i = selfStart; i <= selfEnd; i++) {
-                    // 🌟 ИСПРАВЛЕНИЕ: Проверяем, что обе соседние точки существуют и являются массивами
-                    if (!currentCurve[i] || !currentCurve[i+1] || !Array.isArray(currentCurve[i]) || !Array.isArray(currentCurve[i+1])) {
-                        continue;
-                    }
-
-                    const x1 = xs(currentCurve[i][0]); const y1 = ys(currentCurve[i][1]);
-                    const x2 = xs(currentCurve[i + 1][0]); const y2 = ys(currentCurve[i + 1][1]);
-                    const segmentLength = getSegmentLength(x1, y1, x2, y2);
-
-                    if (segmentLength <= 0) continue;
-                    ownSegmentOverlapPixels += segmentLength * getSegmentRectOverlapRatio(x1, y1, x2, y2, rect);
-                }
-
-
-                if (ownSegmentOverlapPixels > 0) {
-                    score += getSegmentRectOverlapPenalty(ownSegmentOverlapPixels, rect, LABEL_PENALTIES.curveOverlap);
-                    if (score >= bestScore) return null;
-                }
-
-                for (const q of externalPlaced) {
-                    const penalty = getRectGapPenalty(rect, q);
-                    if (penalty > 0) {
-                        score += penalty;
-                        if (score >= bestScore) return null;
-                    }
-                }
-
-                for (const placedLabel of externalPlaced) {
-                    const placedCenter = { x: (placedLabel.left + placedLabel.right) * 0.5, y: (placedLabel.top + placedLabel.bottom) * 0.5 };
-                    if (segmentIntersectsSegment(p.x, p.y, labelCenter.x, labelCenter.y, placedLabel.x, placedLabel.y, placedCenter.x, placedCenter.y)) {
-                        score += LABEL_PENALTIES.rayCross / 10;
-                        if (score >= bestScore) return null;
-                    }
-                }
-
-                for (const otherGraph of otherGraphs) {
-                    const otherCurve = otherGraph.points;
-                    let rayCrosses = false;
-
-                    for (let i = 0; i < otherCurve.length - 1; i++) {
-                        // 🌟 ИСПРАВЛЕНИЕ: Пропускаем null-разделители в чужих изотермах
-                        if (!otherCurve[i] || !otherCurve[i+1] || !Array.isArray(otherCurve[i]) || !Array.isArray(otherCurve[i+1])) {
-                            continue;
-                        }
-
-                        if (segmentIntersectsSegment(p.x, p.y, labelCenter.x, labelCenter.y, xs(otherCurve[i][0]), ys(otherCurve[i][1]), xs(otherCurve[i + 1][0]), ys(otherCurve[i + 1][1]))) {
-                            rayCrosses = true;
-                            break;
-                        }
-                    }
-                    if (rayCrosses) {
-                        score += LABEL_PENALTIES.rayGraphCross;
-                        if (score >= bestScore) return null;
-                        break;
-                    }
-                }
-
-
-                const ownOverlapPixels = getCurveOverlap(currentGraph, rect, xs, ys);
-                if (ownOverlapPixels > 0) {
-                    score += getCurveOverlapPenalty(ownOverlapPixels, rect);
-                    if (score >= bestScore) return null;
-                }
-
-                for (const otherGraph of otherGraphs) {
-                    const otherOverlapPixels = getCurveOverlap(otherGraph, rect, xs, ys);
-                    if (otherOverlapPixels > 0) {
-                        score += getCurveOverlapPenalty(otherOverlapPixels, rect);
-                        if (score >= bestScore) return null;
-                    }
-                }
-
-                return { candidate, score };
-            };
-
-            const candidateOptions = [];
-            for (let dIdx = 0; dIdx < orderedDirections.length; dIdx++) {
-                const direction = orderedDirections[dIdx];
-                if (!getCandidatePhase(direction)) continue;
-
-                for (let distIdx = 0; distIdx < LABEL_DISTANCES.length; distIdx++) {
-                    const baseDistance = LABEL_DISTANCES[distIdx];
-                    const angle = Math.abs(direction.angle) % 90;
-                    const angleDistance = Math.min(angle, 90 - angle);
-                    const distance = baseDistance + LABEL_RAY_DISTANCE * (1 - angleDistance / 45);
-
-                    candidateOptions.push({ direction, distance, directionRank: dIdx, distanceRank: distIdx });
-                }
-            }
-
-            return { p, textWidth, textHeight, candidateOptions, evaluateCandidate, getCandidate };
-        };
-
-        const getFallback = (p, evaluator) => {
-            const { getCandidate } = evaluator;
-            const currentGraph = graphData[p.graphIndex];
-            const currentCurve = currentGraph.points;
-            const isRightEdge = isPlotRightEdge(p);
-            let fallback;
-
-            if (isRightEdge) {
-                const relativeY = p.y / height;
-                fallback = relativeY < 0.33 ? STATIC_DIRECTIONS[15] : relativeY > 0.66 ? STATIC_DIRECTIONS[1] : STATIC_DIRECTIONS[0];
-            } else {
-                const prevY = p.id > 0 && currentCurve[p.id - 1] ? ys(currentCurve[p.id - 1][1]) : null;
-                const nextY = p.id < currentCurve.length - 1 && currentCurve[p.id + 1] ? ys(currentCurve[p.id + 1][1]) : null;
-                const isPeak = prevY !== null && nextY !== null && p.y < prevY && p.y < nextY;
-                const isPit = prevY !== null && nextY !== null && p.y > prevY && p.y > nextY;
-
-                fallback = isPeak ? STATIC_DIRECTIONS[12] : isPit ? STATIC_DIRECTIONS[4] : STATIC_DIRECTIONS[12];
-            }
-
-            return getCandidate(fallback, 12) || {
-                dx: fallback.vx * 12, dy: fallback.vy * 12, textAnchor: isRightEdge ? "start" : "middle",
-                rect: {
-                    left: p.x + fallback.vx * 12 - (isRightEdge ? 0 : evaluator.textWidth * 0.5) - 1,
-                    right: p.x + fallback.vx * 12 + (isRightEdge ? evaluator.textWidth : evaluator.textWidth * 0.5) + 1,
-                    top: p.y + fallback.vy * 12 - evaluator.textHeight / 2 - 0.5,
-                    bottom: p.y + fallback.vy * 12 + evaluator.textHeight / 2 + 0.5,
-                },
-            };
-        };
-
+        const plotTop = pad.top; const plotBottom = height - pad.bottom; const plotLeft = pad.left; const plotRight = width - pad.right;
         const placed = [];
-        const addPlaced = (p, candidate, score) => placed.push({
-            ...p, dx: candidate.dx, dy: candidate.dy, score,
-            left: candidate.rect.left, right: candidate.rect.right,
-            top: candidate.rect.top, bottom: candidate.rect.bottom,
-            textAnchor: candidate.textAnchor,
-        });
 
         for (const p of sortedLabels) {
-            const evaluator = createEvaluator(p, placed);
-            let best = null;
-            let bestScore = Infinity;
+            const currentGraph = graphData[p.graphIndex]; const currentCurve = currentGraph.points;
+            const { textWidth, textHeight } = getLabelSize(p, axes.y);
+            const orderedDirections = getOrderedDirections(p, graphData, isPlotRightEdge, ys);
+            let best = null; let bestScore = Infinity;
 
-            for (const option of evaluator.candidateOptions) {
-                const result = evaluator.evaluateCandidate(option.direction, option.distance, option.directionRank, option.distanceRank, bestScore);
-                if (!result) continue;
+            // СТАЛО (Возвращаем оригинальную логику рангов):
+            for (let dIdx = 0; dIdx < orderedDirections.length; dIdx++) {
+                const dir = orderedDirections[dIdx]; // Теперь у нас есть индекс направления dIdx
 
-                if (result.score < bestScore) {
-                    best = result.candidate;
-                    bestScore = result.score;
+                for (let distIdx = 0; distIdx < LABEL_DISTANCES.length; distIdx++) {
+                    const baseDist = LABEL_DISTANCES[distIdx]; // Теперь у нас есть индекс дистанции distIdx
+
+                    const angle = Math.abs(dir.angle) % 90;
+                    const distance = baseDist + LABEL_RAY_DISTANCE * (1 - Math.min(angle, 90 - angle) / 45);
+                    const dx = dir.vx * distance; const dy = dir.vy * distance;
+
+                    let textAnchor = "middle";
+                    if (p.id === 0 && Math.abs(p.x - plotLeft) < 0.1 && dx > 0.01) textAnchor = "start";
+                    if (isPlotRightEdge(p)) textAnchor = dx >= 0 ? "start" : "end";
+
+                    const tx = p.x + dx; const ty = p.y + dy;
+                    const rect = {
+                        left: tx - (textAnchor === "end" ? textWidth : textAnchor === "middle" ? textWidth / 2 : 0) - 1,
+                        right: tx + (textAnchor === "start" ? textWidth : textAnchor === "middle" ? textWidth / 2 : 0) + 1,
+                        top: ty - textHeight / 2 - 0.5,
+                        bottom: ty + textHeight / 2 + 0.5
+                    };
+
+                    // 🔥 ВОЗВРАТ ПРАВИЛЬНОЙ МАТЕМАТИКИ ШТРАФОВ:
+                    // Штрафуем за отклонение от лучшего угла (dIdx) и за увеличение длины выноски (distIdx)
+                    let score = dIdx * LABEL_PENALTIES.direction +
+                        distIdx * LABEL_PENALTIES.distance +
+                        Math.pow(Math.max(0, getRayToRectPerimeterDistance(p, rect) - 6), 2) * LABEL_PENALTIES.rayDistance;
+
+                    score += getOverflowPenalty(rect, plotLeft, plotRight, plotTop, plotBottom);
+
+                    // 1. Штраф за пересечение с собственным сегментом кривой (оставляем)
+                    let ownSegmentOverlap = 0;
+                    for (let i = Math.max(0, p.id - 1); i <= Math.min(currentCurve.length - 2, p.id + 1); i++) {
+                        if (!currentCurve[i] || !currentCurve[i+1]) continue;
+                        ownSegmentOverlap += getSegmentLength(xs(currentCurve[i][0]), ys(currentCurve[i][1]), xs(currentCurve[i+1][0]), ys(currentCurve[i+1][1])) * getSegmentRectOverlapRatio(xs(currentCurve[i][0]), ys(currentCurve[i][1]), xs(currentCurve[i+1][0]), ys(currentCurve[i+1][1]), rect);
+                    }
+                    if (ownSegmentOverlap > 0) score += getSegmentRectOverlapPenalty(ownSegmentOverlap, rect, LABEL_PENALTIES.curveOverlap);
+
+                    // 2. 🔥 ВОЗВРАТ: Штраф за пересечение рамки подписи со всей своей кривой целиком
+                    const ownOverlapPixels = getCurveOverlap(currentGraph, rect, xs, ys);
+                    if (ownOverlapPixels > 0) {
+                        score += getCurveOverlapPenalty(ownOverlapPixels, rect);
+                    }
+
+                    // 3. 🔥 ВОЗВРАТ: Штраф за пересечение рамки подписи со ВСЕМИ ЧУЖИМИ кривыми на графике
+                    const otherGraphs = graphData.filter(g => g.index !== p.graphIndex);
+                    for (const otherGraph of otherGraphs) {
+                        const otherOverlapPixels = getCurveOverlap(otherGraph, rect, xs, ys);
+                        if (otherOverlapPixels > 0) {
+                            score += getCurveOverlapPenalty(otherOverlapPixels, rect);
+                        }
+                    }
+
+                    // 4. 🔥 ВОЗВРАТ: Проверка пересечения луча (линии выноски) с чужими графиками
+                    let rayCrossesGraph = false;
+                    for (const otherGraph of otherGraphs) {
+                        const otherCurve = otherGraph.points;
+                        for (let i = 0; i < otherCurve.length - 1; i++) {
+                            if (!otherCurve[i] || !otherCurve[i+1]) continue;
+                            if (segmentIntersectsSegment(p.x, p.y, tx, ty, xs(otherCurve[i][0]), ys(otherCurve[i][1]), xs(otherCurve[i+1][0]), ys(otherCurve[i+1][1]))) {
+                                rayCrossesGraph = true;
+                                break;
+                            }
+                        }
+                        if (rayCrossesGraph) break;
+                    }
+                    if (rayCrossesGraph) score += LABEL_PENALTIES.rayGraphCross;
+
+                    // 5. Проверка наложения на уже размещенные соседние подписи (оставляем)
+                    for (const q of placed) score += getRectGapPenalty(rect, q);
+
+                    // Проверка пересечения линий выносок между собой (чтобы стрелки не крестились)
+                    for (const placedLabel of placed) {
+                        const placedCenter = { x: (placedLabel.left + placedLabel.right) * 0.5, y: (placedLabel.top + placedLabel.bottom) * 0.5 };
+                        if (segmentIntersectsSegment(p.x, p.y, tx, ty, placedLabel.x, placedLabel.y, placedCenter.x, placedCenter.y)) {
+                            score += LABEL_PENALTIES.rayCross;
+                        }
+                    }
+
+                    if (score < bestScore) { best = { dx, dy, textAnchor, rect }; bestScore = score; }
+
+                    if (bestScore <= LABEL_ACCEPTABLE_SCORE) break;
                 }
-                if (bestScore <= LABEL_ACCEPTABLE_SCORE) break;
             }
 
-            if (!best) {
-                best = getFallback(p, evaluator);
-                bestScore = Infinity;
-            }
-            addPlaced(p, best, bestScore);
+            const fallbackDir = orderedDirections[0] || { vx: 1, vy: 0 };
+
+            if (!best) best = {
+                dx: fallbackDir.vx * 12,
+                dy: fallbackDir.vy * 12,
+                textAnchor: "middle",
+                rect: { left: p.x - 10, right: p.x + 10, top: p.y - 5, bottom: p.y + 5 }
+            };
+            placed.push({ ...p, dx: best.dx, dy: best.dy, left: best.rect.left, right: best.rect.right, top: best.rect.top, bottom: best.rect.bottom, textAnchor: best.textAnchor });
         }
 
-        const yAxisLabels = yLimitLineData.map(line => ({
-            type: "limit", index: line.index, value: line.value, y: line.y,
-            color: line.color || theme.palette.text.secondary,
-        }));
-
+        // СТАЛО:
+        const yAxisLabels = yLimits.lines.map(line => ({ type: "limit", index: line.index, value: line.value, y: line.y, color: line.color || theme.palette.text.secondary }));
         yAxisLabels.sort((a, b) => a.y - b.y);
 
-        for (let i = 1; i < yAxisLabels.length; i++) {
-            yAxisLabels[i].y = Math.max(yAxisLabels[i].y, yAxisLabels[i - 1].y + Y_AXIS_LABEL_MIN_DISTANCE);
-        }
-
-        if (yAxisLabels.length) {
-            const last = yAxisLabels.length - 1;
-            yAxisLabels[last].y = Math.min(yAxisLabels[last].y, height - pad.bottom + 3);
-
-            for (let i = last - 1; i >= 0; i--) {
-                yAxisLabels[i].y = Math.min(yAxisLabels[i].y, yAxisLabels[i + 1].y - Y_AXIS_LABEL_MIN_DISTANCE);
+        let yLeftChanged = true;
+        for (let iter = 0; iter < 6 && yLeftChanged; iter++) {
+            yLeftChanged = false;
+            for (let i = 1; i < yAxisLabels.length; i++) {
+                if (yAxisLabels[i].y < yAxisLabels[i - 1].y + Y_AXIS_LABEL_MIN_DISTANCE) {
+                    yAxisLabels[i].y = yAxisLabels[i - 1].y + Y_AXIS_LABEL_MIN_DISTANCE;
+                    yLeftChanged = true;
+                }
             }
         }
+        for (const label of yAxisLabels) label.y = Math.max(pad.top, Math.min(height - pad.bottom, label.y));
 
-        for (const label of yAxisLabels) {
-            label.y = Math.max(pad.top, label.y);
-        }
-
-        const rightAxisLabels = rightEdgeLabelsRaw.map(label => ({
-            graphIndex: label.graphIndex,
-            value: label.val,
-            y: label.y,
-            color: label.color,
-            opacity: label.opacity
-        }));
-
+        const rightAxisLabels = rightEdgeLabelsRaw.map(label => ({ graphIndex: label.graphIndex, value: label.val, y: label.y, color: label.color, opacity: label.opacity }));
         rightAxisLabels.sort((a, b) => a.y - b.y);
-
+        // БЫЛО:
         let changed = true;
-        const maxIterations = 4;
-
-        for (let iter = 0; iter < maxIterations && changed; iter++) {
+        for (let iter = 0; iter < 4 && changed; iter++) {
             changed = false;
-
             for (let i = 0; i < rightAxisLabels.length - 1; i++) {
-                const current = rightAxisLabels[i];
-                const next = rightAxisLabels[i + 1];
-
-                const overlap = current.y + Y_AXIS_LABEL_MIN_DISTANCE - next.y;
-
+                const overlap = rightAxisLabels[i].y + Y_AXIS_LABEL_MIN_DISTANCE - rightAxisLabels[i + 1].y;
                 if (overlap > 0) {
-                    current.y -= overlap / 2;
-                    next.y += overlap / 2;
+                    rightAxisLabels[i].y -= overlap / 2;
+                    rightAxisLabels[i + 1].y += overlap / 2;
                     changed = true;
                 }
             }
-
             if (rightAxisLabels.length > 0) {
-                const minYBound = pad.top;
-                const maxYBound = height - pad.bottom;
-
-                if (rightAxisLabels[0].y < minYBound) {
-                    rightAxisLabels[0].y = minYBound;
+                if (rightAxisLabels[0].y < pad.top) {
+                    rightAxisLabels[0].y = pad.top;
                     changed = true;
                 }
-
                 const lastIdx = rightAxisLabels.length - 1;
-                if (rightAxisLabels[lastIdx].y > maxYBound) {
-                    rightAxisLabels[lastIdx].y = maxYBound;
+                if (rightAxisLabels[lastIdx].y > height - pad.bottom) {
+                    rightAxisLabels[lastIdx].y = height - pad.bottom;
                     changed = true;
                 }
             }
         }
 
-        const xAxisLabels = xLimitLineData.map(line => ({
-            type: "limit", index: line.index, value: line.value, x: line.x,
-            color: line.color || theme.palette.text.secondary,
-        }));
 
+        // СТАЛО:
+        const xAxisLabels = xLimits.lines.map(line => ({ type: "limit", index: line.index, value: line.value, x: line.x, color: line.color || theme.palette.text.secondary }));
         xAxisLabels.sort((a, b) => a.x - b.x);
 
-        for (let i = 1; i < xAxisLabels.length; i++) {
-            xAxisLabels[i].x = Math.max(xAxisLabels[i].x, xAxisLabels[i - 1].x + X_AXIS_LABEL_MIN_DISTANCE);
-        }
-
-        if (xAxisLabels.length) {
-            const last = xAxisLabels.length - 1;
-            xAxisLabels[last].x = Math.min(xAxisLabels[last].x, width - pad.right);
-
-            for (let i = last - 1; i >= 0; i--) {
-                xAxisLabels[i].x = Math.min(xAxisLabels[i].x, xAxisLabels[i + 1].x - X_AXIS_LABEL_MIN_DISTANCE);
+        let xChanged = true;
+        for (let iter = 0; iter < 6 && xChanged; iter++) {
+            xChanged = false;
+            for (let i = 0; i < xAxisLabels.length - 1; i++) {
+                const overlap = xAxisLabels[i].x + X_AXIS_LABEL_MIN_DISTANCE - xAxisLabels[i + 1].x;
+                if (overlap > 0) {
+                    xAxisLabels[i].x -= overlap / 2;
+                    xAxisLabels[i + 1].x += overlap / 2;
+                    xChanged = true;
+                }
+            }
+            if (xAxisLabels.length > 0) {
+                if (xAxisLabels[0].x < pad.left) {
+                    xAxisLabels[0].x = pad.left;
+                    xChanged = true;
+                }
+                const lastXIdx = xAxisLabels.length - 1;
+                if (xAxisLabels[lastXIdx].x > width - pad.right) {
+                    xAxisLabels[lastXIdx].x = width - pad.right;
+                    xChanged = true;
+                }
             }
         }
 
-        for (const label of xAxisLabels) {
-            label.x = Math.max(pad.left, label.x);
-        }
-
-        const minGridY = Math.min(tMin, tMax);
-        const maxGridY = Math.max(tMin, tMax);
-        const linesCount = Math.floor((maxGridY - minGridY) / GRID_STEP_C) + 1;
+        const linesCount = Math.floor((Math.max(tMin, tMax) - Math.min(tMin, tMax)) / GRID_STEP_C) + 1;
         const gridLinesY = [];
-        for (let i = 0; i < linesCount; i++) {
-            const t = minGridY + i * GRID_STEP_C;
-            gridLinesY.push({ id: t, y: ys(t), isSpecial: isSpecialTemperature(t) });
-        }
-
-        const hasLimitAtY = (y) => yLimitLineData.some(line => Math.abs(y - line.y) <= 8) || yLimitRangeData.some(range => Math.abs(y - range.start) <= 8 || Math.abs(y - range.end) <= 8);
-        const hasLimitAtX = (x) => xLimitLineData.some(line => Math.abs(x - line.x) <= 8) || xLimitRangeData.some(range => Math.abs(x - range.start) <= 8 || Math.abs(x - range.end) <= 8);
+        for (let i = 0; i < linesCount; i++) { const t = Math.min(tMin, tMax) + i * GRID_STEP_C; gridLinesY.push({ id: t, y: ys(t), isSpecial: isSpecialTemperature(t) }); }
 
         const placedMap = {};
-        if (Array.isArray(placed)) {
-            placed.forEach(p => {
-                placedMap[`${p.graphIndex}-${p.id}`] = p;
-            });
-        }
+        placed.forEach(p => { placedMap[`${p.graphIndex}-${p.id}`] = p; });
 
         return {
-            width, height, pad, wPlot, hPlot, xMin, xMax, xCenter, tMin, tMax, gridLinesY,
+            width, height, pad, wPlot, hPlot, xMin, tMin, gridLinesY,
             xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax,
-            yLimitLineData, yLimitRangeData, xLimitLineData, xLimitRangeData,
-            yTopEdge: ys(tMax), yBottomEdge: ys(tMin), graphData, fillPolygonsData, placed, placedMap,
-            yAxisLabels, rightAxisLabels, xAxisLabels,
-            axes, hasLimitAtY, hasLimitAtX, showPoints, showLabels, xs, ys,
+            yLimitLineData: yLimits.lines, yLimitRangeData: yLimits.ranges, xLimitLineData: xLimits.lines, xLimitRangeData: xLimits.ranges,
+            graphData, fillPolygonsData, placedMap, yAxisLabels, rightAxisLabels, xAxisLabels,
+            axes, showPoints, showLabels, xs, ys,
             borderColor: chart.status?.type === "error" ? theme.palette.error.main : chart.status?.type === "warning" ? theme.palette.warning.main : theme.palette.divider,
         };
-    }, [chart, theme]);
+    }, [chart, dimensions, theme]);
 
     if (!chartData) return null;
 
@@ -1100,209 +643,116 @@ const SvgLineChart = ({ chart, minWidth = 300, minHeight = 150 }) => {
         width, height, pad, wPlot, hPlot, xMin, tMin, gridLinesY,
         xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax,
         yLimitLineData, yLimitRangeData, xLimitLineData, xLimitRangeData,
-        graphData, fillPolygonsData,
-        placedMap,
-        yAxisLabels, rightAxisLabels, xAxisLabels,
+        graphData, fillPolygonsData, placedMap, yAxisLabels, rightAxisLabels, xAxisLabels,
         axes, showPoints, showLabels, borderColor, xs, ys,
     } = chartData;
 
-    const formatValue = (value, unit) => {
-
-        const val = Number(value);
-        if (!Number.isFinite(val)) return "";
-
-        const formatted = val.toFixed(1);
-
-        // Для целых чисел убираем .0 и добавляем единицу измерения
-        if (/\.0$/.test(formatted)) {
-            return `${formatted.replace(/\.0$/, "")}${unit}`;
-        }
-
-        // Для дробных чисел единицу измерения не добавляем
-        return formatted;
-    };
-
-
     return (
         <Paper
+            ref={containerRef}
             sx={{
                 border: "1px solid",
                 borderColor,
                 p: 0.5,
                 fontFamily: '"Roboto Mono","SF Mono",monospace',
                 boxShadow: "none",
-                // Управляем размерами прямо на уровне Paper
                 width: "100%",
-                height: "100%",
-                minWidth: minWidth,
-                minHeight: minHeight,
+                boxSizing: "border-box",
+                height: maxHeight ? `${maxHeight}px` : "150px",
+                maxHeight: maxHeight || "none",
+                display: "block"
             }}
         >
             <svg
                 width="100%"
                 height="100%"
-                viewBox={`0 0 ${width} ${height}`}   // Превращает фиксированные 300х150 в пропорции сетки
-                preserveAspectRatio="xMidYMid meet"   // Центрирует и адаптирует график без искажений
                 style={{ display: "block" }}
                 shapeRendering="geometricPrecision"
             >
                 <defs>
                     <clipPath id="blank-clip-bounds">
-                        <rect
-                            x={pad.left}
-                            y={pad.top}
-                            width={wPlot}
-                            height={hPlot}
-                        />
+                        <rect x={pad.left} y={pad.top} width={wPlot} height={hPlot} />
                     </clipPath>
                 </defs>
 
-                {/* 1. Рендеринг вертикальных подсветок зон ограничений по оси X */}
                 {xLimitRangeData.map(range => (
                     <rect key={`x-limit-range-${range.index}`} x={range.start} y={pad.top} width={Math.max(0, range.end - range.start)} height={hPlot} fill={range.color} opacity={LIMIT_RANGE_OPACITY} />
                 ))}
 
-                {/* 2. Рендеринг горизонтальных подсветок зон ограничений по оси Y */}
                 {yLimitRangeData.map(range => (
                     <rect key={`y-limit-range-${range.index}`} x={pad.left} y={range.start} width={wPlot} height={Math.max(0, range.end - range.start)} fill={range.color} opacity={LIMIT_RANGE_OPACITY} />
                 ))}
 
-                {/* 3. Рендеринг стандартных пунктирных линий сетки */}
                 {gridLinesY.map(({ id, y, isSpecial }) => (
                     id >= tAbsoluteMin && id <= tAbsoluteMax && !isSpecial && <line key={id} x1={pad.left} y1={y} x2={width - pad.right} y2={y} stroke={theme.palette.divider} strokeWidth={0.5} strokeDasharray="4 2" />
                 ))}
 
-                {/* 4. Рендеринг вертикальных линий лимитов (ось X) */}
                 {xLimitLineData.map(line => (
                     Math.abs(line.value - xMin) !== 0 && (<line key={`x-limit-line-${line.index}`} x1={line.x} y1={pad.top} x2={line.x} y2={height - pad.bottom} stroke={line.color || theme.palette.text.secondary} strokeWidth={1} strokeDasharray="4 2" opacity=".5"/>)
                 ))}
 
-                {/* 5. Контурные рамки и ограничители осей */}
                 <line x1={pad.left} y1={pad.top} x2={pad.left} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={1} opacity=".55" />
                 <line x1={pad.left} y1={height - pad.bottom} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={1} opacity=".55" />
                 <line x1={width - pad.right} y1={pad.top} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={1} opacity=".2" />
 
-                {/* 6. Рендеринг горизонтальных линий лимитов (ось Y) */}
                 {yLimitLineData.map(line => (
                     Math.abs(line.value - tMin) !== 0 && <line key={`y-limit-line-${line.index}`} x1={pad.left} y1={line.y} x2={width - pad.right} y2={line.y} stroke={line.color || theme.palette.text.secondary} strokeWidth={1} strokeDasharray="4 2" opacity=".5" />
                 ))}
 
-                {/* 7. Текстовые подписи значений на ЛЕВОЙ оси Y */}
                 {yAxisLabels.map(label => (
                     <text key={`y-limit-label-${label.index}`} x={pad.left - Y_AXIS_LABEL_OFFSET} y={label.y} textAnchor="end" dominantBaseline="middle" fontSize={8} fontWeight="bold" fill={label.color}>
-                        {formatValue(label.value,axes.y)}
+                        {Number(label.value).toFixed(0)}{axes.y}
                     </text>
                 ))}
 
-                {/* 7.1 Текстовые подписи текущих значений на ПРАВОЙ оси Y (с расталкиванием) */}
                 {showLabels && rightAxisLabels.map((label, idx) => (
                     <text key={`right-axis-label-${label.graphIndex}-${idx}`} x={width - pad.right + Y_AXIS_LABEL_OFFSET} y={label.y} textAnchor="start" dominantBaseline="middle" fontSize={8} fontWeight="bold" fill={label.color} opacity={label.opacity}>
                         {Math.round(label.value)}{axes.y}
                     </text>
                 ))}
 
-                {/* 8. Текстовые подписи значений на оси X */}
                 {xAxisLabels.map(label => (
                     <text key={`x-limit-label-${label.index}`} x={label.x} y={height - pad.bottom + X_AXIS_LABEL_OFFSET} textAnchor="middle" dominantBaseline="hanging" fontSize={8} fontWeight="bold" fill={label.color}>
-                        {formatValue(label.value,axes.x)}
+                        {Number(label.value).toFixed(0)}{axes.x}
                     </text>
                 ))}
 
-
-                {/* Готовые полигоны температурных зон */}
                 {fillPolygonsData.map(polygon => (
-                    <path
-                        key={polygon.id}
-                        d={polygon.path}
-                        fill={polygon.color}
-                        fillOpacity={polygon.opacity}
-                        fillRule="evenodd"
-                        clipPath="url(#blank-clip-bounds)"
-                        stroke="none"
-                        style={{ pointerEvents: "none" }}
-                    />
+                    <path key={polygon.id} d={polygon.path} fill={polygon.color} fillOpacity={polygon.opacity} fillRule="evenodd" clipPath="url(#blank-clip-bounds)" stroke="none" style={{ pointerEvents: "none" }} />
                 ))}
 
-                {/* 9. Основной рендеринг кривых линий графиков */}
                 {graphData.map(graph => (
                     <path key={`path-${graph.index}`} d={graph.path} fill="none" stroke={graph.color} strokeWidth={graph.lineWidth} opacity={graph.opacity} strokeLinecap="round" strokeLinejoin="round" />
                 ))}
 
-                {/* 2. Маркеры всех точек — по настройке */}
                 {SHOW_ALL_POINTS && graphData.map(graph => {
                     if (!graph || !Array.isArray(graph.points)) return null;
-
                     return graph.points.map((pt, ptIdx) => {
-                        // Жесткая проверка: точка должна быть массивом минимум из двух элементов [x, y]
-                        if (!pt || !Array.isArray(pt) || pt.length < 2 || pt[0] == null || pt[1] == null) {
-                            return null;
-                        }
-
+                        if (!pt) return null;
                         return (
-                            <g key={`${graph.index}-pt-${ptIdx}`}>
-                                <circle
-                                    cx={xs(pt[0])}
-                                    cy={ys(pt[1])}
-                                    r={graph.lineWidth * 0.5}
-                                    fill={theme.palette.text.primary}
-                                    stroke={theme.palette.background.paper}
-                                    strokeWidth={graph.lineWidth * 0.25}
-                                    opacity={graph.opacity * 0.5}
-                                />
-                            </g>                        );
+                            <circle key={`${graph.index}-pt-${ptIdx}`} cx={xs(pt[0])} cy={ys(pt[1])} r={graph.lineWidth * 0.4} fill={theme.palette.text.primary} stroke={theme.palette.background.paper} strokeWidth={graph.lineWidth * 0.2} opacity={graph.opacity * 0.4} />
+                        );
                     });
                 })}
 
-
-                {/* 10. Рендеринг маркеров (точек) данных и вынесенных текстовых меток значений */}
                 {showPoints && graphData.map(graph => {
                     if (!graph || !Array.isArray(graph.points)) return null;
-
                     return graph.points.map((pt, ptIdx) => {
-                        // Жесткая проверка структуры точки перед расчетами
-                        if (!pt || !Array.isArray(pt) || pt.length < 2 || pt[0] == null || pt[1] == null) {
-                            return null;
-                        }
-
-                        const pointX = xs(pt[0]);
-                        const pointY = ys(pt[1]);
-                        const isMin = ptIdx === graph.minIdx;
-                        const isMax = ptIdx === graph.maxIdx;
-                        const lastId = graph.points.length - 1;
-
-                        if (pt[0] < xAbsoluteMin || pt[0] > xAbsoluteMax || pt[1] < tAbsoluteMin || pt[1] > tAbsoluteMax) {
-                            return null;
-                        }
+                        if (!pt) return null;
+                        const pointX = xs(pt[0]); const pointY = ys(pt[1]);
+                        const isMin = ptIdx === graph.minIdx; const isMax = ptIdx === graph.maxIdx;
+                        if (pt[0] < xAbsoluteMin || pt[0] > xAbsoluteMax || pt[1] < tAbsoluteMin || pt[1] > tAbsoluteMax) return null;
 
                         const labelPlaced = placedMap[`${graph.index}-${ptIdx}`];
-                        const isInterestingPoint = ptIdx === 0 || ptIdx === lastId || isMin || isMax;
-
-                        if (!isInterestingPoint) return null;
+                        if (ptIdx !== 0 && ptIdx !== graph.points.length - 1 && !isMin && !isMax) return null;
 
                         return (
                             <g key={`${graph.index}-pt-${ptIdx}`}>
                                 {graph.showMarker && (
-                                    <circle
-                                        cx={pointX}
-                                        cy={pointY}
-                                        r={Math.max(2.5, graph.lineWidth * 1.5)}
-                                        fill={isMin ? theme.palette.info.main : isMax ? theme.palette.error.main : graph.color}
-                                        stroke={theme.palette.background.paper}
-                                        strokeWidth={1}
-                                        opacity={graph.opacity}
-                                    />
+                                    <circle cx={pointX} cy={pointY} r={Math.max(2.5, graph.lineWidth * 1.3)} fill={isMin ? theme.palette.info.main : isMax ? theme.palette.error.main : graph.color} stroke={theme.palette.background.paper} strokeWidth={1} opacity={graph.opacity} />
                                 )}
                                 {showLabels && labelPlaced && (
-                                    <text
-                                        x={pointX + labelPlaced.dx}
-                                        y={pointY + labelPlaced.dy}
-                                        textAnchor={labelPlaced.textAnchor}
-                                        dominantBaseline="middle"
-                                        fontSize={9}
-                                        fontWeight="bold"
-                                        fill={graph.color}
-                                        opacity={graph.opacity}
-                                    >
+                                    <text x={pointX + labelPlaced.dx} y={pointY + labelPlaced.dy} textAnchor={labelPlaced.textAnchor} dominantBaseline="middle" fontSize={9} fontWeight="bold" fill={graph.color} opacity={graph.opacity}>
                                         {Math.round(pt[1])}{axes.y}
                                     </text>
                                 )}
@@ -1310,14 +760,10 @@ const SvgLineChart = ({ chart, minWidth = 300, minHeight = 150 }) => {
                         );
                     });
                 })}
-
-
             </svg>
-
         </Paper>
-    )
+    );
 };
 
 SvgLineChart.displayName = "SvgLineChart";
-
 export default SvgLineChart;
