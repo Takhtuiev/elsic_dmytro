@@ -3,230 +3,12 @@ import { Paper, useTheme } from "@mui/material";
 
 // --- Константы конфигурации ---
 const GRID_STEP_C = 10;
-const LABEL_DISTANCES = [5, 9, 13];
-const LABEL_RAY_DISTANCE = 4;
-const LABEL_ACCEPTABLE_SCORE = 30;
 const Y_AXIS_LABEL_MIN_DISTANCE = 12;
 const X_AXIS_LABEL_MIN_DISTANCE = 35;
 const X_AXIS_LABEL_OFFSET = 5;
 const Y_AXIS_LABEL_OFFSET = 5;
 const LIMIT_RANGE_OPACITY = 0.06;
 const SHOW_ALL_POINTS = true;
-
-const LABEL_PENALTIES = {
-    placedOverlap: 10000, placedNear: 50, curveOverlap: 5000, pointInside: 1000,
-    leftOverflow: 3000, rightOverflow: 4000, topOverflow: 200, bottomOverflow: 300,
-    labelAreaOverflow: 10000, direction: 20, oppositeDirection: 100, rayDistance: 3,
-    distance: 5, rayCross: 400, rayGraphCross: 2500,
-};
-
-const STATIC_DIRECTIONS = [
-    { idx: 0, angle: 0, vx: 1, vy: 0 },
-    { idx: 1, angle: 22.5, vx: 0.92387953251128, vy: 0.38268343236508 },
-    { idx: 2, angle: 45, vx: 0.70710678118654, vy: 0.70710678118654 },
-    { idx: 3, angle: 67.5, vx: 0.38268343236508, vy: 0.92387953236508 },
-    { idx: 4, angle: 90, vx: 0, vy: 1 },
-    { idx: 5, angle: 112.5, vx: -0.38268343251128, vy: 0.92387953236508 },
-    { idx: 6, angle: 135, vx: -0.70710678118654, vy: 0.70710678118654 },
-    { idx: 7, angle: 157.5, vx: -0.92387953251128, vy: 0.38268343236508 },
-    { idx: 8, angle: 180, vx: -1, vy: 0 },
-    { idx: 9, angle: -157.5, vx: -0.92387953251128, vy: -0.38268343236508 },
-    { idx: 10, angle: -135, vx: -0.70710678118654, vy: -0.70710678118654 },
-    { idx: 11, angle: -112.5, vx: -0.38268343251128, vy: -0.92387953236508 },
-    { idx: 12, angle: -90, vx: 0, vy: -1 },
-    { idx: 13, angle: -67.5, vx: 0.38268343251128, vy: -0.92387953236508 },
-    { idx: 14, angle: -45, vx: 0.70710678118654, vy: -0.70710678118654 },
-    { idx: 15, angle: -22.5, vx: 0.92387953236508, vy: -0.38268343236508 },
-];
-
-const getLabelSize = (p, yAxisUnit = "°") => {
-    const fontSize = 9;
-    const text = `${Math.round(p.val)}${yAxisUnit}`;
-    return { fontSize, textWidth: text.length * fontSize * 0.52, textHeight: fontSize };
-};
-
-const getRectWidth = (rect) => Math.max(0, rect.right - rect.left);
-const getRectHeight = (rect) => Math.max(0, rect.bottom - rect.top);
-const getRectArea = (rect) => getRectWidth(rect) * getRectHeight(rect);
-const getRectDiagonal = (rect) => Math.hypot(getRectWidth(rect), getRectHeight(rect));
-const getSegmentLength = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
-
-
-const getRayToRectPerimeterDistance = (point, rect) => {
-    const centerX = (rect.left + rect.right) * 0.5;
-    const centerY = (rect.top + rect.bottom) * 0.5;
-    const rayX = centerX - point.x; const rayY = centerY - point.y;
-    const rayLength = Math.hypot(rayX, rayY);
-    if (rayLength < 0.00001) return 0;
-    const ux = rayX / rayLength; const uy = rayY / rayLength;
-    let minT = Infinity;
-    if (Math.abs(ux) > 0.00001) {
-        const tLeft = (rect.left - point.x) / ux;
-        if (tLeft >= 0) { const y = point.y + uy * tLeft; if (y >= rect.top - 0.1 && y <= rect.bottom + 0.1) minT = Math.min(minT, tLeft); }
-        const tRight = (rect.right - point.x) / ux;
-        if (tRight >= 0) { const y = point.y + uy * tRight; if (y >= rect.top - 0.1 && y <= rect.bottom + 0.1) minT = Math.min(minT, tRight); }
-    }
-    if (Math.abs(uy) > 0.00001) {
-        const tTop = (rect.top - point.y) / uy;
-        if (tTop >= 0) { const x = point.x + ux * tTop; if (x >= rect.left - 0.1 && x <= rect.right + 0.1) minT = Math.min(minT, tTop); }
-        const tBottom = (rect.bottom - point.y) / uy;
-        if (tBottom >= 0) { const x = point.x + ux * tBottom; if (x >= rect.left - 0.1 && x <= rect.right + 0.1) minT = Math.min(minT, tBottom); }
-    }
-    return Number.isFinite(minT) ? minT : rayLength;
-};
-
-const getSegmentRectOverlapRatio = (x1, y1, x2, y2, rect) => {
-    const dx = x2 - x1; const dy = y2 - y1;
-    if (Math.hypot(dx, dy) <= 0) return 0;
-    let t0 = 0; let t1 = 1;
-    const clip = (p, q) => {
-        if (Math.abs(p) < 0.00001) return q >= 0;
-        const r = q / p;
-        if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
-        else { if (r < t0) return false; if (r < t1) t1 = r; }
-        return true;
-    };
-    if (!clip(-dx, x1 - rect.left) || !clip(dx, rect.right - x1) || !clip(-dy, y1 - rect.top) || !clip(dy, rect.bottom - y1)) return 0;
-    return Math.max(0, t1 - t0);
-};
-
-const getRectOverlapRatio = (a, b) => {
-    const overlapWidth = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
-    if (overlapWidth <= 0) return 0;
-    const overlapHeight = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
-    if (overlapHeight <= 0) return 0;
-    const referenceArea = Math.min(getRectArea(a), getRectArea(b));
-    if (referenceArea <= 0) return 0;
-    return Math.min(1, (overlapWidth * overlapHeight) / referenceArea);
-};
-
-const getRectGapPenalty = (a, b) => {
-    const overlapRatio = getRectOverlapRatio(a, b);
-    if (overlapRatio > 0) return overlapRatio * LABEL_PENALTIES.placedOverlap;
-    return Math.max(b.left - a.right, a.left - b.right, 0) < 4 && Math.max(b.top - a.bottom, a.top - b.bottom, 0) < 4 ? LABEL_PENALTIES.placedNear : 0;
-};
-
-const getSegmentRectOverlapPenalty = (overlapPixels, rect, penalty) => {
-    if (overlapPixels <= 0) return 0;
-    const referenceLength = getRectDiagonal(rect);
-    if (referenceLength <= 0) return 0;
-
-    return Math.min(1, overlapPixels / referenceLength) * penalty;
-};
-
-const getOverflowRatio = (rect, side, boundary) => {
-    let overflow = 0; let reference = 0;
-    if (side === "left") { overflow = Math.max(0, boundary - rect.left); reference = getRectWidth(rect); }
-    else if (side === "right") { overflow = Math.max(0, rect.right - boundary); reference = getRectWidth(rect); }
-    else if (side === "top") { overflow = Math.max(0, boundary - rect.top); reference = getRectHeight(rect); }
-    else if (side === "bottom") { overflow = Math.max(0, rect.bottom - boundary); reference = getRectHeight(rect); }
-    if (reference <= 0) return 0;
-    return Math.min(1, overflow / reference);
-};
-
-const getOverflowPenalty = (rect, plotLeft, plotRight, plotTop, plotBottom) => {
-    return (
-        getOverflowRatio(rect, "left", plotLeft) * LABEL_PENALTIES.leftOverflow +
-        getOverflowRatio(rect, "right", plotRight) * LABEL_PENALTIES.rightOverflow +
-        getOverflowRatio(rect, "top", plotTop) * LABEL_PENALTIES.topOverflow +
-        getOverflowRatio(rect, "bottom", plotBottom) * LABEL_PENALTIES.bottomOverflow
-    );
-};
-
-const segmentIntersectsSegment = (a, b, c, d, eps = 1e-9) => {
-    const cross = (p, q, r) =>
-        (q[0] - p[0]) * (r[1] - p[1]) -
-        (q[1] - p[1]) * (r[0] - p[0]);
-
-    const onSegment = (p, q, r) =>
-        r[0] >= Math.min(p[0], q[0]) - eps &&
-        r[0] <= Math.max(p[0], q[0]) + eps &&
-        r[1] >= Math.min(p[1], q[1]) - eps &&
-        r[1] <= Math.max(p[1], q[1]) + eps;
-
-    const o1 = cross(a, b, c);
-    const o2 = cross(a, b, d);
-    const o3 = cross(c, d, a);
-    const o4 = cross(c, d, b);
-
-    if (
-        ((o1 > eps && o2 < -eps) || (o1 < -eps && o2 > eps)) &&
-        ((o3 > eps && o4 < -eps) || (o3 < -eps && o4 > eps))
-    ) {
-        return true;
-    }
-
-    return (
-        (Math.abs(o1) <= eps && onSegment(a, b, c)) ||
-        (Math.abs(o2) <= eps && onSegment(a, b, d)) ||
-        (Math.abs(o3) <= eps && onSegment(c, d, a)) ||
-        (Math.abs(o4) <= eps && onSegment(c, d, b))
-    );
-};
-
-const getCurveOverlap = (graph, rect, xs, ys) => {
-    const curve = graph.points;
-    let totalPixelsInside = 0;
-
-    const rLeft = rect.left;
-    const rRight = rect.right;
-    const rTop = rect.top;
-    const rBottom = rect.bottom;
-
-    if (!curve || !curve.length) return 0;
-
-    // Ищем первую валидную (не null) точку для старта
-    let startIdx = 0;
-    while (startIdx < curve.length && (!curve[startIdx] || !Array.isArray(curve[startIdx]))) {
-        startIdx++;
-    }
-    if (startIdx >= curve.length - 1) return 0;
-
-    let x1 = xs(curve[startIdx][0]);
-    let y1 = ys(curve[startIdx][1]);
-
-    for (let i = startIdx; i < curve.length - 1; i++) {
-        // Если текущая или следующая точка — null (разделитель), пропускаем итерацию
-        if (!curve[i] || !curve[i + 1] || !Array.isArray(curve[i]) || !Array.isArray(curve[i + 1])) {
-            if (curve[i + 1] && Array.isArray(curve[i + 1])) {
-                x1 = xs(curve[i + 1][0]);
-                y1 = ys(curve[i + 1][1]);
-            }
-            continue;
-        }
-
-        const x2 = xs(curve[i + 1][0]);
-        const y2 = ys(curve[i + 1][1]);
-
-        const segLeft = x1 < x2 ? x1 : x2;
-        const segRight = x1 > x2 ? x1 : x2;
-        const segTop = y1 < y2 ? y1 : y2;
-        const segBottom = y1 > y2 ? y1 : y2;
-
-        // Быстрый отсекающий тест по ограничивающему боксу (bounding box) сегмента
-        if (segRight < rLeft || segLeft > rRight || segBottom < rTop || segTop > rBottom) {
-            x1 = x2;
-            y1 = y2;
-            continue;
-        }
-
-        const length = Math.hypot(x2 - x1, y2 - y1);
-        if (length > 0) {
-            totalPixelsInside += length * getSegmentRectOverlapRatio(x1, y1, x2, y2, rect);
-        }
-        x1 = x2;
-        y1 = y2;
-    }
-    return totalPixelsInside;
-};
-
-const getCurveOverlapPenalty = (overlapPixels, rect) => {
-    if (overlapPixels <= 0) return 0;
-    const referenceLength = getRectDiagonal(rect);
-    if (referenceLength <= 0) return 0;
-
-    return Math.min(1, overlapPixels / referenceLength) * LABEL_PENALTIES.curveOverlap;
-};
 
 const buildLimitData = ({ axis, lines, ranges, mapValue, minValue, maxValue, plotStart, plotEnd }) => {
     const limitLines = [
@@ -286,24 +68,11 @@ const makePath = (graph, xs, ys, xAbsoluteMin, xAbsoluteMax) => {
     return segments.map(seg => renderSegmentPath(seg)).filter(Boolean).join(" ").trim();
 };
 
-const getOrderedDirections = (p, graphData, isPlotRightEdgeCheck, ys) => {
-    const currentGraph = graphData[p.graphIndex]; const currentCurve = currentGraph.points;
-    const isLeftEdge = p.id === 0; const isRightEdge = isPlotRightEdgeCheck(p);
-    let preferredAngle = 0;
-    if (!isLeftEdge && !isRightEdge && currentCurve[p.id - 1] && Array.isArray(currentCurve[p.id - 1]) && currentCurve[p.id + 1] && Array.isArray(currentCurve[p.id + 1])) {
-        const prevY = ys(currentCurve[p.id - 1][1]); const nextY = ys(currentCurve[p.id + 1][1]);
-        preferredAngle = p.y < prevY && p.y < nextY ? -90 : p.y > prevY && p.y > nextY ? 90 : 0;
-    }
-    return [...STATIC_DIRECTIONS].sort((a, b) => {
-        let diffA = Math.abs(a.angle - preferredAngle); let diffB = Math.abs(b.angle - preferredAngle);
-        return (diffA > 180 ? 360 - diffA : diffA) - (diffB > 180 ? 360 - diffB : diffB);
-    });
-};
-
 const SvgLineChart = ({ chart, maxHeight }) => {
     const theme = useTheme();
     const containerRef = useRef(null);
     const [dimensions, setDimensions] = useState({ width: 300, height: 150 });
+    const [placedMap, setPlacedMap] = useState({});
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -429,7 +198,7 @@ const SvgLineChart = ({ chart, maxHeight }) => {
                 if (p.val < tAbsoluteMin || p.val > tAbsoluteMax) continue;
                 if (Math.abs(xs(pt[0]) - pad.left) < 0.01 && Math.abs(ys(p.val) - (height - pad.bottom)) < 0.01) continue;
 
-                const labelObj = { ...p, type: graph.index === 0 ? "main" : "cooldown", graphIndex: graph.index, order: (p.id === 0 || p.id === lastId) ? 0 : 1, color: graph.color, opacity: graph.opacity, x: xs(pt[0]), y: ys(p.val) };
+                const labelObj = { ...p, type: graph.index === 0 ? "main" : "cooldown", graphIndex: graph.index, order: (p.id === 0 || p.id === lastId) ? 0 : 1, color: graph.color, opacity: graph.opacity, x: xs(pt[0]), y: ys(p.val), rawX: pt[0] };
                 if (p.id === lastId || Math.abs(pt[0] - xMax) < 1e-6) rightEdgeLabelsRaw.push(labelObj);
                 else result.push(labelObj);
             }
@@ -443,112 +212,7 @@ const SvgLineChart = ({ chart, maxHeight }) => {
         });
 
         const plotTop = pad.top; const plotBottom = height - pad.bottom; const plotLeft = pad.left; const plotRight = width - pad.right;
-        const placed = [];
 
-        for (const p of sortedLabels) {
-            const currentGraph = graphData[p.graphIndex]; const currentCurve = currentGraph.points;
-            const { textWidth, textHeight } = getLabelSize(p, axes.y);
-            const orderedDirections = getOrderedDirections(p, graphData, isPlotRightEdge, ys);
-            let best = null; let bestScore = Infinity;
-
-            // СТАЛО (Возвращаем оригинальную логику рангов):
-            for (let dIdx = 0; dIdx < orderedDirections.length; dIdx++) {
-                const dir = orderedDirections[dIdx]; // Теперь у нас есть индекс направления dIdx
-
-                for (let distIdx = 0; distIdx < LABEL_DISTANCES.length; distIdx++) {
-                    const baseDist = LABEL_DISTANCES[distIdx]; // Теперь у нас есть индекс дистанции distIdx
-
-                    const angle = Math.abs(dir.angle) % 90;
-                    const distance = baseDist + LABEL_RAY_DISTANCE * (1 - Math.min(angle, 90 - angle) / 45);
-                    const dx = dir.vx * distance; const dy = dir.vy * distance;
-
-                    let textAnchor = "middle";
-                    if (p.id === 0 && Math.abs(p.x - plotLeft) < 0.1 && dx > 0.01) textAnchor = "start";
-                    if (isPlotRightEdge(p)) textAnchor = dx >= 0 ? "start" : "end";
-
-                    const tx = p.x + dx; const ty = p.y + dy;
-                    const rect = {
-                        left: tx - (textAnchor === "end" ? textWidth : textAnchor === "middle" ? textWidth / 2 : 0) - 1,
-                        right: tx + (textAnchor === "start" ? textWidth : textAnchor === "middle" ? textWidth / 2 : 0) + 1,
-                        top: ty - textHeight / 2 - 0.5,
-                        bottom: ty + textHeight / 2 + 0.5
-                    };
-
-                    // 🔥 ВОЗВРАТ ПРАВИЛЬНОЙ МАТЕМАТИКИ ШТРАФОВ:
-                    // Штрафуем за отклонение от лучшего угла (dIdx) и за увеличение длины выноски (distIdx)
-                    let score = dIdx * LABEL_PENALTIES.direction +
-                        distIdx * LABEL_PENALTIES.distance +
-                        Math.pow(Math.max(0, getRayToRectPerimeterDistance(p, rect) - 6), 2) * LABEL_PENALTIES.rayDistance;
-
-                    score += getOverflowPenalty(rect, plotLeft, plotRight, plotTop, plotBottom);
-
-                    // 1. Штраф за пересечение с собственным сегментом кривой (оставляем)
-                    let ownSegmentOverlap = 0;
-                    for (let i = Math.max(0, p.id - 1); i <= Math.min(currentCurve.length - 2, p.id + 1); i++) {
-                        if (!currentCurve[i] || !currentCurve[i+1]) continue;
-                        ownSegmentOverlap += getSegmentLength(xs(currentCurve[i][0]), ys(currentCurve[i][1]), xs(currentCurve[i+1][0]), ys(currentCurve[i+1][1])) * getSegmentRectOverlapRatio(xs(currentCurve[i][0]), ys(currentCurve[i][1]), xs(currentCurve[i+1][0]), ys(currentCurve[i+1][1]), rect);
-                    }
-                    if (ownSegmentOverlap > 0) score += getSegmentRectOverlapPenalty(ownSegmentOverlap, rect, LABEL_PENALTIES.curveOverlap);
-
-                    // 2. 🔥 ВОЗВРАТ: Штраф за пересечение рамки подписи со всей своей кривой целиком
-                    const ownOverlapPixels = getCurveOverlap(currentGraph, rect, xs, ys);
-                    if (ownOverlapPixels > 0) {
-                        score += getCurveOverlapPenalty(ownOverlapPixels, rect);
-                    }
-
-                    // 3. 🔥 ВОЗВРАТ: Штраф за пересечение рамки подписи со ВСЕМИ ЧУЖИМИ кривыми на графике
-                    const otherGraphs = graphData.filter(g => g.index !== p.graphIndex);
-                    for (const otherGraph of otherGraphs) {
-                        const otherOverlapPixels = getCurveOverlap(otherGraph, rect, xs, ys);
-                        if (otherOverlapPixels > 0) {
-                            score += getCurveOverlapPenalty(otherOverlapPixels, rect);
-                        }
-                    }
-
-                    // 4. 🔥 ВОЗВРАТ: Проверка пересечения луча (линии выноски) с чужими графиками
-                    let rayCrossesGraph = false;
-                    for (const otherGraph of otherGraphs) {
-                        const otherCurve = otherGraph.points;
-                        for (let i = 0; i < otherCurve.length - 1; i++) {
-                            if (!otherCurve[i] || !otherCurve[i+1]) continue;
-                            if (segmentIntersectsSegment(p.x, p.y, tx, ty, xs(otherCurve[i][0]), ys(otherCurve[i][1]), xs(otherCurve[i+1][0]), ys(otherCurve[i+1][1]))) {
-                                rayCrossesGraph = true;
-                                break;
-                            }
-                        }
-                        if (rayCrossesGraph) break;
-                    }
-                    if (rayCrossesGraph) score += LABEL_PENALTIES.rayGraphCross;
-
-                    // 5. Проверка наложения на уже размещенные соседние подписи (оставляем)
-                    for (const q of placed) score += getRectGapPenalty(rect, q);
-
-                    // Проверка пересечения линий выносок между собой (чтобы стрелки не крестились)
-                    for (const placedLabel of placed) {
-                        const placedCenter = { x: (placedLabel.left + placedLabel.right) * 0.5, y: (placedLabel.top + placedLabel.bottom) * 0.5 };
-                        if (segmentIntersectsSegment(p.x, p.y, tx, ty, placedLabel.x, placedLabel.y, placedCenter.x, placedCenter.y)) {
-                            score += LABEL_PENALTIES.rayCross;
-                        }
-                    }
-
-                    if (score < bestScore) { best = { dx, dy, textAnchor, rect }; bestScore = score; }
-
-                    if (bestScore <= LABEL_ACCEPTABLE_SCORE) break;
-                }
-            }
-
-            const fallbackDir = orderedDirections[0] || { vx: 1, vy: 0 };
-
-            if (!best) best = {
-                dx: fallbackDir.vx * 12,
-                dy: fallbackDir.vy * 12,
-                textAnchor: "middle",
-                rect: { left: p.x - 10, right: p.x + 10, top: p.y - 5, bottom: p.y + 5 }
-            };
-            placed.push({ ...p, dx: best.dx, dy: best.dy, left: best.rect.left, right: best.rect.right, top: best.rect.top, bottom: best.rect.bottom, textAnchor: best.textAnchor });
-        }
-
-        // СТАЛО:
         const yAxisLabels = yLimits.lines.map(line => ({ type: "limit", index: line.index, value: line.value, y: line.y, color: line.color || theme.palette.text.secondary }));
         yAxisLabels.sort((a, b) => a.y - b.y);
 
@@ -566,7 +230,7 @@ const SvgLineChart = ({ chart, maxHeight }) => {
 
         const rightAxisLabels = rightEdgeLabelsRaw.map(label => ({ graphIndex: label.graphIndex, value: label.val, y: label.y, color: label.color, opacity: label.opacity }));
         rightAxisLabels.sort((a, b) => a.y - b.y);
-        // БЫЛО:
+
         let changed = true;
         for (let iter = 0; iter < 4 && changed; iter++) {
             changed = false;
@@ -591,8 +255,6 @@ const SvgLineChart = ({ chart, maxHeight }) => {
             }
         }
 
-
-        // СТАЛО:
         const xAxisLabels = xLimits.lines.map(line => ({ type: "limit", index: line.index, value: line.value, x: line.x, color: line.color || theme.palette.text.secondary }));
         xAxisLabels.sort((a, b) => a.x - b.x);
 
@@ -624,18 +286,89 @@ const SvgLineChart = ({ chart, maxHeight }) => {
         const gridLinesY = [];
         for (let i = 0; i < linesCount; i++) { const t = Math.min(tMin, tMax) + i * GRID_STEP_C; gridLinesY.push({ id: t, y: ys(t), isSpecial: isSpecialTemperature(t) }); }
 
-        const placedMap = {};
-        placed.forEach(p => { placedMap[`${p.graphIndex}-${p.id}`] = p; });
-
         return {
-            width, height, pad, wPlot, hPlot, xMin, tMin, gridLinesY,
+            width, height, pad, wPlot, hPlot, xMin, xMax, tMin, gridLinesY,
             xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax,
             yLimitLineData: yLimits.lines, yLimitRangeData: yLimits.ranges, xLimitLineData: xLimits.lines, xLimitRangeData: xLimits.ranges,
-            graphData, fillPolygonsData, placedMap, yAxisLabels, rightAxisLabels, xAxisLabels,
-            axes, showPoints, showLabels, xs, ys,
+            graphData, fillPolygonsData, yAxisLabels, rightAxisLabels, xAxisLabels,
+            axes, showPoints, showLabels, xs, ys, sortedLabels, plotLeft, plotRight, plotTop, plotBottom,
             borderColor: chart.status?.type === "error" ? theme.palette.error.main : chart.status?.type === "warning" ? theme.palette.warning.main : theme.palette.divider,
         };
     }, [chart, dimensions, theme]);
+
+// Ссылка для хранения инстанса воркера, чтобы он не пересоздавался при каждом рендере
+    const workerInstanceRef = useRef(null);
+
+// Эффект 1: Создание воркера ОДИН РАЗ при монтировании компонента
+    useEffect(() => {
+        // Используем стандартный современный импорт воркера
+        workerInstanceRef.current = new Worker(new URL("./labels.worker.js", import.meta.url));
+
+        // Слушаем ответы воркера и записываем их в стейт
+        workerInstanceRef.current.onmessage = function (e) {
+            setPlacedMap(e.data.placedMap);
+        };
+
+        // Убиваем воркер только тогда, когда график полностью удаляется с экрана
+        return () => {
+            if (workerInstanceRef.current) {
+                workerInstanceRef.current.terminate();
+            }
+        };
+    }, []);
+
+// Эффект 2: Обработка изменения размеров (ресайза)
+    useEffect(() => {
+        // 1. Мгновенно очищаем подписи в стейте — график сразу станет "голым" и плавным
+        setPlacedMap({});
+
+        // 2. Мгновенно отправляем воркеру сигнал STOP, если он выполнял прошлый расчет
+        if (workerInstanceRef.current) {
+            workerInstanceRef.current.postMessage({ type: "STOP" });
+        }
+
+        if (!chartData || !chartData.sortedLabels.length) {
+            return;
+        }
+
+        // 3. Заводим таймер на 100 мс. Расчет начнется, только когда пользователь замрет
+        const timerId = setTimeout(() => {
+            if (!workerInstanceRef.current) return;
+
+            // Собираем плоский кэш координат точек
+            const xsMap = {};
+            const ysMap = {};
+            chartData.graphData.forEach(g => {
+                g.points.forEach(p => {
+                    if (p && Array.isArray(p)) {
+                        const key = p + "," + p;
+                        xsMap[key] = chartData.xs(p);
+                        ysMap[key] = chartData.ys(p);
+                    }
+                });
+            });
+
+            // Отправляем задачу в уже запущенный воркер
+            workerInstanceRef.current.postMessage({
+                sortedLabels: chartData.sortedLabels,
+                graphData: chartData.graphData.map(g => ({
+                    index: g.index,
+                    points: g.points
+                })),
+                plotLeft: chartData.plotLeft,
+                plotRight: chartData.plotRight,
+                plotTop: chartData.plotTop,
+                plotBottom: chartData.plotBottom,
+                axes: chartData.axes,
+                xMax: chartData.xMax,
+                xsMap,
+                ysMap
+            });
+        }, 100);
+
+        return () => clearTimeout(timerId);
+    }, [chartData]);
+
 
     if (!chartData) return null;
 
@@ -643,9 +376,19 @@ const SvgLineChart = ({ chart, maxHeight }) => {
         width, height, pad, wPlot, hPlot, xMin, tMin, gridLinesY,
         xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax,
         yLimitLineData, yLimitRangeData, xLimitLineData, xLimitRangeData,
-        graphData, fillPolygonsData, placedMap, yAxisLabels, rightAxisLabels, xAxisLabels,
+        graphData, fillPolygonsData, yAxisLabels, rightAxisLabels, xAxisLabels,
         axes, showPoints, showLabels, borderColor, xs, ys,
     } = chartData;
+
+    const formatValue = (value, unit) => {
+        const val = Number(value);
+        if (!Number.isFinite(val)) return "";
+        const formatted = val.toFixed(1);
+        if (/\.0$/.test(formatted)) {
+            return `${formatted.replace(/\.0$/, "")}${unit}`;
+        }
+        return formatted;
+    };
 
     return (
         <Paper
@@ -688,7 +431,9 @@ const SvgLineChart = ({ chart, maxHeight }) => {
                 ))}
 
                 {xLimitLineData.map(line => (
-                    Math.abs(line.value - xMin) !== 0 && (<line key={`x-limit-line-${line.index}`} x1={line.x} y1={pad.top} x2={line.x} y2={height - pad.bottom} stroke={line.color || theme.palette.text.secondary} strokeWidth={1} strokeDasharray="4 2" opacity=".5"/>)
+                    Math.abs(line.value - xMin) !== 0 && (
+                        <line key={`x-limit-line-${line.index}`} x1={line.x} y1={pad.top} x2={line.x} y2={height - pad.bottom} stroke={line.color || theme.palette.text.secondary} strokeWidth={1} strokeDasharray="4 2" opacity=".5"/>
+                    )
                 ))}
 
                 <line x1={pad.left} y1={pad.top} x2={pad.left} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={1} opacity=".55" />
@@ -701,7 +446,7 @@ const SvgLineChart = ({ chart, maxHeight }) => {
 
                 {yAxisLabels.map(label => (
                     <text key={`y-limit-label-${label.index}`} x={pad.left - Y_AXIS_LABEL_OFFSET} y={label.y} textAnchor="end" dominantBaseline="middle" fontSize={8} fontWeight="bold" fill={label.color}>
-                        {Number(label.value).toFixed(0)}{axes.y}
+                        {formatValue(label.value, axes.y)}
                     </text>
                 ))}
 
@@ -713,7 +458,7 @@ const SvgLineChart = ({ chart, maxHeight }) => {
 
                 {xAxisLabels.map(label => (
                     <text key={`x-limit-label-${label.index}`} x={label.x} y={height - pad.bottom + X_AXIS_LABEL_OFFSET} textAnchor="middle" dominantBaseline="hanging" fontSize={8} fontWeight="bold" fill={label.color}>
-                        {Number(label.value).toFixed(0)}{axes.x}
+                        {formatValue(label.value, axes.x)}
                     </text>
                 ))}
 
@@ -751,11 +496,41 @@ const SvgLineChart = ({ chart, maxHeight }) => {
                                 {graph.showMarker && (
                                     <circle cx={pointX} cy={pointY} r={Math.max(2.5, graph.lineWidth * 1.3)} fill={isMin ? theme.palette.info.main : isMax ? theme.palette.error.main : graph.color} stroke={theme.palette.background.paper} strokeWidth={1} opacity={graph.opacity} />
                                 )}
-                                {showLabels && labelPlaced && (
-                                    <text x={pointX + labelPlaced.dx} y={pointY + labelPlaced.dy} textAnchor={labelPlaced.textAnchor} dominantBaseline="middle" fontSize={9} fontWeight="bold" fill={graph.color} opacity={graph.opacity}>
-                                        {Math.round(pt[1])}{axes.y}
+                                {/* 1. Убираем жесткую проверку "&& labelPlaced", чтобы элемент присутствовал в DOM для анимации */}
+                                {showLabels && (
+                                    <text
+                                        /* 2. Координаты фиксируем строго на точке графика (pointX, pointY), без прибавления dx/dy сюда */
+                                        x={pointX}
+                                        y={pointY}
+                                        textAnchor={labelPlaced ? labelPlaced.textAnchor : "middle"}
+                                        dominantBaseline="middle"
+                                        fontSize={9}
+                                        fontWeight="bold"
+                                        fill={graph.color}
+                                        style={{
+                                            // 3. Добавляем плавный переход (транзишн) для прозрачности и движения
+                                            transition: "opacity 0.25s ease-out, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
+
+                                            // 4. Намертво привязываем точку трансформации к маркеру, чтобы избежать прыжков текста
+                                            transformOrigin: `${pointX}px ${pointY}px`,
+
+                                            // 5. Управляем прозрачностью в зависимости от готовности расчетов воркера
+                                            opacity: labelPlaced ? graph.opacity : 0,
+
+                                            // 6. Весь сдвиг (dx/dy от воркера) + масштаб и эффект выплывания делаем через CSS transform
+                                            transform: labelPlaced
+                                                ? `translate(${labelPlaced.dx}px, ${labelPlaced.dy}px) scale(1)`
+                                                : `translate(0px, 3px) scale(0.85)`,
+
+                                            // 7. Отключаем клики по скрытому тексту, пока воркер считает
+                                            pointerEvents: labelPlaced ? "auto" : "none"
+                                        }}
+                                    >
+                                        {/* Обратите внимание: в оригинале у вас было pt[1], используйте то выражение для значения, которое работает у вас */}
+                                        {Math.round(pt[1] ?? pt)}{axes.y}
                                     </text>
                                 )}
+
                             </g>
                         );
                     });

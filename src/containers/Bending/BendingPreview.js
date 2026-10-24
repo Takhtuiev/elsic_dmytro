@@ -4,7 +4,7 @@ import { alpha } from "@mui/material/styles";
 
 import BendProfileRender from "./BendProfileRender";
 import { prepareSvgLayers } from "./prepareSvgLayers";
-import SvgLineChart from "./SvgLineChart";
+import SvgLineChart from "./Chart/SvgLineChart";
 import { validateProfile } from "./profileValidation";
 import { formatTime } from "./formatters";
 import { calculateMass, calculatePlasticZoneWidth, calculateMaxInnerRadius } from "./bendingMetrics";
@@ -12,6 +12,97 @@ import {useHeatingSimulation} from "./useHeatingSimulation";
 
 const PARAMETER_TEXT_COLOR = "text.primary";
 const PARAMETER_TEXT_SIZE = "0.8rem";
+
+// ==========================================
+// ХЕЛПЕРЫ ДЛЯ СТРУКТУРИРОВАННОЙ ПОДГОТОВКИ ОСЕЙ (ОПТИМИЗАЦИЯ)
+// ==========================================
+
+/**
+ * Базовая температурная ось Y (используется для Графика 1 и Графика 2)
+ */
+const createTemperatureYAxis = (tg, decomp, minForm, maxForm, colors) => {
+    if (tg == null || decomp == null) return { unit: "°", lines: [], ranges: [] };
+    return {
+        unit: "°",
+        lines: [
+            { value: Number(tg), color: colors.warningMain },
+            { value: Number(decomp), color: colors.errorMain }
+        ],
+        ranges: [
+            { from: Number(minForm ?? 0), to: Number(maxForm ?? 0), color: colors.successMain }
+        ]
+    };
+};
+
+/**
+ * Ось X для горизонтального распределения (График 3)
+ */
+const createHorizontalXAxis = (width, finalXTgPauseValue, colors) => {
+    const lines = [{ value: 0, color: colors.textSecondary }];
+
+    if (width > 0) {
+        const maxVal = width / 2;
+        for (let val = 5; val <= maxVal; val += 5) {
+            lines.push(
+                { value: val, color: alpha(colors.divider, 0.25) },
+                { value: -val, color: alpha(colors.divider, 0.25) }
+            );
+        }
+    }
+
+    if (finalXTgPauseValue != null) {
+        const label = `Гибочная зона (${(finalXTgPauseValue * 2).toFixed(1)} мм)`;
+        lines.push(
+            { value: finalXTgPauseValue, color: colors.warningMain, lineWidth: 1.5, dashArray: "4 4", label },
+            { value: -finalXTgPauseValue, color: colors.warningMain, lineWidth: 1.5, dashArray: "4 4" }
+        );
+    }
+
+    return { unit: "mm", lines, ranges: [] };
+};
+
+/**
+ * Оси X и Y для 2D Контуров (График 4)
+ */
+const createContoursAxes = (width, contourGraphsRaw, lastXCoord, matKFactor, colors) => {
+    // Расчет симметричных границ X
+    const allXCoords = (contourGraphsRaw || [])
+        .flatMap(g => (g.points || []).filter(p => p && Array.isArray(p) && Number.isFinite(p[0])).map(p => Math.abs(p[0])));
+    const maxXRaw = allXCoords.length > 0 ? Math.max(...allXCoords) : (width > 0 ? width / 2 : 15);
+    const roundedXMax = Math.ceil(maxXRaw / 5) * 5;
+
+    // Сетка линий X
+    const xLines = [{ value: 0, color: colors.textSecondary, label: "Центр" }];
+    if (width > 0) {
+        for (let val = 5; val <= roundedXMax; val += 5) {
+            xLines.push(
+                { value: val, color: alpha(colors.divider, 0.25) },
+                { value: -val, color: alpha(colors.divider, 0.25) }
+            );
+        }
+    }
+
+    return {
+        x: {
+            unit: "mm",
+            min: -roundedXMax,
+            max: roundedXMax,
+            lines: xLines,
+            ranges: []
+        },
+        y: {
+            unit: "mm",
+            min: lastXCoord,
+            max: 0,
+            lines: [
+                { value: lastXCoord / 2, color: alpha(colors.divider, 0.3) },
+                { value: lastXCoord * matKFactor, color: colors.infoMain, label: `K = ${matKFactor}` }
+            ],
+            ranges: []
+        }
+    };
+};
+
 
 const PartHeader = React.memo(({ partName, materialName, thickness }) => (
     <Box
@@ -48,7 +139,7 @@ const Parameters = React.memo(({
                                    pauseDeltaT,
                                    plasticZoneWidth,
                                    maxRadius,
-                                   accuracyMetrics // 👈 Добавили новый пропс из ядра симуляции
+                                   accuracyMetrics
                                }) => {
     const mass = useMemo(
         () => calculateMass(blankLength, width, thickness, density),
@@ -117,14 +208,12 @@ const Parameters = React.memo(({
                 Simulation calculation time: {Number.isFinite(calculationTimeMs) ? calculationTimeMs.toFixed(1) : "—"} ms
             </Typography>
 
-            {/* 👇 БЛОК С МЕЛКИМИ ДАННЫМИ ПО ПОГРЕШНОСТЯМ ЯДРА */}
             {accuracyMetrics && (
                 <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, mt: 0.5, opacity: 0.85 }}>
                     <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
                         Uncertainty: <strong>{accuracyMetrics.formatted ?? "—"}</strong>
                     </Typography>
 
-                    {/* Открывающая скобка для группы внутренних ошибок */}
                     <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`} sx={{ ml: 0.5 }}>
                         (
                     </Typography>
@@ -144,7 +233,6 @@ const Parameters = React.memo(({
                         </Typography>
                     </Box>
 
-                    {/* Закрывающая скобка */}
                     <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
                         )
                     </Typography>
@@ -161,14 +249,11 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
     const containerRef = useRef(null);
     const [containerSize, setContainerSize] = useState({ width: 800, height: 500 });
 
-
     const simulationUi = simulation?.ui ?? profile?.simulation?.ui ?? {};
-
     const showVerticalSlice = simulationUi.showVerticalSlice ?? true;
     const showHorizontalWidth = simulationUi.showHorizontalWidth && simulation?.widthHalfMm !== 0;
     const showTimeDynamics = simulationUi.showTimeDynamics && simulation?.recordHistory;
     const showContours2D = simulationUi.showContours2D && simulation?.widthHalfMm !== 0;
-
 
     const validationError = useMemo(() => validateProfile(profile), [profile]);
     const view = profile?.view;
@@ -203,27 +288,19 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
         };
     }, []);
 
-    const profileThicknessProp = profile?.thickness;
-    const profileMaterialProp = profile?.material;
-    const profileMachineProp = profile?.machine;
-    const profileSimulationProp = profile?.simulation;
-
     const physicsProfile = useMemo(() => {
-        if (!profileThicknessProp || !profileMaterialProp || !profileMachineProp || !profileSimulationProp) {
+        if (!profile?.thickness || !profile?.material || !profile?.machine || !profile?.simulation) {
             return null;
         }
         return {
-            thickness: profileThicknessProp,
-            material: profileMaterialProp,
-            machine: profileMachineProp,
-            simulation: profileSimulationProp,
+            thickness: profile.thickness,
+            material: profile.material,
+            machine: profile.machine,
+            simulation: profile.simulation,
         };
-    }, [profileThicknessProp, profileMaterialProp, profileMachineProp, profileSimulationProp]);
+    }, [profile?.thickness, profile?.material, profile?.machine, profile?.simulation]);
 
-    const { result2D, isCalculating, progress } = useHeatingSimulation(
-        physicsProfile,
-        validationError
-    );
+    const { result2D, isCalculating, progress } = useHeatingSimulation(physicsProfile, validationError);
 
     const themeColors = useMemo(() => {
         const { text, primary, warning, error, success, info, divider } = theme.palette;
@@ -264,33 +341,28 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
             : { x: 0, y: 0 };
     }, [viewBoxValues]);
 
-    const commonYAxis = useMemo(() => {
-        if (matGlassTransitionTemp == null || matDecompositionTemp == null) return { unit: "°", lines: [], ranges: [] };
+    // ==========================================
+    // ВЫЧИСЛЯЕМЫЕ ОСИ (СТРУКТУРИРОВАНО)
+    // ==========================================
 
-        return {
-            unit: "°",
-            lines: [
-                { value: Number(matGlassTransitionTemp), color: themeColors.warningMain },
-                { value: Number(matDecompositionTemp), color: themeColors.errorMain }
-            ],
-            ranges: [
-                { from: Number(matMinFormingTemp ?? 0), to: Number(matMaxFormingTemp ?? 0), color: themeColors.successMain }
-            ]
-        };
+    // Базовая температурная ось Y для Графиков 1 и 2
+    const commonYAxisChart1 = useMemo(() => {
+        return createTemperatureYAxis(matGlassTransitionTemp, matDecompositionTemp, matMinFormingTemp, matMaxFormingTemp, themeColors);
     }, [matGlassTransitionTemp, matDecompositionTemp, matMinFormingTemp, matMaxFormingTemp, themeColors]);
 
+    // Модифицированная температурная ось Y с нижней границей среды для Графика 3
+    const commonYAxisChart3 = useMemo(() => {
+        if (!commonYAxisChart1.lines.length) return commonYAxisChart1;
+        const ambientTemp = profile?.simulation?.temperatures?.ambientC ?? 20;
+        return { ...commonYAxisChart1, min: ambientTemp };
+    }, [commonYAxisChart1, profile?.simulation?.temperatures?.ambientC]);
+
+    // Данные для Графика времени (Chart 2)
     const chart2Data = useMemo(() => {
         const rawData = result2D?.geometryData;
         if (!showTimeDynamics) return null;
-
-        if (!rawData || !rawData.graphsChart2Raw) {
-            return {
-                graphs: [],
-                axes: {
-                    x: { unit: "s", lines: [], ranges: [] },
-                    y: commonYAxis
-                }
-            };
+        if (!rawData?.graphsChart2Raw) {
+            return { graphs: [], axes: { x: { unit: "s", lines: [], ranges: [] }, y: commonYAxisChart1 } };
         }
 
         const heatTimeSec = Number(result2D?.heatingTimeSeconds || 0);
@@ -303,46 +375,28 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
             backCool:   { color: themeColors.primaryMain, opacity: 1, lineWidth: 1, showMarker: true },
         };
 
-        const graphs = rawData.graphsChart2Raw.map(g => ({
-            ...g,
-            ...styleMap[g.typeKey]
-        }));
-
         return {
-            graphs,
+            graphs: rawData.graphsChart2Raw.map(g => ({ ...g, ...styleMap[g.typeKey] })),
             axes: {
                 x: { unit: "s", lines: [{ value: heatTimeSec, color: themeColors.textSecondary }], ranges: [] },
-                y: commonYAxis
+                y: commonYAxisChart1
             }
         };
-    }, [result2D, showTimeDynamics, themeColors, commonYAxis]);
+    }, [result2D, showTimeDynamics, themeColors, commonYAxisChart1]);
 
+    // Данные для остальных графиков (Bundle)
     const chartsBundle = useMemo(() => {
         const rawData = result2D?.geometryData;
 
         if (!rawData) {
             return {
                 xTgPauseValue: null,
-                chart1: {
-                    graphs: [],
-                    axes: { x: { unit: "mm", lines: [], ranges: [] }, y: commonYAxis }
-                },
-                chart3: {
-                    graphs: [],
-                    axes: { x: { unit: "mm", lines: [], ranges: [] }, y: commonYAxis }
-                },
-                chart4: {
-                    graphs: [],
-                    showLabels: false,
-                    showPoints: false,
-                    axes: {
-                        x: { unit: "mm", lines: [], ranges: [] },
-                        y: { unit: "mm", min: -10, max: 0, lines: [], ranges: [] }
-                    },
-                    fillPolygons: []
-                }
+                chart1: { graphs: [], axes: { x: { unit: "mm", lines: [], ranges: [] }, y: commonYAxisChart1 } },
+                chart3: { graphs: [], axes: { x: { unit: "mm", lines: [], ranges: [] }, y: commonYAxisChart3 } },
+                chart4: { graphs: [], showLabels: false, showPoints: false, axes: { x: { unit: "mm", lines: [], ranges: [] }, y: { unit: "mm", min: -10, max: 0, lines: [], ranges: [] } }, fillPolygons: [] }
             };
         }
+
         const {
             thickness, width, finalXTgPauseValue,
             vertPointsHeating, vertPointsPause,
@@ -352,30 +406,15 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
             xCoordinatesMm
         } = rawData;
 
+        // Стилизация контуров
         const contourGraphs = (contourGraphsRaw || []).map(g => {
-            let dynamicStyle = { lineWidth: 0.7, opacity: 0.7, color: themeColors.textPrimary };
-
-            if (g.name === "Tg") {
-                dynamicStyle.color = g.phase === "Heating" ? themeColors.warningMain : themeColors.warningDark;
-            } else if (g.name === "T min") {
-                dynamicStyle.color = g.phase === "Heating" ? themeColors.successMain : themeColors.successDark;
-            } else if (g.name === "T max") {
-                dynamicStyle.color = themeColors.successMain;
-            } else if (g.name === "Decomposition") {
-                dynamicStyle.color = g.phase === "Heating" ? themeColors.errorMain : themeColors.errorDark;
-                dynamicStyle.opacity = 1;
-            }
-
-            if (g.phase === "Pause") {
-                dynamicStyle.lineWidth = 1.6;
-            }
-
-            return {
-                ...g,
-                color: dynamicStyle.color,
-                opacity: dynamicStyle.opacity,
-                lineWidth: dynamicStyle.lineWidth
-            };
+            let style = { lineWidth: 0.7, opacity: 0.7, color: themeColors.textPrimary };
+            if (g.name === "Tg") style.color = g.phase === "Heating" ? themeColors.warningMain : themeColors.warningDark;
+            else if (g.name === "T min") style.color = g.phase === "Heating" ? themeColors.successMain : themeColors.successDark;
+            else if (g.name === "T max") style.color = themeColors.successMain;
+            else if (g.name === "Decomposition") { style.color = g.phase === "Heating" ? themeColors.errorMain : themeColors.errorDark; style.opacity = 1; }
+            if (g.phase === "Pause") style.lineWidth = 1.6;
+            return { ...g, ...style };
         });
 
         const polygonStyleMap = {
@@ -392,27 +431,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
             opacity: polygonStyleMap[p.name]?.opacity || 0.15
         }));
 
-        const xLinesHor = [{ value: 0, color: themeColors.textSecondary }];
-        const xLinesCont = [{ value: 0, color: themeColors.textSecondary, label: "Центр" }];
-        if (width > 0) {
-            const maxVal = width / 2;
-            for (let val = 5; val <= maxVal; val += 5) {
-                const lineGrid = { value: val, color: alpha(themeColors.divider, 0.25) };
-                const lineGridNeg = { value: -val, color: alpha(themeColors.divider, 0.25) };
-                xLinesHor.push(lineGrid, lineGridNeg);
-                xLinesCont.push(lineGrid, lineGridNeg);
-            }
-        }
-
-        if (finalXTgPauseValue !== null && finalXTgPauseValue !== undefined) {
-            const bZoneLine = { value: finalXTgPauseValue, color: themeColors.warningMain, lineWidth: 1.5, dashArray: "4 4", label: `Гибочная зона (${(finalXTgPauseValue * 2).toFixed(1)} мм)` };
-            const bZoneLineNeg = { value: -finalXTgPauseValue, color: themeColors.warningMain, lineWidth: 1.5, dashArray: "4 4" };
-            xLinesHor.push(bZoneLine, bZoneLineNeg);
-        }
-
-        const lastXCoord = Array.isArray(xCoordinatesMm) && xCoordinatesMm.length > 0
-            ? xCoordinatesMm[xCoordinatesMm.length - 1]
-            : -10;
+        const lastXCoord = Array.isArray(xCoordinatesMm) && xCoordinatesMm.length > 0 ? xCoordinatesMm[xCoordinatesMm.length - 1] : -10;
 
         return {
             xTgPauseValue: finalXTgPauseValue,
@@ -421,7 +440,10 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
                     { name: "Heating (Vertical Slice)", points: vertPointsHeating || [], color: themeColors.textSecondary, opacity: 1, lineWidth: 1 },
                     { name: "Cooling (Vertical Slice)", points: vertPointsPause || [], color: themeColors.textPrimary, opacity: 1, lineWidth: 1.6 }
                 ],
-                axes: { x: { unit: "mm", lines: [{ value: thickness / 2, color: themeColors.textSecondary }, { value: thickness * matKFactor, color: themeColors.infoMain }], ranges: [] }, y: commonYAxis }
+                axes: {
+                    x: { unit: "mm", lines: [{ value: thickness / 2, color: themeColors.textSecondary }, { value: thickness * matKFactor, color: themeColors.infoMain }], ranges: [] },
+                    y: commonYAxisChart1
+                }
             },
             chart3: {
                 graphs: [
@@ -432,57 +454,32 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
                     { name: "Середина листа пауза", points: rawHorMidP || [], color: themeColors.successMain, opacity: 1, lineWidth: 1.2 },
                     { name: "Нижняя поверхность пауза", points: rawHorBotP || [], color: themeColors.primaryMain, opacity: 1, lineWidth: 1.2 }
                 ],
-                axes: { x: { unit: "mm", lines: xLinesHor, ranges: [] }, y: commonYAxis }
+                axes: {
+                    x: createHorizontalXAxis(width, finalXTgPauseValue, themeColors),
+                    y: commonYAxisChart3
+                }
             },
             chart4: {
                 graphs: contourGraphs,
                 showLabels: false,
                 showPoints: false,
-                axes: {
-                    x: { unit: "mm", lines: xLinesCont, ranges: [] },
-                    y: { unit: "mm", min: lastXCoord, max: 0, lines: [{ value: lastXCoord / 2, color: alpha(themeColors.divider, 0.3) }, { value: lastXCoord * matKFactor, color: themeColors.infoMain, label: `K = ${matKFactor}` }], ranges: [] }
-                },
+                axes: createContoursAxes(width, contourGraphsRaw, lastXCoord, matKFactor, themeColors),
                 fillPolygons: fillPolygons
             }
         };
-    }, [result2D, themeColors, commonYAxis, matKFactor]);
+    }, [result2D, themeColors, commonYAxisChart1, commonYAxisChart3, matKFactor]);
 
-    const plasticZoneWidthCalculated = useMemo(
-        () => calculatePlasticZoneWidth(chartsBundle?.xTgPauseValue),
-        [chartsBundle?.xTgPauseValue]
-    );
-
-    const maxRadiusCalculated = useMemo(
-        () => calculateMaxInnerRadius(
-            plasticZoneWidthCalculated,
-            machineParams?.bendAngle,
-            profileThickness,
-            matKFactor
-        ),
-        [plasticZoneWidthCalculated, machineParams?.bendAngle, profileThickness, matKFactor]
-    );
+    const plasticZoneWidthCalculated = useMemo(() => calculatePlasticZoneWidth(chartsBundle?.xTgPauseValue), [chartsBundle?.xTgPauseValue]);
+    const maxRadiusCalculated = useMemo(() => calculateMaxInnerRadius(plasticZoneWidthCalculated, machineParams?.bendAngle, profileThickness, matKFactor), [plasticZoneWidthCalculated, machineParams?.bendAngle, profileThickness, matKFactor]);
 
     return (
         <Box className="bend-preview" sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
-            <PartHeader
-                partName={profile?.name}
-                materialName={profile?.material?.name}
-                thickness={profile?.thickness}
-            />
+            <PartHeader partName={profile?.name} materialName={profile?.material?.name} thickness={profile?.thickness} />
 
-            <Box
-                ref={containerRef}
-                className="bend-preview-drawing"
-                sx={{
-                    flex: 1, minWidth: 360, maxHeight: 480, width: "100%",
-                    display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden"
-                }}
-            >
+            <Box ref={containerRef} className="bend-preview-drawing" sx={{ flex: 1, minWidth: 360, maxHeight: 480, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
                 {validationError ? (
                     <Box sx={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
-                        <Typography variant="body2" fontWeight={500} color="warning.main">
-                            {validationError}
-                        </Typography>
+                        <Typography variant="body2" fontWeight={500} color="warning.main">{validationError}</Typography>
                     </Box>
                 ) : svgData && (
                     <svg className="bend-preview-svg" viewBox={svgData.viewBox} width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
@@ -495,95 +492,32 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
                 )}
             </Box>
 
-            <Box
-                className="bend-preview-bottom"
-                sx={{
-                    display: "flex",
-                    flexDirection: "column",
-                    width: "100%",
-                    gap: 3,
-                    mt: 1
-                }}
-            >
+            <Box className="bend-preview-bottom" sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 3, mt: 1 }}>
                 <Box sx={{ width: "100%" }}>
                     <Parameters
-                        width={profileWidth}
-                        thickness={profileThickness}
-                        density={profile?.material?.density}
-                        blankLength={blankLength}
-                        machineParams={machineParams}
-                        heatingTimeSeconds={result2D?.heatingTimeSeconds}
-                        coolingTimeSeconds={result2D?.coolingTimeSeconds}
-                        calculationTimeMs={result2D?.calculationTimeMs}
-                        status={result2D?.status}
-                        heatingDeltaT={result2D?.geometryData?.heatingDeltaT}
-                        pauseDeltaT={result2D?.geometryData?.pauseDeltaT}
-                        plasticZoneWidth={plasticZoneWidthCalculated}
-                        maxRadius={maxRadiusCalculated}
-                        accuracyMetrics={result2D?.accuracyMetrics}
+                        width={profileWidth} thickness={profileThickness} density={profile?.material?.density} blankLength={blankLength} machineParams={machineParams}
+                        heatingTimeSeconds={result2D?.heatingTimeSeconds} coolingTimeSeconds={result2D?.coolingTimeSeconds} calculationTimeMs={result2D?.calculationTimeMs}
+                        status={result2D?.status} heatingDeltaT={result2D?.geometryData?.heatingDeltaT} pauseDeltaT={result2D?.geometryData?.pauseDeltaT}
+                        plasticZoneWidth={plasticZoneWidthCalculated} maxRadius={maxRadiusCalculated} accuracyMetrics={result2D?.accuracyMetrics}
                     />
                 </Box>
 
                 <Box sx={{ width: "100%", position: "relative" }}>
-
                     <Box sx={{ width: "100%", position: "relative" }}>
-                        <Box
-                            sx={{
-                                display: "grid",
-                                gridTemplateColumns: { xs: "100%", md: "repeat(2, 1fr)" },
-                                gap: 2,
-                                width: "100%",
-                                opacity: isCalculating ? 0.4 : 1,
-                                filter: isCalculating ? "blur(1px)" : "none",
-                                transition: "all 0.3s ease",
-                                pointerEvents: isCalculating ? "none" : "auto"
-                            }}
-                        >
-                            {showVerticalSlice && chartsBundle?.chart1 && (
-                                <SvgLineChart chart={chartsBundle.chart1} maxHeight={150} />
-                            )}
-
-                            {showTimeDynamics && chart2Data && (
-                                <SvgLineChart chart={chart2Data} maxHeight={150} />
-                            )}
-
-                            {showHorizontalWidth && chartsBundle?.chart3 && (
-                                <SvgLineChart chart={chartsBundle.chart3} maxHeight={150} />
-                            )}
-
-                            {showContours2D && chartsBundle?.chart4 && (
-                                <SvgLineChart chart={chartsBundle.chart4} maxHeight={150} />
-                            )}
+                        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "100%", md: "repeat(2, 1fr)" }, gap: 2, width: "100%", opacity: isCalculating ? 0.4 : 1, filter: isCalculating ? "blur(1px)" : "none", transition: "all 0.3s ease", pointerEvents: isCalculating ? "none" : "auto" }}>
+                            {showVerticalSlice && chartsBundle?.chart1 && <SvgLineChart chart={chartsBundle.chart1} maxHeight={150} />}
+                            {showTimeDynamics && chart2Data && <SvgLineChart chart={chart2Data} maxHeight={150} />}
+                            {showHorizontalWidth && chartsBundle?.chart3 && <SvgLineChart chart={chartsBundle.chart3} maxHeight={150} />}
+                            {showContours2D && chartsBundle?.chart4 && <SvgLineChart chart={chartsBundle.chart4} maxHeight={150} />}
                         </Box>
                     </Box>
 
-
-
                     {isCalculating && (
-                        <Box
-                            sx={{
-                                position: "absolute",
-                                inset: 0,
-                                backgroundColor: alpha(theme.palette.action.disabledBackground, 0.1),
-                                borderRadius: 1,
-                                zIndex: 10,
-                                display: "flex",
-                                flexDirection: "column",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                gap: 1.5,
-                                px: 3,
-                                minHeight: 200
-                            }}
-                        >
-                            <Typography variant="body2" fontWeight={600} color="text.secondary">
-                                2D simulation in progress...
-                            </Typography>
+                        <Box sx={{ position: "absolute", inset: 0, backgroundColor: alpha(theme.palette.action.disabledBackground, 0.1), borderRadius: 1, zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1.5, px: 3, minHeight: 200 }}>
+                            <Typography variant="body2" fontWeight={600} color="text.secondary">2D simulation in progress...</Typography>
                             <Box sx={{ width: '100%', maxWidth: 220, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                                 <LinearProgress variant="determinate" value={progress} sx={{ flexGrow: 1, height: 6, borderRadius: 3 }} />
-                                <Typography variant="body2" color="text.secondary" fontWeight={700} sx={{ minWidth: 35 }}>
-                                    {progress}%
-                                </Typography>
+                                <Typography variant="body2" color="text.secondary" fontWeight={700} sx={{ minWidth: 35 }}>{progress}%</Typography>
                             </Box>
                         </Box>
                     )}
