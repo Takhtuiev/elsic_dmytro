@@ -335,35 +335,41 @@ const SvgLineChart = ({ chart, maxHeight }) => {
         const timerId = setTimeout(() => {
             if (!workerInstanceRef.current) return;
 
-            // Собираем плоский кэш координат точек
-            const xsMap = {};
-            const ysMap = {};
-            chartData.graphData.forEach(g => {
-                g.points.forEach(p => {
-                    if (p && Array.isArray(p)) {
-                        const key = p + "," + p;
-                        xsMap[key] = chartData.xs(p);
-                        ysMap[key] = chartData.ys(p);
-                    }
-                });
-            });
 
-            // Отправляем задачу в уже запущенный воркер
             workerInstanceRef.current.postMessage({
                 sortedLabels: chartData.sortedLabels,
-                graphData: chartData.graphData.map(g => ({
-                    index: g.index,
-                    points: g.points
-                })),
+                graphData: chartData.graphData.map(g => {
+                    const len = g.points.length;
+                    const xsProj = new Float64Array(len);
+                    const ysProj = new Float64Array(len);
+
+                    for (let i = 0; i < len; i++) {
+                        const pt = g.points[i];
+
+                        if (pt && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
+                            xsProj[i] = chartData.xs(pt[0]);
+                            ysProj[i] = chartData.ys(pt[1]);
+                        } else {
+                            xsProj[i] = NaN;
+                            ysProj[i] = NaN;
+                        }
+                    }
+
+                    return {
+                        index: g.index,
+                        points: g.points,
+                        xsProj,
+                        ysProj
+                    };
+                }),
                 plotLeft: chartData.plotLeft,
                 plotRight: chartData.plotRight,
                 plotTop: chartData.plotTop,
                 plotBottom: chartData.plotBottom,
                 axes: chartData.axes,
-                xMax: chartData.xMax,
-                xsMap,
-                ysMap
+                xMax: chartData.xMax
             });
+
         }, 100);
 
         return () => clearTimeout(timerId);

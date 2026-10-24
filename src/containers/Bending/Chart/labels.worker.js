@@ -71,35 +71,40 @@ const getRayToRectPerimeterDistance = (point, rLeft, rRight, rTop, rBottom) => {
     return Number.isFinite(minT) ? minT : rayLength;
 };
 
-const getSegmentRectOverlapRatio = (x1, y1, x2, y2, rLeft, rRight, rTop, rBottom) => {
+function getSegmentRectOverlapRatio(x1, y1, x2, y2, rLeft, rRight, rTop, rBottom) {
     const dx = x2 - x1;
     const dy = y2 - y1;
-    if (Math.abs(dx) < 0.00001 && Math.abs(dy) < 0.00001) return 0;
 
     let t0 = 0;
     let t1 = 1;
 
-    // Инлайнинг функции clip для производительности
-    if (Math.abs(dx) < 0.00001) {
-        if (x1 - rLeft < 0 || rRight - x1 < 0) return 0;
-    } else {
-        let r = (x1 - rLeft) / dx;
-        if (-dx < 0) { if (r > t1) return 0; if (r > t0) t0 = r; } else { if (r < t0) return 0; if (r < t1) t1 = r; }
-        r = (rRight - x1) / dx;
-        if (dx < 0) { if (r > t1) return 0; if (r > t0) t0 = r; } else { if (r < t0) return 0; if (r < t1) t1 = r; }
-    }
+    const clip = (p, q) => {
+        if (Math.abs(p) < 1e-9) return q >= 0;
 
-    if (Math.abs(dy) < 0.00001) {
-        if (y1 - rTop < 0 || rBottom - y1 < 0) return 0;
-    } else {
-        let r = (y1 - rTop) / dy;
-        if (-dy < 0) { if (r > t1) return 0; if (r > t0) t0 = r; } else { if (r < t0) return 0; if (r < t1) t1 = r; }
-        r = (rBottom - y1) / dy;
-        if (dy < 0) { if (r > t1) return 0; if (r > t0) t0 = r; } else { if (r < t0) return 0; if (r < t1) t1 = r; }
+        const r = q / p;
+
+        if (p < 0) {
+            if (r > t1) return false;
+            if (r > t0) t0 = r;
+        } else {
+            if (r < t0) return false;
+            if (r < t1) t1 = r;
+        }
+
+        return true;
+    };
+
+    if (
+        !clip(-dx, x1 - rLeft) ||
+        !clip(dx, rRight - x1) ||
+        !clip(-dy, y1 - rTop) ||
+        !clip(dy, rBottom - y1)
+    ) {
+        return 0;
     }
 
     return Math.max(0, t1 - t0);
-};
+}
 
 const getRectGapPenalty = (rLeft, rRight, rTop, rBottom, rWidth, rHeight, b) => {
     const overlapWidth = Math.max(0, Math.min(rRight, b.right) - Math.max(rLeft, b.left));
@@ -170,8 +175,13 @@ const getCurveOverlap = (graph, rLeft, rRight, rTop, rBottom) => {
         const x2 = xsProj[i + 1];
         const y2 = ysProj[i + 1];
 
-        if (x2 === null || x1 === null) {
-            x1 = x2; y1 = y2; continue;
+        if (
+            !Number.isFinite(x1) || !Number.isFinite(y1) ||
+            !Number.isFinite(x2) || !Number.isFinite(y2)
+        ) {
+            x1 = x2;
+            y1 = y2;
+            continue;
         }
 
         // Раннее ленивое исключение сегментов вне прямоугольника метки (AABB)
@@ -215,27 +225,12 @@ self.onmessage = function (e) {
 
     isCancelled = false;
 
-    const { sortedLabels, graphData, plotLeft, plotRight, plotTop, plotBottom, axes, xMax, xsMap, ysMap } = e.data;
+    const { sortedLabels, graphData, plotLeft, plotRight, plotTop, plotBottom, axes, xMax } = e.data;
     const placed = [];
     const placedMap = {};
 
-    // Оптимизация проекций: маппинг по индексу массива вместо работы со строковыми ключами в цикле
-    const projectedGraphs = graphData.map(g => {
-        const xsProj = new Float64Array(g.points.length);
-        const ysProj = new Float64Array(g.points.length);
-        for (let i = 0; i < g.points.length; i++) {
-            const pt = g.points[i];
-            if (pt) {
-                const key = pt[0] + ',' + pt[1];
-                xsProj[i] = xsMap[key] ?? null;
-                ysProj[i] = ysMap[key] ?? null;
-            } else {
-                xsProj[i] = null;
-                ysProj[i] = null;
-            }
-        }
-        return { index: g.index, points: g.points, xsProj, ysProj };
-    });
+    const projectedGraphs = graphData;
+
 
     const isPlotRightEdge = (p) => Math.abs(p.rawX - xMax) < 1e-6;
 
@@ -302,7 +297,10 @@ self.onmessage = function (e) {
                 for (let i = startNode; i <= endNode; i++) {
                     const cx1 = currentGraph.xsProj[i];   const cy1 = currentGraph.ysProj[i];
                     const cx2 = currentGraph.xsProj[i + 1]; const cy2 = currentGraph.ysProj[i + 1];
-                    if (cx1 === null || cx2 === null) continue;
+                    if (
+                        !Number.isFinite(cx1) || !Number.isFinite(cy1) ||
+                        !Number.isFinite(cx2) || !Number.isFinite(cy2)
+                    ) continue;
 
                     ownSegmentOverlap += Math.hypot(cx2 - cx1, cy2 - cy1) * getSegmentRectOverlapRatio(cx1, cy1, cx2, cy2, rLeft, rRight, rTop, rBottom);
                 }
@@ -326,7 +324,10 @@ self.onmessage = function (e) {
                     for (let i = 0; i < og.points.length - 1; i++) {
                         const ox1 = og.xsProj[i];   const oy1 = og.ysProj[i];
                         const ox2 = og.xsProj[i + 1]; const oy2 = og.ysProj[i + 1];
-                        if (ox1 === null || ox2 === null) continue;
+                        if (
+                            !Number.isFinite(ox1) || !Number.isFinite(oy1) ||
+                            !Number.isFinite(ox2) || !Number.isFinite(oy2)
+                        ) continue;
 
                         if (segmentIntersectsSegment(p.x, p.y, tx, ty, ox1, oy1, ox2, oy2)) {
                             rayCrossesGraph = true;
