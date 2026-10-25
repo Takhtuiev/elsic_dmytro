@@ -5,6 +5,8 @@
  *
  * COMPACT VERSION: Eliminates grid redundancy. Coordinates are stored once under 'temperatureProfile',
  * while thermal fields are split into 'heating' (after oven) and 'pause' (after transfer cooling).
+ *
+ * PERFORMANCE-SAFE SOLVER WORK COUNTERS ADDED VIA REGISTERS/STACK LET VARIABLES.
  */
 
 
@@ -154,7 +156,6 @@ function createNonlinearGridX(thicknessMm, nodeCount, minGridStepMm) {
 
     for (let i = 0; i < nodeCount - 1; i++) {
         const diff = x[i + 1] - x[i];
-        // 👇 Заменили старую константу на переданный аргумент
         dx[i] = diff < minGridStepMm ? minGridStepMm : diff;
     }
 
@@ -175,7 +176,7 @@ function createNonlinearGridX(thicknessMm, nodeCount, minGridStepMm) {
 
     return { x, dx, dxHat, invDxH, invDxL, invDxR, nodeCount };
 }
-// 👇 Добавили пятый аргумент minGridStepMm
+
 function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convectionTransitionEndMm, minGridStepMm) {
     const y = new Float64Array(nodeCount);
     const yCenter = (slotHalfWidthMm + convectionTransitionEndMm) / 2.0;
@@ -225,14 +226,12 @@ function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convecti
 
     if (changeIndex > 0 && changeIndex < nodeCount - 2) {
         let baseDy = y[changeIndex] - y[changeIndex - 1];
-        // 👇 Заменили MIN_GRID_STEP_MM на аргумент minGridStepMm
         if (baseDy < minGridStepMm) baseDy = minGridStepMm;
 
         const q = 1.12;
         let currentDy = baseDy;
         for (let j = changeIndex; j < nodeCount - 1; j++) {
             currentDy *= q;
-            // 👇 Заменили MIN_GRID_STEP_MM на аргумент minGridStepMm
             if (currentDy < minGridStepMm) currentDy = minGridStepMm;
             y[j + 1] = y[j] + currentDy;
         }
@@ -253,7 +252,6 @@ function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convecti
 
     for (let j = 1; j < nodeCount; j++) {
         if (y[j] <= y[j - 1] + 1e-6) {
-            // 👇 Заменили MIN_GRID_STEP_MM на аргумент minGridStepMm
             y[j] = y[j - 1] + minGridStepMm;
         }
     }
@@ -428,11 +426,10 @@ function isTargetReached2D(T, Nx, Ny, target, targetK, outCurrentValue) {
 }
 
 function accumulateTimeErrorStep(currentT, prevT, oldT, Nx, Ny, lastX) {
-    const idxTop = 0;                                // x = 0, y = 0
-    const idxMid = ((Nx - 1) >> 1) * Ny;    // x = center, y = 0
-    const idxBot = lastX * Ny;              // x = thickness, y = 0
+    const idxTop = 0;
+    const idxMid = ((Nx - 1) >> 1) * Ny;
+    const idxBot = lastX * Ny;
 
-    // Схема трех временных слоев: 0.5 * (T_new - 2*T_current + T_old)
     const errTop = 0.5 * (currentT[idxTop] - 2 * prevT[idxTop] + oldT[idxTop]);
     const errMid = 0.5 * (currentT[idxMid] - 2 * prevT[idxMid] + oldT[idxMid]);
     const errBot = 0.5 * (currentT[idxBot] - 2 * prevT[idxBot] + oldT[idxBot]);
@@ -456,7 +453,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const userMode = simulation.accuracyMode;
     const mode = ["fast", "optimal", "accurate"].includes(userMode) ? userMode : "optimal";
 
-    // (считываем флаг динамически из интерфейса)
     const shouldCalculateAccuracyError = simulation.calculateAccuracyError !== false;
 
     const GRID_X_STEP_MM = LIMITS.gridX[mode];
@@ -487,7 +483,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const gridY = is1D
         ? { y: new Float64Array([0.0]), dy: new Float64Array([0.0]), dyHat: new Float64Array([0.0]), invDyH: new Float64Array([1000.0/0.001]), invDyL: new Float64Array([0.0]), invDyR: new Float64Array([0.0]), nodeCount: 1 }
         : createParametricGridY(simulation.widthHalfMm, Ny, slotHalfWidthMm, convectionTransitionEndMm, MIN_GRID_STEP_MM);
-
 
     const target = simulation.target;
     const targetType = target.type;
@@ -580,7 +575,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const logHistory = (force = false) => {
         if (!storeHistory || !history) return;
         if (history.time.length > 0 && history.time[history.time.length - 1] === time) return;
-        // 👇 УБЕДИТЕСЬ, ЧТО ЭТА СТРОКА ВЫГЛЯДИТ ТАК (здесь используется lastLoggedTime):
         if (!force && (time - lastLoggedTime < 1.0) && time < simulationMaxTime) return;
 
         history.time.push(time);
@@ -612,6 +606,11 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let globalTimeErrMidSq = 0.0;
     let globalTimeErrBotSq = 0.0;
     let totalTimeStepsCount = 0;
+
+    // 🏎️ ВЫСОКОПРОИЗВОДИТЕЛЬНЫЕ ЛОКАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ СЧЁТЧИКОВ РЕШАТЕЛЯ (В РЕГИСТРАХ CPU)
+    let countTimeSteps = 0;
+    let countRejectedSteps = 0;
+    let countPicardIters = 0;
 
     // ========================================================
     // ФАЗА 1: ИНТЕНСИВНЫЙ НАГРЕВ
@@ -730,6 +729,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             matrixAClone.set(matrixA);
             solveBandMatrixOptimized(matrixAClone, size2D, bandWidth, rhsVec, solverX, precalc);
 
+            countPicardIters++; // 🔄 Увеличиваем счётчик итераций Пикара без обращения к Heap
+
             let maxDeltaK = 0;
             let localMaxSignedDiff = 0.0;
 
@@ -752,6 +753,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         }
 
         if (isAdaptive && !nonlinearConverged) {
+            countRejectedSteps++; // 🛑 Шаг отброшен из-за несходимости Пикара
             dt *= ADAPTIVE_SHRINK_FACTOR;
             if (dt < 1e-5) {
                 status = { type: "error", message: "Degradation! Temperature limits reached with minimum allowable time step." };
@@ -778,6 +780,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 const nextDt = dt * clamp(fraction, 0.05, 0.95);
 
                 if (nextDt >= 1e-5) {
+                    countRejectedSteps++; // 🛑 Шаг отброшен из-за адаптивного предотвращения перегрева
                     dt = nextDt;
                     T.set(oldT);
                     continue;
@@ -787,6 +790,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             if (stopAtMaxTemperature) {
                 T.set(currentIterT);
                 time += dt;
+                countTimeSteps++;
                 logHistory(true);
                 break;
             }
@@ -813,6 +817,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 const fraction = (targetK - oldNodeT) / (newNodeT - oldNodeT);
                 const nextDt = dt * clamp(fraction, 0.05, 0.95);
                 if (nextDt >= 1e-5) {
+                    countRejectedSteps++; // 🛑 Шаг отброшен для точного наведения на целевую температуру
                     dt = nextDt;
                     T.set(oldT);
                     continue;
@@ -862,7 +867,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
         // --- СТРОГИЙ АНАЛИЗ ОШИБКИ ВРЕМЕНИ (ФАЗА НАГРЕВА) ---
         if (shouldCalculateAccuracyError && nonlinearConverged) {
-            accumulatedSolverError += lastIterMaxSignedDiff; // Строго суммируем погрешность Пикара
+            accumulatedSolverError += lastIterMaxSignedDiff;
 
             const stepErr = accumulateTimeErrorStep(currentIterT, T, oldT, Nx, Ny, lastX);
 
@@ -872,11 +877,10 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             totalTimeStepsCount++;
         }
 
-
         T.set(currentIterT);
 
-
         time += dt;
+        countTimeSteps++; //  Успешный шаг интегрирования Фазы 1
         logHistory(false);
 
         if (isAdaptive) {
@@ -914,7 +918,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let lastCoolingLoggedTime = -1.0;
 
     const logCoolingHistory = (force = false) => {
-        if (!storeHistory || !history) return; // Добавили проверку !history
+        if (!storeHistory || !history) return;
         const currentAbsoluteTime = time + coolingTimeElapsed;
 
         if (history.time.length > 0 && history.time[history.time.length - 1] === currentAbsoluteTime) return;
@@ -1016,6 +1020,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             matrixAClone.set(matrixA);
             solveBandMatrixOptimized(matrixAClone, size2D, bandWidth, rhsVec, solverX, precalc);
 
+            countPicardIters++; // 🔄 Увеличиваем счётчик итераций Пикара Фазы 2
+
             let maxCoolingDeltaK = 0;
             let coolingLocalMaxSignedDiff = 0.0;
 
@@ -1038,6 +1044,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         }
 
         if (isAdaptive && !coolingConverged) {
+            countRejectedSteps++; // 🛑 Шаг отброшен в Фазе 2
             coolingDt *= ADAPTIVE_SHRINK_FACTOR;
             if (coolingDt < 1e-5) {
                 status = { type: "error", message: "Degradation! Cooling step limits reached." };
@@ -1053,9 +1060,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             if (stepChange > maxStepCoolingChange) maxStepCoolingChange = stepChange;
         }
 
-        // --- СТРОГИЙ АНАЛИЗ ОШИБКИ ВРЕМЕНИ (ФАЗА ПАУЗЫ) ---
         if (shouldCalculateAccuracyError && coolingConverged) {
-            accumulatedSolverError += coolingLastIterMaxSignedDiff; // Строго суммируем погрешность Пикара
+            accumulatedSolverError += coolingLastIterMaxSignedDiff;
 
             const stepErr = accumulateTimeErrorStep(currentIterT, T, oldT, Nx, Ny, lastX);
 
@@ -1068,6 +1074,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         T.set(currentIterT);
 
         coolingTimeElapsed += coolingDt;
+        countTimeSteps++; //  Успешный шаг интегрирования Фазы 2
         logCoolingHistory(false);
 
         if (onProgress && coolingTime > 0) {
@@ -1111,30 +1118,25 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let accuracyMetrics = null;
 
     if (shouldCalculateAccuracyError) {
-        // Гарантируем, что переменная для центра определена, даже если шагов не было
         const safeMidSq = typeof globalTimeErrMidSq !== 'undefined' ? globalTimeErrMidSq : 0.0;
 
-        // Вычисляем глобальную RMS (среднеквадратичную) ошибку по времени для трех точек
         const rmsErrTop = totalTimeStepsCount > 0 ? Math.sqrt(globalTimeErrTopSq / totalTimeStepsCount) : 0;
         const rmsErrMid = totalTimeStepsCount > 0 ? Math.sqrt(safeMidSq / totalTimeStepsCount) : 0;
         const rmsErrBot = totalTimeStepsCount > 0 ? Math.sqrt(globalTimeErrBotSq / totalTimeStepsCount) : 0;
 
-        // Теперь выбираем худший (максимальный) результат из трех критических зон
         const finalTimeError = Math.max(rmsErrTop, rmsErrMid, rmsErrBot);
 
-        // 2. Погрешность аппроксимации пространственной нелинейной сетки по толщине X при y = 0
         let maxGridError = 0.0;
 
-        // Проверяем только приграничные узлы, где градиент максимален
         const criticalNodes = [
-            1, 2,                         // Верхняя поверхность
-            (Nx - 1) >> 1,                 // Центр толщины
-            Nx - 3, Nx - 2                 // Нижняя поверхность
+            1, 2,
+            (Nx - 1) >> 1,
+            Nx - 3, Nx - 2
         ];
 
         for (let k = 0; k < criticalNodes.length; k++) {
             const i = criticalNodes[k];
-            if (i <= 0 || i >= Nx - 1) continue; // защита от выхода за границы при малых Nx
+            if (i <= 0 || i >= Nx - 1) continue;
 
             const idxCurrent = i * Ny;
             const idxLeft = (i - 1) * Ny;
@@ -1153,10 +1155,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             }
         }
 
-
         const finalGridError = maxGridError;
 
-        // Полностью избавились от Math.pow для ускорения расчета
         const totalUncertaintyC = Math.abs(accumulatedSolverError) +
             Math.sqrt((finalTimeError * finalTimeError) + (finalGridError * finalGridError));
 
@@ -1170,13 +1170,21 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         };
     }
 
-
     return {
         heatingTimeSeconds: time,
         coolingTimeSeconds: coolingTimeElapsed,
         calculationTimeMs: performance.now() - calculationStart,
         reachedTarget,
         status: status || { type: "ok" },
+
+        // 📊 СБОР ИНВАРИАНТНЫХ МЕТРИК РАБОТЫ (БЕЗОПАСНЫЙ РАСЧЕТ В ФИНАЛЕ)
+        workCounters: {
+            totalTimeSteps: countTimeSteps,
+            rejectedTimeSteps: countRejectedSteps,
+            totalPicardIterations: countPicardIters,
+            totalGridPointsProcessed: countPicardIters * size2D // Вычисляется 1 раз в самом конце расчета
+        },
+
         ...(shouldCalculateAccuracyError && { accuracyMetrics }),
         ...(storeHistory && { history }),
         temperatureProfile: {
@@ -1186,4 +1194,5 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             heating: heatingProfileC,
             pause: pauseProfileC
         }
-    };}
+    };
+}

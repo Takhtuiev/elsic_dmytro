@@ -139,7 +139,8 @@ const Parameters = React.memo(({
                                    pauseDeltaT,
                                    plasticZoneWidth,
                                    maxRadius,
-                                   accuracyMetrics
+                                   accuracyMetrics,
+                                   workCounters
                                }) => {
     const mass = useMemo(
         () => calculateMass(blankLength, width, thickness, density),
@@ -208,36 +209,43 @@ const Parameters = React.memo(({
                 Simulation calculation time: {Number.isFinite(calculationTimeMs) ? calculationTimeMs.toFixed(1) : "—"} ms
             </Typography>
 
+            {/* 📊 СИСТЕМНЫЕ МЕТРИКИ ТОЧНОСТИ И ВЫЧИСЛИТЕЛЬНОЙ НАГРУЗКИ (ЕДИНЫЙ СТИЛЬ) */}
             {accuracyMetrics && (
-                <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, mt: 0.5, opacity: 0.85 }}>
+                <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5, mt: 0.5, opacity: 0.7 }}>
                     <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
                         Uncertainty: <strong>{accuracyMetrics.formatted ?? "—"}</strong>
+                        <span style={{ marginLeft: 6, opacity: 0.85 }}>
+                (Time: <strong>{Number.isFinite(accuracyMetrics.timeIntegrationErrorC) ? `${accuracyMetrics.timeIntegrationErrorC.toFixed(3)}°C` : "—"}</strong>, Grid: <strong>{Number.isFinite(accuracyMetrics.spatialGridErrorC) ? `${accuracyMetrics.spatialGridErrorC.toFixed(3)}°C` : "—"}</strong>, Solver: <strong>{Number.isFinite(accuracyMetrics.solverErrorC) ? `${Math.abs(accuracyMetrics.solverErrorC).toFixed(3)}°C` : "—"}</strong>)
+            </span>
                     </Typography>
-
-                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`} sx={{ ml: 0.5 }}>
-                        (
-                    </Typography>
-
-                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
-                        <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
-                            Time: <strong>{Number.isFinite(accuracyMetrics.timeIntegrationErrorC) ? `${accuracyMetrics.timeIntegrationErrorC.toFixed(3)}°C` : "—"}</strong>
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
-                            Grid: <strong>{Number.isFinite(accuracyMetrics.spatialGridErrorC) ? `${accuracyMetrics.spatialGridErrorC.toFixed(3)}°C` : "—"}</strong>
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
-                            Solver: <strong>{Number.isFinite(accuracyMetrics.solverErrorC) ? `${Math.abs(accuracyMetrics.solverErrorC).toFixed(3)}°C` : "—"}</strong>
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
-                            Mode: <strong style={{ textTransform: 'capitalize' }}>{accuracyMetrics.accuracyMode ?? "—"}</strong>
-                        </Typography>
-                    </Box>
 
                     <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
-                        )
+                        Mode: <strong style={{ textTransform: 'capitalize' }}>{accuracyMetrics.accuracyMode ?? "—"}</strong>
                     </Typography>
                 </Box>
             )}
+
+            {workCounters && (
+                <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5, mt: 0.25, opacity: 0.7 }}>
+                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
+                        Solver steps: <strong>{workCounters.totalTimeSteps ?? "—"}</strong>
+                        {workCounters.rejectedTimeSteps > 0 && (
+                            <span style={{ color: 'var(--mui-palette-warning-main)', marginLeft: 4 }}>
+                                ({workCounters.rejectedTimeSteps} rejected)
+                            </span>
+                        )}
+                    </Typography>
+
+                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
+                        Picard iterations: <strong>{workCounters.totalPicardIterations ?? "—"}</strong>
+                    </Typography>
+
+                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
+                        Computational load: <strong>{workCounters.totalGridPointsProcessed.toLocaleString("en-US").replace(/,/g, "\u00A0")} pts</strong>
+                    </Typography>
+                </Box>
+            )}
+
 
         </Box>
     );
@@ -498,7 +506,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
                         width={profileWidth} thickness={profileThickness} density={profile?.material?.density} blankLength={blankLength} machineParams={machineParams}
                         heatingTimeSeconds={result2D?.heatingTimeSeconds} coolingTimeSeconds={result2D?.coolingTimeSeconds} calculationTimeMs={result2D?.calculationTimeMs}
                         status={result2D?.status} heatingDeltaT={result2D?.geometryData?.heatingDeltaT} pauseDeltaT={result2D?.geometryData?.pauseDeltaT}
-                        plasticZoneWidth={plasticZoneWidthCalculated} maxRadius={maxRadiusCalculated} accuracyMetrics={result2D?.accuracyMetrics}
+                        plasticZoneWidth={plasticZoneWidthCalculated} maxRadius={maxRadiusCalculated} accuracyMetrics={result2D?.accuracyMetrics} workCounters={result2D?.workCounters}
                     />
                 </Box>
 

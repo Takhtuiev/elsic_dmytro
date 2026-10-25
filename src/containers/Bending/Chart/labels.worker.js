@@ -1,12 +1,9 @@
-// Отключаем webpack hot-reload рантайм внутри воркера, чтобы предотвратить загрузку HMR-чанков через importScripts
-/* eslint-disable-next-line no-restricted-globals */
+/* eslint-disable no-restricted-globals */
 self.$RefreshReg$ = function () {};
-/* eslint-disable-next-line no-restricted-globals */
 self.$RefreshSig$ = function () { return function (type) { return type; }; };
 
 let isCancelled = false;
 
-// --- Константы конфигурации ---
 const LABEL_DISTANCES = [5, 9, 13];
 const LABEL_RAY_DISTANCE = 4;
 const LABEL_ACCEPTABLE_SCORE = 30;
@@ -37,13 +34,20 @@ const STATIC_DIRECTIONS = [
     { idx: 15, angle: -22.5, vx: 0.92387953236508, vy: -0.38268343236508 },
 ];
 
+const DIRECTIONS_CACHE = {};
+[0, 90, -90].forEach(preferredAngle => {
+    DIRECTIONS_CACHE[preferredAngle] = STATIC_DIRECTIONS.slice().sort((a, b) => {
+        let diffA = Math.abs(a.angle - preferredAngle);
+        let diffB = Math.abs(b.angle - preferredAngle);
+        return (diffA > 180 ? 360 - diffA : diffA) - (diffB > 180 ? 360 - diffB : diffB);
+    });
+});
+
 const getLabelSize = (p, yAxisUnit = "°") => {
     const fontSize = 9;
-    const text = `${Math.round(p.val)}${yAxisUnit}`;
-    return { fontSize, textWidth: text.length * fontSize * 0.52, textHeight: fontSize };
+    return { fontSize, textWidth: `${Math.round(p.val)}${yAxisUnit}`.length * fontSize * 0.52, textHeight: fontSize };
 };
 
-// Инлайнинг простых операций для избежания вызовов функций в тяжелых циклах
 const getRayToRectPerimeterDistance = (point, rLeft, rRight, rTop, rBottom) => {
     const centerX = (rLeft + rRight) * 0.5;
     const centerY = (rTop + rBottom) * 0.5;
@@ -74,127 +78,93 @@ const getRayToRectPerimeterDistance = (point, rLeft, rRight, rTop, rBottom) => {
 function getSegmentRectOverlapRatio(x1, y1, x2, y2, rLeft, rRight, rTop, rBottom) {
     const dx = x2 - x1;
     const dy = y2 - y1;
+    let t0 = 0, t1 = 1;
 
-    let t0 = 0;
-    let t1 = 1;
-
-    const clip = (p, q) => {
-        if (Math.abs(p) < 1e-9) return q >= 0;
-
-        const r = q / p;
-
-        if (p < 0) {
-            if (r > t1) return false;
-            if (r > t0) t0 = r;
-        } else {
-            if (r < t0) return false;
-            if (r < t1) t1 = r;
-        }
-
-        return true;
-    };
-
-    if (
-        !clip(-dx, x1 - rLeft) ||
-        !clip(dx, rRight - x1) ||
-        !clip(-dy, y1 - rTop) ||
-        !clip(dy, rBottom - y1)
-    ) {
-        return 0;
+    if (Math.abs(-dx) < 1e-9) { if (x1 - rLeft < 0) return 0; } else {
+        const r = (x1 - rLeft) / -dx;
+        if (-dx < 0) { if (r > t1) return 0; if (r > t0) t0 = r; } else { if (r < t0) return 0; if (r < t1) t1 = r; }
     }
-
+    if (Math.abs(dx) < 1e-9) { if (rRight - x1 < 0) return 0; } else {
+        const r = (rRight - x1) / dx;
+        if (dx < 0) { if (r > t1) return 0; if (r > t0) t0 = r; } else { if (r < t0) return 0; if (r < t1) t1 = r; }
+    }
+    if (Math.abs(-dy) < 1e-9) { if (y1 - rTop < 0) return 0; } else {
+        const r = (y1 - rTop) / -dy;
+        if (-dy < 0) { if (r > t1) return 0; if (r > t0) t0 = r; } else { if (r < t0) return 0; if (r < t1) t1 = r; }
+    }
+    if (Math.abs(dy) < 1e-9) { if (rBottom - y1 < 0) return 0; } else {
+        const r = (rBottom - y1) / dy;
+        if (dy < 0) { if (r > t1) return 0; if (r > t0) t0 = r; } else { if (r < t0) return 0; if (r < t1) t1 = r; }
+    }
     return Math.max(0, t1 - t0);
 }
 
 const getRectGapPenalty = (rLeft, rRight, rTop, rBottom, rWidth, rHeight, b) => {
     const overlapWidth = Math.max(0, Math.min(rRight, b.right) - Math.max(rLeft, b.left));
-    if (overlapWidth <= 0) {
-        return Math.max(b.left - rRight, rLeft - b.right, 0) < 4 && Math.max(b.top - rBottom, rTop - b.bottom, 0) < 4 ? LABEL_PENALTIES.placedNear : 0;
-    }
-    const overlapHeight = Math.max(0, Math.min(rBottom, b.bottom) - Math.max(rTop, b.top));
-    if (overlapHeight <= 0) {
-        return Math.max(b.left - rRight, rLeft - b.right, 0) < 4 && Math.max(b.top - rBottom, rTop - b.bottom, 0) < 4 ? LABEL_PENALTIES.placedNear : 0;
-    }
+    if (overlapWidth <= 0) return Math.max(b.left - rRight, rLeft - b.right, 0) < 4 && Math.max(b.top - rBottom, rTop - b.bottom, 0) < 4 ? LABEL_PENALTIES.placedNear : 0;
 
-    const bWidth = Math.max(0, b.right - b.left);
-    const bHeight = Math.max(0, b.bottom - b.top);
-    const referenceArea = Math.min(rWidth * rHeight, bWidth * bHeight);
+    const overlapHeight = Math.max(0, Math.min(rBottom, b.bottom) - Math.max(rTop, b.top));
+    if (overlapHeight <= 0) return Math.max(b.left - rRight, rLeft - b.right, 0) < 4 && Math.max(b.top - rBottom, rTop - b.bottom, 0) < 4 ? LABEL_PENALTIES.placedNear : 0;
+
+    const referenceArea = Math.min(rWidth * rHeight, Math.max(0, b.right - b.left) * Math.max(0, b.bottom - b.top));
     if (referenceArea <= 0) return 0;
 
     return Math.min(1, (overlapWidth * overlapHeight) / referenceArea) * LABEL_PENALTIES.placedOverlap;
 };
 
 const getOverflowPenalty = (rLeft, rRight, rTop, rBottom, rWidth, rHeight, plotLeft, plotRight, plotTop, plotBottom) => {
-    const leftRatio = rWidth > 0 ? Math.min(1, Math.max(0, plotLeft - rLeft) / rWidth) : 0;
-    const rightRatio = rWidth > 0 ? Math.min(1, Math.max(0, rRight - plotRight) / rWidth) : 0;
-    const topRatio = rHeight > 0 ? Math.min(1, Math.max(0, plotTop - rTop) / rHeight) : 0;
-    const bottomRatio = rHeight > 0 ? Math.min(1, Math.max(0, rBottom - plotBottom) / rHeight) : 0;
-
+    if (rWidth <= 0 || rHeight <= 0) return 0;
     return (
-        leftRatio * LABEL_PENALTIES.leftOverflow +
-        rightRatio * LABEL_PENALTIES.rightOverflow +
-        topRatio * LABEL_PENALTIES.topOverflow +
-        bottomRatio * LABEL_PENALTIES.bottomOverflow
+        (Math.max(0, plotLeft - rLeft) / rWidth) * LABEL_PENALTIES.leftOverflow +
+        (Math.max(0, rRight - plotRight) / rWidth) * LABEL_PENALTIES.rightOverflow +
+        (Math.max(0, plotTop - rTop) / rHeight) * LABEL_PENALTIES.topOverflow +
+        (Math.max(0, rBottom - plotBottom) / rHeight) * LABEL_PENALTIES.bottomOverflow
     );
 };
 
-// Быстрый пред-отсев пересечения отрезков по Bounding Box (AABB) перед точной математикой
 const segmentIntersectsSegment = (ax, ay, bx, by, cx, cy, dx, dy, eps = 1e-9) => {
     if (Math.min(ax, bx) - eps > Math.max(cx, dx) || Math.max(ax, bx) + eps < Math.min(cx, dx) ||
-        Math.min(ay, by) - eps > Math.max(cy, dy) || Math.max(ay, by) + eps < Math.min(cy, dy)) {
-        return false;
-    }
+        Math.min(ay, by) - eps > Math.max(cy, dy) || Math.max(ay, by) + eps < Math.min(cy, dy)) return false;
 
-    const cross = (px, py, qx, qy, rx, ry) => (qx - px) * (ry - py) - (qy - py) * (rx - px);
-
-    const o1 = cross(ax, ay, bx, by, cx, cy);
-    const o2 = cross(ax, ay, bx, by, dx, dy);
-    const o3 = cross(cx, cy, dx, dy, ax, ay);
-    const o4 = cross(cx, cy, dx, dy, bx, by);
+    const o1 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    const o2 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax);
+    const o3 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx);
+    const o4 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx);
 
     if (((o1 > eps && o2 < -eps) || (o1 < -eps && o2 > eps)) && ((o3 > eps && o4 < -eps) || (o3 < -eps && o4 > eps))) return true;
 
     const onSegment = (px, py, qx, qy, rx, ry) => rx >= Math.min(px, qx) - eps && rx <= Math.max(px, qx) + eps && ry >= Math.min(py, qy) - eps && ry <= Math.max(py, qy) + eps;
-
     return (Math.abs(o1) <= eps && onSegment(ax, ay, bx, by, cx, cy)) ||
         (Math.abs(o2) <= eps && onSegment(ax, ay, bx, by, dx, dy)) ||
         (Math.abs(o3) <= eps && onSegment(cx, cy, dx, dy, ax, ay)) ||
         (Math.abs(o4) <= eps && onSegment(cx, cy, dx, dy, bx, by));
 };
 
+let segLeft = 0, segRight = 0, segTop = 0, segBottom = 0;
 const getCurveOverlap = (graph, rLeft, rRight, rTop, rBottom) => {
     let totalPixelsInside = 0;
-    const { points, xsProj, ysProj } = graph;
-    const len = points.length;
-    if (len < 2) return 0;
+    const xsProj = graph.xsProj;
+    const ysProj = graph.ysProj;
+    const pointsLength = graph.pointsLength;
+    if (pointsLength < 2) return 0;
 
-    let x1 = xsProj[0];
-    let y1 = ysProj[0];
+    let x1 = xsProj[0], y1 = ysProj[0];
+    let x2 = 0, y2 = 0, dx = 0, dy = 0;
 
-    for (let i = 0; i < len - 1; i++) {
-        const x2 = xsProj[i + 1];
-        const y2 = ysProj[i + 1];
+    for (let i = 0; i < pointsLength - 1; i++) {
+        x2 = xsProj[i + 1];
+        y2 = ysProj[i + 1];
 
-        if (
-            !Number.isFinite(x1) || !Number.isFinite(y1) ||
-            !Number.isFinite(x2) || !Number.isFinite(y2)
-        ) {
-            x1 = x2;
-            y1 = y2;
-            continue;
-        }
-
-        // Раннее ленивое исключение сегментов вне прямоугольника метки (AABB)
-        const segLeft = x1 < x2 ? x1 : x2;
-        const segRight = x1 > x2 ? x1 : x2;
-        const segTop = y1 < y2 ? y1 : y2;
-        const segBottom = y1 > y2 ? y1 : y2;
+        if (x1 < x2) { segLeft = x1; segRight = x2; } else { segLeft = x2; segRight = x1; }
+        if (y1 < y2) { segTop = y1; segBottom = y2; } else { segTop = y2; segBottom = y1; }
 
         if (segRight < rLeft || segLeft > rRight || segBottom < rTop || segTop > rBottom) {
             x1 = x2; y1 = y2; continue;
         }
 
-        const length = Math.hypot(x2 - x1, y2 - y1);
+        dx = x2 - x1;
+        dy = y2 - y1;
+        const length = Math.sqrt(dx * dx + dy * dy);
         if (length > 0.00001) {
             totalPixelsInside += length * getSegmentRectOverlapRatio(x1, y1, x2, y2, rLeft, rRight, rTop, rBottom);
         }
@@ -204,183 +174,131 @@ const getCurveOverlap = (graph, rLeft, rRight, rTop, rBottom) => {
 };
 
 const getOrderedDirections = (p, prevY, nextY, hasNeighbors) => {
-    let preferredAngle = 0;
-    if (hasNeighbors) {
-        preferredAngle = p.y < prevY && p.y < nextY ? -90 : p.y > prevY && p.y > nextY ? 90 : 0;
-    }
-    // Быстрая сортировка без создания новых инстансов функций каждый раз
-    return STATIC_DIRECTIONS.slice().sort((a, b) => {
-        let diffA = Math.abs(a.angle - preferredAngle);
-        let diffB = Math.abs(b.angle - preferredAngle);
-        return (diffA > 180 ? 360 - diffA : diffA) - (diffB > 180 ? 360 - diffB : diffB);
-    });
+    if (!hasNeighbors) return DIRECTIONS_CACHE[0];
+    return DIRECTIONS_CACHE[p.y < prevY && p.y < nextY ? -90 : p.y > prevY && p.y > nextY ? 90 : 0];
 };
 
-/* eslint-disable-next-line no-restricted-globals */
 self.onmessage = function (e) {
-    if (e.data.type === "STOP") {
-        isCancelled = true;
-        return;
-    }
-
+    if (e.data.type === "STOP") { isCancelled = true; return; }
     isCancelled = false;
 
     const { sortedLabels, graphData, plotLeft, plotRight, plotTop, plotBottom, axes, xMax } = e.data;
     const placed = [];
     const placedMap = {};
+    const currentBest = { dx: 0, dy: 0, textAnchor: "middle", rLeft: 0, rRight: 0, rTop: 0, rBottom: 0 };
 
-    const projectedGraphs = graphData;
-
-
-    const isPlotRightEdge = (p) => Math.abs(p.rawX - xMax) < 1e-6;
+    const graphMap = {};
+    for (let i = 0; i < graphData.length; i++) {
+        graphMap[graphData[i].index] = graphData[i];
+    }
 
     for (let lIdx = 0; lIdx < sortedLabels.length; lIdx++) {
         if (isCancelled) return;
 
         const p = sortedLabels[lIdx];
-        const currentGraph = projectedGraphs.find(g => g.index === p.graphIndex);
+        const currentGraph = graphMap[p.graphIndex];
         if (!currentGraph) continue;
 
         const { textWidth, textHeight } = getLabelSize(p, axes.y);
-
-        const isLeftEdge = p.id === 0;
-        const isRightEdge = isPlotRightEdge(p);
+        const isRightEdge = Math.abs(p.rawX - xMax) < 1e-6;
         let prevY = 0, nextY = 0, hasNeighbors = false;
 
-        if (!isLeftEdge && p.id < currentGraph.points.length - 1 && currentGraph.points[p.id - 1] && currentGraph.points[p.id + 1]) {
+        if (p.id > 0 && p.id < currentGraph.pointsLength - 1) {
             prevY = currentGraph.ysProj[p.id - 1];
             nextY = currentGraph.ysProj[p.id + 1];
             hasNeighbors = true;
         }
 
         const orderedDirections = getOrderedDirections(p, prevY, nextY, hasNeighbors);
-        let best = null;
-        let bestScore = Infinity;
+        let hasBest = false, bestScore = Infinity;
 
         for (let dIdx = 0; dIdx < orderedDirections.length; dIdx++) {
             const dir = orderedDirections[dIdx];
 
             for (let distIdx = 0; distIdx < LABEL_DISTANCES.length; distIdx++) {
-                const baseDist = LABEL_DISTANCES[distIdx];
                 const angle = Math.abs(dir.angle) % 90;
-                const distance = baseDist + LABEL_RAY_DISTANCE * (1 - Math.min(angle, 90 - angle) / 45);
-                const dx = dir.vx * distance;
-                const dy = dir.vy * distance;
+                const distance = LABEL_DISTANCES[distIdx] + LABEL_RAY_DISTANCE * (1 - Math.min(angle, 90 - angle) / 45);
+                const dx = dir.vx * distance, dy = dir.vy * distance;
 
                 let textAnchor = "middle";
                 if (p.id === 0 && Math.abs(p.x - plotLeft) < 0.1 && dx > 0.01) textAnchor = "start";
                 if (isRightEdge) textAnchor = dx >= 0 ? "start" : "end";
 
-                const tx = p.x + dx;
-                const ty = p.y + dy;
-
-                // Деконструкция rect на плоские переменные для разгрузки GC
+                const tx = p.x + dx, ty = p.y + dy;
                 const rLeft = tx - (textAnchor === "end" ? textWidth : textAnchor === "middle" ? textWidth * 0.5 : 0) - 1;
                 const rRight = tx + (textAnchor === "start" ? textWidth : textAnchor === "middle" ? textWidth * 0.5 : 0) + 1;
-                const rTop = ty - textHeight * 0.5 - 0.5;
-                const rBottom = ty + textHeight * 0.5 + 0.5;
-                const rWidth = rRight - rLeft;
-                const rHeight = rBottom - rTop;
-                const rDiagonal = Math.hypot(rWidth, rHeight);
+                const rTop = ty - textHeight * 0.5 - 0.5, rBottom = ty + textHeight * 0.5 + 0.5;
+                const rWidth = rRight - rLeft, rHeight = rBottom - rTop;
 
-                let score = dIdx * LABEL_PENALTIES.direction +
-                    distIdx * LABEL_PENALTIES.distance +
-                    Math.pow(Math.max(0, getRayToRectPerimeterDistance(p, rLeft, rRight, rTop, rBottom) - 6), 2) * LABEL_PENALTIES.rayDistance;
+                const rDiagDx = rRight - rLeft;
+                const rDiagDy = rBottom - rTop;
+                const rDiagonal = Math.sqrt(rDiagDx * rDiagDx + rDiagDy * rDiagDy);
 
+                const rayDistPenalty = Math.max(0, getRayToRectPerimeterDistance(p, rLeft, rRight, rTop, rBottom) - 6);
+                let score = dIdx * LABEL_PENALTIES.direction + distIdx * LABEL_PENALTIES.distance + (rayDistPenalty * rayDistPenalty) * LABEL_PENALTIES.rayDistance;
                 score += getOverflowPenalty(rLeft, rRight, rTop, rBottom, rWidth, rHeight, plotLeft, plotRight, plotTop, plotBottom);
 
-                // Расчет оверлапа собственного сегмента
                 let ownSegmentOverlap = 0;
                 const startNode = Math.max(0, p.id - 1);
-                const endNode = Math.min(currentGraph.points.length - 2, p.id + 1);
+                const endNode = Math.min(currentGraph.pointsLength - 2, p.id + 1);
 
                 for (let i = startNode; i <= endNode; i++) {
-                    const cx1 = currentGraph.xsProj[i];   const cy1 = currentGraph.ysProj[i];
-                    const cx2 = currentGraph.xsProj[i + 1]; const cy2 = currentGraph.ysProj[i + 1];
-                    if (
-                        !Number.isFinite(cx1) || !Number.isFinite(cy1) ||
-                        !Number.isFinite(cx2) || !Number.isFinite(cy2)
-                    ) continue;
-
-                    ownSegmentOverlap += Math.hypot(cx2 - cx1, cy2 - cy1) * getSegmentRectOverlapRatio(cx1, cy1, cx2, cy2, rLeft, rRight, rTop, rBottom);
+                    const cx1 = currentGraph.xsProj[i], cy1 = currentGraph.ysProj[i];
+                    const cx2 = currentGraph.xsProj[i + 1], cy2 = currentGraph.ysProj[i + 1];
+                    const cDx = cx2 - cx1, cDy = cy2 - cy1;
+                    ownSegmentOverlap += Math.sqrt(cDx * cDx + cDy * cDy) * getSegmentRectOverlapRatio(cx1, cy1, cx2, cy2, rLeft, rRight, rTop, rBottom);
                 }
-                if (ownSegmentOverlap > 0 && rDiagonal > 0) {
-                    score += Math.min(1, ownSegmentOverlap / rDiagonal) * LABEL_PENALTIES.curveOverlap;
-                }
+                if (ownSegmentOverlap > 0 && rDiagonal > 0) score += Math.min(1, ownSegmentOverlap / rDiagonal) * LABEL_PENALTIES.curveOverlap;
 
-                // Оверлапы графиков
-                for (let g = 0; g < projectedGraphs.length; g++) {
-                    const overlapPixels = getCurveOverlap(projectedGraphs[g], rLeft, rRight, rTop, rBottom);
-                    if (overlapPixels > 0 && rDiagonal > 0) {
-                        score += Math.min(1, overlapPixels / rDiagonal) * LABEL_PENALTIES.curveOverlap;
-                    }
+                for (let g = 0; g < graphData.length; g++) {
+                    const overlapPixels = getCurveOverlap(graphData[g], rLeft, rRight, rTop, rBottom);
+                    if (overlapPixels > 0 && rDiagonal > 0) score += Math.min(1, overlapPixels / rDiagonal) * LABEL_PENALTIES.curveOverlap;
                 }
 
-                // Пересечения лучей с графиками
                 let rayCrossesGraph = false;
-                for (let g = 0; g < projectedGraphs.length; g++) {
-                    if (projectedGraphs[g].index === p.graphIndex) continue;
-                    const og = projectedGraphs[g];
-                    for (let i = 0; i < og.points.length - 1; i++) {
-                        const ox1 = og.xsProj[i];   const oy1 = og.ysProj[i];
-                        const ox2 = og.xsProj[i + 1]; const oy2 = og.ysProj[i + 1];
-                        if (
-                            !Number.isFinite(ox1) || !Number.isFinite(oy1) ||
-                            !Number.isFinite(ox2) || !Number.isFinite(oy2)
-                        ) continue;
-
-                        if (segmentIntersectsSegment(p.x, p.y, tx, ty, ox1, oy1, ox2, oy2)) {
-                            rayCrossesGraph = true;
-                            break;
+                for (let g = 0; g < graphData.length; g++) {
+                    if (graphData[g].index === p.graphIndex) continue;
+                    const og = graphData[g];
+                    const pLen = og.pointsLength - 1;
+                    for (let i = 0; i < pLen; i++) {
+                        if (segmentIntersectsSegment(p.x, p.y, tx, ty, og.xsProj[i], og.ysProj[i], og.xsProj[i + 1], og.ysProj[i + 1])) {
+                            rayCrossesGraph = true; break;
                         }
                     }
                     if (rayCrossesGraph) break;
                 }
                 if (rayCrossesGraph) score += LABEL_PENALTIES.rayGraphCross;
 
-                // Пенальти за пересечение с уже расставленными метками
                 for (let pl = 0; pl < placed.length; pl++) {
                     const q = placed[pl];
                     score += getRectGapPenalty(rLeft, rRight, rTop, rBottom, rWidth, rHeight, q);
-
-                    const qCenterX = (q.left + q.right) * 0.5;
-                    const qCenterY = (q.top + q.bottom) * 0.5;
-                    if (segmentIntersectsSegment(p.x, p.y, tx, ty, q.x, q.y, qCenterX, qCenterY)) {
-                        score += LABEL_PENALTIES.rayCross;
-                    }
+                    if (segmentIntersectsSegment(p.x, p.y, tx, ty, q.x, q.y, (q.left + q.right) * 0.5, (q.top + q.bottom) * 0.5)) score += LABEL_PENALTIES.rayCross;
                 }
 
                 if (score < bestScore) {
-                    bestScore = score;
-                    if (!best) best = {};
-                    best.dx = dx; best.dy = dy; best.textAnchor = textAnchor;
-                    best.rLeft = rLeft; best.rRight = rRight; best.rTop = rTop; best.rBottom = rBottom;
+                    bestScore = score; hasBest = true;
+                    currentBest.dx = dx; currentBest.dy = dy; currentBest.textAnchor = textAnchor;
+                    currentBest.rLeft = rLeft; currentBest.rRight = rRight; currentBest.rTop = rTop; currentBest.rBottom = rBottom;
                 }
-
                 if (bestScore <= LABEL_ACCEPTABLE_SCORE) break;
             }
             if (bestScore <= LABEL_ACCEPTABLE_SCORE) break;
         }
 
-        if (!best) {
+        if (!hasBest) {
             const fallbackDir = orderedDirections[0] || { vx: 1, vy: 0 };
-            best = {
-                dx: fallbackDir.vx * 12, dy: fallbackDir.vy * 12, textAnchor: "middle",
-                rLeft: p.x - 10, rRight: p.x + 10, rTop: p.y - 5, rBottom: p.y + 5
-            };
+            currentBest.dx = fallbackDir.vx * 12; currentBest.dy = fallbackDir.vy * 12; currentBest.textAnchor = "middle";
+            currentBest.rLeft = p.x - 10; currentBest.rRight = p.x + 10; currentBest.rTop = p.y - 5; currentBest.rBottom = p.y + 5;
         }
 
         const finalLabel = {
-            ...p, dx: best.dx, dy: best.dy,
-            left: best.rLeft, right: best.rRight, top: best.rTop, bottom: best.rBottom,
-            textAnchor: best.textAnchor
+            ...p, dx: currentBest.dx, dy: currentBest.dy,
+            left: currentBest.rLeft, right: currentBest.rRight, top: currentBest.rTop, bottom: currentBest.rBottom,
+            textAnchor: currentBest.textAnchor
         };
         placed.push(finalLabel);
-        placedMap[p.graphIndex + '-' + p.id] = finalLabel;
+        placedMap[`${p.graphIndex}-${p.id}`] = finalLabel;
     }
 
-    if (!isCancelled) {
-        /* eslint-disable-next-line no-restricted-globals */
-        self.postMessage({ placedMap });
-    }
+    if (!isCancelled) self.postMessage({ placedMap });
 };
