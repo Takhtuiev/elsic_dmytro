@@ -125,6 +125,39 @@ const PartHeader = React.memo(({ partName, materialName, thickness }) => (
 ));
 PartHeader.displayName = "PartHeader";
 
+
+const prepareTechnicalMetrics = (technicalMetrics) => {
+    if (!technicalMetrics) return null;
+
+    const { calculationTimeMs, accuracy, iterations } = technicalMetrics;
+
+    return {
+        // Время процессорного расчета
+        calculationTimeStr: Number.isFinite(calculationTimeMs)
+            ? `${calculationTimeMs.toFixed(1)} ms`
+            : "— ms",
+
+        // Метрики сходимости и сетки решателя
+        mode: accuracy?.accuracyMode
+            ? accuracy.accuracyMode.charAt(0).toUpperCase() + accuracy.accuracyMode.slice(1)
+            : "—",
+        uncertaintyStr: accuracy?.formatted ?? "—",
+        errorDetails: accuracy ? {
+            time: Number.isFinite(accuracy.timeIntegrationErrorC) ? `${accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
+            grid: Number.isFinite(accuracy.spatialGridErrorC) ? `${accuracy.spatialGridErrorC.toFixed(3)}°C` : "—",
+            solver: Number.isFinite(accuracy.solverErrorC) ? `${Math.abs(accuracy.solverErrorC).toFixed(3)}°C` : "—"
+        } : null,
+
+        // Счётчики итераций
+        steps: iterations?.totalTimeSteps ?? "—",
+        rejectedSteps: iterations?.rejectedTimeSteps ?? 0,
+        picardIters: iterations?.totalPicardIterations ?? "—",
+        loadStr: iterations?.totalGridPointsProcessed
+            ? `${iterations.totalGridPointsProcessed.toLocaleString("en-US").replace(/,/g, "\u00A0")} pts`
+            : "— pts"
+    };
+};
+
 const Parameters = React.memo(({
                                    width,
                                    thickness,
@@ -133,24 +166,30 @@ const Parameters = React.memo(({
                                    machineParams,
                                    heatingTimeSeconds,
                                    coolingTimeSeconds,
-                                   calculationTimeMs,
                                    status,
                                    heatingDeltaT,
                                    pauseDeltaT,
                                    plasticZoneWidth,
                                    maxRadius,
-                                   accuracyMetrics,
-                                   workCounters
+                                   technicalMetrics
                                }) => {
     const mass = useMemo(
         () => calculateMass(blankLength, width, thickness, density),
         [blankLength, width, thickness, density]
     );
 
+    // Вызываем вынесенную функцию подготовки данных
+    const metrics = useMemo(() => prepareTechnicalMetrics(technicalMetrics), [technicalMetrics]);
+
     const statusColor = status?.type === "error" ? "error" : status?.type === "warning" ? "warning" : "text.secondary";
+
+    // Общие константы стилизации для системных данных (Единый Стиль)
+    const SYS_TEXT_SIZE = `calc(${PARAMETER_TEXT_SIZE} * 0.75)`;
+    const SYS_BOX_SX = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5, mt: 0.4 };
 
     return (
         <Box className="bend-preview-parameters">
+            {/* 📊 ТЕХНОЛОГИЧЕСКИЕ ПАРАМЕТРЫ (Основной стиль) */}
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
                 <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
                     Blank length: <strong>{Number.isFinite(blankLength) ? blankLength.toFixed(2) : "—"} mm</strong>
@@ -164,7 +203,7 @@ const Parameters = React.memo(({
             </Box>
 
             {machineParams && (
-                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 0.25 }}>
                     <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
                         Stop pos: <strong>{machineParams.stopPosition ?? "—"} mm</strong>
                     </Typography>
@@ -177,17 +216,23 @@ const Parameters = React.memo(({
                 </Box>
             )}
 
-            <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
-                Heating: <strong>{formatTime(heatingTimeSeconds)}</strong> (ΔT = {Number.isFinite(heatingDeltaT) ? heatingDeltaT.toFixed(1) : "—"}°C)
+            <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE} sx={{ mt: 0.25 }}>
+                Heating: <strong>{formatTime(heatingTimeSeconds)}</strong>{' '}
+                <span style={{ fontSize: '0.85em', opacity: 0.85 }}>
+                    (ΔT = {Number.isFinite(heatingDeltaT) ? heatingDeltaT.toFixed(1) : "—"}°C)
+                </span>
                 {Number.isFinite(Number(coolingTimeSeconds)) && (
                     <>
-                        , Pause: <strong>{coolingTimeSeconds}s</strong> (ΔT = {Number.isFinite(pauseDeltaT) ? pauseDeltaT.toFixed(1) : "—"}°C)
+                        , Pause: <strong>{coolingTimeSeconds}s</strong>{' '}
+                        <span style={{ fontSize: '0.85em', opacity: 0.85 }}>
+                            (ΔT = {Number.isFinite(pauseDeltaT) ? pauseDeltaT.toFixed(1) : "—"}°C)
+                        </span>
                     </>
                 )}
             </Typography>
 
             {Number.isFinite(plasticZoneWidth) && (
-                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 0.25 }}>
                     <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={PARAMETER_TEXT_SIZE}>
                         Plastic zone: <strong>{plasticZoneWidth.toFixed(1)} mm</strong>
                     </Typography>
@@ -199,54 +244,60 @@ const Parameters = React.memo(({
                     )}
                 </Box>
             )}
+
             {status?.type !== "ok" && status?.message && (
                 <Typography variant="body2" color={statusColor} fontSize={PARAMETER_TEXT_SIZE} fontWeight={500} sx={{ mt: 0.5 }}>
                     {status.message}
                 </Typography>
             )}
 
-            <Typography variant="body2" color={PARAMETER_TEXT_COLOR} fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.8)`} sx={{ mt: 0.25 }}>
-                Simulation calculation time: {Number.isFinite(calculationTimeMs) ? calculationTimeMs.toFixed(1) : "—"} ms
-            </Typography>
 
-            {/* 📊 СИСТЕМНЫЕ МЕТРИКИ ТОЧНОСТИ И ВЫЧИСЛИТЕЛЬНОЙ НАГРУЗКИ (ЕДИНЫЙ СТИЛЬ) */}
-            {accuracyMetrics && (
-                <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5, mt: 0.5, opacity: 0.7 }}>
-                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
-                        Uncertainty: <strong>{accuracyMetrics.formatted ?? "—"}</strong>
-                        <span style={{ marginLeft: 6, opacity: 0.85 }}>
-                (Time: <strong>{Number.isFinite(accuracyMetrics.timeIntegrationErrorC) ? `${accuracyMetrics.timeIntegrationErrorC.toFixed(3)}°C` : "—"}</strong>, Grid: <strong>{Number.isFinite(accuracyMetrics.spatialGridErrorC) ? `${accuracyMetrics.spatialGridErrorC.toFixed(3)}°C` : "—"}</strong>, Solver: <strong>{Number.isFinite(accuracyMetrics.solverErrorC) ? `${Math.abs(accuracyMetrics.solverErrorC).toFixed(3)}°C` : "—"}</strong>)
-            </span>
-                    </Typography>
+            {/* 🛠️ ТЕХНИЧЕСКИЕ ВЫЧИСЛИТЕЛЬНЫЕ ДАННЫЕ (Полностью единый системный стиль) */}
+            {metrics && (
+                <>
+                    {/* Строка 1: Время вычислений процессора */}
+                    <Box sx={SYS_BOX_SX}>
+                        <Typography variant="body2" color="text.secondary" fontSize={SYS_TEXT_SIZE}>
+                            Simulation calculation time: <strong>{metrics.calculationTimeStr}</strong>
+                        </Typography>
+                    </Box>
 
-                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
-                        Mode: <strong style={{ textTransform: 'capitalize' }}>{accuracyMetrics.accuracyMode ?? "—"}</strong>
-                    </Typography>
-                </Box>
+                    {/* Строка 2: Точность и погрешность интегрирования */}
+                    <Box sx={SYS_BOX_SX}>
+                        <Typography variant="body2" color="text.secondary" fontSize={SYS_TEXT_SIZE}>
+                            Uncertainty: <strong>{metrics.uncertaintyStr}</strong>
+                            {metrics.errorDetails && (
+                                <span style={{ marginLeft: 6, opacity: 0.85 }}>
+                                    (Time: <strong>{metrics.errorDetails.time}</strong>, Grid: <strong>{metrics.errorDetails.grid}</strong>, Solver: <strong>{metrics.errorDetails.solver}</strong>)
+                                </span>
+                            )}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" fontSize={SYS_TEXT_SIZE}>
+                            Mode: <strong>{metrics.mode}</strong>
+                        </Typography>
+                    </Box>
+
+                    {/* Строка 3: Итерации и нагрузка на процессор */}
+                    <Box sx={SYS_BOX_SX}>
+                        <Typography variant="body2" color="text.secondary" fontSize={SYS_TEXT_SIZE}>
+                            Solver steps: <strong>{metrics.steps}</strong>
+                            {metrics.rejectedSteps > 0 && (
+                                <span style={{ color: 'var(--mui-palette-warning-main)', marginLeft: 4 }}>
+                                    ({metrics.rejectedSteps} rejected)
+                                </span>
+                            )}
+                        </Typography>
+
+                        <Typography variant="body2" color="text.secondary" fontSize={SYS_TEXT_SIZE}>
+                            Picard iterations: <strong>{metrics.picardIters}</strong>
+                        </Typography>
+
+                        <Typography variant="body2" color="text.secondary" fontSize={SYS_TEXT_SIZE}>
+                            Computational load: <strong>{metrics.loadStr}</strong>
+                        </Typography>
+                    </Box>
+                </>
             )}
-
-            {workCounters && (
-                <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5, mt: 0.25, opacity: 0.7 }}>
-                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
-                        Solver steps: <strong>{workCounters.totalTimeSteps ?? "—"}</strong>
-                        {workCounters.rejectedTimeSteps > 0 && (
-                            <span style={{ color: 'var(--mui-palette-warning-main)', marginLeft: 4 }}>
-                                ({workCounters.rejectedTimeSteps} rejected)
-                            </span>
-                        )}
-                    </Typography>
-
-                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
-                        Picard iterations: <strong>{workCounters.totalPicardIterations ?? "—"}</strong>
-                    </Typography>
-
-                    <Typography variant="body2" color="text.secondary" fontSize={`calc(${PARAMETER_TEXT_SIZE} * 0.75)`}>
-                        Computational load: <strong>{workCounters.totalGridPointsProcessed.toLocaleString("en-US").replace(/,/g, "\u00A0")} pts</strong>
-                    </Typography>
-                </Box>
-            )}
-
-
         </Box>
     );
 });
@@ -503,11 +554,21 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
             <Box className="bend-preview-bottom" sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 3, mt: 1 }}>
                 <Box sx={{ width: "100%" }}>
                     <Parameters
-                        width={profileWidth} thickness={profileThickness} density={profile?.material?.density} blankLength={blankLength} machineParams={machineParams}
-                        heatingTimeSeconds={result2D?.heatingTimeSeconds} coolingTimeSeconds={result2D?.coolingTimeSeconds} calculationTimeMs={result2D?.calculationTimeMs}
-                        status={result2D?.status} heatingDeltaT={result2D?.geometryData?.heatingDeltaT} pauseDeltaT={result2D?.geometryData?.pauseDeltaT}
-                        plasticZoneWidth={plasticZoneWidthCalculated} maxRadius={maxRadiusCalculated} accuracyMetrics={result2D?.accuracyMetrics} workCounters={result2D?.workCounters}
+                        width={profileWidth}
+                        thickness={profileThickness}
+                        density={profile?.material?.density}
+                        blankLength={blankLength}
+                        machineParams={machineParams}
+                        heatingTimeSeconds={result2D?.heatingTimeSeconds} // Передаем обратно наверх
+                        coolingTimeSeconds={result2D?.coolingTimeSeconds} // Передаем обратно наверх
+                        status={result2D?.status}
+                        heatingDeltaT={result2D?.geometryData?.heatingDeltaT}
+                        pauseDeltaT={result2D?.geometryData?.pauseDeltaT}
+                        plasticZoneWidth={plasticZoneWidthCalculated}
+                        maxRadius={maxRadiusCalculated}
+                        technicalMetrics={result2D?.technicalMetrics} // Новое объединенное поле логов
                     />
+
                 </Box>
 
                 <Box sx={{ width: "100%", position: "relative" }}>

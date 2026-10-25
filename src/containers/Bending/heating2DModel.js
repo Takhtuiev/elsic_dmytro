@@ -1171,21 +1171,13 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     }
 
     return {
+        // Физическое время процесса оставляем на верхнем уровне
         heatingTimeSeconds: time,
         coolingTimeSeconds: coolingTimeElapsed,
-        calculationTimeMs: performance.now() - calculationStart,
+
         reachedTarget,
         status: status || { type: "ok" },
 
-        // 📊 СБОР ИНВАРИАНТНЫХ МЕТРИК РАБОТЫ (БЕЗОПАСНЫЙ РАСЧЕТ В ФИНАЛЕ)
-        workCounters: {
-            totalTimeSteps: countTimeSteps,
-            rejectedTimeSteps: countRejectedSteps,
-            totalPicardIterations: countPicardIters,
-            totalGridPointsProcessed: countPicardIters * size2D // Вычисляется 1 раз в самом конце расчета
-        },
-
-        ...(shouldCalculateAccuracyError && { accuracyMetrics }),
         ...(storeHistory && { history }),
         temperatureProfile: {
             xCoordinatesMm: Array.from(gridX.x),
@@ -1193,6 +1185,19 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             Nx, Ny,
             heating: heatingProfileC,
             pause: pauseProfileC
-        }
+        },
+
+        technicalMetrics: {
+            calculationTimeMs: performance.now() - calculationStart,
+            accuracy: shouldCalculateAccuracyError ? accuracyMetrics : null,
+            iterations: {
+                totalTimeSteps: countTimeSteps,
+                rejectedTimeSteps: countRejectedSteps,
+                totalPicardIterations: countPicardIters,
+                totalGridPointsProcessed: countPicardIters * size2D
+            }
+        },
+
     };
+
 }

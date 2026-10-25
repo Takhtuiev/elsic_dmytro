@@ -93,10 +93,8 @@ self.onmessage = (event) => {
         const metaData = {
             heatingTimeSeconds: result2D?.heatingTimeSeconds,
             coolingTimeSeconds: result2D?.coolingTimeSeconds,
-            calculationTimeMs: result2D?.calculationTimeMs,
             status: result2D?.status,
-            accuracyMetrics: result2D?.accuracyMetrics,
-            workCounters: result2D?.workCounters
+            technicalMetrics: result2D?.technicalMetrics // Прокидываем объединенную структуру
         };
 
         const geometryData = prepareGeometryData(profile.material, result2D);
