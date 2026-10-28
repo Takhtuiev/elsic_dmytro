@@ -1,6 +1,6 @@
 /* eslint-disable no-restricted-globals */
-import { simulate2DHeating } from "./heating2DModel";
 import { prepareGeometryData } from "./prepareGeometryData";
+import {simulate2DHeating} from "./Heating2DSimulation/heating2DModel";
 
 // Хелпер для безопасного получения значений свойств материала (число или функция)
 const getPropValue = (prop, temp = 20) => {
@@ -80,7 +80,7 @@ self.onmessage = (event) => {
             machine: profile.machine,
             simulation: {
                 ...profile.simulation,
-                maxHeatingPercent // 🌟 ИСПРАВЛЕНО: Передаем высчитанную границу фаз
+                maxHeatingPercent
             },
             storeHistory: profile.simulation?.recordHistory ?? false,
             onProgress: (percent) => {

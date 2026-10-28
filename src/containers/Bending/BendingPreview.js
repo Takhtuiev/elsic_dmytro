@@ -132,26 +132,40 @@ const prepareTechnicalMetrics = (technicalMetrics) => {
     const { calculationTimeMs, accuracy, iterations } = technicalMetrics;
 
     return {
-        // Время процессорного расчета
+        // Время процессорного расчёта
         calculationTimeStr: Number.isFinite(calculationTimeMs)
             ? `${calculationTimeMs.toFixed(1)} ms`
             : "— ms",
 
-        // Метрики сходимости и сетки решателя
+        // Режим расчёта
         mode: accuracy?.accuracyMode
             ? accuracy.accuracyMode.charAt(0).toUpperCase() + accuracy.accuracyMode.slice(1)
             : "—",
-        uncertaintyStr: accuracy?.formatted ?? "—",
+
+        // Общий критерий ошибки для оптимизатора
+        totalErrorScore: Number.isFinite(accuracy?.totalErrorScore)
+            ? accuracy.totalErrorScore.toFixed(3)
+            : "—",
+
+        // Составляющие критерия
         errorDetails: accuracy ? {
-            time: Number.isFinite(accuracy.timeIntegrationErrorC) ? `${accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
-            grid: Number.isFinite(accuracy.spatialGridErrorC) ? `${accuracy.spatialGridErrorC.toFixed(3)}°C` : "—",
-            solver: Number.isFinite(accuracy.solverErrorC) ? `${Math.abs(accuracy.solverErrorC).toFixed(3)}°C` : "—"
+            time: Number.isFinite(accuracy.timeIntegrationErrorC)
+                ? `${accuracy.timeIntegrationErrorC.toFixed(3)}°C`
+                : "—",
+            grid: Number.isFinite(accuracy.spatialGridErrorC)
+                ? `${accuracy.spatialGridErrorC.toFixed(3)}°C`
+                : "—",
+            solver: Number.isFinite(accuracy.solverErrorC)
+                ? `${Math.abs(accuracy.solverErrorC).toFixed(3)}°C`
+                : "—"
         } : null,
 
         // Счётчики итераций
         steps: iterations?.totalTimeSteps ?? "—",
         rejectedSteps: iterations?.rejectedTimeSteps ?? 0,
         picardIters: iterations?.totalPicardIterations ?? "—",
+
+        // Вычислительная нагрузка
         loadStr: iterations?.totalGridPointsProcessed
             ? `${iterations.totalGridPointsProcessed.toLocaleString("en-US").replace(/,/g, "\u00A0")} pts`
             : "— pts"
@@ -252,39 +266,40 @@ const Parameters = React.memo(({
             )}
 
 
-            {/* 🛠️ ТЕХНИЧЕСКИЕ ВЫЧИСЛИТЕЛЬНЫЕ ДАННЫЕ (Полностью единый системный стиль) */}
+            {/* 🛠️ ТЕХНИЧЕСКИЕ ВЫЧИСЛИТЕЛЬНЫЕ ДАННЫЕ */}
             {metrics && (
                 <>
-                    {/* Строка 1: Время вычислений процессора */}
+                    {/* Строка 1: Время вычислений */}
                     <Box sx={SYS_BOX_SX}>
                         <Typography variant="body2" color="text.secondary" fontSize={SYS_TEXT_SIZE}>
                             Simulation calculation time: <strong>{metrics.calculationTimeStr}</strong>
                         </Typography>
                     </Box>
 
-                    {/* Строка 2: Точность и погрешность интегрирования */}
+                    {/* Строка 2: Общий критерий и его составляющие */}
                     <Box sx={SYS_BOX_SX}>
                         <Typography variant="body2" color="text.secondary" fontSize={SYS_TEXT_SIZE}>
-                            Uncertainty: <strong>{metrics.uncertaintyStr}</strong>
+                            Error score: <strong>{metrics.totalErrorScore}</strong>
                             {metrics.errorDetails && (
                                 <span style={{ marginLeft: 6, opacity: 0.85 }}>
-                                    (Time: <strong>{metrics.errorDetails.time}</strong>, Grid: <strong>{metrics.errorDetails.grid}</strong>, Solver: <strong>{metrics.errorDetails.solver}</strong>)
-                                </span>
+                        (Time: <strong>{metrics.errorDetails.time}</strong>, Grid: <strong>{metrics.errorDetails.grid}</strong>, Solver: <strong>{metrics.errorDetails.solver}</strong>)
+                    </span>
                             )}
                         </Typography>
+
                         <Typography variant="body2" color="text.secondary" fontSize={SYS_TEXT_SIZE}>
                             Mode: <strong>{metrics.mode}</strong>
                         </Typography>
                     </Box>
 
-                    {/* Строка 3: Итерации и нагрузка на процессор */}
+                    {/* Строка 3: Итерации и вычислительная нагрузка */}
                     <Box sx={SYS_BOX_SX}>
                         <Typography variant="body2" color="text.secondary" fontSize={SYS_TEXT_SIZE}>
                             Solver steps: <strong>{metrics.steps}</strong>
                             {metrics.rejectedSteps > 0 && (
-                                <span style={{ color: 'var(--mui-palette-warning-main)', marginLeft: 4 }}>
-                                    ({metrics.rejectedSteps} rejected)
-                                </span>
+                                <span style={{ color: "var(--mui-palette-warning-main)", marginLeft: 4 }}>
+                        ({metrics.rejectedSteps} rejected)
+                    </span>
                             )}
                         </Typography>
 

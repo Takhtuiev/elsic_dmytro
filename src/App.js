@@ -27,6 +27,7 @@ import Datenschutz from "./containers/Datenschutz";
 import HeatingMethodologyPage from "./containers/Bending/information/HeatingMethodologyPage";
 import HeatingMethodologyPageDe from "./containers/Bending/information/HeatingMethodologyPageDe";
 import DialogManager from "./DialogManager/DialogManager";
+import IngenieurBerechnungen from "./containers/IngenieurBerechnungen/IngenieurBerechnungen";
 
 const Home=lazy(
     ()=>import("./containers/Home")
@@ -102,6 +103,19 @@ function AppLayout(){
                                     fallback={<AccessDenied/>}
                                 >
                                     <Biegeberechnung/>
+                                </Protect>
+                            }
+                        />
+
+                        {/* Роут для инженерных расчетов с проверкой прав доступа Clerk */}
+                        <Route
+                            path="/ingenieur-berechnungen"
+                            element={
+                                <Protect
+                                    permission="org:calculation:use"
+                                    fallback={<AccessDenied />}
+                                >
+                                    <IngenieurBerechnungen />
                                 </Protect>
                             }
                         />

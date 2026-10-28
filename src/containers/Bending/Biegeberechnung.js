@@ -47,6 +47,7 @@ import {
     MACHINES
 } from "./parameters";
 import BendingPreview from "./BendingPreview";
+import {BayeusianLogDialog} from "./Heating2DSimulation/BayeusianLogDialog";
 
 
 const INITIAL_STATE={
@@ -282,6 +283,8 @@ export default function Biegeberechnung(){
     const [state,setState]=useState(
         profile??INITIAL_STATE
     );
+
+    const [isLogOpen, setIsLogOpen] = useState(false);
 
     const [
         rotationPreview,
@@ -1205,6 +1208,22 @@ export default function Biegeberechnung(){
                         />
                     </Box>
                 </Box>
+
+                {/* Блок кнопок оптимизации и логирования */}
+                <Box sx={{ mt: 1, mb: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+                    <Button variant="contained" fullWidth onClick={() => setIsLogOpen(true)}>
+                        🚀 BO Dashboard
+                    </Button>
+                </Box>
+
+                {/* Компонент диалога с кнопками управления внутри */}
+                <BayeusianLogDialog
+                    open={isLogOpen}
+                    onClose={() => setIsLogOpen(false)}
+                    parentState={state}
+                    setParentState={setState}
+                />
+
 
                 <Menu
                     anchorEl={thicknessMenuAnchor}
