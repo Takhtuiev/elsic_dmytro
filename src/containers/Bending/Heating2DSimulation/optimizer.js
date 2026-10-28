@@ -1,4 +1,3 @@
-
 /**
  * Универсальный Байесовский оптимизатор с внешним управлением целью.
  *
@@ -124,7 +123,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         return denominator === 0 ? 1e8 : numerator / denominator;
     };
 
-    console.log(`🟢 [Байесовский подбор]: Запущена задача [${objective.toUpperCase()}]`);
+    console.log(`🟢 [BAYES]: Optimization started [${objective.toUpperCase()}]`);
 
     // --- ФАЗА 1: Стартовая инициализация точек ---
     let attempts = 0;
@@ -143,7 +142,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             Y_errorScore.push(res.errorScore);
 
             console.log(
-                `🎲 [Старт ${X_sample.length}/${initPointsCount}]: ` +
+                `🎲 [INIT ${X_sample.length}/${initPointsCount}]: ` +
                 `Error score: ${res.errorScore.toFixed(3)} | Load: ${res.load}`
             );
         }
@@ -196,7 +195,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             Y_errorScore.push(res.errorScore);
 
             console.log(
-                `🧠 [Шаг ${X_sample.length}/${totalIterations}]: ` +
+                `🧠 [STEP ${X_sample.length}/${totalIterations}]: ` +
                 `Error score: ${res.errorScore.toFixed(3)} | Load: ${res.load}`
             );
         }
@@ -263,22 +262,22 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     const finalOptimalLimits = toPhysical(X_sample[bestIdx]);
 
     console.log("\n=======================================================");
-    console.log(`🏆 [ОПТИМИЗАТОР]: РЕЗУЛЬТАТЫ [${objective.toUpperCase()}]`);
+    console.log(`🏆 [OPTIMIZER]: RESULTS [${objective.toUpperCase()}]`);
     console.log("=======================================================");
 
     if (fallbackActivated) {
-        console.warn("⚠️ Основные ограничения не выполнены.");
+        console.warn("⚠️ Constraints not met.");
         console.warn(
             objective === 'minimize_load'
-                ? "🎯 Fallback: выбрана конфигурация с минимальным error score."
-                : "🎯 Fallback: выбрана конфигурация с минимальным error score, поскольку лимит нагрузки не соблюдён."
+                ? "🎯 Fallback: minimum error score config chosen."
+                : "🎯 Fallback: minimum error score config chosen due to load limits."
         );
     } else {
-        console.log("✅ Ограничения выполнены.");
+        console.log("✅ Constraints satisfied.");
     }
 
-    console.log(`📊 Итоговый error score: ${Y_errorScore[bestIdx].toFixed(3)}`);
-    console.log(`⚡ Вычислительная нагрузка: ${Y_load[bestIdx]} точек`);
+    console.log(`📊 Final error score: ${Y_errorScore[bestIdx].toFixed(3)}`);
+    console.log(`⚡ Computational load: ${Y_load[bestIdx]} nodes`);
     console.log("=======================================================\n");
 
     return {

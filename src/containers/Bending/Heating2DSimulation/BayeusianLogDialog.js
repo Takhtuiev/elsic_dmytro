@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
     Box, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-    Typography, IconButton, LinearProgress, Divider, Grid, Card, Collapse,
+    Typography, IconButton, LinearProgress, Divider, Card, Collapse,
     useMediaQuery, useTheme
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
@@ -12,38 +12,8 @@ import TimerIcon from "@mui/icons-material/Timer";
 import LeaderboardIcon from "@mui/icons-material/Leaderboard";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
+import {OPTIMIZER_BASE_CONFIG, OPTIMIZER_SETTINGS} from "./optimizer.config";
 
-const OPTIMIZER_BASE_CONFIG = {
-    gridX: { min: 0.05, max: 0.85 },
-    gridY: { min: 0.15, max: 2.50 },
-    minGrid: { min: 0.003, max: 0.15 },
-    maxIter: { min: 4, max: 24 },
-    tolerance: { min: 0.001, max: 0.40 },
-    maxDt: { min: 0.05, max: 4.0 },
-    targetDt: { min: 0.02, max: 3.0 },
-    growthFactor: { min: 1.01, max: 1.40 },
-    shrinkFactor: { min: 0.45, max: 0.85 }
-};
-
-const OPTIMIZER_SETTINGS = {
-    optimizationObjective: "minimize_load",
-    maxErrorScore: 0.5,
-    maxAllowedLoad: 1500000,
-    totalBudgetIterations: 50,
-    randomInitPoints: 10
-};
-
-const PARAM_LABELS = {
-    gridX: "Шаг по толщине (gridX)",
-    gridY: "Шаг по ширине (gridY)",
-    minGrid: "Мин. ячейка сетки (minGrid)",
-    targetDt: "Целевой шаг времени (targetDt)",
-    maxDt: "Макс. шаг времени (maxDt)",
-    growthFactor: "Коэф. расширения времени (growthFactor)",
-    shrinkFactor: "Коэф. сжатия времени (shrinkFactor)",
-    maxIter: "Итераций Пикара (maxIter)",
-    tolerance: "Допуск сходимости (tolerance)"
-};
 
 export const formatTime = (seconds) => {
     if (!seconds || seconds < 0) return "0s";
@@ -62,24 +32,86 @@ export const formatTime = (seconds) => {
 
 function getTimestamp() {
     const now = new Date();
-    return now.toLocaleTimeString("ru-RU", { hour12: false }) +
-        `.${String(now.getMilliseconds()).padStart(3, "0")}`;
+    return now.toLocaleTimeString("uk-UA", { hour12: false });
 }
 
 function formatNumberWithNBSP(num) {
     if (num === null || num === undefined || !Number.isFinite(Number(num))) return "—";
-    return Number(num).toLocaleString("ru-RU").replace(/\s/g, "\u00A0");
+    return Number(num).toLocaleString("en-US").replace(/\s/g, " ");
 }
 
 function formatParamValue(name, value) {
     if (value === null || value === undefined) return "—";
     if (typeof value !== "number") return String(value);
-    if (["gridX", "gridY", "minGrid"].includes(name)) return `${value.toFixed(5)} мм`;
-    if (name === "tolerance") return `${value.toFixed(5)} K`;
-    if (["maxDt", "targetDt"].includes(name)) return `${value.toFixed(2)} с`;
-    if (name === "maxIter") return `${parseInt(value, 10)} шагов`;
-    if (["growthFactor", "shrinkFactor"].includes(name)) return value.toFixed(2);
+
+    // Берем настройки из конфига, если они там есть
+    const config = OPTIMIZER_BASE_CONFIG[name];
+
+    if (config) {
+        const digits = config.digits ?? 5; // Считаем 5 по умолчанию, если не задано
+        const formattedValue = value.toFixed(digits);
+        const unit = config.unit ? ` ${config.unit}` : ""; // Добавляем пробел перед единицей измерения
+
+        return `${formattedValue}${unit}`;
+    }
+
+    // Фолбэк для параметров, которых нет в OPTIMIZER_BASE_CONFIG
     return value.toFixed(5);
+}
+
+function ParameterGrid({ params, color = "#e2e8f0" }) {
+    if (!params || typeof params !== "object") return null;
+
+    return (
+        <Box
+            sx={{
+                columnCount: { xs: 1, md: 2 },
+                columnGap: "40px",
+                width: "100%",
+                minWidth: 0
+            }}
+        >
+            {Object.entries(params).map(([name, value]) => {
+                // Берем кастомный лейбл из OPTIMIZER_BASE_CONFIG, иначе фолбэк на PARAM_LABELS или имя ключа
+                const displayLabel = OPTIMIZER_BASE_CONFIG[name]?.label || name;
+
+                return (
+                    <Box
+                        key={name}
+                        sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "baseline",
+                            gap: 1,
+                            minWidth: 0,
+                            fontFamily: "monospace",
+                            fontSize: "0.75rem",
+                            borderBottom: "1px dashed rgba(255,255,255,0.05)",
+                            pb: 0.5,
+                            mb: 0.5,
+                            breakInside: "avoid"
+                        }}
+                    >
+                        <Box component="span" sx={{ color: "#64748b", overflowWrap: "anywhere" }}>
+                            {displayLabel}:
+                        </Box>
+                        <Box
+                            component="span"
+                            sx={{
+                                color,
+                                fontWeight: 600,
+                                textAlign: "right",
+                                overflowWrap: "anywhere",
+                                flexShrink: 0
+                            }}
+                        >
+                            {formatParamValue(name, value)}
+                        </Box>
+                    </Box>
+                );
+            })}
+        </Box>
+    );
 }
 
 function parseLogLine(line, candidateParams = null) {
@@ -94,79 +126,27 @@ function parseLogLine(line, candidateParams = null) {
         );
     }
 
-    if (/❌|🚨|ошибка/i.test(text) || (/\berror\b/i.test(text) && !/error\s*score/i.test(text))) {
+    if (/❌|🚨|error/i.test(text) && !/error\s*score/i.test(text)) {
         type = "error";
         text = text.replace(/[❌🚨]/g, "").trim();
-    } else if (/⚠️|внимание|warn/i.test(text)) {
+    } else if (/⚠️|warn/i.test(text)) {
         type = "warning";
         text = text.replace(/⚠️/g, "").trim();
-    } else if (/✅|🏆|успех/i.test(text)) {
+    } else if (/✅|🏆|success/i.test(text)) {
         type = "success";
         text = text.replace(/[✅🏆]/g, "").trim();
-    } else if (/🧠|шаг/i.test(text)) {
+    } else if (/🧠|step/i.test(text)) {
         type = "step";
         text = text.replace(/🧠/g, "").trim();
-    } else if (/🎲|старт/i.test(text)) {
+    } else if (/🎲|init/i.test(text)) {
         type = "init";
         text = text.replace(/🎲/g, "").trim();
-    } else if (/⏳|прогресс/i.test(text)) {
+    } else if (/⏳|progress/i.test(text)) {
         type = "progress";
         text = text.replace(/⏳/g, "").trim();
     }
 
     return { type, text, candidateParams };
-}
-
-function ParameterGrid({ params, color = "#e2e8f0" }) {
-    if (!params || typeof params !== "object") return null;
-
-    return (
-        <Box
-            sx={{
-                display: "grid",
-                gridTemplateColumns: {
-                    xs: "minmax(0, 1fr)",
-                    md: "repeat(2, minmax(0, 1fr))"
-                },
-                gridAutoFlow: "row",
-                gap: "4px 24px",
-                minWidth: 0
-            }}
-        >
-            {Object.entries(params).map(([name, value]) => (
-                <Box
-                    key={name}
-                    sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "baseline",
-                        gap: 1,
-                        minWidth: 0,
-                        fontFamily: "monospace",
-                        fontSize: "0.75rem",
-                        borderBottom: "1px dashed rgba(255,255,255,0.05)",
-                        pb: 0.5
-                    }}
-                >
-                    <Box component="span" sx={{ color: "#64748b", overflowWrap: "anywhere" }}>
-                        {PARAM_LABELS[name] || name}:
-                    </Box>
-                    <Box
-                        component="span"
-                        sx={{
-                            color,
-                            fontWeight: 600,
-                            textAlign: "right",
-                            overflowWrap: "anywhere",
-                            flexShrink: 0
-                        }}
-                    >
-                        {formatParamValue(name, value)}
-                    </Box>
-                </Box>
-            ))}
-        </Box>
-    );
 }
 
 export function BayeusianLogDialog({ open, onClose, parentState, setParentState }) {
@@ -219,12 +199,12 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
 
     const updateBestMetricsOnFly = useCallback((text, candidateParams) => {
         const errorMatch = text.match(/Error score:\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)/i);
-        const loadMatch = text.match(/(?:Нагрузка|Load):\s*([\d,.\s\u00A0]+)/i);
+        const loadMatch = text.match(/(?:Нагрузка|Load):\s*([\d,.\s ]+)/i);
 
         if (!errorMatch || !loadMatch) return;
 
         const errorValue = Number(errorMatch[1]);
-        const loadValue = Number(loadMatch[1].trim().replace(/[\s\u00A0,]/g, ""));
+        const loadValue = Number(loadMatch[1].trim().replace(/[\s ,]/g, ""));
 
         if (!Number.isFinite(errorValue) || !Number.isFinite(loadValue)) return;
 
@@ -278,39 +258,32 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                     const progress = Number(percent);
                     const validProgress = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
 
-                    // Извлекаем точные счетчики, которые прислал нам воркер
-                    // Если по какой-то причине их нет в событии, аккуратно откатываемся на локальный реф
                     const currentStep = e.data.currentExecutionCount !== undefined ? e.data.currentExecutionCount : completedStepsRef.current;
                     const totalStepsBudget = e.data.totalIterations !== undefined ? e.data.totalIterations : OPTIMIZER_SETTINGS.totalBudgetIterations;
 
                     setProgressPercent(validProgress);
 
                     setLogs(prev => {
-                        // Логика фаз остается прежней, но теперь опирается на железные данные от оптимизатора
-                        const isInitPhase = currentStep < OPTIMIZER_SETTINGS.randomInitPoints;
+                        const isInitPhase = currentStep <= OPTIMIZER_SETTINGS.randomInitPoints;
+                        const phaseLabel = isInitPhase ? "INIT" : "STEP";
 
-                        // ВАЖНО: Так как оптимизатор передает currentExecutionCount начиная с 0 для первой итерации,
-                        // мы делаем +1 только для отображения текущего выполняющегося шага. И жестко ограничиваем сверху через Math.min.
-                        const currentStepVisual = isInitPhase
-                            ? Math.min(OPTIMIZER_SETTINGS.randomInitPoints, currentStep + 1)
-                            : Math.min(
-                                totalStepsBudget - OPTIMIZER_SETTINGS.randomInitPoints,
-                                currentStep - OPTIMIZER_SETTINGS.randomInitPoints + 1
-                            );
+                        // Убрали "+ 1", так как воркер уже передаёт порядковый номер шага начиная с 1
+                        const currentStepVisual = currentStep;
 
-                        const maxStepsVisual = isInitPhase
-                            ? OPTIMIZER_SETTINGS.randomInitPoints
-                            : totalStepsBudget - OPTIMIZER_SETTINGS.randomInitPoints;
+                        // Общий лимит шагов всегда равен полному бюджету (например: 50)
+                        const maxStepsVisual = totalStepsBudget;
 
-                        const phaseLabel = isInitPhase ? "Старт" : "Шаг";
+                        // Безопасное ограничение, чтобы счётчик оставался в пределах общего бюджета
+                        const safeStepVisual = Math.min(maxStepsVisual, Math.max(1, currentStepVisual));
 
-                        const text = `⏳ [Физический движок]: Симуляция [${phaseLabel} ${currentStepVisual}/${maxStepsVisual}]... Прогресс: ${validProgress}%`;
+                        const text = `⏳ [SOLVER]: ${phaseLabel} ${safeStepVisual}/${maxStepsVisual} | Progress: ${validProgress}%`;
+
                         const newEntry = { text, timestamp: getTimestamp() };
 
                         if (prev.length === 0) return [newEntry];
 
                         const last = prev[prev.length - 1];
-                        if (last && String(last.text).includes("[Физический движок]: Симуляция")) {
+                        if (last && String(last.text).includes("[SOLVER]")) {
                             return [...prev.slice(0, -1), newEntry];
                         }
                         return [...prev, newEntry];
@@ -319,17 +292,15 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                 }
 
                 if (status === "log_step" && logMessage) {
-                    // Заменяем (удаляем) строку прогресса, если она была последней, прямо перед выводом результата
                     setLogs(prev => {
                         if (prev.length === 0) return prev;
                         const last = prev[prev.length - 1];
-                        if (last && String(last.text).includes("[Физический движок]: Симуляция")) {
+                        if (last && String(last.text).includes("[SOLVER]")) {
                             return prev.slice(0, -1);
                         }
                         return prev;
                     });
 
-                    // И только после удаления строки прогресса инкрементируем шаг и пишем чистый результат
                     completedStepsRef.current += 1;
                     setCompletedSteps(completedStepsRef.current);
 
@@ -368,8 +339,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                     const maxLoad = formatNumberWithNBSP(settings.maxAllowedLoad);
 
                     const objectiveText = settings.optimizationObjective === "minimize_load"
-                        ? "МАКСИМАЛЬНАЯ СКОРОСТЬ (Минимизация вычислительной нагрузки сетки)"
-                        : "МАКСИМАЛЬНАЯ ТОЧНОСТЬ (Минимизация оценочного критерия ошибки)";
+                        ? "MAX SPEED (Minimize grid computational load)"
+                        : "MAX ACCURACY (Minimize estimated error target)";
 
                     setBestScoreState({
                         errorScore: Number.isFinite(Number(metrics.resultingErrorScore)) ? Number(metrics.resultingErrorScore).toFixed(3) : "—",
@@ -379,26 +350,26 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
 
                     const summary = [
                         { text: "\n=======================================================", timestamp: getTimestamp() },
-                        { text: "🏆 [ОПТИМИЗАТОР]: ФИНАЛЬНЫЙ ТЕХНИЧЕСКИЙ ОТЧЁТ", timestamp: getTimestamp() },
+                        { text: "🏆 [OPTIMIZER]: FINAL TECHNICAL REPORT", timestamp: getTimestamp() },
                         { text: "=======================================================", timestamp: getTimestamp() },
                         {
                             text: metrics.isFallbackActivated
-                                ? "⚠️ КОМПРОМИСС: ограничения не выполнены. Использован сбалансированный fallback."
-                                : "✅ УСПЕХ: параметры подобраны под критерии модели.",
+                                ? "⚠️ COMPROMISE: constraints not met. Balanced fallback used."
+                                : "✅ SUCCESS: parameters matched to model criteria.",
                             timestamp: getTimestamp()
                         },
                         { text: "-------------------------------------------------------", timestamp: getTimestamp() },
-                        { text: "🎯 ИСХОДНЫЕ КРИТЕРИИ И ОГРАНИЧЕНИЯ:", timestamp: getTimestamp() },
-                        { text: `   🔹 Задача: ${objectiveText}`, timestamp: getTimestamp() },
-                        { text: `   🔹 Максимальный error score: <= ${settings.maxErrorScore}`, timestamp: getTimestamp() },
-                        { text: `   🔹 Максимальная нагрузка: <= ${maxLoad} расчётных точек`, timestamp: getTimestamp() },
-                        { text: `   🔹 Бюджет итераций: ${settings.totalBudgetIterations} (инициализация: ${settings.randomInitPoints})`, timestamp: getTimestamp() },
+                        { text: "🎯 INITIAL CRITERIA AND CONSTRAINTS:", timestamp: getTimestamp() },
+                        { text: `   🔹 Task: ${objectiveText}`, timestamp: getTimestamp() },
+                        { text: `   🔹 Max allowed error score: <= ${settings.maxErrorScore}`, timestamp: getTimestamp() },
+                        { text: `   🔹 Max allowed load: <= ${maxLoad} computed nodes`, timestamp: getTimestamp() },
+                        { text: `   🔹 Iterations budget: ${settings.totalBudgetIterations} (init: ${settings.randomInitPoints})`, timestamp: getTimestamp() },
                         { text: "-------------------------------------------------------", timestamp: getTimestamp() },
-                        { text: "📊 ДОСТИГНУТЫЕ ПОКАЗАТЕЛИ:", timestamp: getTimestamp() },
-                        { text: `   📈 Итоговый error score: ${Number.isFinite(Number(metrics.resultingErrorScore)) ? Number(metrics.resultingErrorScore).toFixed(3) : "—"}`, timestamp: getTimestamp() },
-                        { text: `   ⚡ Вычислительная нагрузка: ${achievedLoad} расчётных точек`, timestamp: getTimestamp() },
+                        { text: "📊 ACHIEVED METRICS:", timestamp: getTimestamp() },
+                        { text: `   📈 Resulting error score: ${Number.isFinite(Number(metrics.resultingErrorScore)) ? Number(metrics.resultingErrorScore).toFixed(3) : "—"}`, timestamp: getTimestamp() },
+                        { text: `   ⚡ Computational grid load: ${achievedLoad} computed nodes`, timestamp: getTimestamp() },
                         { text: "-------------------------------------------------------", timestamp: getTimestamp() },
-                        { text: "🛠️ ОПТИМАЛЬНАЯ КОНФИГУРАЦИЯ SOLVER:", timestamp: getTimestamp() },
+                        { text: "🛠️ OPTIMAL SOLVER CONFIGURATION:", timestamp: getTimestamp() },
                         ...Object.entries(cfg).map(([name, range]) => {
                             const value = limits?.[name];
                             const formatted = value === undefined || value === null
@@ -408,20 +379,20 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                                     : String(value);
 
                             const unit = ["gridX", "gridY", "minGrid"].includes(name)
-                                ? " мм"
+                                ? " mm"
                                 : name === "tolerance"
                                     ? " K"
                                     : ["maxDt", "targetDt"].includes(name)
-                                        ? " с"
+                                        ? " s"
                                         : "";
 
                             return {
-                                text: `   🔹 ${name}: ${formatted}${unit} [границы: ${range.min} .. ${range.max}]`,
+                                text: `   🔹 ${name}: ${formatted}${unit} [bounds: ${range.min} .. ${range.max}]`,
                                 timestamp: getTimestamp()
                             };
                         }),
                         { text: "=======================================================", timestamp: getTimestamp() },
-                        { text: "🏆 [Байесовский UI]: Оптимизация завершена.", timestamp: getTimestamp() }
+                        { text: "🏆 [Bayesian UI]: Optimization process completed.", timestamp: getTimestamp() }
                     ];
 
                     setLogs(prev => [...prev, ...summary]);
@@ -434,7 +405,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                     stopTimer();
 
                     appendLog({
-                        text: `❌ [Байесовский UI]: Ошибка оптимизации: ${error || "Неизвестная ошибка"}`,
+                        text: `❌ [Bayesian UI]: Optimization error: ${error || "Unknown internal error"}`,
                         timestamp: getTimestamp()
                     });
                 }
@@ -446,7 +417,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                 setIsOptimizing(false);
                 stopTimer();
                 appendLog({
-                    text: `❌ Ошибка Worker: ${event.message || "Не удалось выполнить Worker"}`,
+                    text: `❌ Worker Error: ${event.message || "Failed to execute background task"}`,
                     timestamp: getTimestamp()
                 });
             };
@@ -455,7 +426,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
             setIsOptimizing(false);
             stopTimer();
             appendLog({
-                text: `❌ Не удалось создать Worker: ${err.message || err}`,
+                text: `❌ Failed to spawn background worker: ${err.message || err}`,
                 timestamp: getTimestamp()
             });
         }
@@ -503,7 +474,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
         }, 100);
 
         const startLog = {
-            text: "🟢 [Байесовский подбор]: Запущена задача оптимизации пространства сеток...",
+            text: "🟢 [Bayesian Setup]: Started solver grid space optimization task...",
             timestamp: getTimestamp()
         };
 
@@ -535,7 +506,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
             setIsOptimizing(false);
             stopTimer();
             appendLog({
-                text: `❌ Ошибка запуска оптимизации: ${err.message || err}`,
+                text: `❌ Error spawning optimization: ${err.message || err}`,
                 timestamp: getTimestamp()
             });
         }
@@ -554,7 +525,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
         workerRef.current = null;
 
         appendLog({
-            text: "🚨 [SYSTEM_CRIT]: Оптимизация принудительно прервана пользователем.",
+            text: "🚨 [SYSTEM_CRIT]: Optimization forcibly terminated by client instruction.",
             timestamp: getTimestamp()
         });
 
@@ -679,7 +650,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                             letterSpacing: "0.3px"
                         }}
                     >
-                        Монитор Байесовской Оптимизации Расчётной Сетки
+                        Bayesian Grid Optimization Monitor
                     </Typography>
                 </Box>
 
@@ -713,101 +684,76 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                     overflowY: "auto"
                 }}
             >
-                <Grid container spacing={1.5} sx={{ flexShrink: 0 }}>
-                    <Grid item xs={12} sm={8}>
-                        <Card
+                <Box
+                    sx={{
+                        width: "100%",
+                        bgcolor: "#181b22",
+                        p: 1,
+                        px: 1.5,
+                        borderRadius: "6px",
+                        border: "1px solid #282c34",
+                        display: "flex",
+                        alignItems: { xs: "stretch", sm: "center" },
+                        justifyContent: "space-between",
+                        flexDirection: { xs: "column", sm: "row" },
+                        gap: 1.5,
+                        flexShrink: 0
+                    }}
+                >
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+                        <Typography
+                            variant="caption"
+                            sx={{ color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", fontSize: "0.75rem", whiteSpace: "nowrap" }}
+                        >
+                            Total Optimization Progress
+                        </Typography>
+                        <Typography
+                            variant="caption"
                             sx={{
-                                bgcolor: "#181b22",
-                                border: "1px solid #282c34",
-                                p: 1.5,
-                                borderRadius: "6px",
-                                height: "100%",
+                                color: isOptimizing ? "#3b82f6" : "#f8fafc",
+                                fontFamily: "monospace",
+                                fontWeight: 700,
                                 display: "flex",
-                                flexDirection: "column",
-                                justifyContent: "center"
+                                alignItems: "center",
+                                gap: 0.5
                             }}
                         >
-                            <Box
-                                sx={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "center",
-                                    gap: 1,
-                                    mb: 1,
-                                    flexWrap: "wrap"
-                                }}
-                            >
-                                <Typography
-                                    variant="caption"
-                                    sx={{ color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}
-                                >
-                                    Общий прогресс оптимизации
-                                </Typography>
-                                <Typography
-                                    variant="subtitle2"
-                                    sx={{ color: "#f8fafc", fontFamily: "monospace", fontWeight: 700 }}
-                                >
-                                    {completedSteps} / {OPTIMIZER_SETTINGS.totalBudgetIterations} шагов ({stepProgressPercent}%)
-                                </Typography>
-                            </Box>
-                            <LinearProgress
-                                variant="determinate"
-                                value={stepProgressPercent}
-                                sx={{
-                                    height: 6,
-                                    borderRadius: 3,
-                                    bgcolor: "#22252e",
-                                    "& .MuiLinearProgress-bar": {
-                                        bgcolor: "#2563eb",
-                                        borderRadius: 3
-                                    }
-                                }}
-                            />
-                        </Card>
-                    </Grid>
+                            <TimerIcon sx={{ fontSize: "0.9rem", opacity: 0.8 }} />
+                            {formatTime(elapsedTime)}
+                        </Typography>
+                    </Box>
 
-                    <Grid item xs={12} sm={4}>
-                        <Card
-                            sx={{
-                                bgcolor: "#181b22",
-                                border: "1px solid #282c34",
-                                p: 1.5,
-                                borderRadius: "6px",
-                                height: "100%",
-                                display: "flex",
-                                flexDirection: "column",
-                                justifyContent: "center"
-                            }}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexGrow: 1, width: { xs: "100%", sm: "auto" }, justifyContent: "flex-end" }}>
+                        <Typography
+                            variant="caption"
+                            sx={{ color: "#2563eb", fontWeight: "bold", fontFamily: "monospace", whiteSpace: "nowrap" }}
                         >
-                            <Typography
-                                variant="caption"
-                                sx={{
-                                    color: "#64748b",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 0.5,
-                                    fontWeight: 600,
-                                    textTransform: "uppercase",
-                                    mb: 0.5
-                                }}
-                            >
-                                <TimerIcon sx={{ fontSize: "0.9rem" }} />
-                                Время выполнения
-                            </Typography>
-                            <Typography
-                                variant="h5"
-                                sx={{
-                                    color: isOptimizing ? "#3b82f6" : "#f8fafc",
-                                    fontWeight: 700,
-                                    fontFamily: "monospace",
-                                    fontSize: "1.35rem"
-                                }}
-                            >
-                                {formatTime(elapsedTime)}
-                            </Typography>
-                        </Card>
-                    </Grid>
-                </Grid>
+                            {completedSteps}/{OPTIMIZER_SETTINGS.totalBudgetIterations}
+                        </Typography>
+                        <LinearProgress
+                            variant="determinate"
+                            value={stepProgressPercent}
+                            sx={{
+                                height: 4,
+                                width: "100%",
+                                maxWidth: { sm: "300px", md: "400px" },
+                                borderRadius: 2,
+                                bgcolor: "#22252e",
+                                "& .MuiLinearProgress-bar": {
+                                    bgcolor: "#2563eb",
+                                    borderRadius: 2
+                                }
+                            }}
+                        />
+                        <Typography
+                            variant="caption"
+                            sx={{ color: "#2563eb", fontWeight: "bold", fontFamily: "monospace", whiteSpace: "nowrap" }}
+                        >
+                        {stepProgressPercent}%
+                        </Typography>
+
+                    </Box>
+                </Box>
 
                 {isOptimizing && (
                     <Box
@@ -830,7 +776,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                             variant="caption"
                             sx={{ color: "#94a3b8", fontWeight: 500, fontSize: "0.75rem" }}
                         >
-                            ⏳ Прогресс текущей симуляции...
+                            ⏳ Current solver simulation progress...
                         </Typography>
                         <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: { xs: "100%", sm: "30%" } }}>
                             <LinearProgress
@@ -913,7 +859,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                                     mt: 4
                                 }}
                             >
-                                Поток пуст. Нажмите «Запустить оптимизацию» для старта процесса.
+                                Queue empty. Press "Start Optimization" to begin tracing execution thread.
                             </Typography>
                         ) : (
                             processedLogs.map((log, idx) => {
@@ -1086,8 +1032,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                                     }}
                                 >
                                     {finalResultReceived
-                                        ? "Итоговая оптимальная конфигурация"
-                                        : "Лучшая конфигурация на текущий момент"}
+                                        ? "Final optimal layout configuration"
+                                        : "Best snapshot configuration evaluated"}
                                 </Typography>
                             </Box>
 
@@ -1114,7 +1060,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                                         variant="caption"
                                         sx={{ color: "#94a3b8", fontFamily: "monospace" }}
                                     >
-                                        Нагрузка:{" "}
+                                        Load:{" "}
                                         <Box component="span" sx={{ color: "#10b981", fontWeight: "bold" }}>
                                             {bestScoreState.load}
                                         </Box>
@@ -1206,7 +1152,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                                 }
                             }}
                         >
-                            Прервать расчёт
+                            Abort Calculation
                         </Button>
                     )}
 
@@ -1231,7 +1177,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                                     }
                                 }}
                             >
-                                Закрыть окно
+                                Close Window
                             </Button>
 
                             <Button
@@ -1252,7 +1198,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                                     "&:hover": { bgcolor: "#059669" }
                                 }}
                             >
-                                Запустить оптимизацию
+                                Start Optimization
                             </Button>
                         </>
                     ) : (
@@ -1270,7 +1216,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                                 "&.Mui-disabled": { bgcolor: "#1e293b", color: "#64748b" }
                             }}
                         >
-                            Идёт расчёт...
+                            Calculating...
                         </Button>
                     )}
                 </Box>

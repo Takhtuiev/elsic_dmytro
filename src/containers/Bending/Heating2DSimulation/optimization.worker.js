@@ -70,8 +70,6 @@ try {
                 // Если это первый шаг или точность стала лучше
                 if (isFirstStep || isAccuracyImproved) {
 
-                    const oldErrorText = isFirstStep ? "Initial" : bestErrorScore.toFixed(4);
-
                     // Обновляем лучшую точность в любом случае
                     if (Number.isFinite(currentError)) {
                         bestErrorScore = currentError;
@@ -90,13 +88,9 @@ try {
                             dynamicHeatingPercent = clampedPercent;
 
                             // Отправляем технический лог в поток терминала пользовательского интерфейса
-                            const reasonText = isFirstStep
-                                ? "based on the first structural physics iteration"
-                                : `due to an improved accuracy score (${oldErrorText} ➡️ ${currentError.toFixed(4)})`;
-
                             self.postMessage({
                                 status: 'log_step',
-                                logMessage: `⚙️ [WORKER_CORE]: Progress bar distribution updated ${reasonText}: Heating = ${dynamicHeatingPercent}%, Cooling = ${100 - dynamicHeatingPercent}%`
+                                logMessage: `⚙️ [WORKER_CORE]: Progress bar distribution updated: Heating = ${dynamicHeatingPercent}%, Cooling = ${100 - dynamicHeatingPercent}%`
                             });
                         }
                     }
