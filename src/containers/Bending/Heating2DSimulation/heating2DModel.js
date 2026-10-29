@@ -576,6 +576,20 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const idxMid = ((Nx - 1) >> 1) * Ny;
     const idxBot = lastX * Ny;
 
+    const switchToCoolingPhase = () => {
+        currentPhase = "cooling";
+        heatingProfileC = new Float64Array(size2D);
+        for (let i = 0; i < size2D; i++) heatingProfileC[i] = T[i] - 273.15;
+
+        stepCountInPhase = 0;
+        t_nm1 = 0;
+        t_n = 0;
+        T_n.top = T[idxTop]; T_n.mid = T[idxMid]; T_n.bot = T[idxBot];
+        T_nm1.top = T[idxTop]; T_nm1.mid = T[idxMid]; T_nm1.bot = T[idxBot];
+        dt = TARGET_DELTA_T * 0.2;
+        logHistoryGlobal(time + coolingTimeElapsed, true);
+    };
+
     while (true) {
         let currentMaxDt = ADAPTIVE_MAX_DT;
 
@@ -593,23 +607,14 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
         if (dt < 1e-5) {
             if (currentPhase === "heating" && totalCoolingTime > 0) {
-                currentPhase = "cooling";
-                heatingProfileC = new Float64Array(size2D);
-                for (let i = 0; i < size2D; i++) heatingProfileC[i] = T[i] - 273.15;
                 reachedTarget = targetType === "time" ? time >= targetValue : (targetK == null ? false : isTargetReached2D(T, Nx, Ny, target, targetK));
-
-                stepCountInPhase = 0;
-                t_nm1 = 0;
-                t_n = 0;
-                T_n.top = T[idxTop]; T_n.mid = T[idxMid]; T_n.bot = T[idxBot];
-                T_nm1.top = T[idxTop]; T_nm1.mid = T[idxMid]; T_nm1.bot = T[idxBot];
-                dt = TARGET_DELTA_T * 0.2;
-                logHistoryGlobal(time + coolingTimeElapsed, true);
+                switchToCoolingPhase();
                 continue;
             } else {
                 break;
             }
         }
+
 
         oldT.set(T);
         currentIterT.set(T);
@@ -874,23 +879,14 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
         if (forceStop && currentPhase === "heating") {
             if (totalCoolingTime > 0) {
-                currentPhase = "cooling";
-                heatingProfileC = new Float64Array(size2D);
-                for (let i = 0; i < size2D; i++) heatingProfileC[i] = T[i] - 273.15;
                 reachedTarget = true;
-
-                stepCountInPhase = 0;
-                t_nm1 = 0;
-                t_n = 0;
-                T_n.top = T[idxTop]; T_n.mid = T[idxMid]; T_n.bot = T[idxBot];
-                T_nm1.top = T[idxTop]; T_nm1.mid = T[idxMid]; T_nm1.bot = T[idxBot];
-                dt = TARGET_DELTA_T * 0.2;
-                logHistoryGlobal(time + coolingTimeElapsed, true);
+                switchToCoolingPhase(); // <-- Вызов функции вместо дубля
                 continue;
             } else {
                 break;
             }
         }
+
 
         if (maxStepTempChange > 0) {
             const stepRatio = TARGET_DELTA_T / maxStepTempChange;
