@@ -261,21 +261,19 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                     const currentStep = e.data.currentExecutionCount !== undefined ? e.data.currentExecutionCount : completedStepsRef.current;
                     const totalStepsBudget = e.data.totalIterations !== undefined ? e.data.totalIterations : OPTIMIZER_SETTINGS.totalBudgetIterations;
 
+                    // Выносим расчет визуального шага наверх
+                    const currentStepVisual = currentStep;
+                    const maxStepsVisual = totalStepsBudget;
+                    const safeStepVisual = Math.min(maxStepsVisual, Math.max(1, currentStepVisual));
+
+                    // Синхронизируем прогрессбар и внутренний реф
+                    completedStepsRef.current = safeStepVisual;
+                    setCompletedSteps(safeStepVisual);
                     setProgressPercent(validProgress);
 
                     setLogs(prev => {
                         const isInitPhase = currentStep <= OPTIMIZER_SETTINGS.randomInitPoints;
                         const phaseLabel = isInitPhase ? "INIT" : "STEP";
-
-                        // Убрали "+ 1", так как воркер уже передаёт порядковый номер шага начиная с 1
-                        const currentStepVisual = currentStep;
-
-                        // Общий лимит шагов всегда равен полному бюджету (например: 50)
-                        const maxStepsVisual = totalStepsBudget;
-
-                        // Безопасное ограничение, чтобы счётчик оставался в пределах общего бюджета
-                        const safeStepVisual = Math.min(maxStepsVisual, Math.max(1, currentStepVisual));
-
                         const text = `⏳ [SOLVER]: ${phaseLabel} ${safeStepVisual}/${maxStepsVisual} | Progress: ${validProgress}%`;
 
                         const newEntry = { text, timestamp: getTimestamp() };
