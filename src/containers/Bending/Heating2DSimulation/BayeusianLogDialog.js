@@ -175,7 +175,6 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
     const timeCacheRef = useRef(new Map());
     const startTimeRef = useRef(null);
     const timerIntervalRef = useRef(null);
-    const completedStepsRef = useRef(0);
     const isOptimizingRef = useRef(false);
     const autoScrollRef = useRef(true);
 
@@ -258,16 +257,13 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                     const progress = Number(percent);
                     const validProgress = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
 
-                    const currentStep = e.data.currentExecutionCount !== undefined ? e.data.currentExecutionCount : completedStepsRef.current;
+                    const currentStep = e.data.currentExecutionCount !== undefined ? e.data.currentExecutionCount : 0;
                     const totalStepsBudget = e.data.totalIterations !== undefined ? e.data.totalIterations : OPTIMIZER_SETTINGS.totalBudgetIterations;
 
-                    // Выносим расчет визуального шага наверх
                     const currentStepVisual = currentStep;
                     const maxStepsVisual = totalStepsBudget;
-                    const safeStepVisual = Math.min(maxStepsVisual, Math.max(1, currentStepVisual));
+                    const safeStepVisual = Math.min(maxStepsVisual, Math.max(0, currentStepVisual));
 
-                    // Синхронизируем прогрессбар и внутренний реф
-                    completedStepsRef.current = safeStepVisual;
                     setCompletedSteps(safeStepVisual);
                     setProgressPercent(validProgress);
 
@@ -299,9 +295,6 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                         return prev;
                     });
 
-                    completedStepsRef.current += 1;
-                    setCompletedSteps(completedStepsRef.current);
-
                     const currentParams = e.data.candidateParams || e.data.params || null;
                     appendLog({
                         text: logMessage,
@@ -319,6 +312,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                     stopTimer();
                     setProgressPercent(100);
                     setFinalResultReceived(true);
+
+                    setCompletedSteps(OPTIMIZER_SETTINGS.totalBudgetIterations);
 
                     const limits = data?.optimalLimits || null;
                     const metrics = data?.metrics || {};
@@ -428,7 +423,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                 timestamp: getTimestamp()
             });
         }
-    }, [appendLog, stopTimer, setParentState, updateBestMetricsOnFly]);
+    }, [appendLog, stopTimer, setParentState, updateBestMetricsOnFly]); // FIXED dependency array: removed completedSteps
 
     useEffect(() => {
         initWorker();
@@ -445,7 +440,6 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
         clearInterval(timerIntervalRef.current);
         timerIntervalRef.current = null;
 
-        completedStepsRef.current = 0;
         bestValidLoadRef.current = Infinity;
         minErrorOverallRef.current = Infinity;
         bestCandidateRef.current = null;
@@ -747,7 +741,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                             variant="caption"
                             sx={{ color: "#2563eb", fontWeight: "bold", fontFamily: "monospace", whiteSpace: "nowrap" }}
                         >
-                        {stepProgressPercent}%
+                            {stepProgressPercent}%
                         </Typography>
 
                     </Box>
