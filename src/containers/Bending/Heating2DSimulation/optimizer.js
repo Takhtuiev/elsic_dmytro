@@ -99,15 +99,20 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             let abortReason = null;
             if (isAborted && recordedAbortProgress) {
                 const errStr = errorScore.toFixed(3);
-                const stepStr = `Step ${currentExecutionCount}/${totalIterations}`;
                 const finalLoadRounded = Math.round(recordedAbortProgress.predicted);
 
-                if (recordedAbortProgress.isStart) {
-                    abortReason = `🛑 [EARLY_ABORT]: ${stepStr} | Error: ${errStr} | Final load (early): ${finalLoadRounded} nodes`;
-                } else {
-                    abortReason = `🛑 [EARLY_ABORT]: ${stepStr} | Error: ${errStr} | Final load: ${finalLoadRounded} nodes`;
-                }
+                // Определяем фазу: если точек в массиве меньше, чем нужно для инициализации — это INIT фаза
+                const isInitPhase = X_sample.length < initPointsCount;
+                const phaseTag = isInitPhase
+                    ? `INIT ${X_sample.length + 1}/${initPointsCount}`
+                    : `STEP ${currentExecutionCount}/${totalIterations}`;
+
+                // Шаблон: [INIT 1/20] [EARLY_ABORT]: Error score: 0.520 | Load: 600256
+                // Или:    [STEP 21/100] [EARLY_ABORT]: Error score: 0.520 | Load: 600256
+                abortReason = `[${phaseTag}] [EARLY_ABORT]: Error score: ${errStr} | Load: ${finalLoadRounded}`;
             }
+
+
 
             // Штрафуем внутреннюю модель оптимизатора по точности пропорционально перегрузке.
             // Это делает холм сложности плавным для Гауссовского ядра RBF, не ломая математику ландшафта.
@@ -193,10 +198,19 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             Y_load.push(res.load);
             Y_errorScore.push(res.errorScore);
 
-            console.log(
-                `🎲 [INIT ${X_sample.length}/${initPointsCount}]: ` +
-                `Error score: ${res.errorScore.toFixed(3)} | Load: ${res.load}`
-            );
+            // ✨ ИСПРАВЛЕНИЕ: Проверяем, не был ли аборт на шаге инициализации
+            if (res.isAborted && res.abortReason) {
+                if (options.onProgress) {
+                    // Передаем сформированную строку аборта в UI через onProgress воркера
+                    options.onProgress(0, currentExecutionCount, totalIterations, res.load, res.abortReason);
+                }
+            } else {
+                // Обычный успешный инициализационный шаг
+                console.log(
+                    `🎲 [INIT ${X_sample.length}/${initPointsCount}]: ` +
+                    `Error score: ${res.errorScore.toFixed(3)} | Load: ${res.load}`
+                );
+            }
         }
     }
 

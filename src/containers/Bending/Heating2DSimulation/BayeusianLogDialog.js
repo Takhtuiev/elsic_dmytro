@@ -124,7 +124,10 @@ function parseLogLine(line, candidateParams = null) {
     let text = String(line);
 
     if (/EARLY_ABORT/i.test(text)) {
-        text = text.replace(/(\d+)\s*nodes/gi, (_, num) => `${formatNumberWithNBSP(Number(num))} nodes`);
+        // ✨ Ищем число после "Load: " и форматируем его с неразрывными пробелами
+        text = text.replace(/(Load:\s*)(\d+)/i, (_, prefix, num) =>
+            `${prefix}${formatNumberWithNBSP(Number(num))}`
+        );
 
         return {
             type: "warning", // Красивая оранжевая строчка в терминале [WARN]
