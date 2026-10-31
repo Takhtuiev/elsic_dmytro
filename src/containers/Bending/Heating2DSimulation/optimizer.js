@@ -32,6 +32,8 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     const Y_load = [];
     const Y_errorScore = [];
 
+    const Y_isAborted = [];
+
     const toPhysical = (xNorm) => {
         const res = {};
         paramKeys.forEach((k, idx) => {
@@ -197,6 +199,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             X_sample.push(randX);
             Y_load.push(res.load);
             Y_errorScore.push(res.errorScore);
+            Y_isAborted.push(res.isAborted);
 
             // ✨ ИСПРАВЛЕНИЕ: Проверяем, не был ли аборт на шаге инициализации
             if (res.isAborted && res.abortReason) {
@@ -255,6 +258,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             X_sample.push(bestCandidateX);
             Y_load.push(res.load);
             Y_errorScore.push(res.errorScore);
+            Y_isAborted.push(res.isAborted);
 
             // Если шаг завершился АБОРТОМ — отправляем в UI готовую строку лога через onProgress воркера
             if (res.isAborted && res.abortReason) {
@@ -282,6 +286,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         for (let i = 0; i < X_sample.length; i++) {
             if (
+                !Y_isAborted[i] && // Игнорируем прерванные шаги в основном поиске
                 Y_errorScore[i] <= maxAllowedErrorScore &&
                 Y_load[i] < minFinalLoad
             ) {
@@ -295,7 +300,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             let minScore = Infinity;
 
             for (let i = 0; i < X_sample.length; i++) {
-                if (Y_errorScore[i] < minScore) {
+                if (!Y_isAborted[i] && Y_errorScore[i] < minScore) { // Игнорируем аборты в фолбэке
                     minScore = Y_errorScore[i];
                     bestIdx = i;
                 }
@@ -306,6 +311,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         for (let i = 0; i < X_sample.length; i++) {
             if (
+                !Y_isAborted[i] && // Игнорируем аборты в основном поиске второго режима
                 Y_load[i] <= maxAllowedLoad &&
                 Y_errorScore[i] < minErrorScore
             ) {
@@ -319,7 +325,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             let minScore = Infinity;
 
             for (let i = 0; i < X_sample.length; i++) {
-                if (Y_errorScore[i] < minScore) {
+                if (!Y_isAborted[i] && Y_errorScore[i] < minScore) { // Игнорируем аборты в фолбэке второго режима
                     minScore = Y_errorScore[i];
                     bestIdx = i;
                 }
@@ -327,9 +333,18 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         }
     }
 
+    // Жесткая страховка на случай, если вообще все 100% шагов прервались по EARLY_ABORT
     if (bestIdx === -1) {
-        throw new Error("Оптимизатор не смог выбрать итоговую конфигурацию.");
+        let minScore = Infinity;
+        for (let i = 0; i < X_sample.length; i++) {
+            if (Y_errorScore[i] < minScore) {
+                minScore = Y_errorScore[i];
+                bestIdx = i;
+            }
+        }
+        fallbackActivated = true;
     }
+
 
     const finalOptimalLimits = toPhysical(X_sample[bestIdx]);
 

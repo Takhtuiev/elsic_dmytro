@@ -13,23 +13,26 @@
  */
 
 const LIMITS = {
-    gridX:        { fast: 0.35, optimal: 0.17, accurate: 0.12 }, // Шаг сетки по горизонтали X (мм)
-    gridY:        { fast: 1.30, optimal: 0.88, accurate: 0.45 }, // Шаг сетки по вертикали Y (мм)
-    minGrid:      { fast: 0.06, optimal: 0.02, accurate: 0.02 }, // Минимальный предел размера ячейки (мм)
-    maxIter:      { fast: 4,    optimal: 7,    accurate: 12 }, // Макс. число итераций Пикара в солвере
+    gridX:        { fast: 0.35, optimal: 0.16, accurate: 0.12 }, // Шаг сетки по горизонтали X (мм)
+    gridY:        { fast: 1.30, optimal: 0.78, accurate: 0.45 }, // Шаг сетки по вертикали Y (мм)
+    minGrid:      { fast: 0.06, optimal: 0.05, accurate: 0.02 }, // Минимальный предел размера ячейки (мм)
+    maxIter:      { fast: 4,    optimal: 6,    accurate: 12 }, // Макс. число итераций Пикара в солвере
 
-    tolerance:    { fast: 0.25, optimal: 0.23, accurate: 0.01 }, // Критерий остановки итераций солвера (К)
-    maxDt:        { fast: 2.5,  optimal: 2.0,  accurate: 0.6 }, // Жесткий верхний потолок шага времени (с)
-    targetDt:     { fast: 2.0,  optimal: 0.65,  accurate: 0.4 }, // Целевой шаг изменения температуры за итерацию (К)
+    tolerance:    { fast: 0.25, optimal: 0.29, accurate: 0.01 }, // Критерий остановки итераций солвера (К)
+    maxDt:        { fast: 2.5,  optimal: 3.87,  accurate: 0.6 }, // Жесткий верхний потолок шага времени (с)
+    targetDt:     { fast: 2.0,  optimal: 2.13,  accurate: 0.4 }, // Целевой шаг изменения температуры за итерацию (К)
 
-    growthFactor: { fast: 1.30, optimal: 1.09, accurate: 1.05 }, // Коэффициент ускорения шага времени (рост dt)
-    shrinkFactor: { fast: 0.50, optimal: 0.83, accurate: 0.75 }  // Коэффициент замедления шага времени (сжатие dt)
+    growthFactor: { fast: 1.30, optimal: 1.35, accurate: 1.05 }, // Коэффициент ускорения шага времени (рост dt)
+    shrinkFactor: { fast: 0.50, optimal: 0.52, accurate: 0.75 }  // Коэффициент замедления шага времени (сжатие dt)
 };
 
 export const DEFAULT_DT_SECONDS = 0.1;
 export const SIGMA = 5.670374419e-8;
 export const HEATER_RADIUS_MM = 3.0;
 export const DISTANCE_TO_SHEET_MM = 8.0;
+
+const UI_PROGRESS_THROTTLE_MS = 40; // Минимальный интервал реального времени между отправками прогресса в UI (в миллисекундах)
+
 const EFFECTIVE_H_MM = DISTANCE_TO_SHEET_MM + HEATER_RADIUS_MM;
 const AMBIENT_CONVECTION_H_TOP = 8.0;
 const AMBIENT_CONVECTION_H_BOT = 7.0;
@@ -999,8 +1002,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             }
 
             const nowMs = performance.now();
-            if (currentPercent !== lastReportedPercent && (nowMs - lastReportTimeMs > 40 || currentPercent === 100)) {
-                const currentLoad = countPicardIters * size2D;
+            if (currentPercent !== lastReportedPercent && (nowMs - lastReportTimeMs > UI_PROGRESS_THROTTLE_MS  || currentPercent === 100)) {
+                const currentLoad = Math.round(countPicardIters * size2D * (is1D ? 1 : Ny));
                 const shouldAbort = onProgress(currentPercent, currentLoad);
 
                 if (shouldAbort === true) {
@@ -1099,7 +1102,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 totalTimeSteps: countTimeSteps,
                 rejectedTimeSteps: countRejectedSteps,
                 totalPicardIterations: countPicardIters,
-                totalGridPointsProcessed: countPicardIters * size2D
+                totalGridPointsProcessed: Math.round(countPicardIters * size2D * (is1D ? 1 : Ny))
             }
         }
     };

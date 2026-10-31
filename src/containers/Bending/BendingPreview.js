@@ -483,7 +483,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
         // Стилизация контуров
         const contourGraphs = (contourGraphsRaw || []).map(g => {
             let style = { lineWidth: 0.7, opacity: 0.7, color: themeColors.textPrimary };
-            if (g.name === "Tg") style.color = g.phase === "Heating" ? themeColors.warningMain : themeColors.warningDark;
+            if (g.name === "Tg") style.color = g.phase === "Heating" ? themeColors.primaryMain : themeColors.primaryMain;
             else if (g.name === "T min") style.color = g.phase === "Heating" ? themeColors.successMain : themeColors.successDark;
             else if (g.name === "T max") style.color = themeColors.successMain;
             else if (g.name === "Decomposition") { style.color = g.phase === "Heating" ? themeColors.errorMain : themeColors.errorDark; style.opacity = 1; }
@@ -600,11 +600,24 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
                         <Box sx={{ position: "absolute", inset: 0, backgroundColor: alpha(theme.palette.action.disabledBackground, 0.1), borderRadius: 1, zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1.5, px: 3, minHeight: 200 }}>
                             <Typography variant="body2" fontWeight={600} color="text.secondary">2D simulation in progress...</Typography>
                             <Box sx={{ width: '100%', maxWidth: 220, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                <LinearProgress variant="determinate" value={progress} sx={{ flexGrow: 1, height: 6, borderRadius: 3 }} />
+                                {/* ✨ ОБНОВЛЕННЫЙ ПРОГРЕСС-БАР С ПЛАВНОЙ АНИМАЦИЕЙ */}
+                                <LinearProgress
+                                    variant="determinate"
+                                    value={progress}
+                                    sx={{
+                                        flexGrow: 1,
+                                        height: 6,
+                                        borderRadius: 3,
+                                        "& .MuiLinearProgress-bar": {
+                                            transition: "transform 0.2s ease-out" // Сглаживает скачки процентов
+                                        }
+                                    }}
+                                />
                                 <Typography variant="body2" color="text.secondary" fontWeight={700} sx={{ minWidth: 35 }}>{progress}%</Typography>
                             </Box>
                         </Box>
                     )}
+
                 </Box>
             </Box>
         </Box>

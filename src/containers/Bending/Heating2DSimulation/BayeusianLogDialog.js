@@ -214,6 +214,9 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
     }, []);
 
     const updateBestMetricsOnFly = useCallback((text, candidateParams) => {
+        // 🛑 ЕСЛИ В СТРОКЕ ЕСТЬ АБОРТ — ОСТАНАВЛИВАЕМ ОБНОВЛЕНИЕ ПЛАШКИ ЛУЧШИХ МЕТРИК
+        if (/EARLY_ABORT/i.test(text)) return;
+
         const errorMatch = text.match(/Error score:\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)/i);
         const loadMatch = text.match(/(?:Нагрузка|Load):\s*([\d,.\s ]+)/i);
 
@@ -757,10 +760,12 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                                 bgcolor: "#22252e",
                                 "& .MuiLinearProgress-bar": {
                                     bgcolor: "#2563eb",
-                                    borderRadius: 2
+                                    borderRadius: 2,
+                                    transition: "transform 0.3s ease-out"
                                 }
                             }}
                         />
+
                         <Typography
                             variant="caption"
                             sx={{ color: "#2563eb", fontWeight: "bold", fontFamily: "monospace", whiteSpace: "nowrap" }}
@@ -803,9 +808,13 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                                     width: "100%",
                                     borderRadius: 2,
                                     bgcolor: "#22252e",
-                                    "& .MuiLinearProgress-bar": { bgcolor: "#10b981" }
+                                    "& .MuiLinearProgress-bar": {
+                                        bgcolor: "#10b981",
+                                        transition: "transform 0.25s cubic-bezier(0.1, 0.8, 0.25, 1)"
+                                    }
                                 }}
                             />
+
                             <Typography
                                 variant="caption"
                                 sx={{ color: "#10b981", fontWeight: "bold", fontFamily: "monospace" }}

@@ -53,7 +53,10 @@ try {
             const result = simulate2DHeating(params);
             totalSimulationsExecuted++;
 
-            if (result && result.heatingTimeSeconds && result.coolingTimeSeconds) {
+            // ✨ ДОБАВЛЕНО: Проверяем, что шаг НЕ завершился абортом
+            const isAborted = result?.status?.type === "abort";
+
+            if (result && result.heatingTimeSeconds && result.coolingTimeSeconds && !isAborted) {
                 const currentError = result.technicalMetrics?.accuracy?.totalErrorScore;
                 const isFirstStep = totalSimulationsExecuted === 1;
                 const isAccuracyImproved = Number.isFinite(currentError) && currentError < bestErrorScore;
