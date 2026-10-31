@@ -14,6 +14,8 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     const maxAllowedErrorScore = options.maxErrorScore ?? 1.0;
     const maxAllowedLoad = options.maxAllowedLoad ?? 250000;
 
+    const earlyAbortLoadMultiplier = options.earlyAbortLoadMultiplier ?? 1.2;
+
     const totalIterations = options.totalBudgetIterations || 25;
     const initPointsCount = options.randomInitPoints || 6;
     const config = options.config;
@@ -40,15 +42,41 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         return res;
     };
 
+    // === ПОЛНАЯ ЗАМЕНА ФУНКЦИИ evaluate В ФАЙЛЕ optimizer.js ===
     const evaluate = (paramsObj) => {
         currentExecutionCount++;
+        let recordedAbortProgress = null; // Запоминаем данные на момент аборта
 
         const simArgs = {
             ...baseParams,
-            onProgress: (percent) => {
-                if (options.onProgress) {
-                    options.onProgress(percent, currentExecutionCount, totalIterations);
+            onProgress: (percent, currentLoad) => {
+                const progressFraction = Math.max(1, percent) / 100;
+                const absoluteCeiling = maxAllowedLoad * earlyAbortLoadMultiplier;
+
+                // Расчет прогноза оставляем, но использовать на старте его будем осторожно
+                const predictedFinalLoad = currentLoad / progressFraction;
+
+                // 🛑 ВНЕШНИЙ КОНТРОЛЬ НАГРУЗКИ (Исправленный надежный двойной контроль):
+                if (percent < 5) {
+                    // Защита старта: до 5% проверяем ЖЕСТКИЙ ФАКТИЧЕСКИЙ ПОРОГ (абсолютного потолка).
+                    // Это не даст симуляции вылететь из-за стартовых колебаний адаптивного шага времени dt.
+
+                    if (currentLoad > absoluteCeiling) {
+                        recordedAbortProgress = { percent, currentLoad, isStart: true, predicted: predictedFinalLoad };
+                        return true;
+                    }
+                } else {
+                    // Основная фаза: когда график стабилизировался, включаем точное интеллектуальное прогнозирование
+                    if (predictedFinalLoad > absoluteCeiling) {
+                        recordedAbortProgress = { percent, currentLoad, isStart: false, predicted: predictedFinalLoad };
+                        return true;
+                    }
                 }
+
+                if (options.onProgress) {
+                    options.onProgress(percent, currentExecutionCount, totalIterations, currentLoad);
+                }
+                return false;
             },
             simulation: {
                 ...baseParams.simulation,
@@ -59,20 +87,44 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         try {
             const res = simulateFn(simArgs);
-
-            // Результаты с диагностическими ошибками сохраняем, если метрики присутствуют.
             if (!res || !res.technicalMetrics) return null;
 
+            const isAborted = res.status?.type === "abort";
             const load = res.technicalMetrics.iterations?.totalGridPointsProcessed;
-            const errorScore = res.technicalMetrics.accuracy?.totalErrorScore;
+            let errorScore = res.technicalMetrics.accuracy?.totalErrorScore;
 
             if (!Number.isFinite(load) || !Number.isFinite(errorScore)) return null;
 
-            return { load, errorScore };
+            // Формируем чистую строку лога для UI с финальной прогнозируемой нагрузкой
+            let abortReason = null;
+            if (isAborted && recordedAbortProgress) {
+                const errStr = errorScore.toFixed(3);
+                const stepStr = `Step ${currentExecutionCount}/${totalIterations}`;
+                const finalLoadRounded = Math.round(recordedAbortProgress.predicted);
+
+                if (recordedAbortProgress.isStart) {
+                    abortReason = `🛑 [EARLY_ABORT]: ${stepStr} | Error: ${errStr} | Final load (early): ${finalLoadRounded} nodes`;
+                } else {
+                    abortReason = `🛑 [EARLY_ABORT]: ${stepStr} | Error: ${errStr} | Final load: ${finalLoadRounded} nodes`;
+                }
+            }
+
+            // Штрафуем внутреннюю модель оптимизатора по точности пропорционально перегрузке.
+            // Это делает холм сложности плавным для Гауссовского ядра RBF, не ломая математику ландшафта.
+            if (isAborted) {
+                const absoluteCeiling = maxAllowedLoad * earlyAbortLoadMultiplier;
+                const overloadRatio = load / absoluteCeiling;
+
+                // Мягкий множитель: минимум 1.5х, либо строго пропорционально перегрузу сетки
+                const penaltyMultiplier = Math.max(1.5, overloadRatio);
+                errorScore = errorScore * penaltyMultiplier;
+            }
+            return { load, errorScore, isAborted, abortReason };
         } catch (e) {
             return null;
         }
     };
+
 
     const kernelRBF = (x1, x2) => {
         let sumSq = 0;
@@ -150,8 +202,8 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
     if (X_sample.length === 0) {
         throw new Error(
-            "Не удалось инициализировать пространство симуляций. " +
-            "Проверьте граничные условия или корректность переданных параметров."
+            "Failed to initialize simulation search space. " +
+            "Please check boundary conditions or validity of passed configuration parameters."
         );
     }
 
@@ -165,19 +217,15 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             const predCost = predictSurrogate(candidateX);
 
             let minDistanceToSamples = Infinity;
-
             for (let i = 0; i < X_sample.length; i++) {
                 let dist = 0;
-
                 for (let p = 0; p < numParams; p++) {
                     dist += (X_sample[i][p] - candidateX[p]) ** 2;
                 }
-
                 if (dist < minDistanceToSamples) minDistanceToSamples = dist;
             }
 
             const totalScore = predCost - minDistanceToSamples * 20000;
-
             if (totalScore < minPredictedCost) {
                 minPredictedCost = totalScore;
                 bestCandidateX = candidateX;
@@ -194,10 +242,20 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             Y_load.push(res.load);
             Y_errorScore.push(res.errorScore);
 
-            console.log(
-                `🧠 [STEP ${X_sample.length}/${totalIterations}]: ` +
-                `Error score: ${res.errorScore.toFixed(3)} | Load: ${res.load}`
-            );
+            // Если шаг завершился АБОРТОМ — отправляем в UI готовую строку лога через onProgress воркера
+            if (res.isAborted && res.abortReason) {
+                if (options.onProgress) {
+                    // Передаем сформированную строку 5-м параметром (abortReason)
+                    options.onProgress(0, currentExecutionCount, totalIterations, res.load, res.abortReason);
+                }
+            }
+            // Если шаг успешный — пишем стандартный лог в воркер
+            else {
+                console.log(
+                    `🧠 [STEP ${X_sample.length}/${totalIterations}]: ` +
+                    `Error score: ${res.errorScore.toFixed(3)} | Load: ${Math.round(res.load)}`
+                );
+            }
         }
     }
 

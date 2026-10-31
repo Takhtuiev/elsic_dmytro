@@ -15,6 +15,7 @@ export const OPTIMIZER_SETTINGS = {
     optimizationObjective: 'minimize_load',
     maxErrorScore: 0.5,
     maxAllowedLoad: 500000,
-    totalBudgetIterations: 50,
-    randomInitPoints: 10
+    randomInitPoints: 20,
+    totalBudgetIterations: 100,
+    earlyAbortLoadMultiplier: 2
 };

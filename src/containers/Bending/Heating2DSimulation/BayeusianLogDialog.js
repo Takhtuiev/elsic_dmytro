@@ -37,7 +37,10 @@ function getTimestamp() {
 
 function formatNumberWithNBSP(num) {
     if (num === null || num === undefined || !Number.isFinite(Number(num))) return "—";
-    return Number(num).toLocaleString("en-US").replace(/\s/g, " ");
+
+    // Форматируем по французскому стандарту (он использует пробелы для тысяч).
+    // Затем на всякий случай принудительно меняем обычные пробелы на неразрывные (\u00A0)
+    return new Intl.NumberFormat("fr-FR").format(num).replace(/\s/g, " ");
 }
 
 function formatParamValue(name, value) {
@@ -120,6 +123,16 @@ function parseLogLine(line, candidateParams = null) {
     let type = "info";
     let text = String(line);
 
+    if (/EARLY_ABORT/i.test(text)) {
+        text = text.replace(/(\d+)\s*nodes/gi, (_, num) => `${formatNumberWithNBSP(Number(num))} nodes`);
+
+        return {
+            type: "warning", // Красивая оранжевая строчка в терминале [WARN]
+            text: text.replace(/[🛑❌🚨⚠️]/g, "").trim(),
+            candidateParams // Параметры сетки остаются доступны по клику!
+        };
+    }
+
     if (/Load:/i.test(text)) {
         text = text.replace(/(Load:\s*)(\d+)/i, (_, prefix, num) =>
             `${prefix}${formatNumberWithNBSP(Number(num))}`
@@ -148,6 +161,7 @@ function parseLogLine(line, candidateParams = null) {
 
     return { type, text, candidateParams };
 }
+
 
 export function BayeusianLogDialog({ open, onClose, parentState, setParentState }) {
     const theme = useTheme();
@@ -264,13 +278,19 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                     const maxStepsVisual = totalStepsBudget;
                     const safeStepVisual = Math.min(maxStepsVisual, Math.max(0, currentStepVisual));
 
+                    // ✨ Извлекаем нагрузку из воркера и форматируем её с неразрывными пробелами
+                    const liveLoad = e.data.currentLoad || 0;
+                    const formattedLoad = formatNumberWithNBSP(liveLoad);
+
                     setCompletedSteps(safeStepVisual);
                     setProgressPercent(validProgress);
 
                     setLogs(prev => {
                         const isInitPhase = currentStep <= OPTIMIZER_SETTINGS.randomInitPoints;
                         const phaseLabel = isInitPhase ? "INIT" : "STEP";
-                        const text = `⏳ [SOLVER]: ${phaseLabel} ${safeStepVisual}/${maxStepsVisual} | Progress: ${validProgress}%`;
+
+                        // ✨ Добавляем информацию о наработанной нагрузке в лог шага
+                        const text = `⏳ [SOLVER]: ${phaseLabel} ${safeStepVisual}/${maxStepsVisual} | Progress: ${validProgress}% (Load: ${formattedLoad} nodes)`;
 
                         const newEntry = { text, timestamp: getTimestamp() };
 
@@ -284,6 +304,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                     });
                     return;
                 }
+
 
                 if (status === "log_step" && logMessage) {
                     setLogs(prev => {
