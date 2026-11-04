@@ -11,20 +11,22 @@
  * Update: Error metrics shifted to LOCALLY-ORIENTED approach (Honest Center with 2D diffusion consideration).
  * CPU load minimized (error calculations executed in O(1) per step).
  */
+import {normalizeMachine} from "../pvc-1d-transient-heating";
 
 const LIMITS = {
-    gridX:        { fast: 0.35, optimal: 0.16, accurate: 0.12 }, // Шаг сетки по горизонтали X (мм)
-    gridY:        { fast: 1.30, optimal: 0.78, accurate: 0.45 }, // Шаг сетки по вертикали Y (мм)
-    minGrid:      { fast: 0.06, optimal: 0.05, accurate: 0.02 }, // Минимальный предел размера ячейки (мм)
-    maxIter:      { fast: 4,    optimal: 6,    accurate: 12 }, // Макс. число итераций Пикара в солвере
+    gridX:        { fast: 0.35, optimal: 0.16, accurate: 0.116 }, // Шаг сетки по горизонтали X (мм)
+    gridY:        { fast: 1.30, optimal: 0.78, accurate: 0.307 }, // Шаг сетки по вертикали Y (мм)
+    minGrid:      { fast: 0.06, optimal: 0.05, accurate: 0.044 }, // Минимальный предел размера ячейки (мм)
+    maxIter:      { fast: 4,    optimal: 6,    accurate: 14 }, // Макс. число итераций Пикара в солвере
 
-    tolerance:    { fast: 0.25, optimal: 0.29, accurate: 0.01 }, // Критерий остановки итераций солвера (К)
-    maxDt:        { fast: 2.5,  optimal: 3.87,  accurate: 0.6 }, // Жесткий верхний потолок шага времени (с)
-    targetDt:     { fast: 2.0,  optimal: 2.13,  accurate: 0.4 }, // Целевой шаг изменения температуры за итерацию (К)
+    tolerance:    { fast: 0.25, optimal: 0.29, accurate: 0.038 }, // Критерий остановки итераций солвера (К)
+    maxDt:        { fast: 2.5,  optimal: 3.87,  accurate: 0.71 }, // Жесткий верхний потолок шага времени (с)
+    targetDt:     { fast: 2.0,  optimal: 2.13,  accurate: 0.77 }, // Целевой шаг изменения температуры за итерацию (К)
 
-    growthFactor: { fast: 1.30, optimal: 1.35, accurate: 1.05 }, // Коэффициент ускорения шага времени (рост dt)
-    shrinkFactor: { fast: 0.50, optimal: 0.52, accurate: 0.75 }  // Коэффициент замедления шага времени (сжатие dt)
+    growthFactor: { fast: 1.30, optimal: 1.35, accurate: 1.39 }, // Коэффициент ускорения шага времени (рост dt)
+    shrinkFactor: { fast: 0.50, optimal: 0.52, accurate: 0.49 }  // Коэффициент замедления шага времени (сжатие dt)
 };
+
 
 export const DEFAULT_DT_SECONDS = 0.1;
 export const SIGMA = 5.670374419e-8;
@@ -33,9 +35,66 @@ export const DISTANCE_TO_SHEET_MM = 8.0;
 
 const UI_PROGRESS_THROTTLE_MS = 40; // Минимальный интервал реального времени между отправками прогресса в UI (в миллисекундах)
 
+const MAX_TOTAL_TIME_STEPS = 100000;  // Жесткий потолок на число шагов по времени
+const MAX_CONSECUTIVE_REJECTIONS = 12;// Максимальное количество неудачных попыток сжатия шага dt подряд на одном месте
+const MAX_ALLOWED_PICARD_RATIO = 25.0;// Критический порог итераций Пикара на один успешный шаг, останавливающий букс
+const MAX_PICARD_PER_TIMESTEP = 40;// Максимальное суммарное число итераций Пикара, разрешенное на обсчет одной временной отметки
+
 const EFFECTIVE_H_MM = DISTANCE_TO_SHEET_MM + HEATER_RADIUS_MM;
 const AMBIENT_CONVECTION_H_TOP = 8.0;
 const AMBIENT_CONVECTION_H_BOT = 7.0;
+
+export function validateSimulationParams({ thicknessMm, material, machine, simulation, dtSeconds }) {
+    const errors = [];
+
+    // 1. Базовая валидация верхнего уровня
+    if (!validPositive(thicknessMm)) errors.push("Invalid thickness.");
+    if (!material || typeof material !== "object") errors.push("Invalid material model.");
+    if (!machine || typeof machine !== "object") {
+        errors.push("Invalid machine.");
+    } else if (!Array.isArray(machine.heaters) || machine.heaters.length !== 2) {
+        errors.push("Exactly two heaters are required.");
+    }
+    if (!simulation || typeof simulation !== "object") errors.push("Simulation parameters are missing.");
+
+    // Если структура критически нарушена на верхнем уровне, дальше проверять custom-параметры небезопасно
+    if (errors.length > 0) {
+        return { isValid: false, errors };
+    }
+
+    // 2. Валидация кастомных параметров точности (accuracyMode)
+    const am = simulation.accuracyMode;
+    if (am && typeof am === "object") {
+        if (!validPositive(am.gridX)) errors.push("Invalid custom parameter: gridX must be a positive number.");
+        if (!validPositive(am.gridY)) errors.push("Invalid custom parameter: gridY must be a positive number.");
+        if (!validPositive(am.minGrid)) errors.push("Invalid custom parameter: minGrid must be a positive number.");
+
+        if (!Number.isInteger(am.maxIter) || am.maxIter < 1) {
+            errors.push("Invalid custom parameter: maxIter must be a positive integer.");
+        }
+        if (!validPositive(am.tolerance)) errors.push("Invalid custom parameter: tolerance must be a positive number.");
+        if (!validPositive(am.maxDt)) errors.push("Invalid custom parameter: maxDt must be a positive number.");
+        if (!validPositive(am.targetDt)) errors.push("Invalid custom parameter: targetDt must be a positive number.");
+
+        if (!Number.isFinite(am.growthFactor) || am.growthFactor < 1.0) {
+            errors.push("Invalid custom parameter: growthFactor must be greater than or equal to 1.0.");
+        }
+        if (!validPositive(am.shrinkFactor) || am.shrinkFactor >= 1.0) {
+            errors.push("Invalid custom parameter: shrinkFactor must be strictly between 0.0 and 1.0.");
+        }
+        if (validPositive(am.minGrid) && validPositive(am.gridX) && am.minGrid >= am.gridX) {
+            errors.push("Invalid custom parameter: minGrid must be strictly less than gridX.");
+        }
+    }
+
+    // Итоговый вердикт по накопленным ошибкам
+    if (errors.length > 0) {
+        return { isValid: false, errors };
+    }
+
+    const finalDt = dtSeconds === undefined ? DEFAULT_DT_SECONDS : dtSeconds;
+    return { isValid: true, dtSeconds: finalDt };
+}
 
 const clamp = (v, min, max) => v < min ? min : (v > max ? max : v);
 const toKelvin = c => c + 273.15;
@@ -102,27 +161,6 @@ const makeError = (message, extra = {}) => ({
     ...extra
 });
 
-export function normalizeMachine(machine) {
-    if (!machine || typeof machine !== "object") return null;
-    if (!Array.isArray(machine.heaters) || machine.heaters.length !== 2) return null;
-    return {
-        ...machine,
-        heaters: [
-            { ...machine.heaters[0] },
-            { ...machine.heaters[0], ...machine.heaters[1] }
-        ]
-    };
-}
-
-export function validateSimulationParams({ thicknessMm, material, machine, simulation, dtSeconds }) {
-    if (!validPositive(thicknessMm)) return { isValid: false, error: "Invalid thickness." };
-    if (!material || typeof material !== "object") return { isValid: false, error: "Invalid material model." };
-    if (!machine || typeof machine !== "object") return { isValid: false, error: "Invalid machine." };
-    if (!Array.isArray(machine.heaters) || machine.heaters.length !== 2) return { isValid: false, error: "Exactly two heaters are required." };
-    if (!simulation || typeof simulation !== "object") return { isValid: false, error: "Simulation parameters are missing." };
-    const finalDt = dtSeconds === undefined ? DEFAULT_DT_SECONDS : dtSeconds;
-    return { isValid: true, dtSeconds: finalDt };
-}
 
 function createNonlinearGridX(thicknessMm, nodeCount, minGridStepMm) {
     const x = new Float64Array(nodeCount);
@@ -400,7 +438,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     if (!mach) return makeError("Invalid machine.");
 
     const validation = validateSimulationParams({ thicknessMm, material, machine: mach, simulation});
-    if (!validation.isValid) return makeError(validation.error);
+    if (!validation.isValid) return makeError(validation.errors);
 
     const rawMode = simulation?.accuracyMode;
     const isStringMode = typeof rawMode === "string";
@@ -464,6 +502,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let step = 1;
     let t_nm1 = 0;
     let t_n   = 0;
+
+    let currentStepPicardIters = 0;
 
     let T_nm1_top = initT + 273.15;
     let T_nm1_mid = initT + 273.15;
@@ -591,13 +631,16 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const invMaxTimeSeconds = maxTimeSeconds > 0 ? (1.0 / maxTimeSeconds) : 0.0;
     const invTotalCoolingTime = totalCoolingTime > 0 ? (1.0 / totalCoolingTime) : 0.0;
 
-    let lastReportTimeMs = 0;
+    let lastReportTimeMs = performance.now(); // Фиксируем реальное время старта
     let currentPhase = "heating";
     let coolingTimeElapsed = 0;
 
     const idxTop = 0;
     const idxMid = ((Nx - 1) >> 1) * Ny;
     const idxBot = lastX * Ny;
+
+
+    let countConsecutiveRejectedSteps = 0; // Счетчик ошибок сходимости подряд
 
     const switchToCoolingPhase = () => {
         currentPhase = "cooling";
@@ -621,11 +664,20 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         T_nm1_bot = currentBuffer[idxBot];
 
         dt = TARGET_DELTA_T * 0.2;
+
+        countConsecutiveRejectedSteps = 0;
+
         logHistoryGlobal(time + coolingTimeElapsed, true);
     };
 
 
-    while (true) {
+    mainSimulationLoop: while (true) {
+        // Логическая защита по количеству шагов
+        if (countTimeSteps > MAX_TOTAL_TIME_STEPS) {
+            status = { type: "error", message: "Simulation terminated: Exceeded maximum time steps limit." };
+            break;
+        }
+
         let currentMaxDt = ADAPTIVE_MAX_DT;
 
         if (currentPhase === "heating") {
@@ -641,18 +693,22 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         }
 
         if (dt < 1e-5) {
-            if (currentPhase === "heating" && totalCoolingTime > 0) {
-                const curIdx = step % 3;
-                reachedTarget = targetType === "time"
-                    ? time >= targetValue
-                    : (targetK == null ? false : isTargetReached2D(buffers[curIdx], Nx, Ny, target, targetK));
-
+            if (currentPhase === "heating" && totalCoolingTime > 0 && reachedTarget && step > 1) {
                 switchToCoolingPhase();
                 continue;
             } else {
+                // 🎯 ИСПРАВЛЕНИЕ: Если симулятор упал по dt на первом же шаге (step === 1),
+                // это ВСЕГДА жесткая ошибка, независимо от ложных показаний reachedTarget
+                if (step <= 1 || (!reachedTarget && targetType !== "time")) {
+                    status = {
+                        type: "error",
+                        message: `Simulation stalled completely: Time step fell below critical limit (1e-5) on step #${step} (${currentPhase}).`
+                    };
+                }
                 break;
             }
         }
+
 
         const curIdx = step % 3;
         const newIdx = (step + 1) % 3;
@@ -788,16 +844,72 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             }
 
             matrixAClone.set(matrixA);
-            solveBandMatrixOptimized(matrixAClone, size2D, bandWidth, rhsVec, solverX, precalc);
+            const solverSuccess = solveBandMatrixOptimized(matrixAClone, size2D, bandWidth, rhsVec, solverX, precalc);
+
+            // 🎯 МГНОВЕННЫЙ ПЕРЕХВАТ: Если солвер споткнулся о нулевую диагональ
+            if (!solverSuccess) {
+                countRejectedSteps++;
+                countConsecutiveRejectedSteps++;
+
+                if (countConsecutiveRejectedSteps > MAX_CONSECUTIVE_REJECTIONS) {
+                    status = {
+                        type: "error",
+                        message: `Simulation aborted on the fly: Matrix singularity and consecutive step rejections (${countConsecutiveRejectedSteps} times).`
+                    };
+                    break mainSimulationLoop;
+                }
+
+                dt *= ADAPTIVE_SHRINK_FACTOR;
+                if (dt < 1e-6) {
+                    status = { type: "error", message: `Time step reached critical minimum limit due to matrix singularity (${currentPhase}).` };
+                    break mainSimulationLoop;
+                }
+                continue mainSimulationLoop; // Уходим на повторный расчет этой же временной отметки с меньшим dt
+            }
+
             countPicardIters++;
+            currentStepPicardIters++;
+
+            // 🎯 МГНОВЕННЫЙ ПЕРЕХВАТ НА ЛЕТУ ПО КОЛИЧЕСТВУ ИТЕРАЦИЙ
+            if (currentStepPicardIters > MAX_PICARD_PER_TIMESTEP) {
+                status = {
+                    type: "error",
+                    message: `Simulation killed on the fly: Matrix loop lockdown. Too many Picard iterations (${currentStepPicardIters}) on a single time coordinate.`
+                };
+                break mainSimulationLoop;
+            }
 
             let maxDeltaK = 0;
-            let localMaxSignedDiff = 0.0;
+            let localMaxSignedDiff = 0;
+
             for (let k = 0; k < size2D; k++) {
-                const diffSigned = solverX[k] - buffers[newIdx][k];
+                const newTemp = solverX[k];
+
+                if (!Number.isFinite(newTemp)) {
+                    status = {
+                        type: "error",
+                        message: `Numerical instability: Non-finite temperature detected at node ${k}, step ${step}, iteration ${iter}.`
+                    };
+                    break mainSimulationLoop;
+                }
+
+                const diffSigned = newTemp - buffers[newIdx][k];
                 const diffAbs = Math.abs(diffSigned);
-                if (diffAbs > maxDeltaK) { maxDeltaK = diffAbs; localMaxSignedDiff = diffSigned; }
+
+                if (!Number.isFinite(diffAbs)) {
+                    status = {
+                        type: "error",
+                        message: `Numerical instability: Invalid temperature difference at node ${k}, step ${step}, iteration ${iter}.`
+                    };
+                    break mainSimulationLoop;
+                }
+
+                if (diffAbs > maxDeltaK) {
+                    maxDeltaK = diffAbs;
+                    localMaxSignedDiff = diffSigned;
+                }
             }
+
             buffers[newIdx].set(solverX);
             lastIterMaxSignedDiff = localMaxSignedDiff;
 
@@ -806,21 +918,53 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 stepMaxGridError = iterMaxGridError;
                 break;
             }
+
         }
 
         if (!nonlinearConverged) {
             countRejectedSteps++;
+            countConsecutiveRejectedSteps++;
+
+            // 🎯 ИСПРАВЛЕНИЕ: Перехват скрытого букса по общему числу итераций на текущем шаге времени
+            if (currentStepPicardIters > MAX_PICARD_PER_TIMESTEP) {
+                status = {
+                    type: "error",
+                    message: `Simulation killed: Matrix loop lockdown. Total Picard iterations (${currentStepPicardIters}) exceeded limit (${MAX_PICARD_PER_TIMESTEP}) on step #${step}.`
+                };
+                break;
+            }
+
+            // ФИЛЬТР 1: Если солвер много раз подряд сжал dt на одном месте
+            if (countConsecutiveRejectedSteps > MAX_CONSECUTIVE_REJECTIONS) {
+                status = {
+                    type: "error",
+                    message: `Simulation aborted on the fly: High numerical friction and consecutive step rejections (${countConsecutiveRejectedSteps} times).`
+                };
+                break;
+            }
+
             dt *= ADAPTIVE_SHRINK_FACTOR;
-            if (dt < 1e-5) { status = { type: "error", message: `Degradation! Min time step reached in ${currentPhase} phase.` }; break; }
+            if (dt < 1e-6) {
+                status = { type: "error", message: `Time step reached critical minimum limit (${currentPhase}).` };
+                break;
+            }
             continue;
         }
 
+
+// Если шаг успешно принят солвером, сбрасываем счетчик ошибок сходимости
+        countConsecutiveRejectedSteps = 0;
+
+
+
         let overHeated = false;
-        let maxObservedT = 0;
+        let maxObservedT = 0; // Теперь переменная доступна всему оставшемуся телу цикла while
         for (let i = 0; i < size2D; i++) {
             if (buffers[newIdx][i] > maxObservedT) maxObservedT = buffers[newIdx][i];
             if (buffers[newIdx][i] >= decompTempK) overHeated = true;
         }
+
+
         if (overHeated && currentPhase === "heating") {
             let maxOldT = 0;
             for (let i = 0; i < size2D; i++) {
@@ -837,7 +981,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     continue;
                 }
             }
-            status = { type: "error", message: `Degradation! Temperature > ${material.decompositionTemp}°C.` };
+            status = { type: "warn", message: `Degradation! Temperature > ${material.decompositionTemp}°C.` };
             if (stopAtMaxTemperature) {
                 time += dt;
                 countTimeSteps++;
@@ -967,27 +1111,21 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 let heatingProgressFraction = 0;
 
                 if (targetType === "time" && targetValue > 0) {
-                    // Оптимизировано: быстрая замена деления на pre-calc умножение
                     heatingProgressFraction = time * invTargetValueTime;
                 } else if ((targetType === "minTemperature" || targetType === "surfaceTemperature") && targetValue > initT) {
-                    const activeBuffer = buffers[newIdx];
+                    const maxCurrentC = maxObservedT - 273.15;
+                    const minCurrentC = currentStepCriticalValue - 273.15;
 
-                    // Берутся только крайние точки поверхности (О(1)), никаких циклов по всей сетке!
-                    const topC = activeBuffer[0] - 273.15;
-                    const botC = activeBuffer[(Nx - 1) * Ny] - 273.15;
-                    const maxSurfaceC = topC > botC ? topC : botC;
+                    const surfaceFraction = Math.max(0.0, Math.min(1.0, (maxCurrentC - initT) / (targetValue - initT)));
+                    const coreFraction = Math.max(0.0, Math.min(1.0, (minCurrentC - initT) / totalRangeHeating));
 
-                    // Математическое выпрямление кривой нагрева поверхности
-                    // Избавляет от медленного старта до 20% и не тормозит CPU
-                    const currentDiff = maxSurfaceC - initT;
-                    const totalDiff = (targetValue * 1.25) - initT; // примерный предел нагрева поверхности
-
-                    if (totalDiff > 0 && currentDiff > 0) {
-                        heatingProgressFraction = Math.sqrt(currentDiff / totalDiff);
+                    if (targetType === "minTemperature") {
+                        const weightCore = coreFraction;
+                        const weightSurface = 1.0 - weightCore;
+                        heatingProgressFraction = (surfaceFraction * weightSurface) + (coreFraction * weightCore);
+                    } else {
+                        heatingProgressFraction = surfaceFraction;
                     }
-                    const triggerNodeFraction = (currentStepCriticalValue - 273.15 - initT) / totalRangeHeating;
-
-                    heatingProgressFraction = Math.max(heatingProgressFraction, triggerNodeFraction);
                 } else if (maxTimeSeconds > 0) {
                     heatingProgressFraction = time * invMaxTimeSeconds;
                 }
@@ -995,14 +1133,15 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 heatingProgressFraction = Math.max(0, Math.min(1.0, heatingProgressFraction));
                 currentPercent = Math.floor(heatingProgressFraction * maxHeatingPercent);
             } else {
-                // Линейное охлаждение по времени (тоже O(1))
                 let coolingProgressFraction = totalCoolingTime > 0 ? (coolingTimeElapsed * invTotalCoolingTime) : 1.0;
                 coolingProgressFraction = Math.max(0, Math.min(1.0, coolingProgressFraction));
                 currentPercent = Math.floor(maxHeatingPercent + (coolingProgressFraction * coolingWeightRange));
             }
 
             const nowMs = performance.now();
-            if (currentPercent !== lastReportedPercent && (nowMs - lastReportTimeMs > UI_PROGRESS_THROTTLE_MS  || currentPercent === 100)) {
+
+            // Комбинированная защита: прогресс вырос на 1% И прошло достаточно реального времени (100% пропускаем всегда)
+            if ((currentPercent > lastReportedPercent && (nowMs - lastReportTimeMs >= UI_PROGRESS_THROTTLE_MS)) || currentPercent === 100) {
                 const currentLoad = Math.round(countPicardIters * size2D * (is1D ? 1 : Ny));
                 const shouldAbort = onProgress(currentPercent, currentLoad);
 
@@ -1019,8 +1158,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     break;
                 }
 
-                lastReportedPercent = currentPercent;
-                lastReportTimeMs = nowMs;
+                lastReportedPercent = currentPercent; // Фиксируем процент
+                lastReportTimeMs = nowMs;             // Сбрасываем таймер частоты отправки
             }
         }
 
@@ -1050,6 +1189,22 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         }
 
         step++;
+        currentStepPicardIters = 0; // 🟢 ОБНУЛЯЕМ ТОЛЬКО ТУТ (когда шаг официально принят!)
+
+        // =====================================================================
+        // 🎯 ФИЛЬТР 2: МГНОВЕННЫЙ ПЕРЕХВАТ НА ЛЕТУ ПО СООТНОШЕНИЮ ИТЕРАЦИЙ
+        // =====================================================================
+        // Даем симулятору 2 шага на разгон, затем строго проверяем среднее число подгонок
+        if (step >= 1) {
+            const currentAvgPicard = countPicardIters / step;
+            if (currentAvgPicard > MAX_ALLOWED_PICARD_RATIO) {
+                status = {
+                    type: "error",
+                    message: `Simulation killed on the fly: High friction detected early in the loop (Avg Picard: ${currentAvgPicard.toFixed(1)}/step at step #${step}).`
+                };
+                break; // Мгновенно разрываем цикл вычислений, экономя время CPU
+            }
+        }
     }
 
     const finalCurIdx = step % 3;
@@ -1070,6 +1225,14 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         reachedTarget = targetType === "time"
             ? time >= targetValue
             : (targetK == null ? false : isTargetReached2D(buffers[finalCurIdx], Nx, Ny, target, targetK));
+    }
+
+    if (status && status.type === "error") {
+        return makeError(status.message || "Simulation broke prematurely.", {
+            heatingTimeSeconds: time,
+            coolingTimeSeconds: coolingTimeElapsed,
+            status: status
+        });
     }
 
     const totalErrorScore = Math.sqrt(maxSolverErrorC ** 2 + maxTimeErrorC ** 2 + maxGridErrorC ** 2);

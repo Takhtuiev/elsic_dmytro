@@ -195,7 +195,7 @@ const Parameters = React.memo(({
     // Вызываем вынесенную функцию подготовки данных
     const metrics = useMemo(() => prepareTechnicalMetrics(technicalMetrics), [technicalMetrics]);
 
-    const statusColor = status?.type === "error" ? "error" : status?.type === "warning" ? "warning" : "text.secondary";
+    const statusColor = status?.type === "error" ? "error" : status?.type === "warn" ? "warning" : "text.secondary";
 
     // Общие константы стилизации для системных данных (Единый Стиль)
     const SYS_TEXT_SIZE = `calc(${PARAMETER_TEXT_SIZE} * 0.75)`;

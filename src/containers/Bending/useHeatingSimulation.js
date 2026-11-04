@@ -32,14 +32,22 @@ export const useHeatingSimulation = (physicsProfile, validationError) => {
                 return;
             }
 
-            if (error) {
+            // Если пришла фатальная ошибка из блока catch воркера
+            if (error || type === "ERROR") {
                 console.error("Worker error:", error);
+                setResult2D({
+                    status: { type: "error", message: error || "Critical calculation error" },
+                    geometryData: null
+                });
+                setProgress(0);
             } else {
+                // Сюда придет либо успешный "ok", либо наш физический перегрев "warn"
                 setResult2D({ ...workerResult, geometryData });
                 setProgress(100);
             }
             setIsCalculating(false);
         };
+
 
         worker.onerror = (error) => {
             if (isCancelled) return;
