@@ -48,6 +48,7 @@ import {
 } from "./parameters";
 import BendingPreview from "./BendingPreview";
 import {BayeusianLogDialog} from "./Heating2DSimulation/BayeusianLogDialog";
+import {ACCURACY_MODES} from "./Heating2DSimulation/heating2DModel";
 
 
 const INITIAL_STATE={
@@ -856,7 +857,8 @@ export default function Biegeberechnung(){
                 dialogType:"simulation",
                 title:"Simulation parameters",
                 data:{
-                    value:simulation
+                    value:simulation,
+                    accuracyModes: ACCURACY_MODES
                 }
             })
         );
@@ -864,7 +866,6 @@ export default function Biegeberechnung(){
         dispatch,
         simulation
     ]);
-
     return(
         <Box
             className="biege-main-page"
@@ -1222,6 +1223,7 @@ export default function Biegeberechnung(){
                     onClose={() => setIsLogOpen(false)}
                     parentState={state}
                     setParentState={setState}
+                    accuracyModes={ACCURACY_MODES}
                 />
 
 

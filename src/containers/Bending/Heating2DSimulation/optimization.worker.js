@@ -93,16 +93,9 @@ try {
         };
 
         try {
-            // Эталонные пресеты из LIMITS тепловой модели для калибровки и быстрого старта роя
-            const modelPresets = {
-                fast: { gridX: 0.35, gridY: 1.30, minGrid: 0.06, maxIter: 4, tolerance: 0.25, maxDt: 2.5, targetDt: 2.0, growthFactor: 1.30, shrinkFactor: 0.50 },
-                optimal: { gridX: 0.16, gridY: 0.78, minGrid: 0.05, maxIter: 6, tolerance: 0.29, maxDt: 3.87, targetDt: 2.13, growthFactor: 1.35, shrinkFactor: 0.52 },
-                accurate: { gridX: 0.116, gridY: 0.307, minGrid: 0.044, maxIter: 14, tolerance: 0.038, maxDt: 0.71, targetDt: 0.77, growthFactor: 1.39, shrinkFactor: 0.49 }
-            };
-
+            // Воркер больше ничего не собирает сам, а просто запускает PSO с конфигурацией из UI
             const result = optimizeForMaxSpeed(baseParams, simulateWithDynamicProgress, {
                 ...options,
-                modelPresets: modelPresets,
                 onProgress: progressHandler
             });
 
@@ -110,6 +103,7 @@ try {
         } catch (error) {
             self.postMessage({ status: 'error', error: error?.message || String(error) });
         }
+
     };
 } catch (importError) {
     self.onmessage = function () {

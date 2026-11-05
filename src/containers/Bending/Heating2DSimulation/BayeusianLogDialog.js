@@ -13,6 +13,7 @@ import LeaderboardIcon from "@mui/icons-material/Leaderboard";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import { OPTIMIZER_BASE_CONFIG, OPTIMIZER_SETTINGS } from "./optimizer.config";
+import {LIMITS} from "./heating2DModel";
 
 export const formatTime = (seconds) => {
     if (!seconds || seconds < 0) return "0s";
@@ -104,7 +105,7 @@ function ParameterGrid({ params, color = "#e2e8f0" }) {
     );
 }
 
-export function BayeusianLogDialog({ open, onClose, parentState, setParentState }) {
+export function BayeusianLogDialog({ open, onClose, parentState, setParentState, accuracyModes }) {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
     const pxSize = isMobile ? 2 : 2.5;
@@ -427,6 +428,23 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
         }]);
 
         try {
+            // 1. Динамически собираем пресеты на стороне UI, проходя по всем индексам accuracyModes из LIMITS
+            const uiModelPresets = {};
+            // Если LIMITS импортирован в файл компонента, используем его ключи:
+            const keysToProcess = typeof LIMITS !== "undefined" ? Object.keys(LIMITS) : ["gridX", "gridY", "minGrid", "maxIter", "tolerance", "maxDt", "targetDt", "growthFactor", "shrinkFactor"];
+
+            const currentModes = accuracyModes || ["fast", "optimal", "accurate", "accurate2"];
+
+            currentModes.forEach((modeName, modeIdx) => {
+                uiModelPresets[modeName] = {};
+                keysToProcess.forEach(paramKey => {
+                    if (typeof LIMITS !== "undefined" && Array.isArray(LIMITS[paramKey]) && LIMITS[paramKey][modeIdx] !== undefined) {
+                        uiModelPresets[modeName][paramKey] = LIMITS[paramKey][modeIdx];
+                    }
+                });
+            });
+
+            // 2. Отправляем в воркер параметры, дописывая собранный uiModelPresets в options
             workerRef.current.postMessage({
                 baseParams: {
                     thicknessMm: Number(parentState.geometry?.thickness) || 0,
@@ -441,7 +459,9 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                 },
                 options: {
                     ...OPTIMIZER_SETTINGS,
-                    config: OPTIMIZER_BASE_CONFIG
+                    accuracyModes: currentModes,
+                    config: OPTIMIZER_BASE_CONFIG,
+                    modelPresets: uiModelPresets // <-- Передаем пресеты параметром
                 }
             });
         } catch (err) {
@@ -454,7 +474,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                 timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false })
             });
         }
-    }, [parentState, appendLog, stopTimer]);
+
+    }, [parentState, appendLog, stopTimer, accuracyModes]);
 
     const abortOptimization = useCallback(() => {
         if (!isOptimizingRef.current) return;
@@ -728,7 +749,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                                                         const stepNum = log.currentStepVisual !== undefined ? log.currentStepVisual : idx;
 
                                                         // Вытаскиваем имя пресета из текста, если оно там есть (например, PRESET_FAST)
-                                                        const presetMatch = log.text ? log.text.match(/\[(PRESET_[A-Z]+)]/) : null;
+                                                        const presetMatch = log.text ? log.text.match(/\[(PRESET_\w+)]/) : null;
                                                         const presetTag = presetMatch ? ` (${presetMatch[1]})` : "";
 
                                                         return `Step #${stepNum}${presetTag} | Error: ${errVal} | Load: ${loadVal} nodes`;

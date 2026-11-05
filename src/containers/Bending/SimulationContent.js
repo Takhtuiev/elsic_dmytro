@@ -6,6 +6,7 @@ import {
 import MyTextField from "./MyTextField";
 import { BlockMath } from "react-katex";
 import "katex/dist/katex.min.css";
+import {ACCURACY_MODES} from "./Heating2DSimulation/heating2DModel";
 
 const DEFAULT_2D_WIDTH_HALF_MM = 20;
 
@@ -278,9 +279,11 @@ export default function SimulationContent({ value = {}, onChange }) {
                                 }
                             }}
                         >
-                            <MenuItem value="fast" sx={{ fontSize: "0.85rem" }}>Fast</MenuItem>
-                            <MenuItem value="optimal" sx={{ fontSize: "0.85rem" }}>Optimal</MenuItem>
-                            <MenuItem value="accurate" sx={{ fontSize: "0.85rem" }}>Accurate</MenuItem>
+                            {(ACCURACY_MODES || ["fast", "optimal", "accurate"]).map((mode) => (
+                                <MenuItem key={mode} value={mode} sx={{ fontSize: "0.85rem" }}>
+                                    {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                                </MenuItem>
+                            ))}
                         </MyTextField>
                     </Box>
 

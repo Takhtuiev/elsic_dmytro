@@ -13,22 +13,22 @@
  */
 import {normalizeMachine} from "../pvc-1d-transient-heating";
 
-const LIMITS = {
-    gridX:        { fast: 0.35, optimal: 0.16, accurate: 0.116 }, // Шаг сетки по горизонтали X (мм)
-    gridY:        { fast: 1.30, optimal: 0.78, accurate: 0.307 }, // Шаг сетки по вертикали Y (мм)
-    minGrid:      { fast: 0.06, optimal: 0.05, accurate: 0.044 }, // Минимальный предел размера ячейки (мм)
-    maxIter:      { fast: 4,    optimal: 6,    accurate: 14 }, // Макс. число итераций Пикара в солвере
+export const ACCURACY_MODES = ["fast", "optimal", "accurate", "accurate2"];
 
-    tolerance:    { fast: 0.25, optimal: 0.29, accurate: 0.038 }, // Критерий остановки итераций солвера (К)
-    maxDt:        { fast: 2.5,  optimal: 3.87,  accurate: 0.71 }, // Жесткий верхний потолок шага времени (с)
-    targetDt:     { fast: 2.0,  optimal: 2.13,  accurate: 0.77 }, // Целевой шаг изменения температуры за итерацию (К)
+export const LIMITS = {
+    gridX:        [0.35,  0.16,  0.116, 0.115 ], // Шаг сетки по горизонтали X (мм)
+    gridY:        [1.30,  0.78,  0.307, 0.311 ], // Шаг сетки по вертикали Y (мм)
+    minGrid:      [0.06,  0.05,  0.044, 0.036 ], // Минимальный предел размера ячейки (мм)
+    maxIter:      [4,     6,     14,    14    ], // Макс. число итераций Пикара в солвере
 
-    growthFactor: { fast: 1.30, optimal: 1.35, accurate: 1.39 }, // Коэффициент ускорения шага времени (рост dt)
-    shrinkFactor: { fast: 0.50, optimal: 0.52, accurate: 0.49 }  // Коэффициент замедления шага времени (сжатие dt)
+    tolerance:    [0.25,  0.29,  0.038, 0.0377], // Критерий остановки итераций солвера (К)
+    maxDt:        [2.5,   3.87,  0.71,  0.67  ], // Жесткий верхний потолок шага времени (с)
+    targetDt:     [2.0,   2.13,  0.77,  0.83  ], // Целевой шаг изменения температуры за итерацию (К)
+
+    growthFactor: [1.30,  1.35,  1.39,  1.363 ], // Коэффициент ускорения шага времени (рост dt)
+    shrinkFactor: [0.50,  0.52,  0.49,  0.49  ]  // Коэффициент замедления шага времени (сжатие dt)
 };
 
-
-export const DEFAULT_DT_SECONDS = 0.1;
 export const SIGMA = 5.670374419e-8;
 export const HEATER_RADIUS_MM = 3.0;
 export const DISTANCE_TO_SHEET_MM = 8.0;
@@ -92,8 +92,7 @@ export function validateSimulationParams({ thicknessMm, material, machine, simul
         return { isValid: false, errors };
     }
 
-    const finalDt = dtSeconds === undefined ? DEFAULT_DT_SECONDS : dtSeconds;
-    return { isValid: true, dtSeconds: finalDt };
+    return { isValid: true };
 }
 
 const clamp = (v, min, max) => v < min ? min : (v > max ? max : v);
@@ -443,28 +442,28 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const rawMode = simulation?.accuracyMode;
     const isStringMode = typeof rawMode === "string";
     let mode = isStringMode ? rawMode : (rawMode ? "custom" : "optimal");
-    if (isStringMode && !["fast", "optimal", "accurate"].includes(mode)) mode = "optimal";
+    if (isStringMode && !ACCURACY_MODES.includes(mode)) mode = "optimal";
 
     const isCustom = mode === "custom";
-    const fallbackBase = LIMITS.optimal;
+
+    // Поиск индекса конфигурации. Если режим кастомный, берем значения по умолчанию из "optimal" (индекс 1)
+    const modeIdx = !isCustom ? ACCURACY_MODES.indexOf(mode) : 1;
     const am = isStringMode ? null : rawMode;
 
-    const GRID_X_STEP_MM           = isCustom ? (am?.gridX        ?? fallbackBase.gridX)        : LIMITS.gridX[mode];
-    const GRID_Y_STEP_MM           = isCustom ? (am?.gridY        ?? fallbackBase.gridY)        : LIMITS.gridY[mode];
-    const MIN_GRID_STEP_MM         = isCustom ? (am?.minGrid      ?? fallbackBase.minGrid)      : LIMITS.minGrid[mode];
-    const MAX_NONLINEAR_ITERATIONS = isCustom ? (am?.maxIter      ?? fallbackBase.maxIter)      : LIMITS.maxIter[mode];
-    const NONLINEAR_TOLERANCE_K    = isCustom ? (am?.tolerance    ?? fallbackBase.tolerance)    : LIMITS.tolerance[mode];
-    const ADAPTIVE_MAX_DT          = isCustom ? (am?.maxDt        ?? fallbackBase.maxDt)        : LIMITS.maxDt[mode];
-    const TARGET_DELTA_T           = isCustom ? (am?.targetDt     ?? fallbackBase.targetDt)     : LIMITS.targetDt[mode];
-    const ADAPTIVE_GROWTH_FACTOR   = isCustom ? (am?.growthFactor ?? fallbackBase.growthFactor) : LIMITS.growthFactor[mode];
-    const ADAPTIVE_SHRINK_FACTOR   = isCustom ? (am?.shrinkFactor ?? fallbackBase.shrinkFactor) : LIMITS.shrinkFactor[mode];
+    const GRID_X_STEP_MM           = isCustom ? (am?.gridX        ?? LIMITS.gridX[modeIdx])        : LIMITS.gridX[modeIdx];
+    const GRID_Y_STEP_MM           = isCustom ? (am?.gridY        ?? LIMITS.gridY[modeIdx])        : LIMITS.gridY[modeIdx];
+    const MIN_GRID_STEP_MM         = isCustom ? (am?.minGrid      ?? LIMITS.minGrid[modeIdx])      : LIMITS.minGrid[modeIdx];
+    const MAX_NONLINEAR_ITERATIONS = isCustom ? (am?.maxIter      ?? LIMITS.maxIter[modeIdx])      : LIMITS.maxIter[modeIdx];
+    const NONLINEAR_TOLERANCE_K    = isCustom ? (am?.tolerance    ?? LIMITS.tolerance[modeIdx])    : LIMITS.tolerance[modeIdx];
+    const ADAPTIVE_MAX_DT          = isCustom ? (am?.maxDt        ?? LIMITS.maxDt[modeIdx])        : LIMITS.maxDt[modeIdx];
+    const TARGET_DELTA_T           = isCustom ? (am?.targetDt     ?? LIMITS.targetDt[modeIdx])     : LIMITS.targetDt[modeIdx];
+    const ADAPTIVE_GROWTH_FACTOR   = isCustom ? (am?.growthFactor ?? LIMITS.growthFactor[modeIdx]) : LIMITS.growthFactor[modeIdx];
+    const ADAPTIVE_SHRINK_FACTOR   = isCustom ? (am?.shrinkFactor ?? LIMITS.shrinkFactor[modeIdx]) : LIMITS.shrinkFactor[modeIdx];
 
     const shouldCalculateAccuracyError = simulation?.calculateAccuracyError !== false;
     const is1D = simulation.widthHalfMm === 0;
     const slotHalfWidthMm = simulation.slotHalfWidthMm !== undefined ? simulation.slotHalfWidthMm : 5.0;
     const convectionTransitionEndMm = simulation.convectionTransitionEndMm !== undefined ? simulation.convectionTransitionEndMm : 8.0;
-
-    let dt = TARGET_DELTA_T * 0.2;
 
     const Nx = Math.max(5, Math.round(thicknessMm / GRID_X_STEP_MM)) + 1;
     const Ny = is1D ? 1 : (Math.max(12, Math.round(simulation.widthHalfMm / GRID_Y_STEP_MM)) + 1);
@@ -490,6 +489,29 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
     const matModel = createMaterialModel(material);
     if (!matModel) return makeError("Invalid material model.");
+
+    // =====================================================================
+    // 🌟 Автоматический расчет начального dt по критерию CFL
+    // =====================================================================
+    const propsInit = matModel.get(initT);
+    const volHeatCap = propsInit.density * propsInit.cp; // Ро * Сp (объемная теплоемкость)
+    const kEff = propsInit.k;                            // Теплопроводность
+
+    // Коэффициент температуропроводности (м²/с). Защита от деления на 0:
+    const thermalDiffusivity = volHeatCap > 0 ? (kEff / volHeatCap) : 1e-6;
+
+    // Находим минимальный шаг сетки на поверхности в метрах (первый интервал)
+    const dxMinMeters = (gridX.x[1] - gridX.x[0]) / 1000.0;
+
+    // Число Куранта (1.5 — оптимальный безопасный старт для неявной схемы)
+    const CFL_NUMBER = 1.5;
+    const calculatedStartDt = CFL_NUMBER * (dxMinMeters * dxMinMeters) / thermalDiffusivity;
+
+    // Выбираем стартовый dt: приоритет у пользователя, иначе авторасчет (но не выше потолка maxDt)
+    let dt = simulation.dtSeconds !== undefined
+        ? simulation.dtSeconds
+        : Math.min(calculatedStartDt, ADAPTIVE_MAX_DT);
+    // =====================================================================
 
     const size2D = Nx * Ny;
 
@@ -1051,27 +1073,21 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             const h1 = t_n - t_nm1;
 
             if (stepCountInPhase >= 2 && h1 > 1e-5 && h2 > 1e-5) {
-                // Оптимизация: Выносим общий инвариант формулы наружу.
-                // Математически: 0.5 * (2.0 / (h1 + h2)) * h2 * h2  упрощается до (h2 * h2) / (h1 + h2)
-                const errorTimeMultiplier = (h2 * h2) / (h1 + h2);
-                const invH1 = 1.0 / h1;
-                const invH2 = 1.0 / h2;
-
+                // 🌟 МАТЕМАТИЧЕСКИ ИДЕАЛЬНО: Сокращенная формула локальной ошибки усечения метода Эйлера
+                // Полностью исключает вычислительную нестабильность при h1 != h2
+                const timeRatio = h2 / h1;
                 const currentBuffer = buffers[newIdx];
 
-                // Точка Top (используем T_n_top и T_nm1_top)
-                const dT_dt2_top = (currentBuffer[idxTop] - T_n_top) * invH2 - (T_n_top - T_nm1_top) * invH1;
-                const errTimeTop = Math.abs(dT_dt2_top) * errorTimeMultiplier;
+                // Точка Top
+                const errTimeTop = Math.abs((currentBuffer[idxTop] - T_n_top) - timeRatio * (T_n_top - T_nm1_top));
 
-                // Точка Mid (используем T_n_mid и T_nm1_mid)
-                const dT_dt2_mid = (currentBuffer[idxMid] - T_n_mid) * invH2 - (T_n_mid - T_nm1_mid) * invH1;
-                const errTimeMid = Math.abs(dT_dt2_mid) * errorTimeMultiplier;
+                // Точка Mid
+                const errTimeMid = Math.abs((currentBuffer[idxMid] - T_n_mid) - timeRatio * (T_n_mid - T_nm1_mid));
 
-                // Точка Bot (используем T_n_bot и T_nm1_bot)
-                const dT_dt2_bot = (currentBuffer[idxBot] - T_n_bot) * invH2 - (T_n_bot - T_nm1_bot) * invH1;
-                const errTimeBot = Math.abs(dT_dt2_bot) * errorTimeMultiplier;
+                // Точка Bot
+                const errTimeBot = Math.abs((currentBuffer[idxBot] - T_n_bot) - timeRatio * (T_n_bot - T_nm1_bot));
 
-                // Быстрый поиск максимума без создания промежуточных массивов
+                // Поиск локального максимума ошибки времени на текущем шаге
                 let localMaxTimeErr = errTimeTop > errTimeMid ? errTimeTop : errTimeMid;
                 if (errTimeBot > localMaxTimeErr) localMaxTimeErr = errTimeBot;
 
@@ -1142,7 +1158,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
             // Комбинированная защита: прогресс вырос на 1% И прошло достаточно реального времени (100% пропускаем всегда)
             if ((currentPercent > lastReportedPercent && (nowMs - lastReportTimeMs >= UI_PROGRESS_THROTTLE_MS)) || currentPercent === 100) {
-                const currentLoad = Math.round(countPicardIters * size2D * (is1D ? 1 : Ny));
+                const currentLoad = Math.round(countPicardIters * size2D);
                 const shouldAbort = onProgress(currentPercent, currentLoad);
 
                 if (shouldAbort === true) {
@@ -1265,7 +1281,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 totalTimeSteps: countTimeSteps,
                 rejectedTimeSteps: countRejectedSteps,
                 totalPicardIterations: countPicardIters,
-                totalGridPointsProcessed: Math.round(countPicardIters * size2D * (is1D ? 1 : Ny))
+                totalGridPointsProcessed: Math.round(countPicardIters * size2D)
             }
         }
     };
