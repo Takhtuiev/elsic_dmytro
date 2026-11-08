@@ -1224,11 +1224,8 @@ function createSobolGenerator(dimensions) {
     };
 }
 
-export function optimizeForMaxSpeed(
-    baseParams,
-    simulateFn,
-    options = {}
-) {
+export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
+
     let currentExecutionCount = 0;
 
     if (
@@ -1674,35 +1671,23 @@ export function optimizeForMaxSpeed(
                 JSON.stringify(formatLogValues(record))
             );
         } catch (e) {
-            console.error(
-                "Optimizer log serialization failed:",
-                e
-            );
+            console.error("Optimizer log serialization failed:", e);
         }
     };
 
-    const emitStructuredLog = (
-        stepMode,
-        message,
-        snapshot
-    ) => {
-        if (
-            typeof self.optimizerStructuredLogger !== "function"
-        ) {
+    const emitStructuredLog = (stepMode, message, snapshot) => {
+        if (typeof self.optimizerStructuredLogger !== "function") {
             return;
         }
-
         try {
+            // Передаем копию объекта, чтобы избежать ссылочных завязок между потоками
             self.optimizerStructuredLogger(
                 stepMode,
                 message,
-                snapshot
+                JSON.parse(JSON.stringify(formatLogValues(snapshot)))
             );
         } catch (e) {
-            console.error(
-                "Structured logger failed:",
-                e
-            );
+            console.error("Structured logger failed:", e);
         }
     };
 
@@ -2806,12 +2791,8 @@ export function optimizeForMaxSpeed(
 
 
         // --------------------------------------------------------
-        // ACQUISITION FUNCTION
+        // ACQUISITION FUNCTION (ЗАМЕНИТЬ ПОЛНОСТЬЮ ЭТОТ БЛОК)
         // --------------------------------------------------------
-
-        const objectiveGP = minimizeLoad
-            ? loadGP
-            : errorGP;
 
         let bestAcquisition = -Infinity;
         let nextBestX = null;
@@ -2822,66 +2803,36 @@ export function optimizeForMaxSpeed(
         let nonFiniteEICount = 0;
 
         const constraintLoadTarget = maxAllowedLoad;
-        const constraintErrorTarget =
-            maxAllowedErrorScore;
+        const constraintErrorTarget = maxAllowedErrorScore;
 
         let bestFeasibilityX = null;
         let bestFeasibilityStats = null;
-
         let bestFeasibilityScore = -Infinity;
         let bestFeasibilitySelectedScore = -Infinity;
-        let bestFeasibilityObjective = Infinity;
 
         const FEASIBILITY_TIE_EPSILON = 1e-9;
 
-        for (
-            let c = 0;
-            c < candidates.length;
-            c++
-        ) {
+        for (let c = 0; c < candidates.length; c++) {
             const candX = candidates[c];
 
-            const rawLoadPrediction =
-                predictGaussianProcess(loadGP, candX);
+            const rawLoadPrediction = predictGaussianProcess(loadGP, candX);
+            const rawErrorPrediction = predictGaussianProcess(errorGP, candX);
 
-            const rawErrorPrediction =
-                predictGaussianProcess(errorGP, candX);
-
-            if (
-                !rawLoadPrediction ||
-                !rawErrorPrediction
-            ) {
+            if (!rawLoadPrediction || !rawErrorPrediction) {
                 invalidPredictionCount++;
                 continue;
             }
 
-            const loadPrediction =
-                applySigmaCalibration(
-                    rawLoadPrediction,
-                    loadSigmaCalibration
-                );
-
-            const errorPrediction =
-                applySigmaCalibration(
-                    rawErrorPrediction,
-                    errorSigmaCalibration
-                );
+            const loadPrediction = applySigmaCalibration(rawLoadPrediction, loadSigmaCalibration);
+            const errorPrediction = applySigmaCalibration(rawErrorPrediction, errorSigmaCalibration);
 
             if (!loadPrediction || !errorPrediction) {
                 invalidPredictionCount++;
                 continue;
             }
 
-            const pLoad = probabilityBelow(
-                loadPrediction,
-                constraintLoadTarget
-            );
-
-            const pError = probabilityBelow(
-                errorPrediction,
-                constraintErrorTarget
-            );
-
+            const pLoad = probabilityBelow(loadPrediction, constraintLoadTarget);
+            const pError = probabilityBelow(errorPrediction, constraintErrorTarget);
             const pFeasible = jointProbabilityBelow(
                 loadPrediction,
                 errorPrediction,
@@ -2890,28 +2841,23 @@ export function optimizeForMaxSpeed(
                 residualCorrelation.rho
             );
 
-            const objectivePrediction =
-                objectiveGP === loadGP
-                    ? loadPrediction
-                    : errorPrediction;
-
-            const sigmaObjective =
-                objectivePrediction.sigmaLog;
-
-            const candidateObjective =
-                objectivePrediction.meanLog;
+            const objectivePrediction = minimizeLoad ? loadPrediction : errorPrediction;
+            const sigmaObjective = objectivePrediction.sigmaLog;
 
             const feasibilityScore = pFeasible;
+            bestFeasibilityScore = Math.max(bestFeasibilityScore, feasibilityScore);
 
-            bestFeasibilityScore = Math.max(
-                bestFeasibilityScore,
-                feasibilityScore
-            );
-
-            // --- ТЕПЕРЬ ЭТОТ БЛОК ДОЛЖЕН ВЫГЛЯДЕТЬ ТАК (БЕЗ МЕРТВОГО КОДА) ---
             const isFirstCandidate = (bestFeasibilityX === null);
             const isStrictlyBetterFeasibility = (feasibilityScore > bestFeasibilitySelectedScore + FEASIBILITY_TIE_EPSILON);
             const isFeasibilityTie = Math.abs(feasibilityScore - bestFeasibilitySelectedScore) <= FEASIBILITY_TIE_EPSILON;
+
+            // Несмещенный логнормальный прогноз физической ошибки кандидата
+            const candPredictedError = Math.exp(errorPrediction.meanLog + (errorPrediction.sigmaLog ** 2) / 2) - 1;
+
+            // Безопасное извлечение ошибки лучшего кандидата с защитой от null
+            const bestPredictedError = bestFeasibilityStats && bestFeasibilityStats.errorPrediction
+                ? Math.exp(bestFeasibilityStats.errorPrediction.meanLog + (bestFeasibilityStats.errorPrediction.sigmaLog ** 2) / 2) - 1
+                : Infinity;
 
             let betterFeasibility = false;
 
@@ -2919,14 +2865,12 @@ export function optimizeForMaxSpeed(
                 betterFeasibility = true;
             } else if (isStrictlyBetterFeasibility) {
                 betterFeasibility = true;
-            } else if (isFeasibilityTie && candidateObjective < bestFeasibilityObjective) {
-                // Если шансы зайти по нагрузке равны, выбираем того, у кого предсказанная ошибка МЕНЬШЕ
+            } else if (isFeasibilityTie && candPredictedError < bestPredictedError) {
                 betterFeasibility = true;
             }
 
             if (betterFeasibility) {
                 bestFeasibilitySelectedScore = feasibilityScore;
-                bestFeasibilityObjective = candidateObjective;
                 bestFeasibilityX = candX;
                 bestFeasibilityStats = {
                     loadPrediction,
@@ -2947,24 +2891,16 @@ export function optimizeForMaxSpeed(
             }
 
             if (hasFeasibleResult) {
-                const constraintPrediction =
-                    minimizeLoad
-                        ? errorPrediction
-                        : loadPrediction;
+                const constraintPrediction = minimizeLoad ? errorPrediction : loadPrediction;
+                const constraintLimit = minimizeLoad ? constraintErrorTarget : constraintLoadTarget;
 
-                const constraintLimit =
-                    minimizeLoad
-                        ? constraintErrorTarget
-                        : constraintLoadTarget;
-
-                const ei =
-                    calculateConstrainedLogNormalEI(
-                        bestObjective,
-                        objectivePrediction,
-                        constraintPrediction,
-                        constraintLimit,
-                        residualCorrelation.rho
-                    );
+                const ei = calculateConstrainedLogNormalEI(
+                    bestObjective,
+                    objectivePrediction,
+                    constraintPrediction,
+                    constraintLimit,
+                    residualCorrelation.rho
+                );
 
                 if (!Number.isFinite(ei)) {
                     nonFiniteEICount++;
@@ -2983,27 +2919,17 @@ export function optimizeForMaxSpeed(
                         pLoad,
                         pError,
                         pFeasible,
-
-                        constraintProbability:
-                            minimizeLoad
-                                ? pError
-                                : pLoad,
-
+                        constraintProbability: minimizeLoad ? pError : pLoad,
                         ei,
                         acquisition,
                         objectivePrediction,
                         sigmaObjective,
-
-                        bestLogTarget:
-                            Math.log1p(bestObjective)
+                        bestLogTarget: Math.log1p(bestObjective)
                     };
                 }
             } else {
-                const explorationBonus =
-                    1e-4 * Math.min(10, sigmaObjective);
-
-                const acquisition =
-                    pFeasible + explorationBonus;
+                const explorationBonus = 1e-4 * Math.min(10, sigmaObjective);
+                const acquisition = pFeasible + explorationBonus;
 
                 if (acquisition > bestAcquisition) {
                     bestAcquisition = acquisition;
@@ -3281,29 +3207,15 @@ export function optimizeForMaxSpeed(
                 nonFiniteEICount
             },
 
+            // НАЙТИ И ЗАМЕНИТЬ СЕКЦИЮ ВНУТРИ emitStepLog для CANDIDATE_SELECTION_EVALUATION:
             selectedCandidatePrediction: stats
                 ? {
-                    predictedLoad:
-                        Math.expm1(
-                            stats.loadPrediction.meanLog
-                        ),
-
-                    predictedError:
-                        Math.expm1(
-                            stats.errorPrediction.meanLog
-                        ),
-
-                    probabilityLoadFeasible:
-                    stats.pLoad,
-
-                    probabilityErrorFeasible:
-                    stats.pError,
-
-                    jointFeasibility:
-                    stats.pFeasible,
-
-                    expectedImprovement:
-                    stats.ei
+                    predictedLoad: Math.exp(stats.loadPrediction.meanLog + (stats.loadPrediction.sigmaLog ** 2) / 2) - 1,
+                    predictedError: Math.exp(stats.errorPrediction.meanLog + (stats.errorPrediction.sigmaLog ** 2) / 2) - 1,
+                    probabilityLoadFeasible: stats.pLoad,
+                    probabilityErrorFeasible: stats.pError,
+                    jointFeasibility: stats.pFeasible,
+                    expectedImprovement: stats.ei
                 }
                 : "No predictions available (Random Fallback)",
 

@@ -313,7 +313,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false })
             });
         }
-    }, [appendLog, logs, stopTimer, syncLeaderIndex]);
+    }, [appendLog, stopTimer]);
 
     React.useEffect(() => {
         initWorker();
