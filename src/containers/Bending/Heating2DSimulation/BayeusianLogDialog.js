@@ -14,6 +14,7 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import { OPTIMIZER_BASE_CONFIG, OPTIMIZER_SETTINGS } from "./optimizer.config";
 import {LIMITS} from "./heating2DModel";
+import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 
 export const formatTime = (seconds) => {
     if (!seconds || seconds < 0) return "0s";
@@ -142,6 +143,23 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
         startTimeRef.current = null;
     }, []);
 
+    const syncLeaderIndex = useCallback((logsArray, bestStepNumber) => {
+        if (bestStepNumber === undefined || bestStepNumber === null) return;
+
+        const leaderLogIndex = logsArray.findIndex(
+            log => log && log.candidateParams &&
+                (log.currentStepVisual === bestStepNumber || log.stepMode === "FINAL_REPORT")
+        );
+
+        if (leaderLogIndex !== -1) {
+            bestLogIndexRef.current = leaderLogIndex;
+            setTimeout(() => {
+                setBestLogIndex(leaderLogIndex);
+            }, 0);
+        }
+    }, []);
+
+// Найти функцию appendLog в:
     const appendLog = useCallback((entry) => {
         setLogs(prev => {
             let nextLogs = [...prev];
@@ -152,7 +170,6 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 const lastIdx = prev.length - 1;
                 const lastLog = prev[lastIdx];
 
-                // Если заменяем строку прогресса текущего шага постоянным логом
                 if (lastLog && lastLog.type === "progress" && lastLog.currentStepVisual === entry.currentStepVisual) {
                     nextLogs[lastIdx] = entry;
                 } else {
@@ -160,28 +177,10 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 }
             }
 
-            // Если оптимизатор прислал номер шага текущего лидера,
-            // находим этот шаг в массиве и запоминаем его физический индекс
-            if (entry.bestStepNumber !== undefined && entry.bestStepNumber !== null) {
-                const leaderLogIndex = nextLogs.findIndex(
-                    log => log && log.candidateParams && log.currentStepVisual === entry.bestStepNumber
-                );
-
-                if (leaderLogIndex !== -1) {
-                    bestLogIndexRef.current = leaderLogIndex;
-                }
-            }
-
+            syncLeaderIndex(nextLogs, entry.bestStepNumber);
             return nextLogs;
         });
-
-        // Синхронизируем стейт отображения плашки
-        setTimeout(() => {
-            if (bestLogIndexRef.current !== null) {
-                setBestLogIndex(bestLogIndexRef.current);
-            }
-        }, 0);
-    }, []);
+    }, [syncLeaderIndex]);
 
     const initWorker = useCallback(() => {
         workerRef.current?.terminate();
@@ -195,10 +194,23 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
             workerRef.current = worker;
 
+// Внутри функции initWorker в BayeusianLogDialog:
             worker.onmessage = (e) => {
                 if (workerRef.current !== worker) return;
 
-                const { status, data, percent, error, logEntry } = e.data || {};
+                const { status, percent, error, logEntry } = e.data || {};
+
+// Найти внутри worker.onmessage ветку status === "success":
+                if (status === "success" && e.data?.data) {
+
+                    isOptimizingRef.current = false;
+                    setIsOptimizing(false);
+                    stopTimer();
+
+                    setFinalResultReceived(true);
+                    setBestPanelExpanded(true);
+                    return;
+                }
 
                 if (status === "progress_tick") {
                     const progress = Number(percent);
@@ -206,16 +218,19 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
                     const currentStep = e.data.currentExecutionCount !== undefined ? e.data.currentExecutionCount : 0;
                     const totalStepsBudget = e.data.totalIterations !== undefined ? e.data.totalIterations : OPTIMIZER_SETTINGS.totalBudgetIterations;
-
                     const safeStepVisual = Math.min(totalStepsBudget, Math.max(0, currentStep));
-                    const formattedLoad = formatNumberWithNBSP(e.data.currentLoad || 0);
+
+                    // Достаем метрики из переданного объекта technicalMetrics
+                    const currentMetrics = e.data.technicalMetrics;
 
                     completedStepsRef.current = safeStepVisual;
                     setCompletedSteps(safeStepVisual);
                     setProgressPercent(validProgress);
 
+                    // Синхронизация лидера во время промежуточного тика расчета
+                    syncLeaderIndex(logs, e.data.bestStepNumber);
+
                     const now = performance.now();
-                    // Частота обновления UI
                     if (now - lastProgressUpdateRef.current > 120 || validProgress === 100 || validProgress === 0) {
                         lastProgressUpdateRef.current = now;
 
@@ -223,15 +238,15 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                             const isInitPhase = currentStep <= OPTIMIZER_SETTINGS.randomInitPoints;
                             const phaseLabel = isInitPhase ? "INIT" : "STEP";
 
-                            // Пытаемся взять параметры из события воркера, либо сохраняем старые, если они уже были в логе этого шага
                             const currentParams = e.data.currentParams || (prev[prev.length - 1]?.currentStepVisual === safeStepVisual ? prev[prev.length - 1]?.candidateParams : null);
+                            const activeMetrics = currentMetrics || (prev[prev.length - 1]?.currentStepVisual === safeStepVisual ? prev[prev.length - 1]?.technicalMetrics : null);
 
                             const newEntry = {
                                 type: "progress",
-                                text: `⏳ [SOLVER]: ${phaseLabel} ${safeStepVisual}/${totalStepsBudget} | Progress: ${validProgress}% (Load: ${formattedLoad} nodes)`,
+                                text: `⏳ [SOLVER]: ${phaseLabel} ${safeStepVisual}/${totalStepsBudget} | Progress: ${validProgress}%`,
                                 timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false }),
                                 candidateParams: currentParams,
-                                technicalMetrics: null,
+                                technicalMetrics: activeMetrics, // Передаем для рендеринга подтаблицы при раскрытии
                                 currentStepVisual: safeStepVisual
                             };
 
@@ -240,15 +255,12 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                             const lastIdx = prev.length - 1;
                             const lastLog = prev[lastIdx];
 
-                            // ИСПРАВЛЕНИЕ: Перезаписываем старую строку прогресса ТОЛЬКО если она принадлежит ЭТОМУ ЖЕ шагу.
-                            // Если предыдущий шаг завершился и зафиксировался, у него будет другой тип или другой currentStepVisual.
                             if (lastLog && lastLog.type === "progress" && lastLog.currentStepVisual === safeStepVisual) {
                                 const updated = [...prev];
                                 updated[lastIdx] = newEntry;
                                 return updated;
                             }
 
-                            // Если это новый шаг, просто добавляем его в конец, не трогая старые записи
                             return [...prev, newEntry];
                         });
                     }
@@ -256,96 +268,15 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 }
 
                 if (status === "log_step" && logEntry) {
+                    // 🌟 МОДИФИКАЦИЯ: Если пришел финальный маркер-отчет, принудительно фиксируем получение результата
+                    if (logEntry.isFinalReportMarker) {
+                        setFinalResultReceived(true);
+                    }
+
                     completedStepsRef.current = logEntry.currentStepVisual;
                     setProgressPercent(0);
                     setCompletedSteps(logEntry.currentStepVisual);
                     appendLog(logEntry);
-                    return;
-                }
-
-                if (status === "success") {
-                    isOptimizingRef.current = false;
-                    setIsOptimizing(false);
-                    stopTimer();
-                    setProgressPercent(100);
-                    setFinalResultReceived(true);
-                    completedStepsRef.current = OPTIMIZER_SETTINGS.totalBudgetIterations;
-                    setCompletedSteps(OPTIMIZER_SETTINGS.totalBudgetIterations);
-
-                    const limits = data?.optimalLimits || null;
-                    const metrics = data?.metrics || {};
-                    const achievedLoad = formatNumberWithNBSP(metrics.achievedLoad);
-                    const maxLoad = formatNumberWithNBSP(OPTIMIZER_SETTINGS.maxAllowedLoad);
-
-                    const objectiveText = OPTIMIZER_SETTINGS.optimizationObjective === "minimize_load"
-                        ? "MAX SPEED (Minimize grid computational load)"
-                        : "MAX ACCURACY (Minimize estimated error target)";
-
-                    const t = () => new Date().toLocaleTimeString("uk-UA", { hour12: false });
-                    const summary = [
-                        { type: "info", text: "=======================================================", timestamp: t() },
-                        { type: "success", text: "🏆 [OPTIMIZER]: FINAL TECHNICAL REPORT", timestamp: t() },
-                        { type: "info", text: "=======================================================", timestamp: t() },
-                        {
-                            type: metrics.isFallbackActivated ? "warning" : "success",
-                            text: metrics.isFallbackActivated
-                                ? "⚠️ COMPROMISE: constraints not met. Balanced fallback used."
-                                : "✅ SUCCESS: parameters matched to model criteria.",
-                            timestamp: t()
-                        },
-                        { type: "info", text: "-------------------------------------------------------", timestamp: t() },
-                        { type: "info", text: "🎯 INITIAL CRITERIA AND CONSTRAINTS:", timestamp: t() },
-                        { type: "info", text: `   🔹 Task: ${objectiveText}`, timestamp: t() },
-                        { type: "info", text: `   🔹 Max allowed error score: <= ${OPTIMIZER_SETTINGS.maxErrorScore}`, timestamp: t() },
-                        { type: "info", text: `   🔹 Max allowed load: <= ${maxLoad} computed nodes`, timestamp: t() },
-                        { type: "info", text: `   🔹 Iterations budget: ${OPTIMIZER_SETTINGS.totalBudgetIterations} (init: ${OPTIMIZER_SETTINGS.randomInitPoints})`, timestamp: t() },
-                        { type: "info", text: "-------------------------------------------------------", timestamp: t() },
-                        { type: "info", text: "📊 ACHIEVED METRICS:", timestamp: t() },
-                        { type: "info", text: `   📈 Resulting error score: ${Number.isFinite(Number(metrics.resultingErrorScore)) ? Number(metrics.resultingErrorScore).toFixed(3) : "—"}`, timestamp: t() },
-                        { type: "info", text: `   ⚡ Computational grid load: ${achievedLoad} computed nodes`, timestamp: t() },
-                        { type: "info", text: "-------------------------------------------------------", timestamp: t() },
-                        { type: "info", text: "🛠️ OPTIMAL SOLVER CONFIGURATION:", timestamp: t() },
-                        ...Object.entries(OPTIMIZER_BASE_CONFIG).map(([name, range]) => {
-                            const value = limits?.[name];
-                            const formatted = value === undefined || value === null
-                                ? "—"
-                                : typeof value === "number"
-                                    ? value.toFixed(name === "tolerance" || ["gridX", "gridY", "minGrid"].includes(name) ? 5 : 2)
-                                    : String(value);
-
-                            const unit = ["gridX", "gridY", "minGrid"].includes(name) ? " mm" : name === "tolerance" ? " K" : ["maxDt", "targetDt"].includes(name) ? " s" : "";
-
-                            return {
-                                type: "info",
-                                text: `   🔹 ${name}: ${formatted}${unit} [bounds: ${range.min} .. ${range.max}]`,
-                                timestamp: t()
-                            };
-                        }),
-                        { type: "info", text: "=======================================================", timestamp: t() },
-                        { type: "success", text: "🏆 [Bayesian UI]: Optimization process completed.", timestamp: t() }
-                    ];
-
-                    setLogs(prev => {
-                        const hasProgressRow = prev.length > 0 && prev[prev.length - 1].type === "progress";
-                        const baseLogs = hasProgressRow ? prev.slice(0, -1) : prev;
-
-                        const finalLogs = [...baseLogs, ...summary];
-                        const finalWinnerIdx = finalLogs.length - 1;
-
-                        finalLogs[finalWinnerIdx].candidateParams = limits;
-                        finalLogs[finalWinnerIdx].isFinalReportMarker = true;
-                        finalLogs[finalWinnerIdx].finalMetricsCache = metrics;
-
-                        // ИСПРАВЛЕНИЕ: Вместо принудительного переключения на финальный текстовый отчет,
-                        // оставляем старый сохраненный индекс лучшего шага (bestLogIndexRef.current)
-                        if (bestLogIndexRef.current !== null) {
-                            setBestLogIndex(bestLogIndexRef.current);
-                        } else {
-                            setBestLogIndex(finalWinnerIdx);
-                        }
-
-                        return finalLogs;
-                    });
                     return;
                 }
 
@@ -382,7 +313,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false })
             });
         }
-    }, [appendLog, stopTimer]);
+    }, [appendLog, logs, stopTimer, syncLeaderIndex]);
 
     React.useEffect(() => {
         initWorker();
@@ -428,11 +359,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
         }]);
 
         try {
-            // 1. Динамически собираем пресеты на стороне UI, проходя по всем индексам accuracyModes из LIMITS
             const uiModelPresets = {};
-            // Если LIMITS импортирован в файл компонента, используем его ключи:
             const keysToProcess = typeof LIMITS !== "undefined" ? Object.keys(LIMITS) : ["gridX", "gridY", "minGrid", "maxIter", "tolerance", "maxDt", "targetDt", "growthFactor", "shrinkFactor"];
-
             const currentModes = accuracyModes || ["fast", "optimal", "accurate", "accurate2"];
 
             currentModes.forEach((modeName, modeIdx) => {
@@ -444,7 +372,6 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 });
             });
 
-            // 2. Отправляем в воркер параметры, дописывая собранный uiModelPresets в options
             workerRef.current.postMessage({
                 baseParams: {
                     thicknessMm: Number(parentState.geometry?.thickness) || 0,
@@ -461,7 +388,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                     ...OPTIMIZER_SETTINGS,
                     accuracyModes: currentModes,
                     config: OPTIMIZER_BASE_CONFIG,
-                    modelPresets: uiModelPresets // <-- Передаем пресеты параметром
+                    modelPresets: uiModelPresets
                 }
             });
         } catch (err) {
@@ -509,29 +436,44 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
         const targetLog = logs[bestLogIndex];
 
+        // 🌟 ИСПРАВЛЕННЫЙ БЛОК: Обработка финального маркера завершения
         if (targetLog.isFinalReportMarker && targetLog.finalMetricsCache) {
             const m = targetLog.finalMetricsCache;
+
+            // Находим в логах самый последний успешный шаг перед финальным, чтобы забрать детальные метрики точности
+            const lastValidSimLog = [...logs]
+                .reverse()
+                .find(l => l && l.technicalMetrics && l.technicalMetrics.accuracy);
+
+            const backupTm = lastValidSimLog?.technicalMetrics;
+
+            // Преобразуем нагрузку строго в число перед передачей в форматер
+            const rawLoad = m.achievedLoad !== undefined ? Number(m.achievedLoad) : NaN;
+
             return {
                 errorScore: Number.isFinite(Number(m.resultingErrorScore)) ? Number(m.resultingErrorScore).toFixed(3) : "—",
-                load: formatNumberWithNBSP(m.achievedLoad),
+                load: Number.isFinite(rawLoad) ? formatNumberWithNBSP(rawLoad) : "—",
                 step: m?.iterations?.totalTimeSteps !== undefined ? String(m.iterations.totalTimeSteps) : "—",
-                solverRejected: m?.iterations?.rejectedTimeSteps !== undefined ? String(m.iterations.rejectedTimeSteps) : "0",
+                solverRejected: backupTm?.iterations?.rejectedTimeSteps !== undefined ? String(backupTm.iterations.rejectedTimeSteps) : "0",
                 optimizerStep: "FINAL",
                 calcTime: elapsedTime ? `${elapsedTime.toFixed(1)} s` : "—",
-                timeError: "—",
-                gridError: "—",
-                solverError: "—",
-                picardIters: "—",
+
+                // Подтягиваем детальную разбивку из бэкапа последней симуляции, чтобы Collapse не был пустым
+                timeError: backupTm?.accuracy?.timeIntegrationErrorC !== undefined ? `${backupTm.accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
+                gridError: backupTm?.accuracy?.spatialGridErrorC !== undefined ? `${backupTm.accuracy.spatialGridErrorC.toFixed(3)}°C` : "—",
+                solverError: backupTm?.accuracy?.solverErrorC !== undefined ? `${Math.abs(backupTm.accuracy.solverErrorC).toFixed(3)}°C` : "—",
+                picardIters: backupTm?.iterations?.totalPicardIterations !== undefined ? String(backupTm.iterations.totalPicardIterations) : "—",
                 params: targetLog.candidateParams
             };
         }
 
+        // Стандартная обработка промежуточных шагов (остается без изменений)
         const tm = targetLog.technicalMetrics;
         return {
             errorScore: tm?.accuracy?.totalErrorScore !== undefined ? tm.accuracy.totalErrorScore.toFixed(3) : "—",
             load: tm?.iterations?.totalGridPointsProcessed !== undefined ? formatNumberWithNBSP(tm.iterations.totalGridPointsProcessed) : "—",
             step: tm?.iterations?.totalTimeSteps !== undefined ? String(tm.iterations.totalTimeSteps) : "—",
-            solverRejected: tm?.iterations?.rejectedTimeSteps !== undefined ? String(tm.iterations.rejectedTimeSteps) : "0", // Забираем 4 реджекта из метрик
+            solverRejected: tm?.iterations?.rejectedTimeSteps !== undefined ? String(tm.iterations.rejectedTimeSteps) : "0",
             optimizerStep: targetLog.currentStepVisual !== undefined ? `#${targetLog.currentStepVisual}` : "—",
             calcTime: tm?.calculationTimeMs !== undefined ? `${tm.calculationTimeMs.toFixed(1)} ms` : "—",
             timeError: tm?.accuracy?.timeIntegrationErrorC !== undefined ? `${tm.accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
@@ -541,7 +483,6 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
             params: targetLog.candidateParams
         };
     }, [bestLogIndex, logs, elapsedTime]);
-
 
     const handleApplyParameters = useCallback(() => {
         if (!bestSnapshotState || !bestSnapshotState.params) return;
@@ -573,14 +514,20 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
     const stepProgressPercent = Math.min(100, Math.round((completedSteps / OPTIMIZER_SETTINGS.totalBudgetIterations) * 100));
 
     const logTypeStyles = {
-        info: { color: "#9cdcfe", label: "[INFO]" },
-        success: { color: "#4ec9b0", label: "[SUCCESS]" },
-        warning: { color: "#ce9178", label: "[WARN]" },
-        error: { color: "#f44336", label: "[CRIT]" },
-        step_bayes: { color: "#34d399", label: "[BAYES]" },
-        step_rand: { color: "#c586c0", label: "[RANDOM]" },
-        init: { color: "#c586c0", label: "[INIT_GEN]" },
-        progress: { color: "#6a9955", label: "[SOLVER_2D]" }
+        info: { color: "#cbd5e1", label: "" },
+        success: { color: "#4ec9b0", label: "" },
+        warning: { color: "#f59e0b", label: "[WARN]" }, // Яркий янтарно-желтый
+        abort: { color: "#f97316", label: "[ABORT]" },   // ОРАНЖЕВЫЙ (ближе к варнингу)
+        error: { color: "#ef4444", label: "[CRIT]" },   // Чистый ярко-красный для ошибок
+        progress: { color: "#6a9955", label: "" },
+
+        // Цвета для TASK MODE (корневые ключи)
+        final_report: { color: "#eab308" }, // Золотистый цвет для тега финала
+        bayes: { color: "#34d399" },    // Основной шаг ИИ — зеленый
+        random: { color: "#c586c0" },   // Случайная инициализация — фиолетовый
+        rand: { color: "#c586c0" },     // Запасной короткий ключ
+        preset: { color: "#4ec9b0" },   // Стартовые пресеты — бирюзовый
+        system: { color: "#38bdf8" }    // Системные логи приложения — голубой
     };
 
     const SYS_BOX_SX = { display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "8px 24px", pb: 1.25, borderBottom: "1px solid rgba(255,255,255,0.05)", width: "100%", fontFamily: "monospace", fontSize: "0.8rem" };
@@ -592,7 +539,6 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 if (reason === "backdropClick") return;
                 if (!isOptimizing) onClose?.();
             }}
-            // Делаем окно ВСЕГДА на весь экран
             fullScreen
             disableEnforceFocus
             slotProps={{
@@ -600,8 +546,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                     sx: {
                         bgcolor: "#121417",
                         backgroundImage: "none",
-                        borderRadius: 0, // Убираем скругления углов для полноэкранного режима
-                        border: "none",  // Убираем внешнюю рамку
+                        borderRadius: 0,
+                        border: "none",
                         boxShadow: "none",
                         display: "flex",
                         flexDirection: "column",
@@ -674,9 +620,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                             STDOUT / LOGS_STREAM
                         </Typography>
                         <Typography variant="body2" color="#64748b" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                            Objective: <strong style={{ color: "#94a3b8" }}>
-                            {OPTIMIZER_SETTINGS.optimizationObjective}
-                        </strong>
+                            Objective: <strong style={{ color: "#94a3b8" }}>{OPTIMIZER_SETTINGS.optimizationObjective}</strong>
                             <span style={{ color: "#64748b", marginLeft: "12px" }}>
                                 Constraints: [Max Error: <strong style={{ color: "#94a3b8"}}>{OPTIMIZER_SETTINGS.maxErrorScore}</strong> | Max Load: <strong style={{ color: "#94a3b8"}}>{formatNumberWithNBSP(OPTIMIZER_SETTINGS.maxAllowedLoad)} nodes</strong>]
                             </span>
@@ -692,9 +636,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                             logs.map((log, idx) => {
                                 if (!log || !log.text) return null;
 
-                                const style = logTypeStyles[log.type] || logTypeStyles.info;
-
-                                if (log.text.includes("=====")) {
+                                if (typeof log.text === 'string' && log.text.includes("=====")) {
                                     return <Divider key={idx} sx={{ borderColor: "rgba(255,255,255,0.05)", my: 1 }} />;
                                 }
 
@@ -708,54 +650,120 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                                 setExpandedLogs(prev => ({ ...prev, [idx]: !prev[idx] }));
                                             } : undefined}
                                             sx={{
-                                                display: "flex", alignItems: "flex-start", gap: 1, py: 0.35, cursor: hasParams ? "pointer" : "default", borderRadius: "4px", px: 1, mx: -0.5,
-                                                bgcolor: isExpanded ? "rgba(37, 99, 235, 0.03)" : "transparent",
+                                                display: "flex",
+                                                alignItems: "center", // Изменили с flex-start на center для лучшего выравнивания стрелочки и текста
+                                                gap: 1, // Немного уменьшили общий гэп, так как добавилась стрелка
+                                                py: 0.25,
+                                                cursor: hasParams ? "pointer" : "default",
+                                                borderRadius: "4px",
+                                                px: 1,
+                                                mx: -0.5,
+                                                fontFamily: "Consolas, Monaco, 'Courier New', monospace",
+                                                bgcolor: isExpanded ? "rgba(37, 99, 235, 0.04)" : "transparent",
                                                 "&:hover": { bgcolor: hasParams ? "rgba(255, 255, 255, 0.04)" : "transparent" }
                                             }}
                                         >
-                                            {/* ИСПРАВЛЕНО: Порядковый номер лога [#idx] полностью удален */}
+                                            {/* 🌟 НОВЫЙ БЛОК: Индикатор раскрытия (стрелочка) */}
+                                            <Box sx={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                flexShrink: 0
+                                            }}>
+                                                {hasParams ? (
+                                                    isExpanded ? (
+                                                        <KeyboardArrowDownIcon sx={{ fontSize: "1rem", color: "#64748b" }} />
+                                                    ) : (
+                                                        <KeyboardArrowRightIcon sx={{ fontSize: "1rem", color: "#64748b" }} />
+                                                    )
+                                                ) : null}
+                                            </Box>
 
-                                            <Typography component="span" sx={{ color: "#475569", fontSize: "inherit", fontFamily: "inherit", userSelect: "none", flexShrink: 0, mr: 1 }}>
-                                                {log.timestamp}
-                                            </Typography>
-
-                                            {/* ИСПРАВЛЕНО: Метка переведена на английский и сокращена */}
+                                            {/* 1. STEP NUMBER */}
                                             <Typography
                                                 component="span"
                                                 sx={{
-                                                    color: style.color, // Использует родной цвет из logTypeStyles (#b5cea8 или #c586c0)
-                                                    fontWeight: "bold",
+                                                    color: logTypeStyles[log.type]?.color || logTypeStyles.success.color,
                                                     fontSize: "inherit",
                                                     fontFamily: "inherit",
-                                                    minWidth: { xs: 0, sm: "90px" },
-                                                    flexShrink: 0,
                                                     userSelect: "none",
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    gap: 0.5
+                                                    flexShrink: 0,
+                                                    fontWeight: 500,
+                                                    display: "inline-block"
                                                 }}
                                             >
-                                                {style.label}
-                                                {hasParams && <Box component="span" sx={{ fontSize: "0.65rem", color: "#64748b" }}>{isExpanded ? "▲" : "▼"}</Box>}
+                                                {hasParams ? (
+                                                    (() => {
+                                                        const stepNum = String(log.currentStepVisual !== undefined ? log.currentStepVisual : idx).padStart(2, "0");
+                                                        return `step:${stepNum}`;
+                                                    })()
+                                                ) : null}
                                             </Typography>
 
-                                            {/* ИСПРАВЛЕНО: Текст лога переведен на короткий английский */}
-                                            <Typography component="span" sx={{ color: log.type === "error" ? "#ef4444" : log.type === "warning" ? "#f59e0b" : "#cbd5e1", fontSize: "inherit", fontFamily: "inherit", minWidth: 0 }}>
-                                                {(() => {
-                                                    if (log.candidateParams && log.technicalMetrics && !log.isFinalReportMarker) {
-                                                        const tm = log.technicalMetrics;
-                                                        const errVal = tm?.accuracy?.totalErrorScore !== undefined ? tm.accuracy.totalErrorScore.toFixed(3) : "—";
-                                                        const loadVal = tm?.iterations?.totalGridPointsProcessed !== undefined ? formatNumberWithNBSP(tm.iterations.totalGridPointsProcessed) : "—";
-                                                        const stepNum = log.currentStepVisual !== undefined ? log.currentStepVisual : idx;
+                                            {/* 2 & 3. COMBINED TASK MODE AND TECHNICAL OUTPUT (PURE STRING SHAPE) */}
+                                            <Typography
+                                                component="span"
+                                                sx={{
+                                                    color: logTypeStyles[log.type]?.color || logTypeStyles.success.color,
+                                                    fontSize: "inherit",
+                                                    fontFamily: "inherit",
+                                                    minWidth: 0,
+                                                    flexGrow: 1
+                                                }}
+                                            >
+                                                {/* Часть 2: TASK MODE со своим цветом режима (теперь inline-элемент без фиксированной ширины) */}
+                                                <Box
+                                                    component="span"
+                                                    sx={{
+                                                        color: (() => {
+                                                            if (!log.stepMode) return logTypeStyles.system.color;
+                                                            const fullMode = String(log.stepMode).toLowerCase();
+                                                            const rootMode = fullMode.includes('_') ? fullMode.split('_')[0] : fullMode;
+                                                            return logTypeStyles[rootMode]?.color || logTypeStyles.system.color;
+                                                        })(),
+                                                        fontWeight: 600,
+                                                        userSelect: "none",
+                                                        mr: 1.5 // Небольшой отступ справа перед основным текстом
+                                                    }}
+                                                >
+                                                    {log.stepMode ? `[${String(log.stepMode).toUpperCase()}]` : "[SYSTEM]"}
+                                                </Box>
 
-                                                        // Вытаскиваем имя пресета из текста, если оно там есть (например, PRESET_FAST)
-                                                        const presetMatch = log.text ? log.text.match(/\[(PRESET_\w+)]/) : null;
-                                                        const presetTag = presetMatch ? ` (${presetMatch[1]})` : "";
+                                                {/* Часть 3: Текст лога со своим цветом статуса и приглушенными скобками */}
+                                                <Box
+                                                    component="span"
+                                                    sx={{
+                                                        color: logTypeStyles[log.type]?.color || logTypeStyles.success.color
+                                                    }}
+                                                >
+                                                    {(() => {
+                                                        if (log.candidateParams) {
+                                                            const tm = log.technicalMetrics;
+                                                            const errVal = tm?.accuracy?.totalErrorScore !== undefined ? tm.accuracy.totalErrorScore.toFixed(4) : "—";
+                                                            const loadVal = tm?.iterations?.totalGridPointsProcessed !== undefined ? formatNumberWithNBSP(tm.iterations.totalGridPointsProcessed) : "—";
 
-                                                        return `Step #${stepNum}${presetTag} | Error: ${errVal} | Load: ${loadVal} nodes`;
-                                                    }
-                                                    return log.text;
-                                                })()}
+                                                            return (
+                                                                <>
+                                                                    {/* Основной текст сообщения (ошибка / отмена / ок) */}
+                                                                    {log.text}{" "}
+
+                                                                    {/* Вся строка в скобках красится в цвет статуса шага... */}
+                                                                    <Box component="span" sx={{ fontWeight: 500 }}>
+                                                                        {/* ...а вот сами скобки и надписи "err=" и "load=" изолируем в цвет disabled */}
+                                                                        <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>(</Box>
+                                                                        <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>err=</Box>
+                                                                        {errVal}
+                                                                        <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>, load=</Box>
+                                                                        {loadVal}
+                                                                        <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>)</Box>
+                                                                    </Box>
+                                                                </>
+                                                            );
+                                                        }
+
+                                                        return log.text;
+                                                    })()}
+                                                </Box>
                                             </Typography>
                                         </Box>
 
@@ -770,7 +778,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                                         let calcTime = "—";
                                                         let tErr = "—", gErr = "—", sErr = "—";
                                                         let stepsSolver = "—";
-                                                        let rejectedSolverSteps = "0"; // Новая переменная для внутренних реджектов солвера
+                                                        let rejectedSolverSteps = "0";
                                                         let picard = "—";
 
                                                         if (tm) {
@@ -789,13 +797,13 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
                                                         return (
                                                             <>
-                                                                {log.type === "warning" && (
+                                                                {(log.type === "warning" || log.type === "abort" || log.type === "error") && (
                                                                     <Box sx={{ color: "#ef4444", fontWeight: "bold", mb: 0.5 }}>
-                                                                        🚨 CRITICAL CEILING VIOLATION: Simulation budget exceeded. Candidate rejected.
+                                                                        🚨 CRITICAL EXCEPTION / VIOLATION: {log.message || "Simulation problem encountered. Candidate discarded."}
                                                                     </Box>
                                                                 )}
                                                                 <Box>Simulation calculation time: <strong style={{ color: "#ffffff" }}>{calcTime}</strong> | Mode: <strong style={{ color: "#4ec9b0" }}>{modeText}</strong></Box>
-                                                                <Box>Error score: <strong style={{ color: log.type === "warning" ? "#ef4444" : "#2563eb" }}>{errVal}</strong> <span style={{ color: "#64748b" }}>(Time: {tErr}, Grid: {gErr}, Solver: {sErr})</span></Box>
+                                                                <Box>Error score: <strong style={{ color: (log.type === "warning" || log.type === "abort" || log.type === "error") ? "#ef4444" : "#2563eb" }}>{errVal}</strong> <span style={{ color: "#64748b" }}>(Time: {tErr}, Grid: {gErr}, Solver: {sErr})</span></Box>
                                                                 <Box>
                                                                     Solver steps: <strong style={{ color: "#ffffff" }}>{stepsSolver}</strong>
                                                                     <span style={{ color: Number(rejectedSolverSteps) > 0 ? "#ce9178" : "#64748b", marginLeft: 4 }}>({rejectedSolverSteps} rejected)</span>
@@ -919,15 +927,17 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                 {finalResultReceived ? "Discard & Close" : "Close Window"}
                             </Button>
 
-                            {finalResultReceived ? (
+                            {/* Кнопка применения параметров показывается только при наличии готового финального результата */}
+                            {finalResultReceived && (
                                 <Button variant="contained" size="small" onClick={handleApplyParameters} disabled={!bestSnapshotState || !bestSnapshotState.params} fullWidth={isMobile} sx={{ bgcolor: "#2563eb", color: "#ffffff", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, boxShadow: "none", "&:hover": { bgcolor: "#1d4ed8" }, "&.Mui-disabled": { bgcolor: "#1e293b", color: "#64748b" } }}>
                                     Apply Parameters
                                 </Button>
-                            ) : (
-                                <Button variant="contained" size="small" onClick={runOptimization} startIcon={<PlayArrowIcon />} fullWidth={isMobile} sx={{ bgcolor: "#10b981", color: "#ffffff", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, boxShadow: "none", "&:hover": { bgcolor: "#059669" } }}>
-                                    Start Optimization
-                                </Button>
                             )}
+
+                            {/* Кнопка старта/перезапуска присутствует всегда, когда поток воркера ничем не занят */}
+                            <Button variant="contained" size="small" onClick={runOptimization} startIcon={<PlayArrowIcon />} fullWidth={isMobile} sx={{ bgcolor: "#10b981", color: "#ffffff", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, boxShadow: "none", "&:hover": { bgcolor: "#059669" } }}>
+                                {finalResultReceived || wasAborted ? "Run Again" : "Start Optimization"}
+                            </Button>
                         </>
                     ) : (
                         <Button variant="contained" size="small" disabled fullWidth={isMobile} sx={{ textTransform: "none", fontWeight: 500, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, "&.Mui-disabled": { bgcolor: "#1e293b", color: "#64748b" } }}>
@@ -935,6 +945,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                         </Button>
                     )}
                 </Box>
+
             </DialogActions>
         </Dialog>
     );

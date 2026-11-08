@@ -16,18 +16,21 @@ import {normalizeMachine} from "../pvc-1d-transient-heating";
 export const ACCURACY_MODES = ["fast", "optimal", "accurate", "accurate2"];
 
 export const LIMITS = {
-    gridX:        [0.35,  0.16,  0.116, 0.115 ], // Шаг сетки по горизонтали X (мм)
-    gridY:        [1.30,  0.78,  0.307, 0.311 ], // Шаг сетки по вертикали Y (мм)
-    minGrid:      [0.06,  0.05,  0.044, 0.036 ], // Минимальный предел размера ячейки (мм)
+    gridX:        [0.35,  0.16,  0.116, 0.135 ], // Шаг сетки по горизонтали X (мм)
+    gridY:        [1.30,  0.78,  0.307, 0.330 ], // Шаг сетки по вертикали Y (мм)
+    minGrid:      [0.06,  0.05,  0.044, 0.057 ], // Минимальный предел размера ячейки (мм)
     maxIter:      [4,     6,     14,    14    ], // Макс. число итераций Пикара в солвере
 
-    tolerance:    [0.25,  0.29,  0.038, 0.0377], // Критерий остановки итераций солвера (К)
-    maxDt:        [2.5,   3.87,  0.71,  0.67  ], // Жесткий верхний потолок шага времени (с)
-    targetDt:     [2.0,   2.13,  0.77,  0.83  ], // Целевой шаг изменения температуры за итерацию (К)
+    tolerance:    [0.25,  0.29,  0.038, 0.019], // Критерий остановки итераций солвера (К)
+    maxDt:        [2.5,   3.87,  0.71,  0.62  ], // Жесткий верхний потолок шага времени (с)
+    targetDt:     [2.0,   2.13,  0.77,  0.65  ], // Целевой шаг изменения температуры за итерацию (К)
 
-    growthFactor: [1.30,  1.35,  1.39,  1.363 ], // Коэффициент ускорения шага времени (рост dt)
-    shrinkFactor: [0.50,  0.52,  0.49,  0.49  ]  // Коэффициент замедления шага времени (сжатие dt)
+    growthFactor: [1.30,  1.35,  1.39,  1.378 ], // Коэффициент ускорения шага времени (рост dt)
+    shrinkFactor: [0.50,  0.52,  0.49,  0.47  ]  // Коэффициент замедления шага времени (сжатие dt)
 };
+
+export const DEFAULT_SLOT_HALF_WIDTH_MM = 5.0;       // Половина ширины щели нагревателя (ТЭНа)
+export const DEFAULT_CONVECTION_TRANSITION_END_MM = 8.0; // Граница рассеивания жара (начало холодной зоны)
 
 export const SIGMA = 5.670374419e-8;
 export const HEATER_RADIUS_MM = 3.0;
@@ -37,14 +40,12 @@ const UI_PROGRESS_THROTTLE_MS = 40; // Минимальный интервал �
 
 const MAX_TOTAL_TIME_STEPS = 100000;  // Жесткий потолок на число шагов по времени
 const MAX_CONSECUTIVE_REJECTIONS = 12;// Максимальное количество неудачных попыток сжатия шага dt подряд на одном месте
-const MAX_ALLOWED_PICARD_RATIO = 25.0;// Критический порог итераций Пикара на один успешный шаг, останавливающий букс
-const MAX_PICARD_PER_TIMESTEP = 40;// Максимальное суммарное число итераций Пикара, разрешенное на обсчет одной временной отметки
 
 const EFFECTIVE_H_MM = DISTANCE_TO_SHEET_MM + HEATER_RADIUS_MM;
 const AMBIENT_CONVECTION_H_TOP = 8.0;
 const AMBIENT_CONVECTION_H_BOT = 7.0;
 
-export function validateSimulationParams({ thicknessMm, material, machine, simulation, dtSeconds }) {
+export function validateSimulationParams({ thicknessMm, material, machine, simulation}) {
     const errors = [];
 
     // 1. Базовая валидация верхнего уровня
@@ -159,7 +160,6 @@ const makeError = (message, extra = {}) => ({
     accuracyMetrics: null,
     ...extra
 });
-
 
 function createNonlinearGridX(thicknessMm, nodeCount, minGridStepMm) {
     const x = new Float64Array(nodeCount);
@@ -332,80 +332,128 @@ function getLocalConvection(yMm, heaterTemperatureK, ambientTemperatureK, hSlot,
 }
 
 function solveBandMatrixOptimized(A, N, bandWidth, r, x, precalc) {
-    const abRowStride = bandWidth + bandWidth + 1;
+    const abRowStride = bandWidth * 2 + 1;
     const lead = bandWidth;
+    const strideU = abRowStride - 1;
+
     const iMinArr = precalc.iMin;
     const iMaxArr = precalc.iMax;
-    const kMinJArr = precalc.kMinJ;
     const kMinIArr = precalc.kMinI;
+    const kMinJArr = precalc.kMinJ;
     const jMinArr = precalc.jMin;
     const jMaxArr = precalc.jMax;
 
+    // LU factorization
     for (let j = 0; j < N; j++) {
         const iMin = iMinArr[j];
         const iMax = iMaxArr[j];
         const kMinJ = kMinJArr[j];
+        const diagIdx = j * abRowStride + lead;
 
+        // Upper triangular matrix
         for (let i = iMin; i <= j; i++) {
             const iStride = i * abRowStride;
-            let sum = A[iStride + (lead + j - i)];
+            const targetIdx = iStride + lead + j - i;
+            let sum = A[targetIdx];
+
             const kMinI = kMinIArr[i];
-            let k = kMinI < kMinJ ? kMinJ : kMinI;
+            let k = kMinI > kMinJ ? kMinI : kMinJ;
+
             for (; k < i - 3; k += 4) {
-                sum -= A[iStride + (lead + k - i)] * A[k * abRowStride + (lead + j - k)];
-                sum -= A[iStride + (lead + k + 1 - i)] * A[(k + 1) * abRowStride + (lead + j - (k + 1))];
-                sum -= A[iStride + (lead + k + 2 - i)] * A[(k + 2) * abRowStride + (lead + j - (k + 2))];
-                sum -= A[iStride + (lead + k + 3 - i)] * A[(k + 3) * abRowStride + (lead + j - (k + 3))];
+                const aIdx = iStride + lead - i + k;
+                const bIdx = k * abRowStride + lead + j - k;
+
+                sum -= A[aIdx] * A[bIdx];
+                sum -= A[aIdx + 1] * A[bIdx + strideU];
+                sum -= A[aIdx + 2] * A[bIdx + strideU * 2];
+                sum -= A[aIdx + 3] * A[bIdx + strideU * 3];
             }
-            for (; k < i; k++) sum -= A[iStride + (lead + k - i)] * A[k * abRowStride + (lead + j - k)];
-            A[iStride + (lead + j - i)] = sum;
+
+            for (; k < i; k++) {
+                sum -= A[iStride + lead + k - i] *
+                    A[k * abRowStride + lead + j - k];
+            }
+
+            A[targetIdx] = sum;
         }
 
+        const diagVal = A[diagIdx];
+        if (!Number.isFinite(diagVal) || diagVal === 0) return false;
+
+        // Lower triangular matrix
         for (let i = j + 1; i <= iMax; i++) {
             const iStride = i * abRowStride;
-            let sum = A[iStride + (lead + j - i)];
+            const targetIdx = iStride + lead + j - i;
+            let sum = A[targetIdx];
+
             const kMinI = kMinIArr[i];
-            let k = kMinI < kMinJ ? kMinJ : kMinI;
+            let k = kMinI > kMinJ ? kMinI : kMinJ;
+
             for (; k < j - 3; k += 4) {
-                sum -= A[iStride + (lead + k - i)] * A[k * abRowStride + (lead + j - k)];
-                sum -= A[iStride + (lead + k + 1 - i)] * A[(k + 1) * abRowStride + (lead + j - (k + 1))];
-                sum -= A[iStride + (lead + k + 2 - i)] * A[(k + 2) * abRowStride + (lead + j - (k + 2))];
-                sum -= A[iStride + (lead + k + 3 - i)] * A[(k + 3) * abRowStride + (lead + j - (k + 3))];
+                const aIdx = iStride + lead - i + k;
+                const bIdx = k * abRowStride + lead + j - k;
+
+                sum -= A[aIdx] * A[bIdx];
+                sum -= A[aIdx + 1] * A[bIdx + strideU];
+                sum -= A[aIdx + 2] * A[bIdx + strideU * 2];
+                sum -= A[aIdx + 3] * A[bIdx + strideU * 3];
             }
-            for (; k < j; k++) sum -= A[iStride + (lead + k - i)] * A[k * abRowStride + (lead + j - k)];
-            A[iStride + (lead + j - i)] = sum / A[j * abRowStride + lead];
+
+            for (; k < j; k++) {
+                sum -= A[iStride + lead + k - i] *
+                    A[k * abRowStride + lead + j - k];
+            }
+
+            A[targetIdx] = sum / diagVal;
         }
     }
 
+    // Forward substitution
     for (let i = 0; i < N; i++) {
         let sum = r[i];
-        const jMin = jMinArr[i];
         const iStride = i * abRowStride;
-        let j = jMin;
+        const baseIdx = iStride + lead - i;
+        let j = jMinArr[i];
+
         for (; j < i - 3; j += 4) {
-            sum -= A[iStride + (lead + j - i)] * x[j];
-            sum -= A[iStride + (lead + j + 1 - i)] * x[j + 1];
-            sum -= A[iStride + (lead + j + 2 - i)] * x[j + 2];
-            sum -= A[iStride + (lead + j + 3 - i)] * x[j + 3];
+            sum -= A[baseIdx + j] * x[j];
+            sum -= A[baseIdx + j + 1] * x[j + 1];
+            sum -= A[baseIdx + j + 2] * x[j + 2];
+            sum -= A[baseIdx + j + 3] * x[j + 3];
         }
-        for (; j < i; j++) sum -= A[iStride + (lead + j - i)] * x[j];
+
+        for (; j < i; j++) {
+            sum -= A[baseIdx + j] * x[j];
+        }
+
         x[i] = sum;
     }
 
+    // Backward substitution
     for (let i = N - 1; i >= 0; i--) {
         let sum = x[i];
-        const jMax = jMaxArr[i];
         const iStride = i * abRowStride;
+        const baseIdx = iStride + lead - i;
         let j = i + 1;
+        const jMax = jMaxArr[i];
+
         for (; j <= jMax - 3; j += 4) {
-            sum -= A[iStride + (lead + j - i)] * x[j];
-            sum -= A[iStride + (lead + j + 1 - i)] * x[j + 1];
-            sum -= A[iStride + (lead + j + 2 - i)] * x[j + 2];
-            sum -= A[iStride + (lead + j + 3 - i)] * x[j + 3];
+            sum -= A[baseIdx + j] * x[j];
+            sum -= A[baseIdx + j + 1] * x[j + 1];
+            sum -= A[baseIdx + j + 2] * x[j + 2];
+            sum -= A[baseIdx + j + 3] * x[j + 3];
         }
-        for (; j <= jMax; j++) sum -= A[iStride + (lead + j - i)] * x[j];
-        x[i] = sum / A[iStride + lead];
+
+        for (; j <= jMax; j++) {
+            sum -= A[baseIdx + j] * x[j];
+        }
+
+        const diagVal = A[iStride + lead];
+        if (!Number.isFinite(diagVal) || diagVal === 0) return false;
+
+        x[i] = sum / diagVal;
     }
+
     return true;
 }
 
@@ -462,8 +510,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
     const shouldCalculateAccuracyError = simulation?.calculateAccuracyError !== false;
     const is1D = simulation.widthHalfMm === 0;
-    const slotHalfWidthMm = simulation.slotHalfWidthMm !== undefined ? simulation.slotHalfWidthMm : 5.0;
-    const convectionTransitionEndMm = simulation.convectionTransitionEndMm !== undefined ? simulation.convectionTransitionEndMm : 8.0;
 
     const Nx = Math.max(5, Math.round(thicknessMm / GRID_X_STEP_MM)) + 1;
     const Ny = is1D ? 1 : (Math.max(12, Math.round(simulation.widthHalfMm / GRID_Y_STEP_MM)) + 1);
@@ -473,7 +519,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const gridX = createNonlinearGridX(thicknessMm, Nx, MIN_GRID_STEP_MM);
     const gridY = is1D
         ? { y: new Float64Array([0.0]), dy: new Float64Array([0.0]), dyHat: new Float64Array([0.0]), invDyH: new Float64Array([1000.0/0.001]), invDyL: new Float64Array([0.0]), invDyR: new Float64Array([0.0]), nodeCount: 1 }
-        : createParametricGridY(simulation.widthHalfMm, Ny, slotHalfWidthMm, convectionTransitionEndMm, MIN_GRID_STEP_MM);
+        : createParametricGridY(simulation.widthHalfMm, Ny, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM, MIN_GRID_STEP_MM);
 
     const target = simulation.target;
     const targetType = target.type;
@@ -514,6 +560,11 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     // =====================================================================
 
     const size2D = Nx * Ny;
+    const PICARD_PASS_CPU_COST = size2D * (Ny + 2) + (size2D * 150);
+
+//  Вставьте перенесенные лимиты сюда (теперь они видят PICARD_PASS_CPU_COST):
+    const MAX_ALLOWED_STEP_CPU_UNITS = PICARD_PASS_CPU_COST * 40;
+    const MAX_TOTAL_CPU_UNITS = 3000000000;
 
     const buffers = [
         new Float64Array(size2D).fill(initT + 273.15),
@@ -524,8 +575,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let step = 1;
     let t_nm1 = 0;
     let t_n   = 0;
-
-    let currentStepPicardIters = 0;
 
     let T_nm1_top = initT + 273.15;
     let T_nm1_mid = initT + 273.15;
@@ -543,7 +592,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const lead = bandWidth;
 
     const matrixA = new Float64Array(size2D * abRowStride);
-    const matrixAClone = new Float64Array(size2D * abRowStride);
     const rhsVec = new Float64Array(size2D);
     const solverX = new Float64Array(size2D);
 
@@ -590,10 +638,10 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
     for (let j = 0; j <= lastY; j++) {
         const yMm = gridY.y[j];
-        const cTop = getLocalConvection(yMm, T_top_K, ambientTemperatureK, hTop, slotHalfWidthMm, convectionTransitionEndMm, AMBIENT_CONVECTION_H_TOP);
+        const cTop = getLocalConvection(yMm, T_top_K, ambientTemperatureK, hTop, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM, AMBIENT_CONVECTION_H_TOP);
         precalcConvTopH[j] = cTop.h;
         precalcConvTopAir[j] = cTop.airTemperatureK;
-        const cBot = getLocalConvection(yMm, T_bot_K, ambientTemperatureK, hBot, slotHalfWidthMm, convectionTransitionEndMm, AMBIENT_CONVECTION_H_BOT);
+        const cBot = getLocalConvection(yMm, T_bot_K, ambientTemperatureK, hBot, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM, AMBIENT_CONVECTION_H_BOT);
         precalcConvBotH[j] = cBot.h;
         precalcConvBotAir[j] = cBot.airTemperatureK;
     }
@@ -640,8 +688,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let maxTimeErrorC = 0.0;
 
     let countTimeSteps = 0;
-    let countRejectedSteps = 0;
-    let countPicardIters = 0;
+    let countRejectedSteps = 0
+    let totalPicardIterations = 0;
+
+    let totalCpuUnits = 0;         // Накопленная сложность за всю симуляцию
+    let currentStepCpuUnits = 0;   // Накопленная сложность в рамках текущей временной отметки dt
+
 
     let heatingProfileC = null;
     let pauseProfileC;
@@ -694,6 +746,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
 
     mainSimulationLoop: while (true) {
+
+        if (totalCpuUnits > MAX_TOTAL_CPU_UNITS) {
+            status = { type: "error", message: "Simulation terminated: Total CPU complexity exceeded safety limit." };
+            break;
+        }
+
         // Логическая защита по количеству шагов
         if (countTimeSteps > MAX_TOTAL_TIME_STEPS) {
             status = { type: "error", message: "Simulation terminated: Exceeded maximum time steps limit." };
@@ -742,6 +800,11 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         let stepMaxGridError = 0.0;
 
         for (let iter = 0; iter < MAX_NONLINEAR_ITERATIONS; iter++) {
+
+            totalPicardIterations++;
+
+            matrixA.fill(0);
+
             let iterMaxGridError = 0.0;
 
             for (let i = 0; i <= lastX; i++) {
@@ -865,8 +928,19 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 }
             }
 
-            matrixAClone.set(matrixA);
-            const solverSuccess = solveBandMatrixOptimized(matrixAClone, size2D, bandWidth, rhsVec, solverX, precalc);
+            const solverSuccess = solveBandMatrixOptimized(matrixA, size2D, bandWidth, rhsVec, solverX, precalc);
+
+            // Инкремент сложности за выполненный проход:
+            totalCpuUnits += PICARD_PASS_CPU_COST;
+            currentStepCpuUnits += PICARD_PASS_CPU_COST;
+
+            if (currentStepCpuUnits > MAX_ALLOWED_STEP_CPU_UNITS) {
+                status = {
+                    type: "error",
+                    message: `Simulation killed on the fly: Matrix loop lockdown. CPU workload limit exceeded (${currentStepCpuUnits} units) on a single time coordinate.`
+                };
+                break mainSimulationLoop;
+            }
 
             // 🎯 МГНОВЕННЫЙ ПЕРЕХВАТ: Если солвер споткнулся о нулевую диагональ
             if (!solverSuccess) {
@@ -887,18 +961,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     break mainSimulationLoop;
                 }
                 continue mainSimulationLoop; // Уходим на повторный расчет этой же временной отметки с меньшим dt
-            }
-
-            countPicardIters++;
-            currentStepPicardIters++;
-
-            // 🎯 МГНОВЕННЫЙ ПЕРЕХВАТ НА ЛЕТУ ПО КОЛИЧЕСТВУ ИТЕРАЦИЙ
-            if (currentStepPicardIters > MAX_PICARD_PER_TIMESTEP) {
-                status = {
-                    type: "error",
-                    message: `Simulation killed on the fly: Matrix loop lockdown. Too many Picard iterations (${currentStepPicardIters}) on a single time coordinate.`
-                };
-                break mainSimulationLoop;
             }
 
             let maxDeltaK = 0;
@@ -947,11 +1009,11 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             countRejectedSteps++;
             countConsecutiveRejectedSteps++;
 
-            // 🎯 ИСПРАВЛЕНИЕ: Перехват скрытого букса по общему числу итераций на текущем шаге времени
-            if (currentStepPicardIters > MAX_PICARD_PER_TIMESTEP) {
+//  Вставьте проверку по удельной сложности шага:
+            if (currentStepCpuUnits > MAX_ALLOWED_STEP_CPU_UNITS) {
                 status = {
                     type: "error",
-                    message: `Simulation killed: Matrix loop lockdown. Total Picard iterations (${currentStepPicardIters}) exceeded limit (${MAX_PICARD_PER_TIMESTEP}) on step #${step}.`
+                    message: `Simulation killed: Matrix loop lockdown. Step CPU complexity (${currentStepCpuUnits}) exceeded limit on step #${step}.`
                 };
                 break;
             }
@@ -1158,13 +1220,38 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
             // Комбинированная защита: прогресс вырос на 1% И прошло достаточно реального времени (100% пропускаем всегда)
             if ((currentPercent > lastReportedPercent && (nowMs - lastReportTimeMs >= UI_PROGRESS_THROTTLE_MS)) || currentPercent === 100) {
-                const currentLoad = Math.round(countPicardIters * size2D);
-                const shouldAbort = onProgress(currentPercent, currentLoad);
+
+                const accuracyMetrics = {
+                    accuracyMode: mode,
+                    solverErrorC: maxSolverErrorC,
+                    timeIntegrationErrorC: maxTimeErrorC,
+                    spatialGridErrorC: maxGridErrorC,
+                    totalErrorScore: Math.sqrt(maxSolverErrorC ** 2 + maxTimeErrorC ** 2 + maxGridErrorC ** 2),
+                };
+
+                // 🌟 Формируем полноценный technicalMetrics, идентичный финальному при завершении
+                const currentTechnicalMetrics = {
+                    calculationTimeMs: nowMs - calculationStart,
+                    cpuWorkloadUnits: totalCpuUnits, // Честная нагрузка в реальном времени
+                    accuracy: shouldCalculateAccuracyError ? accuracyMetrics : null,
+                    iterations: {
+                        totalTimeSteps: countTimeSteps,
+                        rejectedTimeSteps: countRejectedSteps,
+                        totalGridPointsProcessed: totalCpuUnits,
+                        totalPicardIterations: totalPicardIterations
+                    }
+                };
+
+                // Передаем в onProgress обновленный структурированный объект
+                const shouldAbort = onProgress(
+                    currentPercent,
+                    currentTechnicalMetrics
+                );
 
                 if (shouldAbort === true) {
                     status = {
                         type: "abort",
-                        message: `Simulation aborted by outer load limit control at ${currentPercent}% (${currentPhase}).`
+                        message: `Abort: outer load limit at ${currentPercent}% (${currentPhase})`
                     };
                     if (shouldCalculateAccuracyError) {
                         const lastPicardDeltaK = Math.abs(lastIterMaxSignedDiff);
@@ -1205,22 +1292,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         }
 
         step++;
-        currentStepPicardIters = 0; // 🟢 ОБНУЛЯЕМ ТОЛЬКО ТУТ (когда шаг официально принят!)
+        currentStepCpuUnits = 0; // Обнуляем сложность шага, так как он официально принят алгоритмом
 
-        // =====================================================================
-        // 🎯 ФИЛЬТР 2: МГНОВЕННЫЙ ПЕРЕХВАТ НА ЛЕТУ ПО СООТНОШЕНИЮ ИТЕРАЦИЙ
-        // =====================================================================
-        // Даем симулятору 2 шага на разгон, затем строго проверяем среднее число подгонок
-        if (step >= 1) {
-            const currentAvgPicard = countPicardIters / step;
-            if (currentAvgPicard > MAX_ALLOWED_PICARD_RATIO) {
-                status = {
-                    type: "error",
-                    message: `Simulation killed on the fly: High friction detected early in the loop (Avg Picard: ${currentAvgPicard.toFixed(1)}/step at step #${step}).`
-                };
-                break; // Мгновенно разрываем цикл вычислений, экономя время CPU
-            }
-        }
     }
 
     const finalCurIdx = step % 3;
@@ -1276,12 +1349,13 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         },
         technicalMetrics: {
             calculationTimeMs: performance.now() - calculationStart,
+            cpuWorkloadUnits: totalCpuUnits, // Итоговый точный вес симуляции
             accuracy: shouldCalculateAccuracyError ? accuracyMetrics : null,
             iterations: {
                 totalTimeSteps: countTimeSteps,
                 rejectedTimeSteps: countRejectedSteps,
-                totalPicardIterations: countPicardIters,
-                totalGridPointsProcessed: Math.round(countPicardIters * size2D)
+                totalPicardIterations: totalPicardIterations,
+                totalGridPointsProcessed: totalCpuUnits
             }
         }
     };
