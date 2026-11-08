@@ -593,48 +593,53 @@ function fitGaussianProcess(X, Y, noise, lengthScales) {
         return invalidModel("INVALID_INPUT_DIMENSIONS");
     }
 
-    const N = X.length;
-    const dimensions = lengthScales.length;
+    // ========================================================================
+    // ФИЛЬТРАЦИЯ ДУБЛИКАТОВ ДЛЯ ПОВЫШЕНИЯ ТОЧНОСТИ ПРОГНОЗА
+    // ========================================================================
+    const filteredIndices = [];
+    const uniqueKeys = new Set();
 
-    for (let d = 0; d < dimensions; d++) {
-        if (
-            !Number.isFinite(lengthScales[d]) ||
-            lengthScales[d] <= 0
-        ) {
-            return invalidModel("INVALID_LENGTH_SCALE");
+    for (let i = 0; i < X.length; i++) {
+        // Округляем до 3 знаков для фильтрации слишком кучных облаков параметров
+        const key = Array.from(X[i]).map(v => Math.round(v * 200) / 200).join(',');
+
+        // Пропускаем дубликат только если это успешная точка (шум наблюдения минимален).
+        // Аборты (noise > 0.0001) не трогаем — они нужны все для точной "стены"
+        if (uniqueKeys.has(key) && noise[i] <= 0.0001) {
+            continue;
         }
+        uniqueKeys.add(key);
+        filteredIndices.push(i);
     }
 
+    const N = filteredIndices.length;
+    const filteredX = filteredIndices.map(i => X[i]);
+    const filteredY = filteredIndices.map(i => Y[i]);
+    const filteredNoise = filteredIndices.map(i => noise[i]);
+    const dimensions = lengthScales.length;
+
+    // Валидация отфильтрованных точек
     for (let i = 0; i < N; i++) {
-        if (
-            !X[i] ||
-            X[i].length !== dimensions
-        ) {
+        if (!filteredX[i] || filteredX[i].length !== dimensions) {
             return invalidModel("INVALID_INPUT_POINT");
         }
-
         for (let d = 0; d < dimensions; d++) {
-            if (!Number.isFinite(X[i][d])) {
+            if (!Number.isFinite(filteredX[i][d])) {
                 return invalidModel("NON_FINITE_INPUT_POINT");
             }
         }
-
-        if (!Number.isFinite(Y[i])) {
+        if (!Number.isFinite(filteredY[i])) {
             return invalidModel("NON_FINITE_TARGET");
         }
-
-        if (
-            !Number.isFinite(noise[i]) ||
-            noise[i] < 0
-        ) {
+        if (!Number.isFinite(filteredNoise[i]) || filteredNoise[i] < 0) {
             return invalidModel("INVALID_NOISE");
         }
     }
 
+    // Расчет среднего и дисперсии на отфильтрованной выборке
     let yMean = 0;
-
     for (let i = 0; i < N; i++) {
-        yMean += (Y[i] - yMean) / (i + 1);
+        yMean += (filteredY[i] - yMean) / (i + 1);
     }
 
     if (!Number.isFinite(yMean)) {
@@ -642,12 +647,10 @@ function fitGaussianProcess(X, Y, noise, lengthScales) {
     }
 
     let yVariance = 0;
-
     for (let i = 0; i < N; i++) {
-        const diff = Y[i] - yMean;
+        const diff = filteredY[i] - yMean;
         yVariance += diff * diff;
     }
-
     yVariance /= N;
 
     if (!Number.isFinite(yVariance) || yVariance < 0) {
@@ -655,17 +658,12 @@ function fitGaussianProcess(X, Y, noise, lengthScales) {
     }
 
     const yStd = Math.sqrt(yVariance);
-
-    // Нижний предел масштаба не позволяет почти постоянным Y
-    // искусственно получать sigma порядка единицы.
     const MIN_Y_STD = 1e-6;
     const safeYStd = Math.max(yStd, MIN_Y_STD);
 
     const normalizedY = new Float64Array(N);
-
     for (let i = 0; i < N; i++) {
-        normalizedY[i] = (Y[i] - yMean) / safeYStd;
-
+        normalizedY[i] = (filteredY[i] - yMean) / safeYStd;
         if (!Number.isFinite(normalizedY[i])) {
             return invalidModel("INVALID_NORMALIZED_TARGET");
         }
@@ -679,8 +677,8 @@ function fitGaussianProcess(X, Y, noise, lengthScales) {
     for (let i = 0; i < N; i++) {
         for (let j = 0; j <= i; j++) {
             const value = matern52Kernel(
-                X[i],
-                X[j],
+                filteredX[i],
+                filteredX[j],
                 lengthScales
             );
 
@@ -702,13 +700,10 @@ function fitGaussianProcess(X, Y, noise, lengthScales) {
         lastAttemptedJitter = jitter;
 
         for (let i = 0; i < N; i++) {
-            // noise задаётся как дисперсия наблюдения
-            // в нормализованном пространстве GP.
-            K[i][i] = 1 + noise[i] + jitter;
+            K[i][i] = 1 + filteredNoise[i] + jitter;
         }
 
         L = choleskyDecomposition(K);
-
         if (L) break;
 
         jitterRetries++;
@@ -723,6 +718,7 @@ function fitGaussianProcess(X, Y, noise, lengthScales) {
         };
     }
 
+    // ВОССТАНОВЛЕНО: Расчет весов Гауссовского Процесса через разложение Чолесского
     const weights = choleskySolve(L, normalizedY);
 
     if (!weights || !weights.every(Number.isFinite)) {
@@ -741,6 +737,7 @@ function fitGaussianProcess(X, Y, noise, lengthScales) {
         logDeterminant += Math.log(L[i][i]);
     }
 
+    // ВОССТАНОВЛЕНО: Расчет предельного логарифмического правдоподобия модели
     const logMarginalLikelihood = -0.5 * (
         quadraticForm +
         2 * logDeterminant +
@@ -757,7 +754,7 @@ function fitGaussianProcess(X, Y, noise, lengthScales) {
 
     return {
         valid: true,
-        X,
+        X: filteredX,
         L,
         weights,
         lengthScales,
