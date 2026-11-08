@@ -1,37 +1,26 @@
 /* eslint-disable no-restricted-globals */
 
-function rbfKernel(x1, x2, lengthScales) {
-    if (
-        !x1 ||
-        !x2 ||
-        !lengthScales ||
-        x1.length !== x2.length ||
-        x1.length !== lengthScales.length
-    ) {
+function matern52Kernel(x1, x2, lengthScales) {
+    if (!x1 || !x2 || !lengthScales || x1.length !== x2.length || x1.length !== lengthScales.length) {
         return NaN;
     }
-
-    let distance = 0;
-
+    let dSq = 0;
     for (let i = 0; i < x1.length; i++) {
         const scale = lengthScales[i];
-
-        if (
-            !Number.isFinite(x1[i]) ||
-            !Number.isFinite(x2[i]) ||
-            !Number.isFinite(scale) ||
-            scale <= 0
-        ) {
+        if (!Number.isFinite(x1[i]) || !Number.isFinite(x2[i]) || !Number.isFinite(scale) || scale <= 0) {
             return NaN;
         }
-
         const diff = (x1[i] - x2[i]) / scale;
-        distance += diff * diff;
+        dSq += diff * diff;
     }
+    if (!Number.isFinite(dSq)) return NaN;
 
-    return Number.isFinite(distance)
-        ? Math.exp(-0.5 * distance)
-        : NaN;
+    const d = Math.sqrt(dSq);
+    const sqrt5 = Math.sqrt(5);
+    const poly = 1 + sqrt5 * d + (5 / 3) * dSq;
+    const value = poly * Math.exp(-sqrt5 * d);
+
+    return Number.isFinite(value) ? value : NaN;
 }
 
 function choleskyDecomposition(matrix) {
@@ -331,7 +320,7 @@ function estimateLengthScales(X, numParams) {
     const scales = new Float64Array(numParams);
 
     if (X.length < 3) {
-        scales.fill(0.65);
+        scales.fill(0.55);
         return scales;
     }
 
@@ -340,7 +329,7 @@ function estimateLengthScales(X, numParams) {
 
         for (let i = 0; i < X.length; i++) {
             if (!X[i] || X[i].length !== numParams) {
-                scales[d] = 0.65;
+                scales[d] = 0.55;
                 continue;
             }
 
@@ -350,10 +339,7 @@ function estimateLengthScales(X, numParams) {
                 const a = X[i][d];
                 const b = X[j][d];
 
-                if (
-                    !Number.isFinite(a) ||
-                    !Number.isFinite(b)
-                ) {
+                if (!Number.isFinite(a) || !Number.isFinite(b)) {
                     continue;
                 }
 
@@ -366,24 +352,23 @@ function estimateLengthScales(X, numParams) {
         }
 
         if (!differences.length) {
-            scales[d] = 0.65;
+            scales[d] = 0.55;
             continue;
         }
 
         differences.sort((a, b) => a - b);
 
-        const median = differences[
-            Math.floor(differences.length / 2)
-            ];
+        const median = differences[Math.floor(differences.length / 2)];
 
         scales[d] = Math.max(
-            0.35,
-            Math.min(1.25, median * 2)
+            0.25,
+            Math.min(1.15, median * 1.45)
         );
     }
 
     return scales;
 }
+
 
 // Детерминированная пространственно-разнообразная выборка.
 // Не зависит от порядка, в котором симуляции были выполнены.
@@ -521,6 +506,7 @@ function optimizeLengthScales(X, Y, noise, numParams) {
     const scales = new Float64Array(numParams);
 
     for (let d = 0; d < numParams; d++) {
+        // ИСПРАВЛЕНО: используем initialScales[d] вместо median
         scales[d] = Math.max(
             MIN_SCALE,
             Math.min(MAX_SCALE, initialScales[d])
@@ -692,7 +678,7 @@ function fitGaussianProcess(X, Y, noise, lengthScales) {
 
     for (let i = 0; i < N; i++) {
         for (let j = 0; j <= i; j++) {
-            const value = rbfKernel(
+            const value = matern52Kernel(
                 X[i],
                 X[j],
                 lengthScales
@@ -805,7 +791,7 @@ function predictGaussianProcess(model, x) {
     let mean = 0;
 
     for (let i = 0; i < N; i++) {
-        kStar[i] = rbfKernel(
+        kStar[i] = matern52Kernel(
             x,
             model.X[i],
             model.lengthScales
@@ -1574,41 +1560,6 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     const MIN_ABORT_TRAINING_PROGRESS = 5;
     const MAX_ABORT_PROGRESS_PERCENT = 50;
 
-    const MIN_ABORT_NOISE = 0.0005;
-    const ABORT_NOISE_START_PROGRESS = 5;
-    const ABORT_NOISE_END_PROGRESS = 100;
-
-    function getAbortNoiseByProgress(percent, maxNoise) {
-        if (!Number.isFinite(percent)) {
-            return maxNoise;
-        }
-
-        const p = Math.max(
-            ABORT_NOISE_START_PROGRESS,
-            Math.min(ABORT_NOISE_END_PROGRESS, percent)
-        );
-
-        const t = (
-            ABORT_NOISE_END_PROGRESS - p
-        ) / (
-            ABORT_NOISE_END_PROGRESS - ABORT_NOISE_START_PROGRESS
-        );
-
-        return MIN_ABORT_NOISE +
-            (maxNoise - MIN_ABORT_NOISE) * t * t;
-    }
-
-    function getAbortErrorNoise(percent) {
-        return getAbortNoiseByProgress(percent, 0.015);
-    }
-
-    function getAbortLoadNoise(isPredicted, percent) {
-        return getAbortNoiseByProgress(
-            percent,
-            isPredicted ? 0.10 : 0.05
-        );
-    }
-
 
     let gBestMetrics = null;
     let gBestPhysical = null;
@@ -2162,18 +2113,31 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 Number.isFinite(abortPredictedLoad) &&
                 abortPredictedLoad >= abortCurrentLoad;
 
-            const abortTrainingLoad = hasPredictedLoad
+            // ДИНАМИЧЕСКИЙ ТАРГЕТ: Если упало очень рано, принудительно ставим жесткий потолок
+            let abortTrainingLoad = hasPredictedLoad
                 ? abortPredictedLoad
                 : abortCurrentLoad;
 
-            const loadNoise = getAbortLoadNoise(
-                hasPredictedLoad,
-                abortProgress
-            );
+            if (abortProgress < 15) {
+                // Если симуляция упала на первых шагах, выстраиваем непреодолимую стену
+                abortTrainingLoad = Math.max(abortTrainingLoad, massiveLoadLimit);
+            } else if (abortProgress < MAX_ABORT_PROGRESS_PERCENT) {
+                // Плавное масштабирование штрафа для средних абортов
+                const penaltyFactor = 1 + (1 - abortProgress / MAX_ABORT_PROGRESS_PERCENT) * 0.5;
+                abortTrainingLoad *= penaltyFactor;
+            }
 
-            const errorNoise = getAbortErrorNoise(abortProgress);
+            // ДИНАМИЧЕСКИЙ ШТРАФ ЗА ШУМ (Инвертируем логику):
+            // Чем меньше прогресс, тем меньше должен быть шум (высокая уверенность GP в провале)!
+            // Раньше функция возвращала большой шум для маленького процента.
+            const progressRatio = Math.max(0, Math.min(1, (abortProgress - MIN_ABORT_TRAINING_PROGRESS) / (MAX_ABORT_PROGRESS_PERCENT - MIN_ABORT_TRAINING_PROGRESS)));
 
-            // ABORT остаётся полноценной частью обучающих массивов GP.
+            // Если упало на 5%, шум минимален (0.0001) -> GP строит жесткую границу.
+            // Если успело дойти до 45%, шум выше (0.02) -> GP допускает, что граница где-то рядом.
+            const loadNoise = 0.0001 + 0.02 * progressRatio;
+            const errorNoise = 0.0001 + 0.01 * progressRatio;
+
+            // Запись в массивы обучения GP
             observedX.push(new Float64Array(normX));
             observedLoad.push(abortTrainingLoad);
             observedError.push(errorScore);
@@ -2189,7 +2153,6 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             observedLoadNoise.push(loadNoise);
             observedErrorNoise.push(errorNoise);
 
-            // Но ABORT не является завершённым результатом.
             observedIsComplete.push(false);
         }
 
@@ -2598,8 +2561,8 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         const candidates = [];
 
         // Адаптивное скалирование размера сеток кандидатов
-        const candidatesCount = Math.min(3000, 1000 + currentExecutionCount * 12);
-        const localExplorers = Math.min(600, 150 + Math.floor(currentExecutionCount * 3.0));
+        const candidatesCount = Math.min(2000, 1000 + currentExecutionCount * 12);
+        const localExplorers = Math.min(300, 150 + Math.floor(currentExecutionCount * 3.0));
 
         let randomCandidatesGenerated = 0;
         let randomCandidatesRejected = 0;
@@ -2744,9 +2707,9 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 let bestLocalAcquisition = quickEvaluateAcquisition(
                     currentPoint, loadGP, errorGP, hasFeasibleResult, bestObjective,
                     residualCorrelation.rho, minimizeLoad, loadSigmaCalibration,
-                    errorSigmaCalibration, maxAllowedLoad, maxAllowedErrorScore
+                    errorSigmaCalibration,
+                    maxAllowedLoad, maxAllowedErrorScore
                 );
-
                 let stepSize = 0.05;
 
                 // Уменьшили до 2 итераций локальной полировки по ключевым осям
@@ -3062,7 +3025,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             },
 
             gaussianProcess: {
-                kernel: "RBF",
+                kernel: "Matern5/2",
 
                 load: {
                     lengthScales:
@@ -3142,13 +3105,11 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                         sigmaLog: stats.loadPrediction.sigmaLog,
                         predictedMean: Math.exp(stats.loadPrediction.meanLog + (stats.loadPrediction.sigmaLog ** 2) / 2) - 1
                     },
-
                     error: {
                         meanLog: stats.errorPrediction.meanLog,
                         sigmaLog: stats.errorPrediction.sigmaLog,
                         predictedMean: Math.exp(stats.errorPrediction.meanLog + (stats.errorPrediction.sigmaLog ** 2) / 2) - 1
                     },
-
                     pLoad: stats.pLoad,
                     pError: stats.pError,
                     pFeasible: stats.pFeasible,
@@ -3207,11 +3168,14 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 nonFiniteEICount
             },
 
-            // НАЙТИ И ЗАМЕНИТЬ СЕКЦИЮ ВНУТРИ emitStepLog для CANDIDATE_SELECTION_EVALUATION:
+            // ЗАМЕНИТЬ ДАННЫЙ БЛОК ВНУТРИ emitStepLog для CANDIDATE_SELECTION_EVALUATION
             selectedCandidatePrediction: stats
                 ? {
+                    // Учитываем половину дисперсии для точного физического прогноза среднего
                     predictedLoad: Math.exp(stats.loadPrediction.meanLog + (stats.loadPrediction.sigmaLog ** 2) / 2) - 1,
+
                     predictedError: Math.exp(stats.errorPrediction.meanLog + (stats.errorPrediction.sigmaLog ** 2) / 2) - 1,
+
                     probabilityLoadFeasible: stats.pLoad,
                     probabilityErrorFeasible: stats.pError,
                     jointFeasibility: stats.pFeasible,
@@ -3310,7 +3274,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 }
 
 // Вставить сразу после createSobolGenerator и перед optimizeForMaxSpeed
-function quickEvaluateAcquisition(candX, loadGP, errorGP, hasFeasibleResult, bestObjective, rho, minimizeLoad, loadScale, errorScale, maxLoad, maxErrorScore) {
+function quickEvaluateAcquisition(candX, loadGP, errorGP, hasFeasibleResult, bestObjective, rho, minimizeLoad, loadScale, errorScale, maxAllowedLoad, maxAllowedErrorScore) {
     const rawLoad = predictGaussianProcess(loadGP, candX);
     const rawError = predictGaussianProcess(errorGP, candX);
     if (!rawLoad || !rawError) return -Infinity;
@@ -3319,12 +3283,14 @@ function quickEvaluateAcquisition(candX, loadGP, errorGP, hasFeasibleResult, bes
     const errorPred = applySigmaCalibration(rawError, errorScale);
     if (!loadPred || !errorPred) return -Infinity;
 
-    const pFeasible = jointProbabilityBelow(loadPred, errorPred, maxLoad, maxErrorScore, rho);
+    // ИСПРАВЛЕНО: maxLoad -> maxAllowedLoad, maxErrorScore -> maxAllowedErrorScore
+    const pFeasible = jointProbabilityBelow(loadPred, errorPred, maxAllowedLoad, maxAllowedErrorScore, rho);
     const objPrediction = minimizeLoad ? loadPred : errorPred;
 
     if (hasFeasibleResult) {
         const constraintPred = minimizeLoad ? errorPred : loadPred;
-        const constraintLimit = minimizeLoad ? maxErrorScore : maxLoad;
+        // ИСПРАВЛЕНО: Заменены переменные ограничений
+        const constraintLimit = minimizeLoad ? maxAllowedErrorScore : maxAllowedLoad;
         return calculateConstrainedLogNormalEI(bestObjective, objPrediction, constraintPred, constraintLimit, rho);
     } else {
         const explorationBonus = 1e-4 * Math.min(10, objPrediction.sigmaLog);
