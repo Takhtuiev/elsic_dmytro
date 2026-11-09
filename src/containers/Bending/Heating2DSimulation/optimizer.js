@@ -463,10 +463,29 @@ function selectDiverseIndices(X, maxSamples) {
 }
 
 function optimizeLengthScales(X, Y, noise, numParams) {
-    const MIN_SCALE = 0.10;
-    const MAX_SCALE = 2.0;
-    const MAX_SAMPLES = 80;
-    const MAX_PASSES = 2;
+    // ========================================================================
+    // АДАПТИВНАЯ САМОРЕГУЛЯЦИЯ ГИПЕРПАРАМЕТРОВ ЯДРА (БЕЗ ЖЕСТКИХ КОНСТАНТ ШАГОВ)
+    // ========================================================================
+    const totalObservations = Array.isArray(X) ? X.length : 0;
+
+    // progressFactor плавно растет по мере накопления данных.
+    // Динамический порог адаптации подстраивается под текущий объем выборки.
+    const dynamicDenominator = Math.max(40, totalObservations * 1.2);
+    const progressFactor = Math.min(1.0, totalObservations / dynamicDenominator);
+
+    // В начале прогона широкий (0.25) для удержания тренда, к концу падает до 0.08 для микро-поиска
+    const MIN_SCALE = 0.25 - (0.17 * progressFactor);
+
+    // В начале 3.5 (глобальный обзор), к концу сужается до 1.5 для фиксации изгибов фронта ошибки
+    const MAX_SCALE = 3.5 - (2.0 * progressFactor);
+
+    // Экономим ресурсы CPU на ранних этапах, расширяем выборку по мере накопления данных
+    // ИСПРАВЛЕНО: Ограничение в 60 точек удерживает матричные расчеты в пределах миллисекунд
+    const MAX_SAMPLES = Math.min(60, 35 + Math.floor(progressFactor * 25));
+
+    // Увеличиваем плотность проходов оптимизатора на поздних стадиях
+    const MAX_PASSES = totalObservations > 60 ? 3 : 2;
+    // ========================================================================
 
     if (
         !Array.isArray(X) ||
@@ -869,6 +888,9 @@ function applySigmaCalibration(prediction, scale) {
 }
 
 function estimateResidualSigmaScale(pairs, key) {
+
+    return 1;
+
     const PRIOR_COUNT = 20;
 
     if (!Array.isArray(pairs) || pairs.length === 0) {
@@ -1170,7 +1192,7 @@ function createSobolGenerator(dimensions) {
                 V[j - s] ^ (V[j - s] >>> s);
 
             for (let k = 1; k < s; k++) {
-                if ((a >>> (s - 1 - k)) && 1) {
+                if (((a >>> (s - 1 - k)) & 1) !== 0) {
                     value ^= V[j - k];
                 }
             }
@@ -1296,8 +1318,6 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         );
     }
 
-    const integerParamKeys = new Set(["maxIter"]);
-
     for (const key of paramKeys) {
         const range = config[key];
 
@@ -1312,19 +1332,6 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             throw new Error(
                 "Некорректный диапазон параметра: " + key
             );
-        }
-
-        if (integerParamKeys.has(key)) {
-            const minInteger = Math.ceil(range.min);
-            const maxInteger = Math.floor(range.max);
-
-            if (minInteger > maxInteger) {
-                throw new Error(
-                    "Для целочисленного параметра " +
-                    key +
-                    " нет допустимых целых значений."
-                );
-            }
         }
     }
 
@@ -1391,32 +1398,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 continue;
             }
 
-            if (integerParamKeys.has(key)) {
-                const minInteger = Math.ceil(range.min);
-                const maxInteger = Math.floor(range.max);
-
-                const physicalValue =
-                    range.min + x * (range.max - range.min);
-
-                const integerValue = Math.max(
-                    minInteger,
-                    Math.min(
-                        maxInteger,
-                        Math.round(physicalValue)
-                    )
-                );
-
-                result[i] = Math.max(
-                    0,
-                    Math.min(
-                        1,
-                        (integerValue - range.min) /
-                        (range.max - range.min)
-                    )
-                );
-            } else {
-                result[i] = x;
-            }
+            result[i] = x;
         }
 
         return result;
@@ -1428,16 +1410,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         paramKeys.forEach((key, idx) => {
             const range = config[key];
-
-            let value =
-                range.min +
-                canonicalX[idx] * (range.max - range.min);
-
-            if (integerParamKeys.has(key)) {
-                value = Math.round(value);
-            }
-
-            result[key] = value;
+            result[key] = range.min + canonicalX[idx] * (range.max - range.min);
         });
 
         return result;
@@ -1445,8 +1418,11 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
     const isValidPhysical = physical => (
         Number.isFinite(physical?.gridX) &&
+        Number.isFinite(physical?.gridY) &&
         Number.isFinite(physical?.minGrid) &&
-        physical.minGrid < physical.gridX
+        // minGrid должен быть строго меньше как шага по X, так и шага по Y
+        physical.minGrid < physical.gridX &&
+        physical.minGrid < physical.gridY
     );
 
     const normalizeParamObject = pObj => {
@@ -1511,11 +1487,8 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             attempt < maxAttempts;
             attempt++
         ) {
-            const rawX = new Float64Array(numParams);
-
-            for (let i = 0; i < numParams; i++) {
-                rawX[i] = Math.random();
-            }
+            // Заменяем Math.random() на генератор Соболя
+            const rawX = nextSobolPoint();
 
             const x = canonicalizeNormalized(rawX);
             const physical = toPhysical(x);
@@ -1764,14 +1737,11 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         self.currentStepCustomTag = customTag;
 
         const stepType = customTag
-            ? customTag.startsWith("PRESET_")
-                ? "PRESET"
-                : customTag.startsWith("RANDOM_INIT_")
-                    ? "RANDOM_INIT"
-                    : customTag.startsWith("FALLBACK_")
-                        ? "FALLBACK"
-                        : "INIT"
-            : "BAYES";
+            ? (customTag.startsWith("PRESET_") ? "PRESET"
+                : customTag.startsWith("RANDOM_INIT_") ? "RANDOM_INIT"
+                    : customTag.startsWith("FALLBACK_") ? "FALLBACK_INIT"
+                        : "INIT")
+            : (pendingDecision?.method || "BAYES_OPTIMIZATION");
 
         const progressHistory = [];
         const MAX_HISTORY = 10;
@@ -2707,13 +2677,18 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                     errorSigmaCalibration,
                     maxAllowedLoad, maxAllowedErrorScore
                 );
-                let stepSize = 0.05;
 
-                // Уменьшили до 2 итераций локальной полировки по ключевым осям
-                for (let iter = 0; iter < 2; iter++) {
+                // САМОРЕГУЛИРУЕМЫЙ НАЧАЛЬНЫЙ ШАГ ПОЛИРОВКИ:
+                // ТЕПЕРЬ ПОЛНОСТЬЮ АДАПТИВНО ПОД ЛЮБОЙ БЮДЖЕТ (от totalIterations)
+                const currentProgress = Math.min(1.0, observedX.length / totalIterations);
+                let stepSize = 0.04 - (0.035 * currentProgress);
+
+                // Количество внутренних итераций полировки тоже растет к концу прогона (с 2 до 4)
+                const adaptiveIterations = currentProgress > 0.6 ? 4 : 2;
+
+                for (let iter = 0; iter < adaptiveIterations; iter++) {
                     let localImproved = false;
                     for (let d = 0; d < numParams; d++) {
-                        // Проверяем направления
                         for (const sign of [-1, 1]) {
                             const testPoint = new Float64Array(currentPoint);
                             testPoint[d] = Math.max(0, Math.min(1, testPoint[d] + sign * stepSize));
@@ -2731,7 +2706,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                             }
                         }
                     }
-                    if (!localImproved) stepSize *= 0.5;
+                    if (!localImproved) stepSize *= 0.3;
                 }
                 mutatedX.set(currentPoint);
             }
@@ -3095,17 +3070,18 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 : null,
 
             // ЗАМЕНИТЬ ВНУТРИ pendingDecision.prediction
+            // ИСПРАВЛЕНО: Чистая физическая медиана распределения GP без паники
             prediction: stats
                 ? {
                     load: {
                         meanLog: stats.loadPrediction.meanLog,
                         sigmaLog: stats.loadPrediction.sigmaLog,
-                        predictedMean: Math.exp(stats.loadPrediction.meanLog + (stats.loadPrediction.sigmaLog ** 2) / 2) - 1
+                        predictedMean: Math.exp(stats.loadPrediction.meanLog) - 1
                     },
                     error: {
                         meanLog: stats.errorPrediction.meanLog,
                         sigmaLog: stats.errorPrediction.sigmaLog,
-                        predictedMean: Math.exp(stats.errorPrediction.meanLog + (stats.errorPrediction.sigmaLog ** 2) / 2) - 1
+                        predictedMean: Math.exp(stats.errorPrediction.meanLog) - 1 // Исправлен вызов stats.
                     },
                     pLoad: stats.pLoad,
                     pError: stats.pError,
@@ -3142,6 +3118,16 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
             bestFeasibilityScore,
 
+            // ГЛУБОКАЯ ДИАГНОСТИКА: Показывает, сколько кандидатов отсеялось на этапе генерации
+            poolDiagnostics: {
+                totalCandidatesInPool: candidates.length,
+                randomGenerated: (pendingDecision?.candidates?.generatedRandom ?? 0),
+                randomRejected: (pendingDecision?.candidates?.rejectedRandom ?? 0),
+                localGenerated: (pendingDecision?.candidates?.generatedLocal ?? 0),
+                localRejected: (pendingDecision?.candidates?.rejectedLocal ?? 0),
+                localAttemptsUsed: (pendingDecision?.candidates?.localAttempts ?? 0)
+            },
+
             residualCorrelation: {
                 rho: residualCorrelation.rho,
                 rawRho: residualCorrelation.rawRho,
@@ -3165,13 +3151,11 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 nonFiniteEICount
             },
 
-            // ЗАМЕНИТЬ ДАННЫЙ БЛОК ВНУТРИ emitStepLog для CANDIDATE_SELECTION_EVALUATION
+            // ИСПРАВЛЕНО: Выводим в лог честную медиану без математического взрыва
             selectedCandidatePrediction: stats
                 ? {
-                    // Учитываем половину дисперсии для точного физического прогноза среднего
-                    predictedLoad: Math.exp(stats.loadPrediction.meanLog + (stats.loadPrediction.sigmaLog ** 2) / 2) - 1,
-
-                    predictedError: Math.exp(stats.errorPrediction.meanLog + (stats.errorPrediction.sigmaLog ** 2) / 2) - 1,
+                    predictedLoad: Math.exp(stats.loadPrediction.meanLog) - 1,
+                    predictedError: Math.exp(stats.errorPrediction.meanLog) - 1,
 
                     probabilityLoadFeasible: stats.pLoad,
                     probabilityErrorFeasible: stats.pError,
@@ -3270,8 +3254,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     };
 }
 
-// Вставить сразу после createSobolGenerator и перед optimizeForMaxSpeed
-function quickEvaluateAcquisition(candX, loadGP, errorGP, hasFeasibleResult, bestObjective, rho, minimizeLoad, loadScale, errorScale, maxAllowedLoad, maxAllowedErrorScore) {
+function quickEvaluateAcquisition(candX, loadGP, errorGP, hasFeasibleResult, bestObjective, rho, minimizeLoadNotUsed, loadScale, errorScale, maxAllowedLoad, maxAllowedErrorScore) {
     const rawLoad = predictGaussianProcess(loadGP, candX);
     const rawError = predictGaussianProcess(errorGP, candX);
     if (!rawLoad || !rawError) return -Infinity;
@@ -3280,17 +3263,32 @@ function quickEvaluateAcquisition(candX, loadGP, errorGP, hasFeasibleResult, bes
     const errorPred = applySigmaCalibration(rawError, errorScale);
     if (!loadPred || !errorPred) return -Infinity;
 
-    // ИСПРАВЛЕНО: maxLoad -> maxAllowedLoad, maxErrorScore -> maxAllowedErrorScore
-    const pFeasible = jointProbabilityBelow(loadPred, errorPred, maxAllowedLoad, maxAllowedErrorScore, rho);
-    const objPrediction = minimizeLoad ? loadPred : errorPred;
+    // Рассчитываем точную медиану физической ошибки кандидата
+    const predictedPhysicalError = Math.exp(errorPred.meanLog) - 1;
 
+    const pFeasible = jointProbabilityBelow(loadPred, errorPred, maxAllowedLoad, maxAllowedErrorScore, rho);
+
+    // Так как цель всегда minimize_load, целевая функция — это всегда loadPred
+    const objPrediction = loadPred;
+
+    let baseAcq = 0;
     if (hasFeasibleResult) {
-        const constraintPred = minimizeLoad ? errorPred : loadPred;
-        // ИСПРАВЛЕНО: Заменены переменные ограничений
-        const constraintLimit = minimizeLoad ? maxAllowedErrorScore : maxAllowedLoad;
-        return calculateConstrainedLogNormalEI(bestObjective, objPrediction, constraintPred, constraintLimit, rho);
+        // Ограничением всегда выступает ошибка (errorPred), а лимитом - maxAllowedErrorScore
+        const constraintPred = errorPred;
+        const constraintLimit = maxAllowedErrorScore;
+        baseAcq = calculateConstrainedLogNormalEI(bestObjective, objPrediction, constraintPred, constraintLimit, rho);
     } else {
         const explorationBonus = 1e-4 * Math.min(10, objPrediction.sigmaLog);
-        return pFeasible + explorationBonus;
+        baseAcq = pFeasible + explorationBonus;
     }
+
+    // МЯГКИЙ ШТРАФ ВМЕСТО -INFINITY:
+    // Если кандидат по прогнозу слегка заступает за порог 0.5, мы плавно снижаем его ценность
+    // пропорционально нарушению. Это открывает локальному поиску доступ к экстремумам.
+    if (predictedPhysicalError > maxAllowedErrorScore) {
+        const violation = (predictedPhysicalError - maxAllowedErrorScore) / maxAllowedErrorScore;
+        return baseAcq - violation * 2.5;
+    }
+
+    return baseAcq;
 }

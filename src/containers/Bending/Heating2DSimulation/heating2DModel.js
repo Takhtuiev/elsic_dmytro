@@ -19,7 +19,6 @@ export const LIMITS = {
     gridX:        [0.35,  0.16,  0.116, 0.135 ], // Шаг сетки по горизонтали X (мм)
     gridY:        [1.30,  0.78,  0.307, 0.330 ], // Шаг сетки по вертикали Y (мм)
     minGrid:      [0.06,  0.05,  0.044, 0.057 ], // Минимальный предел размера ячейки (мм)
-    maxIter:      [4,     6,     14,    14    ], // Макс. число итераций Пикара в солвере
 
     tolerance:    [0.25,  0.29,  0.038, 0.019], // Критерий остановки итераций солвера (К)
     maxDt:        [2.5,   3.87,  0.71,  0.62  ], // Жесткий верхний потолок шага времени (с)
@@ -40,6 +39,7 @@ const UI_PROGRESS_THROTTLE_MS = 40; // Минимальный интервал �
 
 const MAX_TOTAL_TIME_STEPS = 100000;  // Жесткий потолок на число шагов по времени
 const MAX_CONSECUTIVE_REJECTIONS = 12;// Максимальное количество неудачных попыток сжатия шага dt подряд на одном месте
+const MAX_PICARD_ITERATIONS = 40;
 
 const EFFECTIVE_H_MM = DISTANCE_TO_SHEET_MM + HEATER_RADIUS_MM;
 const AMBIENT_CONVECTION_H_TOP = 8.0;
@@ -70,9 +70,6 @@ export function validateSimulationParams({ thicknessMm, material, machine, simul
         if (!validPositive(am.gridY)) errors.push("Invalid custom parameter: gridY must be a positive number.");
         if (!validPositive(am.minGrid)) errors.push("Invalid custom parameter: minGrid must be a positive number.");
 
-        if (!Number.isInteger(am.maxIter) || am.maxIter < 1) {
-            errors.push("Invalid custom parameter: maxIter must be a positive integer.");
-        }
         if (!validPositive(am.tolerance)) errors.push("Invalid custom parameter: tolerance must be a positive number.");
         if (!validPositive(am.maxDt)) errors.push("Invalid custom parameter: maxDt must be a positive number.");
         if (!validPositive(am.targetDt)) errors.push("Invalid custom parameter: targetDt must be a positive number.");
@@ -501,7 +498,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const GRID_X_STEP_MM           = isCustom ? (am?.gridX        ?? LIMITS.gridX[modeIdx])        : LIMITS.gridX[modeIdx];
     const GRID_Y_STEP_MM           = isCustom ? (am?.gridY        ?? LIMITS.gridY[modeIdx])        : LIMITS.gridY[modeIdx];
     const MIN_GRID_STEP_MM         = isCustom ? (am?.minGrid      ?? LIMITS.minGrid[modeIdx])      : LIMITS.minGrid[modeIdx];
-    const MAX_NONLINEAR_ITERATIONS = isCustom ? (am?.maxIter      ?? LIMITS.maxIter[modeIdx])      : LIMITS.maxIter[modeIdx];
     const NONLINEAR_TOLERANCE_K    = isCustom ? (am?.tolerance    ?? LIMITS.tolerance[modeIdx])    : LIMITS.tolerance[modeIdx];
     const ADAPTIVE_MAX_DT          = isCustom ? (am?.maxDt        ?? LIMITS.maxDt[modeIdx])        : LIMITS.maxDt[modeIdx];
     const TARGET_DELTA_T           = isCustom ? (am?.targetDt     ?? LIMITS.targetDt[modeIdx])     : LIMITS.targetDt[modeIdx];
@@ -799,8 +795,10 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         let lastIterMaxSignedDiff = 0.0;
         let stepMaxGridError = 0.0;
 
-        for (let iter = 0; iter < MAX_NONLINEAR_ITERATIONS; iter++) {
+        let prevDeltaK = Infinity;
+        let consecutiveBadSteps = 0;
 
+        for (let iter = 0; iter < MAX_PICARD_ITERATIONS; iter++) {
             totalPicardIterations++;
 
             matrixA.fill(0);
@@ -997,12 +995,37 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             buffers[newIdx].set(solverX);
             lastIterMaxSignedDiff = localMaxSignedDiff;
 
+            buffers[newIdx].set(solverX);
+            lastIterMaxSignedDiff = localMaxSignedDiff;
+
+            // 1. Сначала проверяем фактическую сходимость (У вас сделано верно)
             if (maxDeltaK < NONLINEAR_TOLERANCE_K) {
                 nonlinearConverged = true;
                 stepMaxGridError = iterMaxGridError;
                 break;
             }
 
+            // 2. Адаптивный Пикар: контроль расходимости и стагнации O(1)
+            if (iter >= 4) {
+                // Фиксация устойчивого взрывного роста ошибки (более чем на 20%)
+                if (maxDeltaK > prevDeltaK * 1.20) {
+                    consecutiveBadSteps++;
+                    if (consecutiveBadSteps >= 2) {
+                        break; // Выходим из Пикара. Шаг гарантированно уйдет в реджект и dt уменьшится.
+                    }
+                } else {
+                    consecutiveBadSteps = 0; // Сброс счетчика, если ошибка пошла вниз
+                }
+
+                // Мягкая защита от бесконечной "черепашьей" стагнации (Экономия CPU)
+                // Если мы на 6+ итерации, а ошибка падает слишком вяло (менее чем на 5% за проход),
+                // прерываем шаг досрочно ради пересчета на меньшем, быстром dt.
+                if (iter >= 6 && maxDeltaK >= prevDeltaK * 0.95) {
+                    break;
+                }
+            }
+
+            prevDeltaK = maxDeltaK;
         }
 
         if (!nonlinearConverged) {

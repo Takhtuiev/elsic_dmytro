@@ -360,7 +360,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
         try {
             const uiModelPresets = {};
-            const keysToProcess = typeof LIMITS !== "undefined" ? Object.keys(LIMITS) : ["gridX", "gridY", "minGrid", "maxIter", "tolerance", "maxDt", "targetDt", "growthFactor", "shrinkFactor"];
+            const keysToProcess = typeof LIMITS !== "undefined" ? Object.keys(LIMITS) : ["gridX", "gridY", "minGrid", "tolerance", "maxDt", "targetDt", "growthFactor", "shrinkFactor"];
             const currentModes = accuracyModes || ["fast", "optimal", "accurate", "accurate2"];
 
             currentModes.forEach((modeName, modeIdx) => {
