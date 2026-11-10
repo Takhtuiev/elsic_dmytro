@@ -477,6 +477,7 @@ function isTargetReached2D(T, Nx, Ny, target, targetK, outCurrentValue) {
 }
 
 export function simulate2DHeating({ thicknessMm, material, machine, simulation, storeHistory = false, onProgress }) {
+
     const calculationStart = performance.now();
     const mach = normalizeMachine(machine);
     if (!mach) return makeError("Invalid machine.");
