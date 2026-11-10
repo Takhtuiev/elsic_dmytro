@@ -17,9 +17,9 @@ export const OPTIMIZER_BASE_CONFIG = {
 };
 
 export const OPTIMIZER_SETTINGS = {
-    optimizationObjective: 'minimize_load',  // minimize_load , minimize_error
-    maxErrorScore: 0.50,
-    maxAllowedLoad: 25000000,
+    optimizationObjective: 'minimize_error',  // minimize_load , minimize_error
+    maxErrorScore: 0.20,
+    maxAllowedLoad: 250000000,
     randomInitPoints: 24,
     totalBudgetIterations: 200,
     earlyAbortLoadMultiplier: 2
