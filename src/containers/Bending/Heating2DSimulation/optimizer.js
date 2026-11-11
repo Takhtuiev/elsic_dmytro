@@ -536,12 +536,50 @@ function optimizeLengthScales(X, Y, noise, numParams, progressFactor = 0.2, isCo
         );
     }
 
-    let sampleX = X; let sampleY = Y; let sampleNoise = noise; let sampleIsComplete = isComplete;
+    let sampleX = X;
+    let sampleY = Y;
+    let sampleNoise = noise;
+    let sampleIsComplete = isComplete;
+
     if (X.length > MAX_SAMPLES) {
-        const indices = selectDiverseIndices(X, MAX_SAMPLES);
-        sampleX = indices.map(i => X[i]); sampleY = indices.map(i => Y[i]); sampleNoise = indices.map(i => noise[i]);
-        sampleIsComplete = indices.map(i => isComplete[i]);
+        const completeIndices = [];
+        const abortIndices = [];
+
+        for (let i = 0; i < X.length; i++) {
+            if (isComplete[i]) {
+                completeIndices.push(i);
+            } else {
+                abortIndices.push(i);
+            }
+        }
+
+        let selectedIndices = [];
+
+        if (completeIndices.length >= MAX_SAMPLES) {
+            const completeX = completeIndices.map(i => X[i]);
+            const diverseSub = selectDiverseIndices(completeX, MAX_SAMPLES);
+            selectedIndices = diverseSub.map(subIdx => completeIndices[subIdx]);
+        } else {
+            selectedIndices = [...completeIndices];
+            const remainingSlots = MAX_SAMPLES - selectedIndices.length;
+
+            if (remainingSlots > 0 && abortIndices.length > 0) {
+                const abortX = abortIndices.map(i => X[i]);
+                const diverseAborts = selectDiverseIndices(abortX, remainingSlots);
+                for (const subIdx of diverseAborts) {
+                    selectedIndices.push(abortIndices[subIdx]);
+                }
+            }
+        }
+
+        selectedIndices.sort((a, b) => a - b);
+
+        sampleX = selectedIndices.map(i => X[i]);
+        sampleY = selectedIndices.map(i => Y[i]);
+        sampleNoise = selectedIndices.map(i => noise[i]);
+        sampleIsComplete = selectedIndices.map(i => isComplete[i]);
     }
+
     const initialScales = estimateLengthScales(sampleX, numParams);
 
     const scales = new Float64Array(numParams);
@@ -1416,8 +1454,25 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         );
     }
 
+
     const absoluteCeiling =
         maxAllowedLoad * earlyAbortLoadMultiplier;
+
+    const errorViolationScale =
+        maxAllowedErrorScore > 0
+            ? maxAllowedErrorScore
+            : (Number.isFinite(options.errorViolationScale) && options.errorViolationScale > 0
+                ? options.errorViolationScale
+                : 1.0);
+
+    if (
+        !Number.isFinite(errorViolationScale) ||
+        errorViolationScale <= 0
+    ) {
+        throw new Error(
+            "При maxErrorScore = 0 необходимо задать errorViolationScale > 0."
+        );
+    }
 
     const massiveLoadLimit =
         absoluteCeiling * 3;
@@ -1439,6 +1494,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
     let loadLengthScales = null;
     let errorLengthScales = null;
+    let lastLengthScaleOptimizationStep = -Infinity;
 
     self.lastEvaluatedBestParams = null;
     self.lastEvaluatedBestMetrics = null;
@@ -1494,20 +1550,51 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         paramKeys.forEach((key, idx) => {
             const range = config[key];
-            result[key] = range.min + canonicalX[idx] * (range.max - range.min);
+            let val = range.min + canonicalX[idx] * (range.max - range.min);
+            if (range.integer) {
+                val = Math.round(val);
+            } else if (Number.isInteger(range.digits)) {
+                val = Number(val.toFixed(range.digits));
+            }
+            result[key] = Math.max(range.min, Math.min(range.max, val));
         });
 
         return result;
     };
 
-    const isValidPhysical = physical => (
-        Number.isFinite(physical?.gridX) &&
-        Number.isFinite(physical?.gridY) &&
-        Number.isFinite(physical?.minGrid) &&
-        // minGrid должен быть строго меньше как шага по X, так и шага по Y
-        physical.minGrid < physical.gridX &&
-        physical.minGrid < physical.gridY
-    );
+    const isValidPhysical = physical => {
+        if (!physical || typeof physical !== "object") return false;
+        for (const key of paramKeys) {
+            const val = physical[key];
+            const range = config[key];
+            if (!Number.isFinite(val) || val < range.min || val > range.max) {
+                return false;
+            }
+        }
+        return (
+            Number.isFinite(physical.gridX) &&
+            Number.isFinite(physical.gridY) &&
+            Number.isFinite(physical.minGrid) &&
+            physical.minGrid < physical.gridX &&
+            physical.minGrid < physical.gridY
+        );
+    };
+
+    // Единая функция канонизации: возвращает округленные физические параметры и синхронизированный normX
+    const quantizeCandidate = rawX => {
+        const physical = toPhysical(rawX);
+        if (!isValidPhysical(physical)) return null;
+
+        const quantizedX = new Float64Array(numParams);
+        for (let i = 0; i < numParams; i++) {
+            const key = paramKeys[i];
+            const range = config[key];
+            quantizedX[i] = range.max !== range.min
+                ? Math.max(0, Math.min(1, (physical[key] - range.min) / (range.max - range.min)))
+                : 0;
+        }
+        return { x: quantizedX, physical, key: getPhysicalKeyFromPhysical(physical) };
+    };
 
     const normalizeParamObject = pObj => {
         if (
@@ -1564,21 +1651,14 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             attempt < maxAttempts;
             attempt++
         ) {
-            // Заменяем Math.random() на генератор Соболя
-            const rawX = nextSobolPoint();
+            const q = quantizeCandidate(nextSobolPoint());
+            if (!q) continue;
 
-            const x = canonicalizeNormalized(rawX);
-            const physical = toPhysical(x);
-
-            if (!isValidPhysical(physical)) continue;
-
-            const key = getPhysicalKey(x);
-
-            if (seenKeys && seenKeys.has(key)) {
+            if (seenKeys && seenKeys.has(q.key)) {
                 continue;
             }
 
-            return { x, physical, key };
+            return q;
         }
 
         return null;
@@ -1739,15 +1819,10 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             (load - maxAllowedLoad) / maxAllowedLoad
         );
 
-        // При нулевом допустимом error используем абсолютное
-        // нарушение, чтобы не делить на искусственные 1e-12.
-        const errorViolation = maxAllowedErrorScore === 0
-            ? Math.max(0, error)
-            : Math.max(
-                0,
-                (error - maxAllowedErrorScore) /
-                maxAllowedErrorScore
-            );
+        const errorViolation = Math.max(
+            0,
+            (error - maxAllowedErrorScore) / errorViolationScale
+        );
 
         return Math.max(
             loadViolation,
@@ -1781,17 +1856,17 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         };
     }
 
-    // Синхронизация истории Trust Regions по результатам симуляции
+    // Единая метрика приоритета региона для выбора и вытеснения
     const getRegionPriority = region => {
         const successRate = (region.improvements + 1) / (region.attempts + 2);
-        return successRate * (0.5 + region.radius) * Math.pow(0.85, region.failures);
+        const explorationValue = Math.sqrt(region.radius / 0.15);
+        const failurePenalty = Math.pow(0.85, region.failures);
+        return successRate * explorationValue * failurePenalty;
     };
 
-    const updateTrustRegions = (normX, load, errorScore, isComplete, isGlobalCandidate = false) => {
-        if (!isComplete || !Number.isFinite(load) || !Number.isFinite(errorScore)) return;
+    const updateTrustRegions = (normX, load, errorScore, outcomeStatus, isGlobalCandidate = false) => {
+        if (outcomeStatus === "ERROR") return;
 
-        const currentObjective = getObjectiveValue(load, errorScore);
-        const violation = getConstraintViolation(load, errorScore);
         const currentScales = objective === "minimize_load"
             ? (loadLengthScales || new Float64Array(numParams).fill(0.55))
             : (errorLengthScales || new Float64Array(numParams).fill(0.55));
@@ -1801,16 +1876,53 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         for (const region of searchRegions) {
             if (!region.active) continue;
-            const dist = calculateKernelDistance(normX, region.center, currentScales);
-            if (dist < minDistance) {
+
+            const dist = calculateKernelDistance(
+                normX,
+                region.center,
+                currentScales
+            );
+
+            const regionThreshold = Math.max(
+                0.04,
+                region.radius * 1.5
+            );
+
+            if (dist < regionThreshold && dist < minDistance) {
                 minDistance = dist;
                 associatedRegion = region;
             }
         }
 
-        const REGION_MATCH_THRESHOLD = 0.4;
+        const handleRegionFailure = region => {
+            region.failures++;
+            region.rawDirection = null;
 
-        if (associatedRegion && minDistance < REGION_MATCH_THRESHOLD) {
+            if (region.failures % 3 === 0) {
+                region.radius = Math.max(0.015, region.radius * 0.72);
+            }
+
+            // Даём региону время на микро-полировку на минимальном радиусе,
+            // удаляем только после 25 неудач подряд
+            if (region.failures >= 25) {
+                region.active = false;
+            }
+        };
+
+        if (outcomeStatus === "ABORT") {
+            if (associatedRegion) {
+                associatedRegion.attempts++;
+                handleRegionFailure(associatedRegion);
+            }
+            return;
+        }
+
+        if (!Number.isFinite(load) || !Number.isFinite(errorScore)) return;
+
+        const currentObjective = getObjectiveValue(load, errorScore);
+        const violation = getConstraintViolation(load, errorScore);
+
+        if (associatedRegion) {
             associatedRegion.attempts++;
 
             const isImprovement =
@@ -1821,7 +1933,6 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 const prevBest = associatedRegion.bestX.slice();
                 associatedRegion.previousBestX = prevBest;
 
-                // Сохраняем инвариантный сдвиг в [0, 1]^D без привязки к текущим lengthScales
                 const rawDelta = new Float64Array(numParams);
                 let hasMovement = false;
                 for (let d = 0; d < numParams; d++) {
@@ -1841,18 +1952,9 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 associatedRegion.improvements++;
                 associatedRegion.failures = 0;
                 associatedRegion.lastImprovementStep = currentExecutionCount;
-                associatedRegion.radius = Math.min(0.30, associatedRegion.radius * 1.15);
+                associatedRegion.radius = Math.min(0.25, associatedRegion.radius * 1.12);
             } else {
-                associatedRegion.failures++;
-                // Сбрасываем вектор направления, как только серия улучшений прервалась
-                associatedRegion.rawDirection = null;
-
-                if (associatedRegion.failures % 3 === 0) {
-                    associatedRegion.radius = Math.max(0.02, associatedRegion.radius * 0.70);
-                }
-                if (associatedRegion.radius <= 0.02 && associatedRegion.failures >= 9) {
-                    associatedRegion.active = false;
-                }
+                handleRegionFailure(associatedRegion);
             }
             return;
         }
@@ -1867,7 +1969,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             bestError: errorScore,
             bestObjective: currentObjective,
             bestViolation: violation,
-            radius: 0.15,
+            radius: 0.12,
             attempts: 1,
             improvements: 1,
             failures: 0,
@@ -1887,45 +1989,44 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             return;
         }
 
-        // Поиск наиболее слабого региона для возможной замены
+        // Ищем самый слабый или давно заброшенный регион для замены
         let weakestIndex = -1;
-        let lowestPriority = Infinity;
+        let lowestScore = Infinity;
 
         for (let i = 0; i < searchRegions.length; i++) {
             const reg = searchRegions[i];
-            if (reg.attempts < 3) continue;
+            const idleSteps = currentExecutionCount - reg.lastImprovementStep;
 
-            const priority = getRegionPriority(reg);
-            if (priority < lowestPriority) {
-                lowestPriority = priority;
+            // Разрешаем вытеснять регионы с 1 попыткой, если они простаивают больше 20 шагов
+            if (reg.attempts < 3 && idleSteps < 20) continue;
+
+            const idlePenalty = idleSteps >= 20 ? 0.25 : 1.0;
+            const effectiveScore = getRegionPriority(reg) * idlePenalty;
+
+            if (effectiveScore < lowestScore) {
+                lowestScore = effectiveScore;
                 weakestIndex = i;
             }
         }
 
         if (weakestIndex >= 0) {
             const weakest = searchRegions[weakestIndex];
-            const stepsSinceImprovement = currentExecutionCount - weakest.lastImprovementStep;
+            const idleSteps = currentExecutionCount - weakest.lastImprovementStep;
 
             const isStrictlyBetter =
                 violation < weakest.bestViolation ||
                 (violation === weakest.bestViolation && currentObjective < weakest.bestObjective);
 
-            // Сопоставимое качество: обе точки допустимы и новая хуже не более чем на 25%
             const isComparableFeasible =
                 violation === 0 &&
                 weakest.bestViolation === 0 &&
                 currentObjective <= weakest.bestObjective * 1.25;
 
-            // Заменяем, если новая точка строго лучше, ИЛИ если регион давно стагнирует (>= 8 шагов без улучшений),
-            // его радиус уже сильно сузился, а глобальный кандидат показывает сопоставимое качество
-            const isStagnantAndOutclassed =
-                isGlobalCandidate &&
-                lowestPriority < 0.12 &&
-                stepsSinceImprovement >= 8 &&
-                weakest.radius <= 0.08 &&
-                isComparableFeasible;
+            const isIdleOrStagnant =
+                idleSteps >= 20 ||
+                (isGlobalCandidate && lowestScore < 0.12 && idleSteps >= 8 && isComparableFeasible);
 
-            if (isStrictlyBetter || isStagnantAndOutclassed) {
+            if (isStrictlyBetter || isIdleOrStagnant) {
                 searchRegions[weakestIndex] = createNewRegionObject(weakest.id);
             }
         }
@@ -1937,32 +2038,12 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         normX,
         customTag = null
     ) => {
-        normX = canonicalizeNormalized(normX);
-        paramsObj = toPhysical(normX);
+        const q = quantizeCandidate(normX);
+        if (!q) return null;
 
-        // КОРРЕКЦИЯ: Округляем физические параметры строго по правилам digits из конфига
-        paramKeys.forEach(key => {
-            const configuredDigits = config[key]?.digits;
-            if (Number.isInteger(configuredDigits) && Number.isFinite(paramsObj[key])) {
-                paramsObj[key] = Number(paramsObj[key].toFixed(configuredDigits));
-            }
-        });
-
-        // ИСПРАВЛЕНО: Защита симулятора от некорректных пропорций (например, gridX <= minGrid) после округления
-        if (!isValidPhysical(paramsObj)) {
-            return null;
-        }
-
-        // КОРРЕКЦИЯ: Синхронизируем normX обратно, чтобы GP знал точные округленные координаты
-        for (let i = 0; i < numParams; i++) {
-            const key = paramKeys[i];
-            const range = config[key];
-            if (range.max !== range.min) {
-                normX[i] = Math.max(0, Math.min(1, (paramsObj[key] - range.min) / (range.max - range.min)));
-            }
-        }
-
-        const physicalKey = getPhysicalKeyFromPhysical(paramsObj);
+        normX = q.x;
+        paramsObj = q.physical;
+        const physicalKey = q.key;
 
         if (evaluatedKeys.has(physicalKey)) {
             return null; // Защита от повторного вызова одной и той же сетки после округления
@@ -2027,7 +2108,9 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                     progressHistory.length - 1
                         ];
 
-                if (percent > lastProgress) {
+                const isNewProgressStep = percent > lastProgress;
+
+                if (isNewProgressStep) {
                     progressHistory.push({
                         percent,
                         load: currentLoad
@@ -2100,7 +2183,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                     return true;
                 };
 
-                // Условие 1: ИСПРАВЛЕНО — Сначала ловим аномальный взрыв нагрузки на старте (до 10% прогресса)
+                // Условие 1: Сначала ловим аномальный взрыв нагрузки на старте (до 10% прогресса)
                 if (
                     percent < 10 &&
                     currentLoad > massiveLoadLimit
@@ -2129,14 +2212,17 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 }
 
                 // Шаг 3: Проверяем экстраполированный прогноз тренда нагрузки
+// Шаг 3: Проверяем экстраполированный прогноз тренда нагрузки
                 if (
                     percent <= MAX_ABORT_PROGRESS_PERCENT &&
                     predictedFinalLoad !== null
                 ) {
-                    if (predictedFinalLoad > absoluteCeiling) {
-                        predictedAbortCount++;
-                    } else {
-                        predictedAbortCount = 0;
+                    if (isNewProgressStep) {
+                        if (predictedFinalLoad > absoluteCeiling) {
+                            predictedAbortCount++;
+                        } else {
+                            predictedAbortCount = 0;
+                        }
                     }
 
                     if (predictedAbortCount >= REQUIRED_PREDICTED_ABORTS) {
@@ -2234,6 +2320,16 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 finalMessage,
                 invalidSnapshot
             );
+
+            if (wasAborted) {
+                updateTrustRegions(
+                    normX,
+                    NaN,
+                    NaN,
+                    "ABORT",
+                    Boolean(decision?.isGlobalExploration)
+                );
+            }
 
             return null;
         }
@@ -2572,8 +2668,8 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         );
 
         // Обновляем статистику регионов доверия на основе исхода шага
-        const isStrictlyValid = !isAborted && !isError && isValidObservation;
-        updateTrustRegions(normX, load, errorScore, isStrictlyValid, Boolean(decision?.isGlobalExploration));
+        const outcomeStatus = isValidObservation ? "SUCCESS" : (isAborted ? "ABORT" : "ERROR");
+        updateTrustRegions(normX, load, errorScore, outcomeStatus, Boolean(decision?.isGlobalExploration));
 
         return isValidObservation
             ? { load, errorScore, feasible: load <= maxAllowedLoad && errorScore <= maxAllowedErrorScore }
@@ -2584,6 +2680,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     // ------------------------------------------------------------
     // INITIAL PRESETS
     // ------------------------------------------------------------
+
 
     if (options.modelPresets) {
         const modesToLoad =
@@ -2662,9 +2759,9 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     // BAYESIAN OPTIMIZATION
     // ------------------------------------------------------------
 
-    const FEASIBILITY_EXPLORATION_INTERVAL = 8;
-    const MIN_SELECTED_FEASIBILITY = 0.10;
-    const MIN_FEASIBILITY_GAIN = 0.08;
+    const FEASIBILITY_EXPLORATION_INTERVAL = 12;
+    const MIN_SELECTED_FEASIBILITY = 0.03;
+    const MIN_FEASIBILITY_GAIN = 0.15;
 
     let bayesianDecisionCount = 0;
     let consecutiveMatrixFailures = 0;
@@ -2682,11 +2779,32 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         const progressFactor = Math.min(1.0, currentExecutionCount / Math.max(1, totalIterations));
 
         // Адаптивный интервал переобучения весов ядра GP (Плавный рост без ступеней)
-        const reoptimizeInterval = Math.max(10, Math.floor(10 + progressFactor * 22));
+        const reoptimizeInterval = Math.max(
+            10,
+            Math.floor(10 + progressFactor * 22)
+        );
 
-        if (!loadLengthScales || bayesianDecisionCount % reoptimizeInterval === 0) {
-            loadLengthScales = optimizeLengthScales(observedX, observedLogLoad, observedLoadNoise, numParams, progressFactor, observedIsComplete);
-            errorLengthScales = optimizeLengthScales(observedX, observedLogError, observedErrorNoise, numParams, progressFactor, observedIsComplete);
+        if (
+            !loadLengthScales ||
+            currentExecutionCount - lastLengthScaleOptimizationStep >= reoptimizeInterval
+        ) {
+            loadLengthScales = optimizeLengthScales(
+                observedX,
+                observedLogLoad,
+                observedLoadNoise,
+                numParams,
+                progressFactor,
+                observedIsComplete
+            );
+            errorLengthScales = optimizeLengthScales(
+                observedX,
+                observedLogError,
+                observedErrorNoise,
+                numParams,
+                progressFactor,
+                observedIsComplete
+            );
+            lastLengthScaleOptimizationStep = currentExecutionCount;
         }
 
         const loadGP = fitGaussianProcess(observedX, observedLogLoad, observedLoadNoise, loadLengthScales, observedIsComplete);
@@ -2704,8 +2822,8 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         const candidates = [];
         const candidateSources = []; // Диагностический трекер источника точки
-        const candidatesCount = Math.min(2000, 1000 + currentExecutionCount * 12);
-        const localExplorers = Math.min(300, 150 + Math.floor(currentExecutionCount * 3.0));
+        const candidatesCount = Math.min(2000, 1000 + currentExecutionCount * 10);
+        const localExplorers = Math.min(600, 200 + Math.floor(progressFactor * 400));
 
         let randomCandidatesGenerated = 0; let randomCandidatesRejected = 0;
         let localCandidatesGenerated = 0; let localCandidatesRejected = 0;
@@ -2726,20 +2844,14 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             ) {
             sobolAttempts++;
 
-            const rawX = nextSobolPoint();
-            const x = canonicalizeNormalized(rawX);
-            const physical = toPhysical(x);
-
-            if (!isValidPhysical(physical)) {
+            const q = quantizeCandidate(nextSobolPoint());
+            if (!q || seenCandidateKeys.has(q.key)) {
                 randomCandidatesRejected++;
                 continue;
             }
 
-            const key = getPhysicalKey(x);
-            if (seenCandidateKeys.has(key)) {
-                randomCandidatesRejected++;
-                continue;
-            }
+            const x = q.x;
+            const key = q.key;
 
             let isTooClose = false;
             for (let i = 0; i < observedX.length; i++) {
@@ -2770,12 +2882,10 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         const minimizeLoad = objective === "minimize_load";
         const activeRegions = searchRegions.filter(r => r.active);
 
-        // Динамические приоритеты регионов (Quality Roulette Wheel)
+        // Единый приоритет регионов (Quality Roulette Wheel)
         let totalRegionScore = 0;
         const regionWeights = activeRegions.map(reg => {
-            const successRate = (reg.improvements + 1) / (reg.attempts + 2);
-            const penaltyFactor = reg.failures > 0 ? Math.pow(0.85, reg.failures) : 1.0;
-            const score = successRate * reg.radius * penaltyFactor;
+            const score = getRegionPriority(reg);
             totalRegionScore += score;
             return { reg, score };
         });
@@ -2802,7 +2912,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             const useDirectional = Boolean(region.rawDirection) && Math.random() < 0.35;
 
             if (useDirectional) {
-                // Нормируем сохранённый сдвиг в актуальных ARD-шкалах ядра
+                // Нормируем сохранённый сдвиг в актуальных ARD-шкалах ядра (по RMS-норме)
                 const scaledDir = new Float64Array(numParams);
                 let normSq = 0;
 
@@ -2813,14 +2923,16 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                     normSq += sDiff * sDiff;
                 }
 
-                if (normSq > 1e-12) {
-                    const invNorm = 1 / Math.sqrt(normSq);
+                // Делим на numParams, чтобы единичный вектор имел RMS-норму = 1
+                const rmsNormSq = normSq / numParams;
+
+                if (rmsNormSq > 1e-12) {
+                    const invRmsNorm = 1 / Math.sqrt(rmsNormSq);
                     const step = region.radius * (0.3 + 0.9 * Math.random());
 
                     for (let d = 0; d < numParams; d++) {
                         const scale = Math.max(0.05, Math.min(1.5, regionScales?.[d] ?? 0.55));
-                        // (scaledDir[d] * invNorm) — единичный вектор в ARD-метрике; умножение на scale возвращает в [0, 1]
-                        const offset = (scaledDir[d] * invNorm) * step * scale;
+                        const offset = (scaledDir[d] * invRmsNorm) * step * scale;
                         mutatedX[d] = Math.max(0, Math.min(1, basePoint[d] + offset));
                     }
                 } else {
@@ -2837,16 +2949,15 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 }
             }
 
-            const physical = toPhysical(mutatedX);
-            const key = getPhysicalKey(mutatedX);
+            const q = quantizeCandidate(mutatedX);
 
-            if (isValidPhysical(physical) && !seenCandidateKeys.has(key)) {
-                candidates.push(mutatedX);
+            if (q && !seenCandidateKeys.has(q.key)) {
+                candidates.push(q.x);
                 candidateSources.push({
                     type: useDirectional ? "LOCAL_DIRECTIONAL" : "LOCAL",
                     regionId: region.id
                 });
-                seenCandidateKeys.add(key);
+                seenCandidateKeys.add(q.key);
                 localCandidatesGenerated++;
             } else {
                 localCandidatesRejected++;
@@ -2965,20 +3076,18 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 }
 
                 const acquisition = ei;
+                const activeScales = minimizeLoad ? loadLengthScales : errorLengthScales;
 
-                let densityPenalty = 0;
+                let crowding = 0;
                 for (let i = 0; i < observedX.length; i++) {
-                    let distSq = 0;
-                    for (let d = 0; d < numParams; d++) {
-                        const diff = candX[d] - observedX[i][d];
-                        distSq += diff * diff;
-                    }
-                    if (distSq < 0.15 * 0.15) {
-                        densityPenalty += (1.0 - Math.sqrt(distSq) / 0.15) * 0.05;
+                    const dKernel = calculateKernelDistance(candX, observedX[i], activeScales);
+                    if (dKernel < 0.25) {
+                        crowding += (1.0 - dKernel / 0.25) * 0.25;
                     }
                 }
 
-                const balancedAcquisition = acquisition - densityPenalty;
+                const clampedPenalty = Math.min(0.85, crowding);
+                const balancedAcquisition = acquisition * (1.0 - clampedPenalty);
 
                 if (balancedAcquisition > bestAcquisition) {
                     bestAcquisition = balancedAcquisition;
@@ -3301,8 +3410,16 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 }
                 : "No predictions available (Random Fallback)",
 
-            selectedParams:
-                toPhysical(nextBestX)
+            selectedParams: toPhysical(nextBestX),
+
+            regionsDiagnostics: activeRegions.map(reg => ({
+                id: reg.id,
+                priority: getRegionPriority(reg),
+                radius: reg.radius,
+                attempts: reg.attempts,
+                improvements: reg.improvements,
+                failures: reg.failures
+            })),
         });
 
         evaluate(
