@@ -1679,9 +1679,9 @@ function createSobolGenerator(dimensions) {
     };
 }
 
-export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
-
-    let currentExecutionCount = 0;
+export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
+    const state = options.resumeState || null;
+    let currentExecutionCount = state ? state.currentExecutionCount : 0;
 
     if (
         !baseParams ||
@@ -1733,11 +1733,13 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         );
     }
 
-    const totalIterations = Math.floor(requestedIterations);
+    const extraIterations = Math.floor(requestedIterations);
 
-    if (totalIterations < 1) {
+    if (extraIterations < 1) {
         throw new Error("Бюджет оптимизации должен быть не менее 1.");
     }
+
+    const totalIterations = currentExecutionCount + extraIterations;
 
     // Нужна хотя бы одна начальная точка для обучения GP.
     const initPointsCount = Math.min(
@@ -1844,14 +1846,13 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     }
 
     // Глобальный контекст для сохранения истории ЕМА-калибровки остатков
-    self.lastEMAStorage = { load: 1.0, error: 1.0 };
+    self.lastEMAStorage = state?.lastEMAStorage || { load: 1.0, error: 1.0 };
 
     // Память регионов доверия (Trust Regions State)
-    // Память регионов доверия (Trust Regions State)
-    const searchRegions = [];
+    const searchRegions = state?.searchRegions || [];
 
     // Единый стейт глобальной модели (Global GP)
-    const globalGPState = {
+    const globalGPState = state?.globalGPState || {
         loadLengthScales: null,
         errorLengthScales: null,
         lastLoadScaleCompleteCount: -Infinity,
@@ -1859,9 +1860,11 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         model: null
     };
 
-    self.lastEvaluatedBestParams = null;
-    self.lastEvaluatedBestMetrics = null;
-    self.lastEvaluatedBestStepNumber = null;
+    if (!state) {
+        self.lastEvaluatedBestParams = null;
+        self.lastEvaluatedBestMetrics = null;
+        self.lastEvaluatedBestStepNumber = null;
+    }
 
     const getPhysicalKeyFromPhysical = physical =>
         paramKeys.map(key => String(physical[key])).join("|");
@@ -1997,10 +2000,23 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     };
 
 
-    const evaluatedKeys = new Set();
+    const evaluatedKeys = state?.evaluatedKeys || new Set();
 
-    const nextSobolPoint =
-        createSobolGenerator(numParams);
+    const rawNextSobolPoint = createSobolGenerator(numParams);
+    let sobolDrawsCount = state?.sobolDraws || 0;
+
+    // Если это продолжение — проматываем генератор Соболя до места остановки
+    if (sobolDrawsCount > 0) {
+        for (let i = 0; i < sobolDrawsCount; i++) {
+            rawNextSobolPoint();
+        }
+    }
+
+    // Обёртка, которая автоматически считает количество вызовов Соболя
+    const nextSobolPoint = () => {
+        sobolDrawsCount++;
+        return rawNextSobolPoint();
+    };
 
     const generateRandomPoint = (
         seenKeys = null,
@@ -2024,38 +2040,37 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         return null;
     };
 
-    const observedX = [];
-    const observedLoad = [];
-    const observedError = [];
-    const observedLogLoad = [];
-    const observedLogError = [];
-    const observedLoadNoise = [];
-    const observedErrorNoise = [];
-    const observedRegionIds = []; // -1 = Global / Init, >= 0 = ID региона
+    const observedX = state?.observedX || [];
+    const observedLoad = state?.observedLoad || [];
+    const observedError = state?.observedError || [];
+    const observedLogLoad = state?.observedLogLoad || [];
+    const observedLogError = state?.observedLogError || [];
+    const observedLoadNoise = state?.observedLoadNoise || [];
+    const observedErrorNoise = state?.observedErrorNoise || [];
+    const observedRegionIds = state?.observedRegionIds || []; // -1 = Global / Init, >= 0 = ID региона
 
     // false = частичное ABORT-наблюдение.
     // true = полностью завершённая симуляция.
     // ABORT остаётся в обучении GP, но не участвует в элитных точках.
-    const observedIsComplete = [];
+    const observedIsComplete = state?.observedIsComplete || [];
 
-    const residualPairs = [];
+    const residualPairs = state?.residualPairs || [];
     const MAX_RESIDUAL_PAIRS = 100;
 
     const MIN_ABORT_TRAINING_PROGRESS = 5;
     const MAX_ABORT_PROGRESS_PERCENT = 50;
 
+    let gBestMetrics = state?.gBestMetrics || null;
+    let gBestPhysical = state?.gBestPhysical || null;
+    let gBestLoad = state?.gBestLoad ?? Infinity;
+    let gBestError = state?.gBestError ?? Infinity;
 
-    let gBestMetrics = null;
-    let gBestPhysical = null;
-    let gBestLoad = Infinity;
-    let gBestError = Infinity;
-
-    let fallbackMetrics = null;
-    let fallbackPhysical = null;
-    let fallbackLoad = Infinity;
-    let fallbackError = Infinity;
-    let fallbackViolation = Infinity;
-    let fallbackObjective = Infinity;
+    let fallbackMetrics = state?.fallbackMetrics || null;
+    let fallbackPhysical = state?.fallbackPhysical || null;
+    let fallbackLoad = state?.fallbackLoad ?? Infinity;
+    let fallbackError = state?.fallbackError ?? Infinity;
+    let fallbackViolation = state?.fallbackViolation ?? Infinity;
+    let fallbackObjective = state?.fallbackObjective ?? Infinity;
 
     let pendingDecision = null;
 
@@ -3103,82 +3118,93 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     };
 
 
-    // ------------------------------------------------------------
-    // INITIAL PRESETS
-    // ------------------------------------------------------------
+    if (!state) {
+        // ------------------------------------------------------------
+        // INITIAL PRESETS
+        // ------------------------------------------------------------
 
+        if (options.modelPresets) {
+            const modesToLoad =
+                Array.isArray(options.accuracyModes)
+                    ? options.accuracyModes
+                    : Object.keys(options.modelPresets);
 
-    if (options.modelPresets) {
-        const modesToLoad =
-            Array.isArray(options.accuracyModes)
-                ? options.accuracyModes
-                : Object.keys(options.modelPresets);
+            for (const presetKey of modesToLoad) {
+                if (typeof options.shouldStop === "function" && options.shouldStop()) {
+                    break;
+                }
 
-        for (const presetKey of modesToLoad) {
-            // Presets не должны превышать начальный бюджет.
-            if (currentExecutionCount >= initPointsCount) {
+                // Presets не должны превышать начальный бюджет.
+                if (currentExecutionCount >= initPointsCount) {
+                    break;
+                }
+
+                if (!options.modelPresets[presetKey]) {
+                    continue;
+                }
+
+                const vec = normalizeParamObject(
+                    options.modelPresets[presetKey]
+                );
+
+                if (!vec) continue;
+
+                const key = getPhysicalKey(vec);
+
+                if (evaluatedKeys.has(key)) {
+                    continue;
+                }
+
+                evaluate(
+                    toPhysical(vec),
+                    vec,
+                    "PRESET_" + String(presetKey).toUpperCase()
+                );
+            }
+        }
+
+        // ------------------------------------------------------------
+        // RANDOM INITIALIZATION
+        // ------------------------------------------------------------
+
+        let initialAttempts = 0;
+
+        const maxInitialAttempts = Math.max(
+            100,
+            initPointsCount * 100
+        );
+
+        while (
+            currentExecutionCount < initPointsCount &&
+            initialAttempts < maxInitialAttempts
+            ) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            if (typeof options.shouldStop === "function" && options.shouldStop()) {
                 break;
             }
 
-            if (!options.modelPresets[presetKey]) {
-                continue;
-            }
+            initialAttempts++;
 
-            const vec = normalizeParamObject(
-                options.modelPresets[presetKey]
+            const candidate = generateRandomPoint(
+                evaluatedKeys,
+                1
             );
 
-            if (!vec) continue;
-
-            const key = getPhysicalKey(vec);
-
-            if (evaluatedKeys.has(key)) {
-                continue;
-            }
+            if (!candidate) continue;
 
             evaluate(
-                toPhysical(vec),
-                vec,
-                "PRESET_" + String(presetKey).toUpperCase()
+                candidate.physical,
+                candidate.x,
+                "RANDOM_INIT_" + currentExecutionCount
             );
         }
-    }
 
-    // ------------------------------------------------------------
-    // RANDOM INITIALIZATION
-    // ------------------------------------------------------------
-
-    let initialAttempts = 0;
-
-    const maxInitialAttempts = Math.max(
-        100,
-        initPointsCount * 100
-    );
-
-    while (
-        currentExecutionCount < initPointsCount &&
-        initialAttempts < maxInitialAttempts
-        ) {
-        initialAttempts++;
-
-        const candidate = generateRandomPoint(
-            evaluatedKeys,
-            1
-        );
-
-        if (!candidate) continue;
-
-        evaluate(
-            candidate.physical,
-            candidate.x,
-            "RANDOM_INIT_" + currentExecutionCount
-        );
-    }
-
-    if (currentExecutionCount === 0) {
-        throw new Error(
-            "Не удалось сформировать ни одной допустимой начальной точки."
-        );
+        if (currentExecutionCount === 0) {
+            throw new Error(
+                "Не удалось сформировать ни одной допустимой начальной точки."
+            );
+        }
     }
 
     // ------------------------------------------------------------
@@ -3189,10 +3215,29 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     let consecutiveMatrixFailures = 0;
 
     while (currentExecutionCount < totalIterations) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        if (typeof options.shouldStop === "function" && options.shouldStop()) {
+            break;
+        }
+
         bayesianDecisionCount++;
 
         const N = observedX.length;
         if (N === 0) break;
+
+        // Сигнализируем UI, что началась фаза математического подбора следующей точки
+        if (typeof options.onProgress === "function") {
+            const nextStepNum = currentExecutionCount + 1;
+            options.onProgress(0, nextStepNum, totalIterations, {
+                currentStepVisual: nextStepNum,
+                status: "THINKING",
+                percent: 0,
+                candidateParams: null,
+                technicalMetrics: null,
+                message: "Fitting Gaussian Processes & evaluating candidates..."
+            });
+        }
 
         // ========================================================================
         // ГЛОБАЛЬНЫЙ ДИНАМИЧЕСКИЙ ДРЕЙФ ПРОГРЕССА (СВЯЗАНО С КОНФИГОМ ИНТЕРФЕЙСА)
@@ -4134,7 +4179,36 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             objective
         },
 
-        diagnosticLogText: diag.getText()
+        diagnosticLogText: diag.getText(),
+
+        resumeState: {
+            currentExecutionCount,
+            sobolDraws: sobolDrawsCount,
+            lastEMAStorage: self.lastEMAStorage,
+            evaluatedKeys,
+            observedX,
+            observedLoad,
+            observedError,
+            observedLogLoad,
+            observedLogError,
+            observedLoadNoise,
+            observedErrorNoise,
+            observedRegionIds,
+            observedIsComplete,
+            residualPairs,
+            searchRegions,
+            globalGPState,
+            gBestMetrics,
+            gBestPhysical,
+            gBestLoad,
+            gBestError,
+            fallbackMetrics,
+            fallbackPhysical,
+            fallbackLoad,
+            fallbackError,
+            fallbackViolation,
+            fallbackObjective
+        }
     };
 }
 

@@ -8,16 +8,30 @@ try {
         return new Date().toLocaleTimeString("uk-UA", { hour12: false });
     }
 
-    self.onmessage = function (e) {
-        const { baseParams, options } = e.data;
+    let savedResumeState = null;
+    let stopRequested = false;
 
+    self.onmessage = async function (e) {
+        const { command = "start", baseParams, options } = e.data;
+
+        if (command === "finish_now") {
+            stopRequested = true;
+            return;
+        }
+
+        if (command === "start") {
+            savedResumeState = null;
+            self.lastEvaluatedBestParams = null;
+            self.lastEvaluatedBestMetrics = null;
+            self.lastEvaluatedBestStepNumber = null;
+        }
+
+        stopRequested = false;
+        const activeResumeState = command === "continue" ? savedResumeState : null;
         const workerStartTime = performance.now();
 
-        let totalSimulationsExecuted = 0;
+        let totalSimulationsExecuted = activeResumeState ? activeResumeState.currentExecutionCount : 0;
         const fixedHeatingPercent = 90;
-
-        self.lastEvaluatedBestParams = null;
-        self.lastEvaluatedBestMetrics = null;
 
         const sendStructuredLog = function (stepMode, rawStatusMessage, snapshot) {
             const logTypeMap = {
@@ -38,7 +52,9 @@ try {
                     technicalMetrics: snapshot.technicalMetrics,
                     currentStepVisual: snapshot.currentStepVisual,
                     bestStepNumber: snapshot.bestStepNumber,
-                    message: snapshot.message
+                    message: snapshot.message,
+                    isFinalReportMarker: Boolean(snapshot.isFinalReportMarker),
+                    finalMetricsCache: snapshot.finalMetricsCache || null
                 }
             });
         };
@@ -68,6 +84,7 @@ try {
 
             self.postMessage({
                 status: 'progress_tick',
+                snapshotStatus: snapshot.status,
                 percent: snapshot.percent,
                 currentExecutionCount: snapshot.currentStepVisual,
                 totalIterations: totalIterations,
@@ -76,42 +93,60 @@ try {
                 bestStepNumber: snapshot.bestStepNumber
             });
         };
+
         try {
-            const result = optimizeForMaxSpeed(
+            const result = await optimizeForMaxSpeed(
                 baseParams,
                 simulateWithDynamicProgress,
                 {
                     ...options,
+                    resumeState: activeResumeState,
+                    shouldStop: () => stopRequested,
                     onProgress: progressHandler
                 }
             );
 
+            savedResumeState = result.resumeState;
+            const cleanResult = { ...result };
+            delete cleanResult.resumeState;
+
             const durationMs = performance.now() - workerStartTime;
 
             const finalReportSnapshot = {
-                currentStepVisual: self.lastEvaluatedBestStepNumber || totalSimulationsExecuted,
+                currentStepVisual: totalSimulationsExecuted,
                 status: "SUCCESS",
                 percent: 100,
-                candidateParams: result.optimalLimits,
+                candidateParams: cleanResult.optimalLimits,
                 technicalMetrics: {
                     calculationTimeMs: durationMs,
-                    iterations: { totalGridPointsProcessed: result.metrics?.achievedLoad || 0 },
-                    accuracy: { totalErrorScore: result.metrics?.resultingErrorScore || 0 }
+                    iterations: {
+                        totalGridPointsProcessed: cleanResult.metrics?.achievedLoad || 0,
+                        totalTimeSteps: self.lastEvaluatedBestMetrics?.iterations?.totalTimeSteps
+                    },
+                    accuracy: {
+                        totalErrorScore: cleanResult.metrics?.resultingErrorScore || 0
+                    }
                 },
                 message: null,
-                bestStepNumber: self.lastEvaluatedBestStepNumber
+                bestStepNumber: self.lastEvaluatedBestStepNumber,
+                isFinalReportMarker: true,
+                finalMetricsCache: {
+                    ...cleanResult.metrics,
+                    iterations: self.lastEvaluatedBestMetrics?.iterations || {}
+                }
             };
 
             sendStructuredLog(
                 "FINAL_REPORT",
-                "🏆 Optimization successfully completed! Final optimal parameters selected.",
+                stopRequested
+                    ? "⏹️ Optimization stopped by user! Best found parameters selected."
+                    : "🏆 Optimization successfully completed! Final optimal parameters selected.",
                 finalReportSnapshot
             );
 
-            // Родной коллбек успеха (остается без изменений)
             self.postMessage({
                 status: 'success',
-                data: result
+                data: cleanResult
             });
         } catch (error) {
             self.postMessage({
@@ -119,8 +154,8 @@ try {
                 error: error?.message || String(error)
             });
         }
-
     };
+
 } catch (importError) {
     self.onmessage = function () {
         self.postMessage({

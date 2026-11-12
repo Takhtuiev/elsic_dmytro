@@ -122,6 +122,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
     const [finalResultReceived, setFinalResultReceived] = useState(false);
     const [wasAborted, setWasAborted] = useState(false);
     const [bestLogIndex, setBestLogIndex] = useState(null);
+    const [totalBudgetTarget, setTotalBudgetTarget] = useState(OPTIMIZER_SETTINGS.totalBudgetIterations);
+    const [isStoppingGracefully, setIsStoppingGracefully] = useState(false);
 
     const workerRef = useRef(null);
     const contentRef = useRef(null);
@@ -133,6 +135,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
     const completedStepsRef = useRef(0);
     const bestLogIndexRef = useRef(null);
     const logsRef = useRef([]);
+    const thinkingTimerRef = useRef(null);
 
 
     const stopTimer = useCallback(() => {
@@ -140,11 +143,16 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
             clearInterval(timerIntervalRef.current);
             timerIntervalRef.current = null;
         }
+        if (thinkingTimerRef.current) {
+            clearTimeout(thinkingTimerRef.current);
+            thinkingTimerRef.current = null;
+        }
         if (startTimeRef.current !== null) {
             setElapsedTime((performance.now() - startTimeRef.current) / 1000);
         }
         startTimeRef.current = null;
     }, []);
+
 
     React.useEffect(() => {
         logsRef.current = logs;
@@ -153,10 +161,23 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
     const syncLeaderIndex = useCallback((logsArray, bestStepNumber) => {
         if (bestStepNumber === undefined || bestStepNumber === null) return;
 
-        const leaderLogIndex = logsArray.findIndex(
-            log => log && log.candidateParams &&
-                (log.currentStepVisual === bestStepNumber || log.stepMode === "FINAL_REPORT")
-        );
+        let leaderLogIndex = -1;
+
+        // Ищем с конца массива, чтобы при продолжении не цепляться за старый FINAL_REPORT
+        for (let i = logsArray.length - 1; i >= 0; i--) {
+            const log = logsArray[i];
+            if (!log || !log.candidateParams) continue;
+
+            if (log.isFinalReportMarker && !log.isArchivedReport) {
+                leaderLogIndex = i;
+                break;
+            }
+
+            if (!log.isFinalReportMarker && log.currentStepVisual === bestStepNumber) {
+                leaderLogIndex = i;
+                break;
+            }
+        }
 
         if (leaderLogIndex !== -1) {
             bestLogIndexRef.current = leaderLogIndex;
@@ -172,15 +193,16 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
             let nextLogs = [...prev];
 
             if (prev.length === 0) {
-                nextLogs = [entry];
+                nextLogs = [{ ...entry, id: entry.id || `log-${Date.now()}-${Math.random()}` }];
             } else {
                 const lastIdx = prev.length - 1;
                 const lastLog = prev[lastIdx];
 
                 if (lastLog && lastLog.type === "progress" && lastLog.currentStepVisual === entry.currentStepVisual) {
-                    nextLogs[lastIdx] = entry;
+                    // Сохраняем прежний id, чтобы строка не моргала при смене статуса с progress на результат
+                    nextLogs[lastIdx] = { ...entry, id: lastLog.id };
                 } else {
-                    nextLogs.push(entry);
+                    nextLogs.push({ ...entry, id: entry.id || `log-${Date.now()}-${Math.random()}` });
                 }
             }
 
@@ -213,6 +235,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
                     isOptimizingRef.current = false;
                     setIsOptimizing(false);
+                    setIsStoppingGracefully(false);
                     stopTimer();
 
                     setFinalResultReceived(true);
@@ -220,7 +243,45 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                     return;
                 }
 
+                const updateProgressLogEntry = (isThinking, safeStepVisual, totalStepsBudget, validProgress, currentParams, activeMetrics) => {
+                    setLogs(prev => {
+                        const isInitPhase = safeStepVisual <= OPTIMIZER_SETTINGS.randomInitPoints;
+                        const phaseLabel = isInitPhase ? "INIT" : "STEP";
+
+                        const prevLast = prev[prev.length - 1];
+                        const resolvedParams = currentParams || (prevLast?.currentStepVisual === safeStepVisual ? prevLast?.candidateParams : null);
+                        const resolvedMetrics = activeMetrics || (prevLast?.currentStepVisual === safeStepVisual ? prevLast?.technicalMetrics : null);
+
+                        const statusText = isThinking
+                            ? `🧠 [BAYES]: Optimizing GP surrogate & searching next candidate (${safeStepVisual}/${totalStepsBudget})...`
+                            : `⏳ [SOLVER]: ${phaseLabel} ${safeStepVisual}/${totalStepsBudget} | Progress: ${validProgress}%`;
+
+                        const newEntry = {
+                            type: "progress",
+                            text: statusText,
+                            timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false }),
+                            candidateParams: resolvedParams,
+                            technicalMetrics: resolvedMetrics,
+                            currentStepVisual: safeStepVisual
+                        };
+
+                        if (prev.length === 0) return [{ ...newEntry, id: `log-${Date.now()}-${Math.random()}` }];
+
+                        const lastIdx = prev.length - 1;
+                        const lastLog = prev[lastIdx];
+
+                        if (lastLog && lastLog.type === "progress" && lastLog.currentStepVisual === safeStepVisual) {
+                            const updated = [...prev];
+                            updated[lastIdx] = { ...newEntry, id: lastLog.id };
+                            return updated;
+                        }
+
+                        return [...prev, { ...newEntry, id: `log-${Date.now()}-${Math.random()}` }];
+                    });
+                };
+
                 if (status === "progress_tick") {
+                    const isThinking = e.data.snapshotStatus === "THINKING";
                     const progress = Number(percent);
                     const validProgress = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
 
@@ -228,62 +289,49 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                     const totalStepsBudget = e.data.totalIterations !== undefined ? e.data.totalIterations : OPTIMIZER_SETTINGS.totalBudgetIterations;
                     const safeStepVisual = Math.min(totalStepsBudget, Math.max(0, currentStep));
 
-                    // Достаем метрики из переданного объекта technicalMetrics
-                    const currentMetrics = e.data.technicalMetrics;
-
                     completedStepsRef.current = safeStepVisual;
                     setCompletedSteps(safeStepVisual);
                     setProgressPercent(validProgress);
 
-                    // Синхронизация лидера во время промежуточного тика расчета
                     syncLeaderIndex(logsRef.current, e.data.bestStepNumber);
+
+                    if (!isThinking && thinkingTimerRef.current) {
+                        clearTimeout(thinkingTimerRef.current);
+                        thinkingTimerRef.current = null;
+                    }
+
+                    if (isThinking) {
+                        if (thinkingTimerRef.current) clearTimeout(thinkingTimerRef.current);
+                        thinkingTimerRef.current = setTimeout(() => {
+                            thinkingTimerRef.current = null;
+                            updateProgressLogEntry(true, safeStepVisual, totalStepsBudget, 0, null, null);
+                        }, 300);
+                        return;
+                    }
 
                     const now = performance.now();
                     if (now - lastProgressUpdateRef.current > 120 || validProgress === 100 || validProgress === 0) {
                         lastProgressUpdateRef.current = now;
-
-                        setLogs(prev => {
-                            const isInitPhase = currentStep <= OPTIMIZER_SETTINGS.randomInitPoints;
-                            const phaseLabel = isInitPhase ? "INIT" : "STEP";
-
-                            const currentParams = e.data.currentParams || (prev[prev.length - 1]?.currentStepVisual === safeStepVisual ? prev[prev.length - 1]?.candidateParams : null);
-                            const activeMetrics = currentMetrics || (prev[prev.length - 1]?.currentStepVisual === safeStepVisual ? prev[prev.length - 1]?.technicalMetrics : null);
-
-                            const newEntry = {
-                                type: "progress",
-                                text: `⏳ [SOLVER]: ${phaseLabel} ${safeStepVisual}/${totalStepsBudget} | Progress: ${validProgress}%`,
-                                timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false }),
-                                candidateParams: currentParams,
-                                technicalMetrics: activeMetrics, // Передаем для рендеринга подтаблицы при раскрытии
-                                currentStepVisual: safeStepVisual
-                            };
-
-                            if (prev.length === 0) return [newEntry];
-
-                            const lastIdx = prev.length - 1;
-                            const lastLog = prev[lastIdx];
-
-                            if (lastLog && lastLog.type === "progress" && lastLog.currentStepVisual === safeStepVisual) {
-                                const updated = [...prev];
-                                updated[lastIdx] = newEntry;
-                                return updated;
-                            }
-
-                            return [...prev, newEntry];
-                        });
+                        updateProgressLogEntry(false, safeStepVisual, totalStepsBudget, validProgress, e.data.currentParams, e.data.technicalMetrics);
                     }
                     return;
                 }
 
                 if (status === "log_step" && logEntry) {
-                    // 🌟 МОДИФИКАЦИЯ: Если пришел финальный маркер-отчет, принудительно фиксируем получение результата
-                    if (logEntry.isFinalReportMarker) {
-                        setFinalResultReceived(true);
+                    if (thinkingTimerRef.current) {
+                        clearTimeout(thinkingTimerRef.current);
+                        thinkingTimerRef.current = null;
                     }
 
-                    completedStepsRef.current = logEntry.currentStepVisual;
-                    setProgressPercent(0);
-                    setCompletedSteps(logEntry.currentStepVisual);
+                    if (logEntry.isFinalReportMarker) {
+                        setFinalResultReceived(true);
+                        setProgressPercent(100);
+                    } else {
+                        completedStepsRef.current = logEntry.currentStepVisual;
+                        setProgressPercent(0);
+                        setCompletedSteps(logEntry.currentStepVisual);
+                    }
+
                     appendLog(logEntry);
                     return;
                 }
@@ -329,8 +377,45 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
             isOptimizingRef.current = false;
             workerRef.current?.terminate();
             if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+            if (thinkingTimerRef.current) clearTimeout(thinkingTimerRef.current);
         };
     }, [initWorker]);
+
+    const buildWorkerPayload = useCallback((command) => {
+        const uiModelPresets = {};
+        const keysToProcess = typeof LIMITS !== "undefined" ? Object.keys(LIMITS) : ["gridX", "gridY", "tolerance", "targetDt", "growthFactor", "shrinkFactor"];
+        const currentModes = accuracyModes || ["fast", "optimal", "accurate", "accurate2"];
+
+        currentModes.forEach((modeName, modeIdx) => {
+            uiModelPresets[modeName] = {};
+            keysToProcess.forEach(paramKey => {
+                if (typeof LIMITS !== "undefined" && Array.isArray(LIMITS[paramKey]) && LIMITS[paramKey][modeIdx] !== undefined) {
+                    uiModelPresets[modeName][paramKey] = LIMITS[paramKey][modeIdx];
+                }
+            });
+        });
+
+        return {
+            command,
+            baseParams: {
+                thicknessMm: Number(parentState.geometry?.thickness) || 0,
+                material: { ...parentState.material },
+                machine: { ...parentState.machine },
+                simulation: {
+                    ...parentState.simulation,
+                    widthHalfMm: parentState.simulation.widthHalfMm !== undefined
+                        ? parentState.simulation.widthHalfMm
+                        : ((Number(parentState.geometry?.width) || 0) / 2 || 20)
+                }
+            },
+            options: {
+                ...OPTIMIZER_SETTINGS,
+                accuracyModes: currentModes,
+                config: OPTIMIZER_BASE_CONFIG,
+                modelPresets: uiModelPresets
+            }
+        };
+    }, [parentState, accuracyModes]);
 
     const runOptimization = useCallback(() => {
         if (!workerRef.current || isOptimizingRef.current) return;
@@ -342,12 +427,14 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
         bestLogIndexRef.current = null;
         completedStepsRef.current = 0;
         setCompletedSteps(0);
+        setTotalBudgetTarget(OPTIMIZER_SETTINGS.totalBudgetIterations);
         setProgressPercent(0);
         setElapsedTime(0);
         setExpandedLogs({});
         setBestPanelExpanded(false);
         setFinalResultReceived(false);
         setWasAborted(false);
+        setIsStoppingGracefully(false);
         setBestLogIndex(null);
 
         startTimeRef.current = performance.now();
@@ -361,44 +448,14 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
         }, 100);
 
         setLogs([{
+            id: `log-start-${Date.now()}`,
             type: "info",
             text: "🟢 [Bayesian Setup]: Started solver grid space optimization task...",
             timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false })
         }]);
 
         try {
-            const uiModelPresets = {};
-            const keysToProcess = typeof LIMITS !== "undefined" ? Object.keys(LIMITS) : ["gridX", "gridY", "tolerance", "targetDt", "growthFactor", "shrinkFactor"];
-            const currentModes = accuracyModes || ["fast", "optimal", "accurate", "accurate2"];
-
-            currentModes.forEach((modeName, modeIdx) => {
-                uiModelPresets[modeName] = {};
-                keysToProcess.forEach(paramKey => {
-                    if (typeof LIMITS !== "undefined" && Array.isArray(LIMITS[paramKey]) && LIMITS[paramKey][modeIdx] !== undefined) {
-                        uiModelPresets[modeName][paramKey] = LIMITS[paramKey][modeIdx];
-                    }
-                });
-            });
-
-            workerRef.current.postMessage({
-                baseParams: {
-                    thicknessMm: Number(parentState.geometry?.thickness) || 0,
-                    material: { ...parentState.material },
-                    machine: { ...parentState.machine },
-                    simulation: {
-                        ...parentState.simulation,
-                        widthHalfMm: parentState.simulation.widthHalfMm !== undefined
-                            ? parentState.simulation.widthHalfMm
-                            : ((Number(parentState.geometry?.width) || 0) / 2 || 20)
-                    }
-                },
-                options: {
-                    ...OPTIMIZER_SETTINGS,
-                    accuracyModes: currentModes,
-                    config: OPTIMIZER_BASE_CONFIG,
-                    modelPresets: uiModelPresets
-                }
-            });
+            workerRef.current.postMessage(buildWorkerPayload("start"));
         } catch (err) {
             isOptimizingRef.current = false;
             setIsOptimizing(false);
@@ -409,8 +466,73 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false })
             });
         }
+    }, [buildWorkerPayload, appendLog, stopTimer]);
 
-    }, [parentState, appendLog, stopTimer, accuracyModes]);
+    const continueOptimization = useCallback(() => {
+        if (!workerRef.current || isOptimizingRef.current) return;
+
+        if (timerIntervalRef.current) {
+            clearInterval(timerIntervalRef.current);
+        }
+
+        const extraSteps = OPTIMIZER_SETTINGS.totalBudgetIterations;
+        setTotalBudgetTarget(prev => prev + extraSteps);
+        setFinalResultReceived(false);
+        setBestPanelExpanded(false);
+        setIsStoppingGracefully(false);
+
+        startTimeRef.current = performance.now() - elapsedTime * 1000;
+        isOptimizingRef.current = true;
+        setIsOptimizing(true);
+
+        timerIntervalRef.current = setInterval(() => {
+            if (startTimeRef.current !== null) {
+                setElapsedTime((performance.now() - startTimeRef.current) / 1000);
+            }
+        }, 100);
+
+        setLogs(prev => {
+            const updated = prev.map(item =>
+                item?.isFinalReportMarker
+                    ? { ...item, isArchivedReport: true }
+                    : item
+            );
+
+            // Переводим индекс нижней карточки со старого FINAL_REPORT на исходный шаг-победитель
+            const lastReport = [...prev].reverse().find(item => item?.isFinalReportMarker);
+            if (lastReport?.bestStepNumber !== undefined && lastReport?.bestStepNumber !== null) {
+                syncLeaderIndex(updated, lastReport.bestStepNumber);
+            }
+
+            return updated;
+        });
+
+        try {
+            workerRef.current.postMessage(buildWorkerPayload("continue"));
+        } catch (err) {
+            isOptimizingRef.current = false;
+            setIsOptimizing(false);
+            stopTimer();
+            appendLog({
+                type: "error",
+                text: `❌ Error resuming optimization: ${err.message || err}`,
+                timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false })
+            });
+        }
+    }, [elapsedTime, buildWorkerPayload, appendLog, stopTimer, syncLeaderIndex]);
+
+    const finishOptimizationNow = useCallback(() => {
+        if (!workerRef.current || !isOptimizingRef.current || isStoppingGracefully) return;
+
+        setIsStoppingGracefully(true);
+        workerRef.current.postMessage({ command: "finish_now" });
+
+        appendLog({
+            type: "warning",
+            text: "⏹️ [USER_STOP]: Finishing current step and finalizing best found configuration...",
+            timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false })
+        });
+    }, [isStoppingGracefully, appendLog]);
 
     const abortOptimization = useCallback(() => {
         if (!isOptimizingRef.current) return;
@@ -420,6 +542,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
         stopTimer();
         setProgressPercent(0);
         setWasAborted(true);
+        setIsStoppingGracefully(false);
 
         workerRef.current?.terminate();
         workerRef.current = null;
@@ -509,17 +632,20 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
     React.useEffect(() => {
         const container = contentRef.current;
         if (container && autoScrollRef.current) {
-            container.scrollTop = container.scrollHeight;
+            container.scrollTo({
+                top: container.scrollHeight,
+                behavior: "smooth"
+            });
         }
-    }, [logs]);
+    }, [logs.length]);
 
     const handleLogScroll = useCallback(() => {
         const container = contentRef.current;
         if (!container) return;
-        autoScrollRef.current = container.scrollHeight - container.scrollTop - container.clientHeight <= 50;
+        autoScrollRef.current = container.scrollHeight - container.scrollTop - container.clientHeight <= 90;
     }, []);
 
-    const stepProgressPercent = Math.min(100, Math.round((completedSteps / OPTIMIZER_SETTINGS.totalBudgetIterations) * 100));
+    const stepProgressPercent = Math.min(100, Math.round((completedSteps / totalBudgetTarget) * 100));
 
     const logTypeStyles = {
         info: { color: "#cbd5e1", label: "" },
@@ -598,7 +724,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexGrow: 1, width: { xs: "100%", sm: "auto" }, justifyContent: "flex-end" }}>
                         <Typography variant="caption" sx={{ color: "#2563eb", fontWeight: "bold", fontFamily: "monospace", whiteSpace: "nowrap" }}>
-                            {completedSteps}/{OPTIMIZER_SETTINGS.totalBudgetIterations}
+                            {completedSteps}/{totalBudgetTarget}
                         </Typography>
                         <LinearProgress variant="determinate" value={stepProgressPercent} sx={{ height: 4, width: "100%", maxWidth: { sm: "300px", md: "400px" }, borderRadius: 2, bgcolor: "#22252e", "& .MuiLinearProgress-bar": { bgcolor: "#2563eb", borderRadius: 2, transition: "transform 0.3s ease-out" } }} />
                         <Typography variant="caption" sx={{ color: "#2563eb", fontWeight: "bold", fontFamily: "monospace", whiteSpace: "nowrap" }}>
@@ -652,42 +778,62 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                 const isExpanded = !!expandedLogs[idx];
 
                                 return (
-                                    <Box key={idx} sx={{ display: "flex", flexDirection: "column", borderBottom: isExpanded ? "1px dashed rgba(255,255,255,0.1)" : "none", pb: isExpanded ? 1 : 0 }}>
+                                    <Box
+                                        key={log.id || idx}
+                                        sx={{
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            borderBottom: isExpanded ? "1px dashed rgba(255,255,255,0.1)" : "none",
+                                            pb: isExpanded ? 1 : 0,
+                                            willChange: "transform, opacity",
+                                            "@keyframes logFadeSlide": {
+                                                "0%": {
+                                                    opacity: 0,
+                                                    transform: "translateY(4px)"
+                                                },
+                                                "100%": {
+                                                    opacity: 1,
+                                                    transform: "translateY(0)"
+                                                }
+                                            },
+                                            animation: "logFadeSlide 0.2s ease-out forwards"
+                                        }}
+                                    >
                                         <Box
                                             onClick={hasParams ? () => {
                                                 setExpandedLogs(prev => ({ ...prev, [idx]: !prev[idx] }));
                                             } : undefined}
-                                            sx={{
-                                                display: "flex",
-                                                alignItems: "center", // Изменили с flex-start на center для лучшего выравнивания стрелочки и текста
-                                                gap: 1, // Немного уменьшили общий гэп, так как добавилась стрелка
-                                                py: 0.25,
-                                                cursor: hasParams ? "pointer" : "default",
-                                                borderRadius: "4px",
-                                                px: 1,
-                                                mx: -0.5,
-                                                fontFamily: "Consolas, Monaco, 'Courier New', monospace",
-                                                bgcolor: isExpanded ? "rgba(37, 99, 235, 0.04)" : "transparent",
-                                                "&:hover": { bgcolor: hasParams ? "rgba(255, 255, 255, 0.04)" : "transparent" }
-                                            }}
-                                        >
-                                            {/* 🌟 НОВЫЙ БЛОК: Индикатор раскрытия (стрелочка) */}
-                                            <Box sx={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                justifyContent: "center",
-                                                flexShrink: 0
-                                            }}>
-                                                {hasParams ? (
-                                                    isExpanded ? (
-                                                        <KeyboardArrowDownIcon sx={{ fontSize: "1rem", color: "#64748b" }} />
-                                                    ) : (
-                                                        <KeyboardArrowRightIcon sx={{ fontSize: "1rem", color: "#64748b" }} />
-                                                    )
-                                                ) : null}
-                                            </Box>
 
-                                            {/* 1. STEP NUMBER */}
+                                            sx={{
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: 1,
+                                                    py: 0.25,
+                                                    cursor: hasParams ? "pointer" : "default",
+                                                    borderRadius: "4px",
+                                                    px: 1,
+                                                    mx: -0.5,
+                                                    fontFamily: "Consolas, Monaco, 'Courier New', monospace",
+                                                    bgcolor: isExpanded ? "rgba(37, 99, 235, 0.04)" : "transparent",
+                                                    "&:hover": { bgcolor: hasParams ? "rgba(255, 255, 255, 0.04)" : "transparent" }
+                                                }}
+                                            >
+                                                <Box sx={{
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    flexShrink: 0
+                                                }}>
+                                                    {hasParams ? (
+                                                        isExpanded ? (
+                                                            <KeyboardArrowDownIcon sx={{ fontSize: "1rem", color: "#64748b" }} />
+                                                        ) : (
+                                                            <KeyboardArrowRightIcon sx={{ fontSize: "1rem", color: "#64748b" }} />
+                                                        )
+                                                    ) : null}
+                                                </Box>
+
+                                                {/* 1. STEP NUMBER */}
                                             <Typography
                                                 component="span"
                                                 sx={{
@@ -700,14 +846,13 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                                     display: "inline-block"
                                                 }}
                                             >
-                                                {hasParams ? (
+                                                {hasParams && !log.isFinalReportMarker ? (
                                                     (() => {
                                                         const stepNum = String(log.currentStepVisual !== undefined ? log.currentStepVisual : idx).padStart(2, "0");
                                                         return `step:${stepNum}`;
                                                     })()
                                                 ) : null}
                                             </Typography>
-
                                             {/* 2 & 3. COMBINED TASK MODE AND TECHNICAL OUTPUT (PURE STRING SHAPE) */}
                                             <Typography
                                                 component="span"
@@ -768,14 +913,13 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                                                 </>
                                                             );
                                                         }
-
                                                         return log.text;
                                                     })()}
                                                 </Box>
                                             </Typography>
-                                        </Box>
+                                            </Box>
 
-                                        {hasParams && isExpanded && (
+                                            {hasParams && isExpanded && (
                                             <Box sx={{ ml: { xs: 1, sm: 3 }, pl: { xs: 1, sm: 2 }, pr: 1, py: 1.5, bgcolor: "#14171c", borderRadius: "4px", mt: 0.5, mb: 0.5, borderLeft: "3px solid #2563eb", minWidth: 0, display: "flex", flexDirection: "column", gap: 1.5 }}>
                                                 <Box sx={{ width: "100%", fontFamily: "monospace", fontSize: "0.75rem", display: "flex", flexDirection: "column", gap: "4px", color: "#94a3b8", pb: 1, borderBottom: "1px dashed rgba(255,255,255,0.05)", mb: 1 }}>
                                                     {(() => {
@@ -825,7 +969,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                                     <ParameterGrid params={log.candidateParams} color="#10b981" />
                                                 </Box>
                                             </Box>
-                                        )}
+                                            )}
                                     </Box>
                                 );
                             })
@@ -924,9 +1068,29 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
                 <Box sx={{ display: "flex", gap: 1, width: isMobile ? "100%" : "auto", flexDirection: isMobile ? "column-reverse" : "row", justifyContent: "flex-end" }}>
                     {isOptimizing && (
-                        <Button variant="outlined" size="small" onClick={abortOptimization} startIcon={<StopIcon />} fullWidth={isMobile} sx={{ color: "#f44336", borderColor: "rgba(244, 67, 54, 0.4)", textTransform: "none", fontWeight: 500, fontSize: "0.85rem", px: 2, borderRadius: isMobile ? 1.5 : 2, "&:hover": { borderColor: "#f44336", bgcolor: "rgba(244, 67, 54, 0.06)" } }}>
-                            Abort Calculation
-                        </Button>
+                        <>
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                onClick={finishOptimizationNow}
+                                disabled={isStoppingGracefully}
+                                startIcon={<StopIcon />}
+                                fullWidth={isMobile}
+                                sx={{ color: "#f59e0b", borderColor: "rgba(245, 158, 11, 0.4)", textTransform: "none", fontWeight: 500, fontSize: "0.85rem", px: 2, borderRadius: isMobile ? 1.5 : 2, "&:hover": { borderColor: "#f59e0b", bgcolor: "rgba(245, 158, 11, 0.06)" } }}
+                            >
+                                {isStoppingGracefully ? "Finishing..." : "Finish & Keep Best"}
+                            </Button>
+
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                onClick={abortOptimization}
+                                fullWidth={isMobile}
+                                sx={{ color: "#f44336", borderColor: "rgba(244, 67, 54, 0.4)", textTransform: "none", fontWeight: 500, fontSize: "0.85rem", px: 2, borderRadius: isMobile ? 1.5 : 2, "&:hover": { borderColor: "#f44336", bgcolor: "rgba(244, 67, 54, 0.06)" } }}
+                            >
+                                Abort Calculation
+                            </Button>
+                        </>
                     )}
 
                     {!isOptimizing ? (
@@ -935,21 +1099,32 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                 {finalResultReceived ? "Discard & Close" : "Close Window"}
                             </Button>
 
-                            {/* Кнопка применения параметров показывается только при наличии готового финального результата */}
                             {finalResultReceived && (
-                                <Button variant="contained" size="small" onClick={handleApplyParameters} disabled={!bestSnapshotState || !bestSnapshotState.params} fullWidth={isMobile} sx={{ bgcolor: "#2563eb", color: "#ffffff", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, boxShadow: "none", "&:hover": { bgcolor: "#1d4ed8" }, "&.Mui-disabled": { bgcolor: "#1e293b", color: "#64748b" } }}>
-                                    Apply Parameters
-                                </Button>
+                                <>
+                                    <Button
+                                        variant="outlined"
+                                        size="small"
+                                        onClick={continueOptimization}
+                                        startIcon={<PlayArrowIcon />}
+                                        fullWidth={isMobile}
+                                        sx={{ color: "#38bdf8", borderColor: "rgba(56, 189, 248, 0.4)", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 2.5, borderRadius: isMobile ? 1.5 : 2, "&:hover": { borderColor: "#38bdf8", bgcolor: "rgba(56, 189, 248, 0.06)" } }}
+                                    >
+                                        Continue (+{OPTIMIZER_SETTINGS.totalBudgetIterations})
+                                    </Button>
+
+                                    <Button variant="contained" size="small" onClick={handleApplyParameters} disabled={!bestSnapshotState || !bestSnapshotState.params} fullWidth={isMobile} sx={{ bgcolor: "#2563eb", color: "#ffffff", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, boxShadow: "none", "&:hover": { bgcolor: "#1d4ed8" }, "&.Mui-disabled": { bgcolor: "#1e293b", color: "#64748b" } }}>
+                                        Apply Parameters
+                                    </Button>
+                                </>
                             )}
 
-                            {/* Кнопка старта/перезапуска присутствует всегда, когда поток воркера ничем не занят */}
                             <Button variant="contained" size="small" onClick={runOptimization} startIcon={<PlayArrowIcon />} fullWidth={isMobile} sx={{ bgcolor: "#10b981", color: "#ffffff", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, boxShadow: "none", "&:hover": { bgcolor: "#059669" } }}>
                                 {finalResultReceived || wasAborted ? "Run Again" : "Start Optimization"}
                             </Button>
                         </>
                     ) : (
                         <Button variant="contained" size="small" disabled fullWidth={isMobile} sx={{ textTransform: "none", fontWeight: 500, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, "&.Mui-disabled": { bgcolor: "#1e293b", color: "#64748b" } }}>
-                            Calculating...
+                            {isStoppingGracefully ? "Finalizing..." : "Calculating..."}
                         </Button>
                     )}
                 </Box>
