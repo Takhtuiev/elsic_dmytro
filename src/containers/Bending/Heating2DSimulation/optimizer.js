@@ -493,29 +493,22 @@ function selectDiverseIndices(X, maxSamples) {
 }
 
 
-function optimizeLengthScales(X, Y, noise, numParams, progressFactor = 0.2, isComplete = []) {
-
-    // ========================================================================
-    // АДАПТИВНАЯ САМОРЕГУЛЯЦИЯ ГИПЕРПАРАМЕТРОВ ЯДРА (БЕЗ ЖЕСТКИХ КОНСТАНТ ШАГОВ)
-    // ========================================================================
-
+function optimizeLengthScales(
+    X,
+    Y,
+    noise,
+    numParams,
+    progressFactor = 0.2,
+    isComplete = [],
+    prevScales = null
+) {
     const totalObservations = Array.isArray(X) ? X.length : 0;
 
-    // В начале прогона широкий (0.25) для удержания тренда, к концу падает до 0.08 для микро-поиска
     const MIN_SCALE = 0.25 - (0.17 * progressFactor);
-
-    // В начале 3.5 (глобальный обзор), к концу сужается до 1.5 для фиксации изгибов фронта ошибки
     const MAX_SCALE = 3.5 - (2.0 * progressFactor);
-
-    // Экономим ресурсы CPU на ранних этапах, расширяем выборку по мере накопления данных
-    // ИСПРАВЛЕНО: Ограничение в 60 точек удерживает матричные расчеты в пределах миллисекунд
     const MAX_SAMPLES = Math.min(60, 35 + Math.floor(progressFactor * 25));
-
-    // Увеличиваем плотность проходов оптимизатора на поздних стадиях
     const MAX_PASSES = totalObservations > 60 ? 3 : 2;
-    // ========================================================================
 
-    // Жесткая проверка: контракт по длине массива isComplete должен строго соблюдаться
     if (
         !Array.isArray(X) ||
         !Array.isArray(Y) ||
@@ -530,9 +523,7 @@ function optimizeLengthScales(X, Y, noise, numParams, progressFactor = 0.2, isCo
     ) {
         return estimateLengthScales(
             Array.isArray(X) ? X : [],
-            Number.isInteger(numParams) && numParams > 0
-                ? numParams
-                : 1
+            Number.isInteger(numParams) && numParams > 0 ? numParams : 1
         );
     }
 
@@ -580,26 +571,44 @@ function optimizeLengthScales(X, Y, noise, numParams, progressFactor = 0.2, isCo
         sampleIsComplete = selectedIndices.map(i => isComplete[i]);
     }
 
-    const initialScales = estimateLengthScales(sampleX, numParams);
+    const hasValidWarmStart =
+        prevScales &&
+        prevScales.length === numParams &&
+        Array.from(prevScales).every(v => Number.isFinite(v) && v > 0);
+
+    const baseScales = hasValidWarmStart
+        ? prevScales
+        : estimateLengthScales(sampleX, numParams);
 
     const scales = new Float64Array(numParams);
+    const lowerBounds = new Float64Array(numParams);
+    const upperBounds = new Float64Array(numParams);
 
     for (let d = 0; d < numParams; d++) {
-        // ИСПРАВЛЕНО: используем initialScales[d] вместо median
-        scales[d] = Math.max(
-            MIN_SCALE,
-            Math.min(MAX_SCALE, initialScales[d])
-        );
+        const clamped = Math.max(MIN_SCALE, Math.min(MAX_SCALE, baseScales[d]));
+        scales[d] = clamped;
+
+        // Ограничиваем изменение относительно предыдущего значения (±35%),
+        // чтобы предотвратить резкие скачки гиперпараметров на узкой выборке
+        if (hasValidWarmStart) {
+            lowerBounds[d] = Math.max(MIN_SCALE, clamped * 0.65);
+            upperBounds[d] = Math.min(MAX_SCALE, clamped * 1.35);
+        } else {
+            lowerBounds[d] = MIN_SCALE;
+            upperBounds[d] = MAX_SCALE;
+        }
     }
 
     const evaluate = candidateScales => {
+        const model = fitGaussianProcess(
+            sampleX,
+            sampleY,
+            sampleNoise,
+            candidateScales,
+            sampleIsComplete
+        );
 
-        const model = fitGaussianProcess(sampleX, sampleY, sampleNoise, candidateScales, sampleIsComplete);
-
-        if (
-            !model?.valid ||
-            !Number.isFinite(model.logMarginalLikelihood)
-        ) {
+        if (!model?.valid || !Number.isFinite(model.logMarginalLikelihood)) {
             return -Infinity;
         }
 
@@ -619,8 +628,8 @@ function optimizeLengthScales(X, Y, noise, numParams, progressFactor = 0.2, isCo
             const originalScale = scales[d];
 
             const candidates = [
-                Math.max(MIN_SCALE, originalScale * 0.65),
-                Math.min(MAX_SCALE, originalScale * 1.5)
+                Math.max(lowerBounds[d], originalScale * 0.75),
+                Math.min(upperBounds[d], originalScale * 1.33)
             ];
 
             for (const candidate of candidates) {
@@ -1494,7 +1503,8 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
     let loadLengthScales = null;
     let errorLengthScales = null;
-    let lastLengthScaleOptimizationStep = -Infinity;
+    let lastLoadScaleCompleteCount = -Infinity;
+    let lastErrorScaleCompleteCount = -Infinity;
 
     self.lastEvaluatedBestParams = null;
     self.lastEvaluatedBestMetrics = null;
@@ -2778,15 +2788,28 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         // Чистый прогресс-фактор, который честно дорастает ровно до 1.0 на 200-м шаге
         const progressFactor = Math.min(1.0, currentExecutionCount / Math.max(1, totalIterations));
 
-        // Адаптивный интервал переобучения весов ядра GP (Плавный рост без ступеней)
-        const reoptimizeInterval = Math.max(
-            10,
-            Math.floor(10 + progressFactor * 22)
-        );
+        // Определяем минимальный радиус среди активных регионов доверия
+        const activeRegionsForSchedule = searchRegions.filter(r => r.active);
+        const minActiveRadius = activeRegionsForSchedule.length > 0
+            ? Math.min(...activeRegionsForSchedule.map(r => r.radius))
+            : 0.15;
+
+        // Адаптивный интервал: 16 -> 12 -> 8 -> 5 по мере сужения области поиска
+        let reoptimizeInterval = 16;
+        if (minActiveRadius <= 0.02) {
+            reoptimizeInterval = 5;
+        } else if (minActiveRadius <= 0.05) {
+            reoptimizeInterval = 8;
+        } else if (minActiveRadius <= 0.15) {
+            reoptimizeInterval = 12;
+        }
+
+        // Считаем только новые полностью завершённые симуляции (ABORT не приближает переобучение)
+        const currentCompleteCount = observedIsComplete.filter(Boolean).length;
 
         if (
             !loadLengthScales ||
-            currentExecutionCount - lastLengthScaleOptimizationStep >= reoptimizeInterval
+            currentCompleteCount - lastLoadScaleCompleteCount >= reoptimizeInterval
         ) {
             loadLengthScales = optimizeLengthScales(
                 observedX,
@@ -2794,17 +2817,26 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 observedLoadNoise,
                 numParams,
                 progressFactor,
-                observedIsComplete
+                observedIsComplete,
+                loadLengthScales
             );
+            lastLoadScaleCompleteCount = currentCompleteCount;
+        }
+
+        if (
+            !errorLengthScales ||
+            currentCompleteCount - lastErrorScaleCompleteCount >= reoptimizeInterval
+        ) {
             errorLengthScales = optimizeLengthScales(
                 observedX,
                 observedLogError,
                 observedErrorNoise,
                 numParams,
                 progressFactor,
-                observedIsComplete
+                observedIsComplete,
+                errorLengthScales
             );
-            lastLengthScaleOptimizationStep = currentExecutionCount;
+            lastErrorScaleCompleteCount = currentCompleteCount;
         }
 
         const loadGP = fitGaussianProcess(observedX, observedLogLoad, observedLoadNoise, loadLengthScales, observedIsComplete);
