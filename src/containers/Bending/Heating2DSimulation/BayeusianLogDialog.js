@@ -15,6 +15,7 @@ import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import { OPTIMIZER_BASE_CONFIG, OPTIMIZER_SETTINGS } from "./optimizer.config";
 import {LIMITS} from "./heating2DModel";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
+import { downloadDiagnosticLog } from "./optimizerDiagnostics";
 
 export const formatTime = (seconds) => {
     if (!seconds || seconds < 0) return "0s";
@@ -131,6 +132,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
     const lastProgressUpdateRef = useRef(0);
     const completedStepsRef = useRef(0);
     const bestLogIndexRef = useRef(null);
+    const logsRef = useRef([]);
+
 
     const stopTimer = useCallback(() => {
         if (timerIntervalRef.current) {
@@ -142,6 +145,10 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
         }
         startTimeRef.current = null;
     }, []);
+
+    React.useEffect(() => {
+        logsRef.current = logs;
+    }, [logs]);
 
     const syncLeaderIndex = useCallback((logsArray, bestStepNumber) => {
         if (bestStepNumber === undefined || bestStepNumber === null) return;
@@ -202,6 +209,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
 // Найти внутри worker.onmessage ветку status === "success":
                 if (status === "success" && e.data?.data) {
+                    downloadDiagnosticLog(e.data.data.diagnosticLogText);
 
                     isOptimizingRef.current = false;
                     setIsOptimizing(false);
@@ -228,7 +236,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                     setProgressPercent(validProgress);
 
                     // Синхронизация лидера во время промежуточного тика расчета
-                    syncLeaderIndex(logs, e.data.bestStepNumber);
+                    syncLeaderIndex(logsRef.current, e.data.bestStepNumber);
 
                     const now = performance.now();
                     if (now - lastProgressUpdateRef.current > 120 || validProgress === 100 || validProgress === 0) {
@@ -313,7 +321,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false })
             });
         }
-    }, [appendLog, stopTimer]);
+    }, [appendLog, stopTimer, syncLeaderIndex]);
 
     React.useEffect(() => {
         initWorker();
@@ -360,7 +368,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
         try {
             const uiModelPresets = {};
-            const keysToProcess = typeof LIMITS !== "undefined" ? Object.keys(LIMITS) : ["gridX", "gridY", "minGrid", "tolerance", "maxDt", "targetDt", "growthFactor", "shrinkFactor"];
+            const keysToProcess = typeof LIMITS !== "undefined" ? Object.keys(LIMITS) : ["gridX", "gridY", "tolerance", "targetDt", "growthFactor", "shrinkFactor"];
             const currentModes = accuracyModes || ["fast", "optimal", "accurate", "accurate2"];
 
             currentModes.forEach((modeName, modeIdx) => {

@@ -18,18 +18,22 @@ export const ACCURACY_MODES = ["fast", "optimal", "accurate", "accurate2"];
 export const LIMITS = {
     gridX:        [0.35,  0.16,  0.116, 0.135 ], // Шаг сетки по горизонтали X (мм)
     gridY:        [1.30,  0.78,  0.307, 0.330 ], // Шаг сетки по вертикали Y (мм)
-    minGrid:      [0.06,  0.05,  0.044, 0.057 ], // Минимальный предел размера ячейки (мм)
 
     tolerance:    [0.25,  0.29,  0.038, 0.019], // Критерий остановки итераций солвера (К)
-    maxDt:        [2.5,   3.87,  0.71,  0.62  ], // Жесткий верхний потолок шага времени (с)
     targetDt:     [2.0,   2.13,  0.77,  0.65  ], // Целевой шаг изменения температуры за итерацию (К)
 
     growthFactor: [1.30,  1.35,  1.39,  1.378 ], // Коэффициент ускорения шага времени (рост dt)
     shrinkFactor: [0.50,  0.52,  0.49,  0.47  ]  // Коэффициент замедления шага времени (сжатие dt)
 };
 
-export const DEFAULT_SLOT_HALF_WIDTH_MM = 5.0;       // Половина ширины щели нагревателя (ТЭНа)
+export const DEFAULT_SLOT_HALF_WIDTH_MM = 5.0;           // Половина ширины щели нагревателя (ТЭНа)
 export const DEFAULT_CONVECTION_TRANSITION_END_MM = 8.0; // Граница рассеивания жара (начало холодной зоны)
+
+const MAX_NODES_X = 300;
+const MAX_NODES_Y = 500;
+const MAX_BAND_MATRIX_ELEMENTS = 15000000;
+const MIN_GEOMETRIC_STEP_MM = 0.000001;
+
 
 export const SIGMA = 5.670374419e-8;
 export const HEATER_RADIUS_MM = 3.0;
@@ -68,10 +72,8 @@ export function validateSimulationParams({ thicknessMm, material, machine, simul
     if (am && typeof am === "object") {
         if (!validPositive(am.gridX)) errors.push("Invalid custom parameter: gridX must be a positive number.");
         if (!validPositive(am.gridY)) errors.push("Invalid custom parameter: gridY must be a positive number.");
-        if (!validPositive(am.minGrid)) errors.push("Invalid custom parameter: minGrid must be a positive number.");
 
         if (!validPositive(am.tolerance)) errors.push("Invalid custom parameter: tolerance must be a positive number.");
-        if (!validPositive(am.maxDt)) errors.push("Invalid custom parameter: maxDt must be a positive number.");
         if (!validPositive(am.targetDt)) errors.push("Invalid custom parameter: targetDt must be a positive number.");
 
         if (!Number.isFinite(am.growthFactor) || am.growthFactor < 1.0) {
@@ -79,9 +81,6 @@ export function validateSimulationParams({ thicknessMm, material, machine, simul
         }
         if (!validPositive(am.shrinkFactor) || am.shrinkFactor >= 1.0) {
             errors.push("Invalid custom parameter: shrinkFactor must be strictly between 0.0 and 1.0.");
-        }
-        if (validPositive(am.minGrid) && validPositive(am.gridX) && am.minGrid >= am.gridX) {
-            errors.push("Invalid custom parameter: minGrid must be strictly less than gridX.");
         }
     }
 
@@ -158,33 +157,19 @@ const makeError = (message, extra = {}) => ({
     ...extra
 });
 
-function createNonlinearGridX(thicknessMm, nodeCount, minGridStepMm) {
+function createNonlinearGridX(thicknessMm, nodeCount) {
     const x = new Float64Array(nodeCount);
     for (let i = 0; i < nodeCount; i++) {
         const fraction = i / (nodeCount - 1);
         x[i] = thicknessMm * 0.5 * (1.0 - Math.cos(fraction * Math.PI));
     }
+    x[0] = 0.0;
+    x[nodeCount - 1] = thicknessMm;
 
     const dx = new Float64Array(nodeCount - 1);
     for (let i = 0; i < nodeCount - 1; i++) {
         const diff = x[i + 1] - x[i];
-        dx[i] = diff < minGridStepMm ? minGridStepMm : diff;
-    }
-
-    x[0] = 0.0;
-    for (let i = 0; i < nodeCount - 1; i++) {
-        x[i + 1] = x[i] + dx[i];
-    }
-
-    const actualTotalLength = x[nodeCount - 1];
-    if (actualTotalLength > 1e-7 && Math.abs(actualTotalLength - thicknessMm) > 1e-5) {
-        const scale = thicknessMm / actualTotalLength;
-        for (let i = 1; i < nodeCount; i++) {
-            x[i] *= scale;
-        }
-        for (let i = 0; i < nodeCount - 1; i++) {
-            dx[i] = x[i + 1] - x[i];
-        }
+        dx[i] = diff < MIN_GEOMETRIC_STEP_MM ? MIN_GEOMETRIC_STEP_MM : diff;
     }
 
     const dxHat = new Float64Array(nodeCount);
@@ -203,7 +188,7 @@ function createNonlinearGridX(thicknessMm, nodeCount, minGridStepMm) {
     return { x, dx, dxHat, invDxH, invDxL, invDxR, nodeCount };
 }
 
-function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convectionTransitionEndMm, minGridStepMm) {
+function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convectionTransitionEndMm) {
     const y = new Float64Array(nodeCount);
     const yCenter = (slotHalfWidthMm + convectionTransitionEndMm) / 2.0;
     const yChangePrincipleMm = slotHalfWidthMm + 3.0;
@@ -245,27 +230,25 @@ function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convecti
 
     if (changeIndex > 0 && changeIndex < nodeCount - 2) {
         let baseDy = y[changeIndex] - y[changeIndex - 1];
-        if (baseDy < minGridStepMm) baseDy = minGridStepMm;
+        if (baseDy < MIN_GEOMETRIC_STEP_MM) baseDy = MIN_GEOMETRIC_STEP_MM;
         const q = 1.12;
         let currentDy = baseDy;
         for (let j = changeIndex; j < nodeCount - 1; j++) {
             currentDy *= q;
-            if (currentDy < minGridStepMm) currentDy = minGridStepMm;
             y[j + 1] = y[j] + currentDy;
         }
-        if (Math.abs(y[nodeCount - 1] - widthHalfMm) > 1e-5) {
-            const yStartZone = y[changeIndex];
-            const oldLength = y[nodeCount - 1] - yStartZone;
-            const newLength = widthHalfMm - yStartZone;
-            if (oldLength > 1e-7 && newLength > 0) {
-                const scale = newLength / oldLength;
-                for (let j = changeIndex + 1; j < nodeCount; j++) y[j] = yStartZone + (y[j] - yStartZone) * scale;
-            }
+        const yStartZone = y[changeIndex];
+        const oldLength = y[nodeCount - 1] - yStartZone;
+        const newLength = widthHalfMm - yStartZone;
+        if (oldLength > 0.000000001 && newLength > 0) {
+            const scale = newLength / oldLength;
+            for (let j = changeIndex + 1; j < nodeCount; j++) y[j] = yStartZone + (y[j] - yStartZone) * scale;
         }
     }
 
-    for (let j = 1; j < nodeCount; j++) {
-        if (y[j] <= y[j - 1] + 1e-6) y[j] = y[j - 1] + minGridStepMm;
+    y[0] = 0.0;
+    for (let j = 1; j < nodeCount - 1; j++) {
+        if (y[j] <= y[j - 1] + MIN_GEOMETRIC_STEP_MM) y[j] = y[j - 1] + MIN_GEOMETRIC_STEP_MM;
     }
     y[nodeCount - 1] = widthHalfMm;
 
@@ -273,18 +256,8 @@ function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convecti
     const dyHat = new Float64Array(nodeCount);
 
     for (let j = 0; j < nodeCount - 1; j++) {
-        dy[j] = y[j + 1] - y[j];
-        if (dy[j] < minGridStepMm) dy[j] = minGridStepMm;
-    }
-    y[0] = 0.0;
-    for (let j = 0; j < nodeCount - 1; j++) {
-        y[j + 1] = y[j] + dy[j];
-    }
-    const actualWidthHalf = y[nodeCount - 1];
-    if (actualWidthHalf > 1e-7 && Math.abs(actualWidthHalf - widthHalfMm) > 1e-5) {
-        const scaleY = widthHalfMm / actualWidthHalf;
-        for (let j = 1; j < nodeCount; j++) y[j] *= scaleY;
-        for (let j = 0; j < nodeCount - 1; j++) dy[j] = y[j + 1] - y[j];
+        const diff = y[j + 1] - y[j];
+        dy[j] = diff < MIN_GEOMETRIC_STEP_MM ? MIN_GEOMETRIC_STEP_MM : diff;
     }
 
     dyHat[0] = 0.5 * dy[0];
@@ -295,9 +268,9 @@ function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convecti
     const invDyL = new Float64Array(nodeCount);
     const invDyR = new Float64Array(nodeCount);
     for (let j = 0; j < nodeCount; j++) {
-        invDyH[j] = 1000.0 / (dyHat[j] || 0.001);
-        if (j > 0) invDyL[j] = 1000.0 / (dy[j - 1] || 0.001);
-        if (j < nodeCount - 1) invDyR[j] = 1000.0 / (dy[j] || 0.001);
+        invDyH[j] = 1000.0 / dyHat[j];
+        if (j > 0) invDyL[j] = 1000.0 / dy[j - 1];
+        if (j < nodeCount - 1) invDyR[j] = 1000.0 / dy[j];
     }
     return { y, dy, dyHat, invDyH, invDyL, invDyR, nodeCount };
 }
@@ -498,9 +471,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
     const GRID_X_STEP_MM           = isCustom ? (am?.gridX        ?? LIMITS.gridX[modeIdx])        : LIMITS.gridX[modeIdx];
     const GRID_Y_STEP_MM           = isCustom ? (am?.gridY        ?? LIMITS.gridY[modeIdx])        : LIMITS.gridY[modeIdx];
-    const MIN_GRID_STEP_MM         = isCustom ? (am?.minGrid      ?? LIMITS.minGrid[modeIdx])      : LIMITS.minGrid[modeIdx];
     const NONLINEAR_TOLERANCE_K    = isCustom ? (am?.tolerance    ?? LIMITS.tolerance[modeIdx])    : LIMITS.tolerance[modeIdx];
-    const ADAPTIVE_MAX_DT          = isCustom ? (am?.maxDt        ?? LIMITS.maxDt[modeIdx])        : LIMITS.maxDt[modeIdx];
     const TARGET_DELTA_T           = isCustom ? (am?.targetDt     ?? LIMITS.targetDt[modeIdx])     : LIMITS.targetDt[modeIdx];
     const ADAPTIVE_GROWTH_FACTOR   = isCustom ? (am?.growthFactor ?? LIMITS.growthFactor[modeIdx]) : LIMITS.growthFactor[modeIdx];
     const ADAPTIVE_SHRINK_FACTOR   = isCustom ? (am?.shrinkFactor ?? LIMITS.shrinkFactor[modeIdx]) : LIMITS.shrinkFactor[modeIdx];
@@ -510,13 +481,24 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
     const Nx = Math.max(5, Math.round(thicknessMm / GRID_X_STEP_MM)) + 1;
     const Ny = is1D ? 1 : (Math.max(12, Math.round(simulation.widthHalfMm / GRID_Y_STEP_MM)) + 1);
+
+    if (Nx > MAX_NODES_X || Ny > MAX_NODES_Y) {
+        return makeError(`Grid dimensions (${Nx}x${Ny}) exceed technical limits.`);
+    }
+    const size2D = Nx * Ny;
+    const bandWidth = Ny;
+    const abRowStride = bandWidth + bandWidth + 1;
+    if (size2D * abRowStride > MAX_BAND_MATRIX_ELEMENTS) {
+        return makeError(`Band matrix size (${size2D * abRowStride}) exceeds memory safety limit.`);
+    }
+
     const lastX = Nx - 1;
     const lastY = Ny - 1;
 
-    const gridX = createNonlinearGridX(thicknessMm, Nx, MIN_GRID_STEP_MM);
+    const gridX = createNonlinearGridX(thicknessMm, Nx);
     const gridY = is1D
         ? { y: new Float64Array([0.0]), dy: new Float64Array([0.0]), dyHat: new Float64Array([0.0]), invDyH: new Float64Array([1000.0/0.001]), invDyL: new Float64Array([0.0]), invDyR: new Float64Array([0.0]), nodeCount: 1 }
-        : createParametricGridY(simulation.widthHalfMm, Ny, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM, MIN_GRID_STEP_MM);
+        : createParametricGridY(simulation.widthHalfMm, Ny, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM);
 
     const target = simulation.target;
     const targetType = target.type;
@@ -536,27 +518,9 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     // =====================================================================
     // 🌟 Автоматический расчет начального dt по критерию CFL
     // =====================================================================
-    const propsInit = matModel.get(initT);
-    const volHeatCap = propsInit.density * propsInit.cp; // Ро * Сp (объемная теплоемкость)
-    const kEff = propsInit.k;                            // Теплопроводность
-
-    // Коэффициент температуропроводности (м²/с). Защита от деления на 0:
-    const thermalDiffusivity = volHeatCap > 0 ? (kEff / volHeatCap) : 1e-6;
-
-    // Находим минимальный шаг сетки на поверхности в метрах (первый интервал)
-    const dxMinMeters = (gridX.x[1] - gridX.x[0]) / 1000.0;
-
-    // Число Куранта (1.5 — оптимальный безопасный старт для неявной схемы)
-    const CFL_NUMBER = 1.5;
-    const calculatedStartDt = CFL_NUMBER * (dxMinMeters * dxMinMeters) / thermalDiffusivity;
-
-    // Выбираем стартовый dt: приоритет у пользователя, иначе авторасчет (но не выше потолка maxDt)
     let dt = simulation.dtSeconds !== undefined
         ? simulation.dtSeconds
-        : Math.min(calculatedStartDt, ADAPTIVE_MAX_DT);
-    // =====================================================================
-
-    const size2D = Nx * Ny;
+        : Math.min(0.5, TARGET_DELTA_T * 0.15);
     const PICARD_PASS_CPU_COST = size2D * (Ny + 2) + (size2D * 150);
 
 //  Вставьте перенесенные лимиты сюда (теперь они видят PICARD_PASS_CPU_COST):
@@ -584,8 +548,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let stepCountInPhase = 0;
     let maxGridErrorC = 0.0;
 
-    const bandWidth = Ny;
-    const abRowStride = bandWidth + bandWidth + 1;
     const lead = bandWidth;
 
     const matrixA = new Float64Array(size2D * abRowStride);
@@ -745,17 +707,16 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     mainSimulationLoop: while (true) {
 
         if (totalCpuUnits > MAX_TOTAL_CPU_UNITS) {
-            status = { type: "error", message: "Simulation terminated: Total CPU complexity exceeded safety limit." };
+            status = { type: "abort", message: "Simulation terminated: Total CPU complexity exceeded safety limit." };
             break;
         }
 
-        // Логическая защита по количеству шагов
         if (countTimeSteps > MAX_TOTAL_TIME_STEPS) {
-            status = { type: "error", message: "Simulation terminated: Exceeded maximum time steps limit." };
+            status = { type: "abort", message: "Simulation terminated: Exceeded maximum time steps limit." };
             break;
         }
 
-        let currentMaxDt = ADAPTIVE_MAX_DT;
+        let currentStepTimeErr = 0.0;
 
         if (currentPhase === "heating") {
             if (targetType === "time" && time + dt > targetValue) {
@@ -935,7 +896,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
             if (currentStepCpuUnits > MAX_ALLOWED_STEP_CPU_UNITS) {
                 status = {
-                    type: "error",
+                    type: "abort",
                     message: `Simulation killed on the fly: Matrix loop lockdown. CPU workload limit exceeded (${currentStepCpuUnits} units) on a single time coordinate.`
                 };
                 break mainSimulationLoop;
@@ -996,9 +957,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             buffers[newIdx].set(solverX);
             lastIterMaxSignedDiff = localMaxSignedDiff;
 
-            buffers[newIdx].set(solverX);
-            lastIterMaxSignedDiff = localMaxSignedDiff;
-
             // 1. Сначала проверяем фактическую сходимость (У вас сделано верно)
             if (maxDeltaK < NONLINEAR_TOLERANCE_K) {
                 nonlinearConverged = true;
@@ -1036,7 +994,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 //  Вставьте проверку по удельной сложности шага:
             if (currentStepCpuUnits > MAX_ALLOWED_STEP_CPU_UNITS) {
                 status = {
-                    type: "error",
+                    type: "abort",
                     message: `Simulation killed: Matrix loop lockdown. Step CPU complexity (${currentStepCpuUnits}) exceeded limit on step #${step}.`
                 };
                 break;
@@ -1045,7 +1003,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             // ФИЛЬТР 1: Если солвер много раз подряд сжал dt на одном месте
             if (countConsecutiveRejectedSteps > MAX_CONSECUTIVE_REJECTIONS) {
                 status = {
-                    type: "error",
+                    type: "abort",
                     message: `Simulation aborted on the fly: High numerical friction and consecutive step rejections (${countConsecutiveRejectedSteps} times).`
                 };
                 break;
@@ -1177,6 +1135,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 let localMaxTimeErr = errTimeTop > errTimeMid ? errTimeTop : errTimeMid;
                 if (errTimeBot > localMaxTimeErr) localMaxTimeErr = errTimeBot;
 
+                currentStepTimeErr = localMaxTimeErr;
                 if (localMaxTimeErr > maxTimeErrorC) maxTimeErrorC = localMaxTimeErr;
             }
         }
@@ -1301,19 +1260,39 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             }
         }
 
+        const dtGrowth = dt * ADAPTIVE_GROWTH_FACTOR;
+
         let maxStepTempChange = Math.max(
             Math.abs(buffers[newIdx][idxTop] - buffers[curIdx][idxTop]),
             Math.abs(buffers[newIdx][idxMid] - buffers[curIdx][idxMid]),
             Math.abs(buffers[newIdx][idxBot] - buffers[curIdx][idxBot])
         );
+        const dtTemperature = maxStepTempChange > 1e-6
+            ? dt * (TARGET_DELTA_T / maxStepTempChange)
+            : dtGrowth;
 
-        if (maxStepTempChange > 0) {
-            const stepRatio = TARGET_DELTA_T / maxStepTempChange;
-            dt *= stepRatio > 1.0 ? Math.min(ADAPTIVE_GROWTH_FACTOR, stepRatio) : Math.max(ADAPTIVE_SHRINK_FACTOR, stepRatio);
-            if (dt > currentMaxDt) dt = currentMaxDt;
-        } else {
-            dt = currentMaxDt;
+        const targetTimeTol = Math.max(NONLINEAR_TOLERANCE_K, TARGET_DELTA_T * 0.2);
+        const dtAccuracy = (shouldCalculateAccuracyError && currentStepTimeErr > 1e-6)
+            ? dt * Math.sqrt(targetTimeTol / currentStepTimeErr)
+            : dtGrowth;
+
+        let dtPhysical = Infinity;
+        if (currentPhase === "heating" && maxStepTempChange > 1e-6) {
+            const heatingRate = maxStepTempChange / dt;
+            const distToDecomp = decompTempK - maxObservedT;
+            if (distToDecomp > 0) {
+                dtPhysical = Math.min(dtPhysical, (distToDecomp / heatingRate) * 0.85);
+            }
+            if (targetK != null && targetType !== "time") {
+                const distToTarget = targetK - currentStepCriticalValue;
+                if (distToTarget > 0) {
+                    dtPhysical = Math.min(dtPhysical, (distToTarget / heatingRate) * 0.9);
+                }
+            }
         }
+
+        const rawNextDt = Math.min(dtGrowth, dtTemperature, dtAccuracy, dtPhysical);
+        dt = Math.max(dt * ADAPTIVE_SHRINK_FACTOR, rawNextDt);
 
         step++;
         currentStepCpuUnits = 0; // Обнуляем сложность шага, так как он официально принят алгоритмом

@@ -1,3 +1,5 @@
+import { createDiagnosticLogger } from "./optimizerDiagnostics.js";
+
 /* eslint-disable no-restricted-globals */
 
 // Вспомогательная функция: Расстояние с учетом шкал длин ядра (Махаланобиса-подобное)
@@ -544,7 +546,7 @@ function optimizeLengthScales(
             }
         }
 
-        let selectedIndices = [];
+        let selectedIndices;
 
         if (completeIndices.length >= MAX_SAMPLES) {
             const completeX = completeIndices.map(i => X[i]);
@@ -971,13 +973,359 @@ function applySigmaCalibration(prediction, scale) {
     };
 }
 
+function fitDualGaussianProcess(
+    X,
+    logLoad,
+    logError,
+    loadNoise,
+    errorNoise,
+    loadLengthScales,
+    errorLengthScales,
+    isComplete
+) {
+    const loadModel = fitGaussianProcess(
+        X,
+        logLoad,
+        loadNoise,
+        loadLengthScales,
+        isComplete
+    );
+
+    const errorModel = fitGaussianProcess(
+        X,
+        logError,
+        errorNoise,
+        errorLengthScales,
+        isComplete
+    );
+
+    const valid = Boolean(loadModel?.valid && errorModel?.valid);
+
+    return {
+        valid,
+        loadModel,
+        errorModel,
+        loadReason: loadModel?.reason || (loadModel?.valid ? null : "UNKNOWN"),
+        errorReason: errorModel?.reason || (errorModel?.valid ? null : "UNKNOWN")
+    };
+}
+
+function predictDualGaussianProcess(
+    dualModel,
+    x,
+    loadSigmaCalibration = 1.0,
+    errorSigmaCalibration = 1.0
+) {
+    if (!dualModel || !dualModel.valid) {
+        return null;
+    }
+
+    const rawLoadPrediction = predictGaussianProcess(dualModel.loadModel, x);
+    const rawErrorPrediction = predictGaussianProcess(dualModel.errorModel, x);
+
+    if (!rawLoadPrediction || !rawErrorPrediction) {
+        return null;
+    }
+
+    const loadPrediction = applySigmaCalibration(rawLoadPrediction, loadSigmaCalibration);
+    const errorPrediction = applySigmaCalibration(rawErrorPrediction, errorSigmaCalibration);
+
+    if (!loadPrediction || !errorPrediction) {
+        return null;
+    }
+
+    return {
+        loadPrediction,
+        errorPrediction
+    };
+}
+
+function buildRegionalTrainingDataset(
+    region,
+    observedX,
+    observedLogLoad,
+    observedLogError,
+    observedLoadNoise,
+    observedErrorNoise,
+    observedIsComplete,
+    observedRegionIds,
+    referenceScales
+) {
+    const MIN_LOCAL_POINTS = 18;
+    const MAX_LOCAL_SAMPLES = 45;
+    const MIN_REQUIRED_TO_FIT = 6;
+
+    const total = observedX.length;
+    if (total < MIN_REQUIRED_TO_FIT) return null;
+
+    const coreRadius = Math.max(0.08, region.radius * 2.5);
+    const items = [];
+
+    for (let i = 0; i < total; i++) {
+        const dist = calculateKernelDistance(
+            observedX[i],
+            region.center,
+            referenceScales
+        );
+
+        if (!Number.isFinite(dist)) continue;
+
+        const belongsToRegion = observedRegionIds[i] === region.id;
+        const isNearCenter = dist <= coreRadius;
+        const isCore = isNearCenter;
+        const isOwnedContext = belongsToRegion && !isNearCenter;
+
+        items.push({
+            index: i,
+            dist,
+            isCore,
+            isOwnedContext,
+            isComplete: observedIsComplete[i] === true
+        });
+    }
+
+    if (items.length < MIN_REQUIRED_TO_FIT) return null;
+
+    // Разделяем актуальное ядро региона и внешний контекст
+    const coreItems = items.filter(it => it.isCore);
+    const contextItems = items.filter(it => !it.isCore);
+
+    // Сортируем по близости к текущему центру (при равном расстоянии приоритет завершённым и родным точкам)
+    const sortByProximity = (a, b) => {
+        if (Math.abs(a.dist - b.dist) > 1e-6) return a.dist - b.dist;
+        if (a.isOwnedContext !== b.isOwnedContext) return Number(b.isOwnedContext) - Number(a.isOwnedContext);
+        return Number(b.isComplete) - Number(a.isComplete);
+    };
+
+    coreItems.sort(sortByProximity);
+    contextItems.sort(sortByProximity);
+
+    const selected = [];
+
+    // 1. Забираем только геометрически близкие точки ядра (до MAX_LOCAL_SAMPLES)
+    for (let i = 0; i < coreItems.length && selected.length < MAX_LOCAL_SAMPLES; i++) {
+        selected.push(coreItems[i]);
+    }
+
+    // 2. Если точек в ядре меньше MIN_LOCAL_POINTS, добираем ближайший внешний контекст
+    if (selected.length < MIN_LOCAL_POINTS) {
+        const targetCount = Math.min(MAX_LOCAL_SAMPLES, Math.max(MIN_LOCAL_POINTS, selected.length + 12));
+        for (let i = 0; i < contextItems.length && selected.length < targetCount; i++) {
+            selected.push(contextItems[i]);
+        }
+    }
+
+    if (selected.length < MIN_REQUIRED_TO_FIT) return null;
+
+    // Восстанавливаем хронологический порядок индексов
+    selected.sort((a, b) => a.index - b.index);
+
+    const localX = [];
+    const localLogLoad = [];
+    const localLogError = [];
+    const localLoadNoise = [];
+    const localErrorNoise = [];
+    const localIsComplete = [];
+
+    let coreCount = 0;
+    let completeCount = 0;
+
+    for (const item of selected) {
+        const idx = item.index;
+        localX.push(observedX[idx]);
+        localLogLoad.push(observedLogLoad[idx]);
+        localLogError.push(observedLogError[idx]);
+        localIsComplete.push(observedIsComplete[idx]);
+
+        if (item.isCore) coreCount++;
+        if (observedIsComplete[idx]) completeCount++;
+
+        // Плавное снижение веса контекстных точек через добавление дисперсии шума
+        let contextNoisePenalty = 0;
+        if (!item.isCore && item.dist > coreRadius) {
+            const excessRatio = (item.dist / coreRadius) - 1;
+            const slopeCoeff = item.isOwnedContext ? 0.025 : 0.05;
+            contextNoisePenalty = Math.min(0.25, slopeCoeff * excessRatio * excessRatio);
+        }
+
+        const LOCAL_SMOOTHING_NOISE = 0.0025;
+        localLoadNoise.push(Math.max(LOCAL_SMOOTHING_NOISE, observedLoadNoise[idx]) + contextNoisePenalty);
+        localErrorNoise.push(Math.max(LOCAL_SMOOTHING_NOISE, observedErrorNoise[idx]) + contextNoisePenalty);
+    }
+
+    if (completeCount < 4) return null;
+
+    return {
+        X: localX,
+        logLoad: localLogLoad,
+        logError: localLogError,
+        loadNoise: localLoadNoise,
+        errorNoise: localErrorNoise,
+        isComplete: localIsComplete,
+        totalCount: selected.length,
+        coreCount,
+        completeCount
+    };
+}
+
+function optimizeRegionalLengthScales(
+    localDataset,
+    globalLoadScales,
+    globalErrorScales,
+    prevLoadScales,
+    prevErrorScales,
+    numParams,
+    progressFactor
+) {
+    const MIN_COMPLETE_FOR_LOCAL_OPT = 16;
+    const MIN_CORE_FOR_LOCAL_OPT = 12;
+
+    const makeFallbackResult = reason => ({
+        loadScales: new Float64Array(globalLoadScales),
+        errorScales: new Float64Array(globalErrorScales),
+        adapted: false,
+        reason
+    });
+
+    if (
+        !localDataset ||
+        localDataset.completeCount < MIN_COMPLETE_FOR_LOCAL_OPT ||
+        localDataset.coreCount < MIN_CORE_FOR_LOCAL_OPT
+    ) {
+        return makeFallbackResult("INSUFFICIENT_LOCAL_DIVERSITY");
+    }
+
+    // Проверяем геометрическое разнообразие локальной выборки по осям
+    const n = localDataset.X.length;
+    let totalAxisVar = 0;
+    for (let d = 0; d < numParams; d++) {
+        let mean = 0;
+        for (let i = 0; i < n; i++) mean += localDataset.X[i][d] / n;
+        let v = 0;
+        for (let i = 0; i < n; i++) {
+            const diff = localDataset.X[i][d] - mean;
+            v += diff * diff;
+        }
+        totalAxisVar += (v / n) / numParams;
+    }
+
+    if (!Number.isFinite(totalAxisVar) || totalAxisVar < 1e-4) {
+        return makeFallbackResult("DEGENERATE_LOCAL_GEOMETRY");
+    }
+
+    const MIN_ABS_SCALE = Math.max(0.12, 0.22 - 0.08 * progressFactor);
+    const MAX_ABS_SCALE = 3.0;
+
+    const evaluateLocalLML = (targetY, targetNoise, candidateScales) => {
+        const model = fitGaussianProcess(
+            localDataset.X,
+            targetY,
+            targetNoise,
+            candidateScales,
+            localDataset.isComplete
+        );
+        return model?.valid && Number.isFinite(model.logMarginalLikelihood)
+            ? model.logMarginalLikelihood
+            : -Infinity;
+    };
+
+    const optimizeSingleTarget = (targetY, targetNoise, globalScales, prevScales) => {
+        const fallback = new Float64Array(globalScales);
+        const hasPrev =
+            prevScales &&
+            prevScales.length === numParams &&
+            Array.from(prevScales).every(v => Number.isFinite(v) && v > 0);
+
+        const current = new Float64Array(numParams);
+        const lowerBounds = new Float64Array(numParams);
+        const upperBounds = new Float64Array(numParams);
+
+        for (let d = 0; d < numParams; d++) {
+            const gScale = Math.max(MIN_ABS_SCALE, Math.min(MAX_ABS_SCALE, globalScales[d]));
+            const globalMin = Math.max(MIN_ABS_SCALE, gScale * 0.65);
+            const globalMax = Math.min(MAX_ABS_SCALE, gScale * 1.8);
+
+            const startVal = hasPrev
+                ? Math.max(globalMin, Math.min(globalMax, prevScales[d]))
+                : gScale;
+
+            current[d] = startVal;
+            lowerBounds[d] = Math.max(globalMin, startVal * 0.70);
+            upperBounds[d] = Math.min(globalMax, startVal * 1.30);
+        }
+
+        let bestScore = evaluateLocalLML(targetY, targetNoise, current);
+
+        if (!Number.isFinite(bestScore)) {
+            return { resultScales: fallback, improved: false };
+        }
+
+        let anyImproved = false;
+
+        for (let pass = 0; pass < 2; pass++) {
+            let passImproved = false;
+
+            for (let d = 0; d < numParams; d++) {
+                const orig = current[d];
+                const candidates = [
+                    Math.max(lowerBounds[d], orig * 0.78),
+                    Math.min(upperBounds[d], orig * 1.28)
+                ];
+
+                for (const cand of candidates) {
+                    if (Math.abs(cand - current[d]) < 1e-9) continue;
+
+                    const testScales = new Float64Array(current);
+                    testScales[d] = cand;
+
+                    const score = evaluateLocalLML(targetY, targetNoise, testScales);
+                    if (score > bestScore + 1e-6) {
+                        current[d] = cand;
+                        bestScore = score;
+                        passImproved = true;
+                        anyImproved = true;
+                    }
+                }
+            }
+
+            if (!passImproved) break;
+        }
+
+        return { resultScales: current, improved: anyImproved };
+    };
+
+    const loadRes = optimizeSingleTarget(
+        localDataset.logLoad,
+        localDataset.loadNoise,
+        globalLoadScales,
+        prevLoadScales
+    );
+
+    const errorRes = optimizeSingleTarget(
+        localDataset.logError,
+        localDataset.errorNoise,
+        globalErrorScales,
+        prevErrorScales
+    );
+
+    const adapted = loadRes.improved || errorRes.improved;
+
+    return {
+        loadScales: loadRes.resultScales,
+        errorScales: errorRes.resultScales,
+        adapted,
+        reason: adapted ? "ADAPTED" : "KEPT_PREVIOUS"
+    };
+}
+
+
 // Условие 1,2,3,4,5,6: Интеллектуальный расчет калибровки с ЕМА-сглаживанием и глобальным контролем осей
 function estimateResidualSigmaScale(pairs, key, observedX = [], lastScaleValue = 1.0, progressFactor = 0.0) {
     const MIN_REQUIRED_SAMPLES = 20;
     const SMOOTHING_FACTOR = 0.15;
 
     // Санитарная нормализация входящего стейта ЕМА
-    const MAX_SIGMA_SCALE = 1.4;
+    const MAX_SIGMA_SCALE = 1.2;
     const previousScale = Number.isFinite(lastScaleValue)
         ? Math.max(0.75, Math.min(MAX_SIGMA_SCALE, lastScaleValue))
         : 1.0;
@@ -1443,10 +1791,10 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
     if (
         !Object.prototype.hasOwnProperty.call(config, "gridX") ||
-        !Object.prototype.hasOwnProperty.call(config, "minGrid")
+        !Object.prototype.hasOwnProperty.call(config, "gridY")
     ) {
         throw new Error(
-            "Для проверки сетки необходимы параметры gridX и minGrid."
+            "Для проверки сетки необходимы параметры gridX и gridY."
         );
     }
 
@@ -1499,12 +1847,17 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     self.lastEMAStorage = { load: 1.0, error: 1.0 };
 
     // Память регионов доверия (Trust Regions State)
+    // Память регионов доверия (Trust Regions State)
     const searchRegions = [];
 
-    let loadLengthScales = null;
-    let errorLengthScales = null;
-    let lastLoadScaleCompleteCount = -Infinity;
-    let lastErrorScaleCompleteCount = -Infinity;
+    // Единый стейт глобальной модели (Global GP)
+    const globalGPState = {
+        loadLengthScales: null,
+        errorLengthScales: null,
+        lastLoadScaleCompleteCount: -Infinity,
+        lastErrorScaleCompleteCount: -Infinity,
+        model: null
+    };
 
     self.lastEvaluatedBestParams = null;
     self.lastEvaluatedBestMetrics = null;
@@ -1583,10 +1936,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         }
         return (
             Number.isFinite(physical.gridX) &&
-            Number.isFinite(physical.gridY) &&
-            Number.isFinite(physical.minGrid) &&
-            physical.minGrid < physical.gridX &&
-            physical.minGrid < physical.gridY
+            Number.isFinite(physical.gridY)
         );
     };
 
@@ -1681,6 +2031,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     const observedLogError = [];
     const observedLoadNoise = [];
     const observedErrorNoise = [];
+    const observedRegionIds = []; // -1 = Global / Init, >= 0 = ID региона
 
     // false = частичное ABORT-наблюдение.
     // true = полностью завершённая симуляция.
@@ -1749,11 +2100,11 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         return value;
     };
 
+    const diag = createDiagnosticLogger();
+
     const emitStepLog = record => {
         try {
-            console.log(
-                JSON.stringify(formatLogValues(record))
-            );
+            diag.log(formatLogValues(record));
         } catch (e) {
             console.error("Optimizer log serialization failed:", e);
         }
@@ -1866,41 +2217,75 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         };
     }
 
+    const isGlobalLeaderRegion = region =>
+        Boolean(gBestMetrics) &&
+        region.bestViolation === 0 &&
+        Math.abs(region.bestObjective - getObjectiveValue(gBestLoad, gBestError)) <= 1e-6;
+
     // Единая метрика приоритета региона для выбора и вытеснения
     const getRegionPriority = region => {
         const successRate = (region.improvements + 1) / (region.attempts + 2);
         const explorationValue = Math.sqrt(region.radius / 0.15);
         const failurePenalty = Math.pow(0.85, region.failures);
-        return successRate * explorationValue * failurePenalty;
+        const idleSteps = Math.max(0, currentExecutionCount - region.lastImprovementStep);
+        const idlePenalty = idleSteps > 12 ? Math.pow(0.96, idleSteps - 12) : 1.0;
+        const basePriority = successRate * explorationValue * failurePenalty * idlePenalty;
+
+        // Регион с текущим глобальным рекордом сохраняет приоритет 0.25,
+        // но после 25 шагов без улучшений на минимальном радиусе уступает бюджет новым долинам
+        if (isGlobalLeaderRegion(region)) {
+            const leaderFloor = (region.radius <= 0.024 && idleSteps >= 25) ? 0.06 : 0.25;
+            return Math.max(leaderFloor, basePriority);
+        }
+        return basePriority;
     };
 
-    const updateTrustRegions = (normX, load, errorScore, outcomeStatus, isGlobalCandidate = false) => {
+    const updateTrustRegions = (
+        normX,
+        load,
+        errorScore,
+        outcomeStatus,
+        isGlobalCandidate = false,
+        sourceRegionId = -1
+    ) => {
         if (outcomeStatus === "ERROR") return;
 
-        const currentScales = objective === "minimize_load"
-            ? (loadLengthScales || new Float64Array(numParams).fill(0.55))
-            : (errorLengthScales || new Float64Array(numParams).fill(0.55));
-
         let associatedRegion = null;
-        let minDistance = Infinity;
 
-        for (const region of searchRegions) {
-            if (!region.active) continue;
+        // 1. Для локальных кандидатов приоритетно используем их исходный регион, если он активен
+        if (Number.isInteger(sourceRegionId) && sourceRegionId >= 0) {
+            const originRegion = searchRegions.find(r => r.id === sourceRegionId && r.active);
+            if (originRegion) {
+                associatedRegion = originRegion;
+            }
+        }
 
-            const dist = calculateKernelDistance(
-                normX,
-                region.center,
-                currentScales
-            );
+        // 2. Геометрический поиск используется для GLOBAL, INIT, FALLBACK или если исходный регион уже закрыт
+        if (!associatedRegion) {
+            const currentScales = objective === "minimize_load"
+                ? (globalGPState.loadLengthScales || new Float64Array(numParams).fill(0.55))
+                : (globalGPState.errorLengthScales || new Float64Array(numParams).fill(0.55));
 
-            const regionThreshold = Math.max(
-                0.04,
-                region.radius * 1.5
-            );
+            let minDistance = Infinity;
 
-            if (dist < regionThreshold && dist < minDistance) {
-                minDistance = dist;
-                associatedRegion = region;
+            for (const region of searchRegions) {
+                if (!region.active) continue;
+
+                const dist = calculateKernelDistance(
+                    normX,
+                    region.center,
+                    currentScales
+                );
+
+                const regionThreshold = Math.max(
+                    0.04,
+                    region.radius * 1.5
+                );
+
+                if (dist < regionThreshold && dist < minDistance) {
+                    minDistance = dist;
+                    associatedRegion = region;
+                }
             }
         }
 
@@ -1909,13 +2294,17 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             region.rawDirection = null;
 
             if (region.failures % 3 === 0) {
-                region.radius = Math.max(0.015, region.radius * 0.72);
+                region.radius = Math.max(0.022, region.radius * 0.72);
             }
 
-            // Даём региону время на микро-полировку на минимальном радиусе,
-            // удаляем только после 25 неудач подряд
             if (region.failures >= 25) {
-                region.active = false;
+                if (isGlobalLeaderRegion(region)) {
+                    // Никогда не удаляем регион с глобальным рекордом — перезапускаем микро-поиск
+                    region.failures = 0;
+                    region.radius = 0.03;
+                } else {
+                    region.active = false;
+                }
             }
         };
 
@@ -1934,6 +2323,8 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         if (associatedRegion) {
             associatedRegion.attempts++;
+            associatedRegion.completeObservationsCount =
+                (associatedRegion.completeObservationsCount ?? 0) + 1;
 
             const isImprovement =
                 violation < associatedRegion.bestViolation ||
@@ -1984,7 +2375,23 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             improvements: 1,
             failures: 0,
             lastImprovementStep: currentExecutionCount,
-            active: true
+            active: true,
+
+            // Неограниченный счётчик завершённых наблюдений региона
+            completeObservationsCount: outcomeStatus === "SUCCESS" ? 1 : 0,
+            lastScaleOptimizationCount: -Infinity,
+
+            // Локальные масштабы
+            loadLengthScales: globalGPState.loadLengthScales
+                ? new Float64Array(globalGPState.loadLengthScales)
+                : null,
+            errorLengthScales: globalGPState.errorLengthScales
+                ? new Float64Array(globalGPState.errorLengthScales)
+                : null,
+
+            // Самостоятельная локальная пара моделей (Regional GP)
+            dualGP: null,
+            localTrainingStats: null
         });
 
         const inactiveIndex = searchRegions.findIndex(r => !r.active);
@@ -2005,13 +2412,12 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         for (let i = 0; i < searchRegions.length; i++) {
             const reg = searchRegions[i];
-            const idleSteps = currentExecutionCount - reg.lastImprovementStep;
+            if (isGlobalLeaderRegion(reg)) continue;
 
-            // Разрешаем вытеснять регионы с 1 попыткой, если они простаивают больше 20 шагов
+            const idleSteps = currentExecutionCount - reg.lastImprovementStep;
             if (reg.attempts < 3 && idleSteps < 20) continue;
 
-            const idlePenalty = idleSteps >= 20 ? 0.25 : 1.0;
-            const effectiveScore = getRegionPriority(reg) * idlePenalty;
+            const effectiveScore = getRegionPriority(reg);
 
             if (effectiveScore < lowestScore) {
                 lowestScore = effectiveScore;
@@ -2033,7 +2439,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 currentObjective <= weakest.bestObjective * 1.25;
 
             const isIdleOrStagnant =
-                idleSteps >= 20 ||
+                idleSteps >= 25 ||
                 (isGlobalCandidate && lowestScore < 0.12 && idleSteps >= 8 && isComparableFeasible);
 
             if (isStrictlyBetter || isIdleOrStagnant) {
@@ -2337,7 +2743,8 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                     NaN,
                     NaN,
                     "ABORT",
-                    Boolean(decision?.isGlobalExploration)
+                    Boolean(decision?.isGlobalExploration),
+                    decision?.sourceDiagnostics?.regionId ?? -1
                 );
             }
 
@@ -2459,6 +2866,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             observedErrorNoise.push(errorNoise);
 
             observedIsComplete.push(false);
+            observedRegionIds.push(decision?.sourceDiagnostics?.regionId ?? -1);
         }
 
         const isError =
@@ -2577,6 +2985,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
             // Полностью завершённая симуляция.
             observedIsComplete.push(true);
+            observedRegionIds.push(decision?.sourceDiagnostics?.regionId ?? -1);
 
             const currentObjective =
                 getObjectiveValue(load, errorScore);
@@ -2679,7 +3088,14 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         // Обновляем статистику регионов доверия на основе исхода шага
         const outcomeStatus = isValidObservation ? "SUCCESS" : (isAborted ? "ABORT" : "ERROR");
-        updateTrustRegions(normX, load, errorScore, outcomeStatus, Boolean(decision?.isGlobalExploration));
+        updateTrustRegions(
+            normX,
+            load,
+            errorScore,
+            outcomeStatus,
+            Boolean(decision?.isGlobalExploration),
+            decision?.sourceDiagnostics?.regionId ?? -1
+        );
 
         return isValidObservation
             ? { load, errorScore, feasible: load <= maxAllowedLoad && errorScore <= maxAllowedErrorScore }
@@ -2769,10 +3185,6 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     // BAYESIAN OPTIMIZATION
     // ------------------------------------------------------------
 
-    const FEASIBILITY_EXPLORATION_INTERVAL = 12;
-    const MIN_SELECTED_FEASIBILITY = 0.03;
-    const MIN_FEASIBILITY_GAIN = 0.15;
-
     let bayesianDecisionCount = 0;
     let consecutiveMatrixFailures = 0;
 
@@ -2808,39 +3220,170 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
         const currentCompleteCount = observedIsComplete.filter(Boolean).length;
 
         if (
-            !loadLengthScales ||
-            currentCompleteCount - lastLoadScaleCompleteCount >= reoptimizeInterval
+            !globalGPState.loadLengthScales ||
+            currentCompleteCount - globalGPState.lastLoadScaleCompleteCount >= reoptimizeInterval
         ) {
-            loadLengthScales = optimizeLengthScales(
+            globalGPState.loadLengthScales = optimizeLengthScales(
                 observedX,
                 observedLogLoad,
                 observedLoadNoise,
                 numParams,
                 progressFactor,
                 observedIsComplete,
-                loadLengthScales
+                globalGPState.loadLengthScales
             );
-            lastLoadScaleCompleteCount = currentCompleteCount;
+            globalGPState.lastLoadScaleCompleteCount = currentCompleteCount;
         }
 
         if (
-            !errorLengthScales ||
-            currentCompleteCount - lastErrorScaleCompleteCount >= reoptimizeInterval
+            !globalGPState.errorLengthScales ||
+            currentCompleteCount - globalGPState.lastErrorScaleCompleteCount >= reoptimizeInterval
         ) {
-            errorLengthScales = optimizeLengthScales(
+            globalGPState.errorLengthScales = optimizeLengthScales(
                 observedX,
                 observedLogError,
                 observedErrorNoise,
                 numParams,
                 progressFactor,
                 observedIsComplete,
-                errorLengthScales
+                globalGPState.errorLengthScales
             );
-            lastErrorScaleCompleteCount = currentCompleteCount;
+            globalGPState.lastErrorScaleCompleteCount = currentCompleteCount;
         }
 
-        const loadGP = fitGaussianProcess(observedX, observedLogLoad, observedLoadNoise, loadLengthScales, observedIsComplete);
-        const errorGP = fitGaussianProcess(observedX, observedLogError, observedErrorNoise, errorLengthScales, observedIsComplete);
+        const globalDualGP = fitDualGaussianProcess(
+            observedX,
+            observedLogLoad,
+            observedLogError,
+            observedLoadNoise,
+            observedErrorNoise,
+            globalGPState.loadLengthScales,
+            globalGPState.errorLengthScales,
+            observedIsComplete
+        );
+
+        globalGPState.model = globalDualGP;
+
+        if (!globalDualGP.valid) {
+            consecutiveMatrixFailures++;
+            const fallback = generateRandomPoint(evaluatedKeys, 300);
+            if (!fallback || consecutiveMatrixFailures >= 3) break;
+            pendingDecision = {
+                method: "RANDOM_FALLBACK",
+                reason: "GP_FIT_FAILED",
+                loadGP: globalDualGP.loadReason,
+                errorGP: globalDualGP.errorReason,
+                trainingCount: N
+            };
+            evaluate(fallback.physical, fallback.x, "FALLBACK_GP_FAILED");
+            continue;
+        }
+
+        // ========================================================================
+        // ЭТАП 4: ОБУЧЕНИЕ ЛОКАЛЬНЫХ МОДЕЛЕЙ (REGIONAL GP) С АДАПТАЦИЕЙ МАСШТАБОВ
+        // ========================================================================
+        const activeRegionsForFit = searchRegions.filter(r => r.active);
+
+        for (const reg of activeRegionsForFit) {
+            if (!reg.loadLengthScales) {
+                reg.loadLengthScales = new Float64Array(globalGPState.loadLengthScales);
+            }
+            if (!reg.errorLengthScales) {
+                reg.errorLengthScales = new Float64Array(globalGPState.errorLengthScales);
+            }
+
+            // Пункт 5: Комбинированная метрика расстояния, учитывающая оба набора масштабов
+            const combinedRefScales = new Float64Array(numParams);
+            for (let d = 0; d < numParams; d++) {
+                const sLoad = Math.max(1e-6, reg.loadLengthScales[d]);
+                const sError = Math.max(1e-6, reg.errorLengthScales[d]);
+                combinedRefScales[d] = Math.sqrt(2 / (1 / (sLoad * sLoad) + 1 / (sError * sError)));
+            }
+
+            const localDataset = buildRegionalTrainingDataset(
+                reg,
+                observedX,
+                observedLogLoad,
+                observedLogError,
+                observedLoadNoise,
+                observedErrorNoise,
+                observedIsComplete,
+                observedRegionIds,
+                combinedRefScales
+            );
+
+            if (!localDataset) {
+                reg.dualGP = null;
+                reg.localTrainingStats = {
+                    usingFallback: true,
+                    reason: "INSUFFICIENT_LOCAL_DATA"
+                };
+                continue;
+            }
+
+            // Пункт 4: Отслеживаем реальный прирост завершённых наблюдений региона (не ограниченный 45 точками)
+            const regionCompleteCount = reg.completeObservationsCount ?? localDataset.completeCount;
+            const localReoptInterval = reg.radius <= 0.05 ? 6 : 12;
+            const shouldAdaptLocalScales =
+                (regionCompleteCount - (reg.lastScaleOptimizationCount ?? -Infinity)) >= localReoptInterval;
+
+            let localScaleStatus = "REUSED";
+
+            if (shouldAdaptLocalScales) {
+                // Пункты 1 и 3: Единый вызов с полным контрактом для load и error
+                const adaptation = optimizeRegionalLengthScales(
+                    localDataset,
+                    globalGPState.loadLengthScales,
+                    globalGPState.errorLengthScales,
+                    reg.loadLengthScales,
+                    reg.errorLengthScales,
+                    numParams,
+                    progressFactor
+                );
+
+                reg.loadLengthScales = adaptation.loadScales;
+                reg.errorLengthScales = adaptation.errorScales;
+                reg.lastScaleOptimizationCount = regionCompleteCount;
+                localScaleStatus = adaptation.reason;
+            } else if (localDataset.completeCount < 16) {
+                reg.loadLengthScales = new Float64Array(globalGPState.loadLengthScales);
+                reg.errorLengthScales = new Float64Array(globalGPState.errorLengthScales);
+                localScaleStatus = "SYNCED_GLOBAL";
+            }
+
+            const fittedRegional = fitDualGaussianProcess(
+                localDataset.X,
+                localDataset.logLoad,
+                localDataset.logError,
+                localDataset.loadNoise,
+                localDataset.errorNoise,
+                reg.loadLengthScales,
+                reg.errorLengthScales,
+                localDataset.isComplete
+            );
+
+            if (fittedRegional.valid) {
+                reg.dualGP = fittedRegional;
+                reg.localTrainingStats = {
+                    usingFallback: false,
+                    totalPoints: localDataset.totalCount,
+                    corePoints: localDataset.coreCount,
+                    completePoints: localDataset.completeCount,
+                    regionTotalComplete: regionCompleteCount,
+                    scaleStatus: localScaleStatus
+                };
+            } else {
+                reg.dualGP = null;
+                reg.localTrainingStats = {
+                    usingFallback: true,
+                    reason: `FIT_FAILED_${fittedRegional.loadReason}_${fittedRegional.errorReason}`
+                };
+            }
+        }
+
+
+        const loadGP = globalDualGP.loadModel;
+        const errorGP = globalDualGP.errorModel;
 
         if (!loadGP?.valid || !errorGP?.valid) {
             consecutiveMatrixFailures++; const fallback = generateRandomPoint(evaluatedKeys, 300);
@@ -2854,8 +3397,16 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         const candidates = [];
         const candidateSources = []; // Диагностический трекер источника точки
-        const candidatesCount = Math.min(2000, 1000 + currentExecutionCount * 10);
-        const localExplorers = Math.min(600, 200 + Math.floor(progressFactor * 400));
+
+        // Этап 5: Баланс 35% Global GP / 65% Regional GP (при наличии активных регионов)
+        const totalPoolTarget = Math.min(2400, 1400 + currentExecutionCount * 5);
+        const hasActiveRegions = searchRegions.some(r => r.active);
+        const candidatesCount = hasActiveRegions
+            ? Math.round(totalPoolTarget * 0.35)
+            : totalPoolTarget;
+        const localExplorers = hasActiveRegions
+            ? Math.round(totalPoolTarget * 0.65)
+            : 0;
 
         let randomCandidatesGenerated = 0; let randomCandidatesRejected = 0;
         let localCandidatesGenerated = 0; let localCandidatesRejected = 0;
@@ -2939,7 +3490,9 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
             const basePoint = region.bestX;
             const mutatedX = new Float64Array(numParams);
-            const regionScales = objective === "minimize_load" ? loadLengthScales : errorLengthScales;
+            const regionScales = objective === "minimize_load"
+                ? (region.loadLengthScales || globalGPState.loadLengthScales)
+                : (region.errorLengthScales || globalGPState.errorLengthScales);
 
             const useDirectional = Boolean(region.rawDirection) && Math.random() < 0.35;
 
@@ -3021,24 +3574,36 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
         const FEASIBILITY_TIE_EPSILON = 1e-9;
 
+        const activeRegionMap = new Map(activeRegions.map(r => [r.id, r]));
+
         for (let c = 0; c < candidates.length; c++) {
             const candX = candidates[c];
+            const candSource = candidateSources[c];
 
-            const rawLoadPrediction = predictGaussianProcess(loadGP, candX);
-            const rawErrorPrediction = predictGaussianProcess(errorGP, candX);
+            // Выбираем модель: Regional GP для кандидатов региона (с fallback на Global GP)
+            let activeDualModel = globalDualGP;
+            let ownerRegion = null;
 
-            if (!rawLoadPrediction || !rawErrorPrediction) {
+            if (candSource && candSource.regionId >= 0) {
+                ownerRegion = activeRegionMap.get(candSource.regionId) || null;
+                if (ownerRegion?.dualGP?.valid) {
+                    activeDualModel = ownerRegion.dualGP;
+                }
+            }
+
+            const predictionPair = predictDualGaussianProcess(
+                activeDualModel,
+                candX,
+                loadSigmaCalibration,
+                errorSigmaCalibration
+            );
+
+            if (!predictionPair) {
                 invalidPredictionCount++;
                 continue;
             }
 
-            const loadPrediction = applySigmaCalibration(rawLoadPrediction, loadSigmaCalibration);
-            const errorPrediction = applySigmaCalibration(rawErrorPrediction, errorSigmaCalibration);
-
-            if (!loadPrediction || !errorPrediction) {
-                invalidPredictionCount++;
-                continue;
-            }
+            const { loadPrediction, errorPrediction } = predictionPair;
 
             const pLoad = probabilityBelow(loadPrediction, constraintLoadTarget);
             const pError = probabilityBelow(errorPrediction, constraintErrorTarget);
@@ -3056,22 +3621,32 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             const feasibilityScore = pFeasible;
             bestFeasibilityScore = Math.max(bestFeasibilityScore, feasibilityScore);
 
-            const isFirstCandidate = (bestFeasibilityX === null);
-            const isStrictlyBetterFeasibility = (feasibilityScore > bestFeasibilitySelectedScore + FEASIBILITY_TIE_EPSILON);
-            const isFeasibilityTie = Math.abs(pFeasible - bestFeasibilitySelectedScore) <= FEASIBILITY_TIE_EPSILON;
+            const SAFE_FEASIBILITY_THRESHOLD = 0.45;
+            const isCandSafe = feasibilityScore >= SAFE_FEASIBILITY_THRESHOLD;
+            const isBestSafe = bestFeasibilitySelectedScore >= SAFE_FEASIBILITY_THRESHOLD;
 
             const candMetric = minimizeLoad ? (Math.exp(loadPrediction.meanLog) - 1) : (Math.exp(errorPrediction.meanLog) - 1);
             const bestMetric = bestFeasibilityStats ? (minimizeLoad ? (Math.exp(bestFeasibilityStats.loadPrediction.meanLog) - 1) : (Math.exp(bestFeasibilityStats.errorPrediction.meanLog) - 1)) : Infinity;
 
+            const isFirstCandidate = (bestFeasibilityX === null);
+            const isStrictlyBetterFeasibility = (feasibilityScore > bestFeasibilitySelectedScore + FEASIBILITY_TIE_EPSILON);
+            const isFeasibilityTie = Math.abs(feasibilityScore - bestFeasibilitySelectedScore) <= FEASIBILITY_TIE_EPSILON;
+
             let betterFeasibility = false;
-            if (isFirstCandidate || isStrictlyBetterFeasibility || (isFeasibilityTie && candMetric < bestMetric)) {
+            if (isFirstCandidate) {
                 betterFeasibility = true;
+            } else if (isCandSafe && isBestSafe) {
+                betterFeasibility = candMetric < bestMetric;
+            } else if (isCandSafe !== isBestSafe) {
+                betterFeasibility = isCandSafe;
+            } else {
+                betterFeasibility = isStrictlyBetterFeasibility || (isFeasibilityTie && candMetric < bestMetric);
             }
 
             if (betterFeasibility) {
                 bestFeasibilitySelectedScore = feasibilityScore;
                 bestFeasibilityX = candX;
-                selectedFeasibilityIndexInPool = c; // Фикс 3: Запоминаем индекс
+                selectedFeasibilityIndexInPool = c;
                 bestFeasibilityStats = {
                     loadPrediction,
                     errorPrediction,
@@ -3108,7 +3683,11 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 }
 
                 const acquisition = ei;
-                const activeScales = minimizeLoad ? loadLengthScales : errorLengthScales;
+
+                // Для crowding используем актуальные масштабы той модели, которая оценивает кандидата
+                const activeScales = (ownerRegion && activeDualModel === ownerRegion.dualGP)
+                    ? (minimizeLoad ? ownerRegion.loadLengthScales : ownerRegion.errorLengthScales)
+                    : (minimizeLoad ? globalGPState.loadLengthScales : globalGPState.errorLengthScales);
 
                 let crowding = 0;
                 for (let i = 0; i < observedX.length; i++) {
@@ -3124,7 +3703,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 if (balancedAcquisition > bestAcquisition) {
                     bestAcquisition = balancedAcquisition;
                     nextBestX = candX;
-                    selectedIndexInPool = c; // Фикс 4: Запоминаем индекс
+                    selectedIndexInPool = c;
 
                     bestCandidateStats = {
                         loadPrediction,
@@ -3147,7 +3726,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 if (acquisition > bestAcquisition) {
                     bestAcquisition = acquisition;
                     nextBestX = candX;
-                    selectedIndexInPool = c; // Фикс 5: Запоминаем индекс
+                    selectedIndexInPool = c;
 
                     bestCandidateStats = {
                         loadPrediction,
@@ -3179,16 +3758,26 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             bestFeasibilityX
         ) {
             const selectedFeasibility = bestCandidateStats?.pFeasible ?? 0;
-            const dynamicFeasibilityInterval = Math.min(15, Math.floor(FEASIBILITY_EXPLORATION_INTERVAL + (currentExecutionCount / 18)));
+            const dynamicFeasibilityInterval = Math.min(20, Math.floor(14 + (currentExecutionCount / 20)));
             const periodicExploration = bayesianDecisionCount % dynamicFeasibilityInterval === 0;
+
+            const candidateSourceType = selectedIndexInPool >= 0
+                ? candidateSources[selectedIndexInPool]?.type
+                : null;
+            const isLocalCandidate =
+                candidateSourceType === "LOCAL" ||
+                candidateSourceType === "LOCAL_DIRECTIONAL";
+
+            // Для локальной полировки на границе допускаем pFeasible >= 0.005, для глобального поиска >= 0.015
+            const minFeasibilityFloor = isLocalCandidate ? 0.005 : 0.015;
+
             const lowFeasibility =
-                selectedFeasibility <
-                MIN_SELECTED_FEASIBILITY &&
-                bestFeasibilityScore -
-                selectedFeasibility >=
-                MIN_FEASIBILITY_GAIN;
+                selectedFeasibility < minFeasibilityFloor &&
+                bestFeasibilityScore - selectedFeasibility >= 0.25;
+
             const noPositiveEI =
                 bestAcquisition <= 0;
+
             if (
                 periodicExploration ||
                 lowFeasibility ||
@@ -3196,7 +3785,7 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             ) {
                 nextBestX = bestFeasibilityX;
                 bestCandidateStats = bestFeasibilityStats;
-                bestAcquisition = bestFeasibilityScore;
+                bestAcquisition = bestFeasibilitySelectedScore;
                 selectedIndexInPool = selectedFeasibilityIndexInPool;
 
                 selectionMethod = "FEASIBILITY_EXPLORATION";
@@ -3374,6 +3963,8 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
             }
         };
 
+        const stepCountSnapshot = currentExecutionCount;
+
         emitStepLog({
             type: "CANDIDATE_SELECTION_EVALUATION",
 
@@ -3450,9 +4041,14 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
                 radius: reg.radius,
                 attempts: reg.attempts,
                 improvements: reg.improvements,
-                failures: reg.failures
-            })),
-        });
+                failures: reg.failures,
+                idleSteps: stepCountSnapshot - reg.lastImprovementStep,
+                modelStatus: reg.localTrainingStats || { usingFallback: true },
+                ...(reg.attempts > 1 && reg.errorLengthScales ? {
+                    localErrorScales: Array.from(reg.errorLengthScales),
+                    localErrorLML: reg.dualGP?.errorModel?.logMarginalLikelihood ?? null
+                } : {})
+            })),        });
 
         evaluate(
             toPhysical(nextBestX),
@@ -3536,7 +4132,9 @@ export function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
 
             appliedObjective:
             objective
-        }
+        },
+
+        diagnosticLogText: diag.getText()
     };
 }
 
