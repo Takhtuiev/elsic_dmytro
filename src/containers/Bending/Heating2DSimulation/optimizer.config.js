@@ -1,12 +1,13 @@
-const createGridSnapper = (getDomainMm, minNodes) => (rawStep, baseParams) => {
-    const domainMm = getDomainMm(baseParams);
-    if (!Number.isFinite(domainMm) || domainMm <= 0 || !Number.isFinite(rawStep) || rawStep <= 0) {
-        return rawStep;
-    }
-    const intervals = Math.max(minNodes - 1, Math.round(domainMm / rawStep));
-    return domainMm / intervals;
-};
+import {snapGridStepX, snapGridStepY} from "./heating2DModel";
 
+// Оптимальный плавный привязчик: ровно +3% на каждый уровень от min (0.30 K) до max (2.50 K)
+const snapTempStepK = rawStep => {
+    if (!Number.isFinite(rawStep) || rawStep <= 0) return rawStep;
+    const minStep = 0.30;
+    const ratio = 1.01; // +1.5% на шаг (~142 уровня)
+    const index = Math.round(Math.log(rawStep / minStep) / Math.log(ratio));
+    return minStep * Math.pow(ratio, Math.max(0, index));
+};
 
 export const OPTIMIZER_BASE_CONFIG = {
     gridX: {
@@ -15,7 +16,7 @@ export const OPTIMIZER_BASE_CONFIG = {
         min: 0.05,
         max: 0.45,
         digits: 4,
-        snap: createGridSnapper(p => Number(p.thicknessMm), 5)
+        snap: (rawStep, baseParams) => snapGridStepX(rawStep, Number(baseParams.thicknessMm))
     },
     gridY: {
         label: "gridY (Width step)",
@@ -23,14 +24,15 @@ export const OPTIMIZER_BASE_CONFIG = {
         min: 0.20,
         max: 1.50,
         digits: 4,
-        snap: createGridSnapper(p => Number(p.simulation?.widthHalfMm), 12)
+        snap: (rawStep, baseParams) => snapGridStepY(rawStep, Number(baseParams.simulation?.widthHalfMm))
     },
     tempStepK: {
         label: "tempStepK (Temp step)",
         unit: "K",
         min: 0.30,
         max: 2.50,
-        digits: 2
+        digits: 2,
+        snap: snapTempStepK
     }
 };
 
@@ -65,7 +67,7 @@ export function getAdaptiveOptimizerBudget(config = OPTIMIZER_BASE_CONFIG, setti
 export const OPTIMIZER_SETTINGS = {
     optimizationObjective: 'minimize_load',  // minimize_load , minimize_error
     maxErrorScore: 0.50,
-    maxAllowedLoad: 20000000,
+    maxAllowedLoad: 40000000,
     randomInitPoints: null,      // null = авторасчет от числа параметров (4 * D)
     totalBudgetIterations: null, // null = авторасчет от числа параметров (35 * D + 20)
     earlyAbortLoadMultiplier: 2

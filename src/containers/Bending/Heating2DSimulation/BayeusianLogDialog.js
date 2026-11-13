@@ -604,6 +604,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 ? `#${targetLog.bestStepNumber}`
                 : "FINAL";
 
+            const stepCalcTimeMs = m?.calculationTimeMs ?? backupTm?.calculationTimeMs;
+
             return {
                 errorScore: Number.isFinite(Number(m.resultingErrorScore)) ? Number(m.resultingErrorScore).toFixed(3) : "—",
                 load: Number.isFinite(rawLoad) ? formatNumberWithNBSP(rawLoad) : "—",
@@ -612,7 +614,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                     ? String(m.iterations.rejectedTimeSteps)
                     : (backupTm?.iterations?.rejectedTimeSteps !== undefined ? String(backupTm.iterations.rejectedTimeSteps) : "0"),
                 optimizerStep: stepLabel,
-                calcTime: elapsedTime ? `${elapsedTime.toFixed(1)} s` : "—",
+                calcTime: Number.isFinite(Number(stepCalcTimeMs)) ? `${Number(stepCalcTimeMs).toFixed(1)} ms` : "—",
 
                 timeError: backupTm?.accuracy?.timeIntegrationErrorC !== undefined ? `${backupTm.accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
                 gridError: backupTm?.accuracy?.spatialGridErrorC !== undefined ? `${backupTm.accuracy.spatialGridErrorC.toFixed(3)}°C` : "—",
@@ -639,7 +641,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
             picardIters: tm?.iterations?.totalPicardIterations !== undefined ? String(tm.iterations.totalPicardIterations) : "—",
             params: targetLog.candidateParams
         };
-    }, [bestLogIndex, logs, elapsedTime]);
+    }, [bestLogIndex, logs]);
 
     const handleApplyParameters = useCallback(() => {
         if (!bestSnapshotState || !bestSnapshotState.params) return;

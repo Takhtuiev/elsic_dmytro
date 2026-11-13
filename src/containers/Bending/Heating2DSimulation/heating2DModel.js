@@ -31,6 +31,33 @@ const MAX_NODES_Y = 500;
 const MAX_BAND_MATRIX_ELEMENTS = 15000000;
 const MIN_GEOMETRIC_STEP_MM = 0.000001;
 
+const MIN_GRID_NODES_X = 5;
+const MIN_GRID_NODES_Y = 12;
+
+export function calculateGridNodeCountX(thicknessMm, stepXMm) {
+    return Math.max(MIN_GRID_NODES_X, Math.round(thicknessMm / stepXMm)) + 1;
+}
+
+export function calculateGridNodeCountY(widthHalfMm, stepYMm) {
+    if (widthHalfMm === 0) return 1;
+    return Math.max(MIN_GRID_NODES_Y, Math.round(widthHalfMm / stepYMm)) + 1;
+}
+
+export function snapGridStepX(rawStepMm, thicknessMm) {
+    if (!Number.isFinite(thicknessMm) || thicknessMm <= 0 || !Number.isFinite(rawStepMm) || rawStepMm <= 0) {
+        return rawStepMm;
+    }
+    const intervals = calculateGridNodeCountX(thicknessMm, rawStepMm) - 1;
+    return thicknessMm / intervals;
+}
+
+export function snapGridStepY(rawStepMm, widthHalfMm) {
+    if (!Number.isFinite(widthHalfMm) || widthHalfMm <= 0 || !Number.isFinite(rawStepMm) || rawStepMm <= 0) {
+        return rawStepMm;
+    }
+    const intervals = calculateGridNodeCountY(widthHalfMm, rawStepMm) - 1;
+    return widthHalfMm / intervals;
+}
 
 export const SIGMA = 5.670374419e-8;
 export const HEATER_RADIUS_MM = 3.0;
@@ -624,8 +651,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const shouldCalculateAccuracyError = simulation?.calculateAccuracyError !== false;
     const is1D = simulation.widthHalfMm === 0;
 
-    const Nx = Math.max(5, Math.round(thicknessMm / GRID_X_STEP_MM)) + 1;
-    const Ny = is1D ? 1 : (Math.max(12, Math.round(simulation.widthHalfMm / GRID_Y_STEP_MM)) + 1);
+    const Nx = calculateGridNodeCountX(thicknessMm, GRID_X_STEP_MM);
+    const Ny = calculateGridNodeCountY(simulation.widthHalfMm, GRID_Y_STEP_MM);
 
     if (Nx > MAX_NODES_X || Ny > MAX_NODES_Y) {
         return makeError(`Grid dimensions (${Nx}x${Ny}) exceed technical limits.`);

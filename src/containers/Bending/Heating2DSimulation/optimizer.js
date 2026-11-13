@@ -2490,7 +2490,17 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         region.bestViolation === 0 &&
         Math.abs(region.bestObjective - getObjectiveValue(gBestLoad, gBestError)) <= 1e-6;
 
-    // Единая метрика приоритета региона для выбора и вытеснения
+    if (state && searchRegions.length > 0) {
+        for (const reg of searchRegions) {
+            if (!reg.active) continue;
+            if (isGlobalLeaderRegion(reg) || reg.radius <= 0.03) {
+                reg.radius = Math.max(reg.radius, 0.075);
+                reg.failures = Math.floor(reg.failures / 2);
+                reg.lastImprovementStep = currentExecutionCount;
+            }
+        }
+    }
+
     // Единая метрика приоритета региона для выбора и вытеснения
     const getRegionPriority = region => {
         const successRate = (region.improvements + 1) / (region.attempts + 2);
