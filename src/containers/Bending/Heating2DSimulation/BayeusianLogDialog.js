@@ -12,7 +12,7 @@ import TimerIcon from "@mui/icons-material/Timer";
 import LeaderboardIcon from "@mui/icons-material/Leaderboard";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
-import { OPTIMIZER_BASE_CONFIG, OPTIMIZER_SETTINGS } from "./optimizer.config";
+import {getAdaptiveOptimizerBudget, OPTIMIZER_BASE_CONFIG, OPTIMIZER_SETTINGS} from "./optimizer.config";
 import {LIMITS} from "./heating2DModel";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import { downloadDiagnosticLog } from "./optimizerDiagnostics";
@@ -122,7 +122,12 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
     const [finalResultReceived, setFinalResultReceived] = useState(false);
     const [wasAborted, setWasAborted] = useState(false);
     const [bestLogIndex, setBestLogIndex] = useState(null);
-    const [totalBudgetTarget, setTotalBudgetTarget] = useState(OPTIMIZER_SETTINGS.totalBudgetIterations);
+    const defaultBudget = useMemo(
+        () => getAdaptiveOptimizerBudget(OPTIMIZER_BASE_CONFIG, OPTIMIZER_SETTINGS),
+        []
+    );
+
+    const [totalBudgetTarget, setTotalBudgetTarget] = useState(defaultBudget.totalIterations);
     const [isStoppingGracefully, setIsStoppingGracefully] = useState(false);
 
     const workerRef = useRef(null);
@@ -245,7 +250,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
                 const updateProgressLogEntry = (isThinking, safeStepVisual, totalStepsBudget, validProgress, currentParams, activeMetrics) => {
                     setLogs(prev => {
-                        const isInitPhase = safeStepVisual <= OPTIMIZER_SETTINGS.randomInitPoints;
+                        const isInitPhase = safeStepVisual <= defaultBudget.initPoints;
                         const phaseLabel = isInitPhase ? "INIT" : "STEP";
 
                         const prevLast = prev[prev.length - 1];
@@ -253,7 +258,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                         const resolvedMetrics = activeMetrics || (prevLast?.currentStepVisual === safeStepVisual ? prevLast?.technicalMetrics : null);
 
                         const statusText = isThinking
-                            ? `🧠 [BAYES]: Optimizing GP surrogate & searching next candidate (${safeStepVisual}/${totalStepsBudget})...`
+                            ? `🧠 [BAYES]: STEP ${safeStepVisual}/${totalStepsBudget} | Thinking...`
                             : `⏳ [SOLVER]: ${phaseLabel} ${safeStepVisual}/${totalStepsBudget} | Progress: ${validProgress}%`;
 
                         const newEntry = {
@@ -286,8 +291,13 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                     const validProgress = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
 
                     const currentStep = e.data.currentExecutionCount !== undefined ? e.data.currentExecutionCount : 0;
-                    const totalStepsBudget = e.data.totalIterations !== undefined ? e.data.totalIterations : OPTIMIZER_SETTINGS.totalBudgetIterations;
+                    const totalStepsBudget = e.data.totalIterations !== undefined ? e.data.totalIterations : defaultBudget.totalIterations;
                     const safeStepVisual = Math.min(totalStepsBudget, Math.max(0, currentStep));
+
+                    // 🌟 Синхронизируем целевой потолок шагов с реальным значением из воркера
+                    if (e.data.totalIterations !== undefined && Number.isFinite(e.data.totalIterations)) {
+                        setTotalBudgetTarget(e.data.totalIterations);
+                    }
 
                     completedStepsRef.current = safeStepVisual;
                     setCompletedSteps(safeStepVisual);
@@ -326,6 +336,10 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                     if (logEntry.isFinalReportMarker) {
                         setFinalResultReceived(true);
                         setProgressPercent(100);
+                        // Если сработал Early Stop (например, на 70/125), фиксируем 70/70 (100%)
+                        if (completedStepsRef.current > 0) {
+                            setTotalBudgetTarget(completedStepsRef.current);
+                        }
                     } else {
                         completedStepsRef.current = logEntry.currentStepVisual;
                         setProgressPercent(0);
@@ -369,7 +383,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false })
             });
         }
-    }, [appendLog, stopTimer, syncLeaderIndex]);
+    }, [appendLog, stopTimer, syncLeaderIndex, defaultBudget]);
 
     React.useEffect(() => {
         initWorker();
@@ -383,7 +397,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
     const buildWorkerPayload = useCallback((command) => {
         const uiModelPresets = {};
-        const keysToProcess = typeof LIMITS !== "undefined" ? Object.keys(LIMITS) : ["gridX", "gridY", "tolerance", "targetDt", "growthFactor", "shrinkFactor"];
+        const keysToProcess = typeof LIMITS !== "undefined" ? Object.keys(LIMITS) : ["gridX", "gridY", "tempStepK"];
         const currentModes = accuracyModes || ["fast", "optimal", "accurate", "accurate2"];
 
         currentModes.forEach((modeName, modeIdx) => {
@@ -394,6 +408,11 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 }
             });
         });
+
+        // 🌟 Очищаем конфигурацию от функций (snap) перед передачей через postMessage
+        const serializableConfig = Object.fromEntries(
+            Object.entries(OPTIMIZER_BASE_CONFIG).map(([key, { snap, ...rest }]) => [key, rest])
+        );
 
         return {
             command,
@@ -411,7 +430,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
             options: {
                 ...OPTIMIZER_SETTINGS,
                 accuracyModes: currentModes,
-                config: OPTIMIZER_BASE_CONFIG,
+                config: serializableConfig,
                 modelPresets: uiModelPresets
             }
         };
@@ -427,7 +446,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
         bestLogIndexRef.current = null;
         completedStepsRef.current = 0;
         setCompletedSteps(0);
-        setTotalBudgetTarget(OPTIMIZER_SETTINGS.totalBudgetIterations);
+        setTotalBudgetTarget(defaultBudget.totalIterations);
         setProgressPercent(0);
         setElapsedTime(0);
         setExpandedLogs({});
@@ -466,7 +485,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false })
             });
         }
-    }, [buildWorkerPayload, appendLog, stopTimer]);
+    }, [defaultBudget.totalIterations, buildWorkerPayload, stopTimer, appendLog]);
 
     const continueOptimization = useCallback(() => {
         if (!workerRef.current || isOptimizingRef.current) return;
@@ -475,8 +494,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
             clearInterval(timerIntervalRef.current);
         }
 
-        const extraSteps = OPTIMIZER_SETTINGS.totalBudgetIterations;
-        setTotalBudgetTarget(prev => prev + extraSteps);
+        const extraSteps = defaultBudget.totalIterations;
+        setTotalBudgetTarget(completedStepsRef.current + extraSteps);
         setFinalResultReceived(false);
         setBestPanelExpanded(false);
         setIsStoppingGracefully(false);
@@ -519,7 +538,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 timestamp: new Date().toLocaleTimeString("uk-UA", { hour12: false })
             });
         }
-    }, [elapsedTime, buildWorkerPayload, appendLog, stopTimer, syncLeaderIndex]);
+    }, [defaultBudget.totalIterations, elapsedTime, syncLeaderIndex, buildWorkerPayload, stopTimer, appendLog]);
 
     const finishOptimizationNow = useCallback(() => {
         if (!workerRef.current || !isOptimizingRef.current || isStoppingGracefully) return;
@@ -571,29 +590,36 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
         if (targetLog.isFinalReportMarker && targetLog.finalMetricsCache) {
             const m = targetLog.finalMetricsCache;
 
-            // Находим в логах самый последний успешный шаг перед финальным, чтобы забрать детальные метрики точности
-            const lastValidSimLog = [...logs]
+            // Ищем исходный шаг-победитель по номеру bestStepNumber для детальной разбивки ошибок
+            const bestStepLog = targetLog.bestStepNumber !== undefined && targetLog.bestStepNumber !== null
+                ? [...logs].reverse().find(l => l && !l.isFinalReportMarker && l.currentStepVisual === targetLog.bestStepNumber && l.technicalMetrics?.accuracy)
+                : null;
+
+            const backupTm = bestStepLog?.technicalMetrics || [...logs]
                 .reverse()
-                .find(l => l && l.technicalMetrics && l.technicalMetrics.accuracy);
+                .find(l => l && l.technicalMetrics && l.technicalMetrics.accuracy)?.technicalMetrics;
 
-            const backupTm = lastValidSimLog?.technicalMetrics;
-
-            // Преобразуем нагрузку строго в число перед передачей в форматер
             const rawLoad = m.achievedLoad !== undefined ? Number(m.achievedLoad) : NaN;
+            const stepLabel = targetLog.bestStepNumber !== undefined && targetLog.bestStepNumber !== null
+                ? `#${targetLog.bestStepNumber}`
+                : "FINAL";
 
             return {
                 errorScore: Number.isFinite(Number(m.resultingErrorScore)) ? Number(m.resultingErrorScore).toFixed(3) : "—",
                 load: Number.isFinite(rawLoad) ? formatNumberWithNBSP(rawLoad) : "—",
                 step: m?.iterations?.totalTimeSteps !== undefined ? String(m.iterations.totalTimeSteps) : "—",
-                solverRejected: backupTm?.iterations?.rejectedTimeSteps !== undefined ? String(backupTm.iterations.rejectedTimeSteps) : "0",
-                optimizerStep: "FINAL",
+                solverRejected: m?.iterations?.rejectedTimeSteps !== undefined
+                    ? String(m.iterations.rejectedTimeSteps)
+                    : (backupTm?.iterations?.rejectedTimeSteps !== undefined ? String(backupTm.iterations.rejectedTimeSteps) : "0"),
+                optimizerStep: stepLabel,
                 calcTime: elapsedTime ? `${elapsedTime.toFixed(1)} s` : "—",
 
-                // Подтягиваем детальную разбивку из бэкапа последней симуляции, чтобы Collapse не был пустым
                 timeError: backupTm?.accuracy?.timeIntegrationErrorC !== undefined ? `${backupTm.accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
                 gridError: backupTm?.accuracy?.spatialGridErrorC !== undefined ? `${backupTm.accuracy.spatialGridErrorC.toFixed(3)}°C` : "—",
                 solverError: backupTm?.accuracy?.solverErrorC !== undefined ? `${Math.abs(backupTm.accuracy.solverErrorC).toFixed(3)}°C` : "—",
-                picardIters: backupTm?.iterations?.totalPicardIterations !== undefined ? String(backupTm.iterations.totalPicardIterations) : "—",
+                picardIters: m?.iterations?.totalPicardIterations !== undefined
+                    ? String(m.iterations.totalPicardIterations)
+                    : (backupTm?.iterations?.totalPicardIterations !== undefined ? String(backupTm.iterations.totalPicardIterations) : "—"),
                 params: targetLog.candidateParams
             };
         }
@@ -1018,42 +1044,43 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                         </Box>
                         <Collapse in={bestPanelExpanded} timeout="auto" unmountOnExit>
                             {bestSnapshotState.params && (
-                                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", boxSizing: "border-box" }}>
-                                    <Box sx={{ width: "100%", bgcolor: "#14171c", borderRadius: "0 0 6px 6px", border: "1px solid #2563eb", borderTop: "none", p: 2, display: "flex", flexDirection: "column", gap: 1.5, boxSizing: "border-box" }}>
+                                <Box sx={{ width: "100%", bgcolor: "#14171c", borderRadius: "0 0 6px 6px", border: "1px solid #2563eb", borderTop: "none", p: 2, display: "flex", flexDirection: "column", gap: 1.5, boxSizing: "border-box" }}>
 
-                                        <Box sx={SYS_BOX_SX}>
-                                            <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                                                Error score: <strong style={{ color: "#f8fafc", fontSize: "0.9rem", fontWeight: 700 }}>{bestSnapshotState.errorScore}</strong>
-                                                {bestSnapshotState.optimizerStep !== "FINAL" && bestSnapshotState.timeError !== "—" && (
-                                                    <span style={{ marginLeft: 8, color: "#475569" }}>
-                                                        (Time: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.timeError}</strong>, Grid: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.gridError}</strong>, Solver: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.solverError}</strong>)
-                                                    </span>
-                                                )}
-                                            </Typography>
-                                        </Box>
-
-                                        <Box sx={{ ...SYS_BOX_SX, borderBottom: "none", pb: 0 }}>
-                                            <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                                                Solver steps: <strong style={{ color: "#f8fafc" }}>{bestSnapshotState.step}</strong>
-                                                <span style={{ color: Number(bestSnapshotState.solverRejected) > 0 ? "#ce9178" : "#64748b", marginLeft: 6, fontWeight: 600 }}>({bestSnapshotState.solverRejected} rejected)</span>
-                                            </Typography>
-                                            <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                                                Picard iterations: <strong style={{ color: (Number(bestSnapshotState.picardIters) / (Number(bestSnapshotState.step) || 1)) > 5 ? "#f59e0b" : "#e2e8f0" }}>{bestSnapshotState.picardIters}</strong>
-                                            </Typography>
-                                            <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                                                Computational load: <strong style={{ color: "#10b981", fontWeight: 700 }}>{String(bestSnapshotState.load).includes("nodes") ? bestSnapshotState.load : `${bestSnapshotState.load} nodes`}</strong>
-                                            </Typography>
-                                        </Box>
-                                    </Box>
-
-                                    <Box sx={{ width: "100%", p: 2, bgcolor: "#14171c", borderRadius: "6px", border: "1px dashed #2d3139", mt: 1.5, boxSizing: "border-box" }}>
-                                        <Typography variant="caption" sx={{ color: "#475569", fontWeight: 600, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: "0.5px", display: "block", mb: 1.5, fontFamily: "monospace" }}>
-                                            Hyperparameter Matrix Diagnostics (Solver Space)
+                                    <Box sx={SYS_BOX_SX}>
+                                        <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
+                                            Error score: <strong style={{ color: "#f8fafc", fontSize: "0.9rem", fontWeight: 700 }}>{bestSnapshotState.errorScore}</strong>
+                                            {bestSnapshotState.timeError !== "—" && (
+                                                <span style={{ marginLeft: 8, color: "#475569" }}>
+                            (Time: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.timeError}</strong>, Grid: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.gridError}</strong>, Solver: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.solverError}</strong>)
+                        </span>
+                                            )}
                                         </Typography>
-                                        <Box sx={{ width: "100%" }}>
-                                            <ParameterGrid params={bestSnapshotState.params} color="#38bdf8" />
-                                        </Box>
                                     </Box>
+
+                                    <Box sx={SYS_BOX_SX}>
+                                        <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
+                                            Solver steps: <strong style={{ color: "#f8fafc" }}>{bestSnapshotState.step}</strong>
+                                            <span style={{ color: Number(bestSnapshotState.solverRejected) > 0 ? "#ce9178" : "#64748b", marginLeft: 6, fontWeight: 600 }}>({bestSnapshotState.solverRejected} rejected)</span>
+                                        </Typography>
+                                        <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
+                                            Picard iterations: <strong style={{ color: (Number(bestSnapshotState.picardIters) / (Number(bestSnapshotState.step) || 1)) > 5 ? "#f59e0b" : "#e2e8f0" }}>{bestSnapshotState.picardIters}</strong>
+                                        </Typography>
+                                        <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
+                                            Computational load: <strong style={{ color: "#10b981", fontWeight: 700 }}>{String(bestSnapshotState.load).includes("nodes") ? bestSnapshotState.load : `${bestSnapshotState.load} nodes`}</strong>
+                                        </Typography>
+                                    </Box>
+
+                                    <Box sx={{ ...SYS_BOX_SX, borderBottom: "none", pb: 0 }}>
+                                        {Object.entries(bestSnapshotState.params).map(([name, value]) => {
+                                            const displayLabel = OPTIMIZER_BASE_CONFIG[name]?.label || name;
+                                            return (
+                                                <Typography key={name} variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
+                                                    {displayLabel}: <strong style={{ color: "#38bdf8", fontWeight: 600 }}>{formatParamValue(name, value)}</strong>
+                                                </Typography>
+                                            );
+                                        })}
+                                    </Box>
+
                                 </Box>
                             )}
                         </Collapse>
@@ -1109,7 +1136,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                         fullWidth={isMobile}
                                         sx={{ color: "#38bdf8", borderColor: "rgba(56, 189, 248, 0.4)", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 2.5, borderRadius: isMobile ? 1.5 : 2, "&:hover": { borderColor: "#38bdf8", bgcolor: "rgba(56, 189, 248, 0.06)" } }}
                                     >
-                                        Continue (+{OPTIMIZER_SETTINGS.totalBudgetIterations})
+                                        Continue (+{defaultBudget.totalIterations})
                                     </Button>
 
                                     <Button variant="contained" size="small" onClick={handleApplyParameters} disabled={!bestSnapshotState || !bestSnapshotState.params} fullWidth={isMobile} sx={{ bgcolor: "#2563eb", color: "#ffffff", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, boxShadow: "none", "&:hover": { bgcolor: "#1d4ed8" }, "&.Mui-disabled": { bgcolor: "#1e293b", color: "#64748b" } }}>

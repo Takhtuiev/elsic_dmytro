@@ -3,6 +3,7 @@
 try {
     const { optimizeForMaxSpeed } = require('./optimizer.js');
     const { simulate2DHeating } = require('./heating2DModel.js');
+    const { resolveOptimizerConfig } = require('./optimizer.config.js');
 
     function getTimestamp() {
         return new Date().toLocaleTimeString("uk-UA", { hour12: false });
@@ -100,12 +101,12 @@ try {
                 simulateWithDynamicProgress,
                 {
                     ...options,
+                    config: resolveOptimizerConfig(options?.config),
                     resumeState: activeResumeState,
                     shouldStop: () => stopRequested,
                     onProgress: progressHandler
                 }
             );
-
             savedResumeState = result.resumeState;
             const cleanResult = { ...result };
             delete cleanResult.resumeState;

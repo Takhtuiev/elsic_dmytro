@@ -19,11 +19,8 @@ export const LIMITS = {
     gridX:        [0.35,  0.16,  0.116, 0.135 ], // Шаг сетки по горизонтали X (мм)
     gridY:        [1.30,  0.78,  0.307, 0.330 ], // Шаг сетки по вертикали Y (мм)
 
-    tolerance:    [0.25,  0.29,  0.038, 0.019], // Критерий остановки итераций солвера (К)
-    targetDt:     [2.0,   2.13,  0.77,  0.65  ], // Целевой шаг изменения температуры за итерацию (К)
+    tempStepK:     [2.0,   2.13,  0.77,  0.65  ], // Целевой шаг изменения температуры за итерацию (К)
 
-    growthFactor: [1.30,  1.35,  1.39,  1.378 ], // Коэффициент ускорения шага времени (рост dt)
-    shrinkFactor: [0.50,  0.52,  0.49,  0.47  ]  // Коэффициент замедления шага времени (сжатие dt)
 };
 
 export const DEFAULT_SLOT_HALF_WIDTH_MM = 5.0;           // Половина ширины щели нагревателя (ТЭНа)
@@ -44,6 +41,16 @@ const UI_PROGRESS_THROTTLE_MS = 40; // Минимальный интервал �
 const MAX_TOTAL_TIME_STEPS = 100000;  // Жесткий потолок на число шагов по времени
 const MAX_CONSECUTIVE_REJECTIONS = 12;// Максимальное количество неудачных попыток сжатия шага dt подряд на одном месте
 const MAX_PICARD_ITERATIONS = 40;
+
+// Параметры автоматического регулятора шага времени (PI-контроллер)
+const DT_SAFETY_FACTOR = 0.85;        // Коэффициент безопасности при прогнозе следующего шага
+const DT_MAX_GROWTH_FACTOR = 1.45;    // Максимальный множитель роста dt за один успешный шаг
+const DT_MIN_SUCCESS_SHRINK = 0.50;   // Минимальный множитель сжатия dt на успешном шаге
+const DT_REJECT_MIN_SHRINK = 0.35;    // Нижняя граница сжатия dt при отказе солвера
+const DT_REJECT_MAX_SHRINK = 0.75;    // Верхняя граница сжатия dt при отказе солвера
+const DT_FALLBACK_RESIDUAL_RATIO = 4.0; // Аварийное отношение невязки при нечисловой ошибке
+const DT_SINGULARITY_SHRINK = 0.50;   // Множитель сжатия при вырожденной матрице (нулевая диагональ)
+const MIN_PHYSICAL_DT_SECONDS = 0.005;// Защитный пол шага при приближении к границам температур
 
 const EFFECTIVE_H_MM = DISTANCE_TO_SHEET_MM + HEATER_RADIUS_MM;
 const AMBIENT_CONVECTION_H_TOP = 8.0;
@@ -73,15 +80,7 @@ export function validateSimulationParams({ thicknessMm, material, machine, simul
         if (!validPositive(am.gridX)) errors.push("Invalid custom parameter: gridX must be a positive number.");
         if (!validPositive(am.gridY)) errors.push("Invalid custom parameter: gridY must be a positive number.");
 
-        if (!validPositive(am.tolerance)) errors.push("Invalid custom parameter: tolerance must be a positive number.");
-        if (!validPositive(am.targetDt)) errors.push("Invalid custom parameter: targetDt must be a positive number.");
-
-        if (!Number.isFinite(am.growthFactor) || am.growthFactor < 1.0) {
-            errors.push("Invalid custom parameter: growthFactor must be greater than or equal to 1.0.");
-        }
-        if (!validPositive(am.shrinkFactor) || am.shrinkFactor >= 1.0) {
-            errors.push("Invalid custom parameter: shrinkFactor must be strictly between 0.0 and 1.0.");
-        }
+        if (!validPositive(am.tempStepK)) errors.push("Invalid custom parameter: tempStepK must be a positive number.");
     }
 
     // Итоговый вердикт по накопленным ошибкам
@@ -188,91 +187,237 @@ function createNonlinearGridX(thicknessMm, nodeCount) {
     return { x, dx, dxHat, invDxH, invDxL, invDxR, nodeCount };
 }
 
-function createParametricGridY(widthHalfMm, nodeCount, slotHalfWidthMm, convectionTransitionEndMm) {
+
+function createParametricGridY(
+    widthHalfMm,
+    nodeCount,
+    slotHalfWidthMm,
+    convectionTransitionEndMm
+) {
+    if (
+        !Number.isFinite(widthHalfMm) ||
+        widthHalfMm <= 0 ||
+        !Number.isInteger(nodeCount) ||
+        nodeCount < 2
+    ) {
+        throw new RangeError("Invalid Y-grid dimensions.");
+    }
+
     const y = new Float64Array(nodeCount);
-    const yCenter = (slotHalfWidthMm + convectionTransitionEndMm) / 2.0;
-    const yChangePrincipleMm = slotHalfWidthMm + 3.0;
+
+    // ============================================================
+    // 1. ПАРАМЕТРЫ ФИЗИЧЕСКИ ОБУСЛОВЛЕННОГО СГУЩЕНИЯ
+    // ============================================================
+
+    const H = EFFECTIVE_H_MM;
+    const H2 = H * H;
+
+    const yCenter =
+        (slotHalfWidthMm + convectionTransitionEndMm) / 2.0;
+
+    const centerWidth = 3.0;
+
+    const zoneWidth = Math.max(
+        1e-6,
+        (convectionTransitionEndMm - slotHalfWidthMm) * 0.5 || 1.5
+    );
+
+    const radiationPeakY = H * 0.5;
+
+    const radiationPeakViewFactor = Math.pow(
+        H2 / (H2 + radiationPeakY * radiationPeakY),
+        1.5
+    );
+
+    const maxRadiationGradient =
+        (3.0 * radiationPeakY /
+            (H2 + radiationPeakY * radiationPeakY)) *
+        radiationPeakViewFactor;
+
+    // ============================================================
+    // 2. ЕДИНАЯ ФУНКЦИЯ ПЛОТНОСТИ УЗЛОВ
+    // ============================================================
 
     function getWeightDensity(posMm) {
         let weight = 1.0;
-        weight += 2.0 * Math.exp(-Math.pow(posMm / 3.0, 2));
-        const zoneWidth = (convectionTransitionEndMm - slotHalfWidthMm) * 0.5 || 1.5;
-        weight += 8.0 * Math.exp(-Math.pow((posMm - yCenter) / zoneWidth, 2));
+
+        // Центральная область: y = 0
+        weight += 2.0 * Math.exp(
+            -Math.pow(posMm / centerWidth, 2)
+        );
+
+        // Изменение пространственного фактора радиационного нагрева
+        const viewFactor = Math.pow(
+            H2 / (H2 + posMm * posMm),
+            1.5
+        );
+
+        const radiationGradient =
+            (3.0 * posMm / (H2 + posMm * posMm)) *
+            viewFactor;
+
+        const normalizedRadiationGradient =
+            maxRadiationGradient > 0
+                ? radiationGradient / maxRadiationGradient
+                : 0;
+
+        weight += 2.0 * normalizedRadiationGradient;
+
+        // Зона изменения условий конвекции: 5–8 мм
+        weight += 8.0 * Math.exp(
+            -Math.pow(
+                (posMm - yCenter) / zoneWidth,
+                2
+            )
+        );
+
         return weight;
     }
 
-    const intervals = nodeCount * 20;
-    const stepInt = widthHalfMm / intervals;
-    let totalWeightIntegral = 0;
-    for (let i = 0; i < intervals; i++) totalWeightIntegral += getWeightDensity(i * stepInt) * stepInt;
+    // ============================================================
+    // 3. ИНТЕГРИРОВАНИЕ ПЛОТНОСТИ МЕТОДОМ ТРАПЕЦИЙ
+    // ============================================================
 
-    let currentWeightPos = 0.0;
-    const targetWeightPerNode = totalWeightIntegral / (nodeCount - 1);
-    let currentMm = 0.0;
-    const searchStep = stepInt / 4.0;
+    const integrationIntervals = Math.max(
+        2048,
+        nodeCount * 64
+    );
+
+    const integrationStep =
+        widthHalfMm / integrationIntervals;
+
+    const cumulative = new Float64Array(
+        integrationIntervals + 1
+    );
+
+    let previousWeight = getWeightDensity(0);
+
+    for (let i = 1; i <= integrationIntervals; i++) {
+        const pos = i * integrationStep;
+        const currentWeight = getWeightDensity(pos);
+
+        cumulative[i] = cumulative[i - 1] +
+            0.5 * (previousWeight + currentWeight) *
+            integrationStep;
+
+        previousWeight = currentWeight;
+    }
+
+    const totalWeight =
+        cumulative[integrationIntervals];
+
+    if (!Number.isFinite(totalWeight) || totalWeight <= 0) {
+        throw new Error("Invalid Y-grid density integral.");
+    }
+
+    // ============================================================
+    // 4. ОБРАТНОЕ РАСПРЕДЕЛЕНИЕ КООРДИНАТ
+    // ============================================================
 
     y[0] = 0.0;
-    for (let j = 1; j < nodeCount - 1; j++) {
-        const neededWeight = j * targetWeightPerNode;
-        while (currentWeightPos < neededWeight && currentMm < widthHalfMm) {
-            currentWeightPos += getWeightDensity(currentMm) * searchStep;
-            currentMm += searchStep;
-        }
-        y[j] = currentMm;
-    }
     y[nodeCount - 1] = widthHalfMm;
-    y.sort();
 
-    let changeIndex = 0;
-    for (let j = 0; j < nodeCount; j++) {
-        if (y[j] >= yChangePrincipleMm) { changeIndex = j; break; }
-    }
+    const minSpacing = Math.max(
+        MIN_GEOMETRIC_STEP_MM,
+        Number.EPSILON * widthHalfMm * 8
+    );
 
-    if (changeIndex > 0 && changeIndex < nodeCount - 2) {
-        let baseDy = y[changeIndex] - y[changeIndex - 1];
-        if (baseDy < MIN_GEOMETRIC_STEP_MM) baseDy = MIN_GEOMETRIC_STEP_MM;
-        const q = 1.12;
-        let currentDy = baseDy;
-        for (let j = changeIndex; j < nodeCount - 1; j++) {
-            currentDy *= q;
-            y[j + 1] = y[j] + currentDy;
-        }
-        const yStartZone = y[changeIndex];
-        const oldLength = y[nodeCount - 1] - yStartZone;
-        const newLength = widthHalfMm - yStartZone;
-        if (oldLength > 0.000000001 && newLength > 0) {
-            const scale = newLength / oldLength;
-            for (let j = changeIndex + 1; j < nodeCount; j++) y[j] = yStartZone + (y[j] - yStartZone) * scale;
-        }
-    }
-
-    y[0] = 0.0;
     for (let j = 1; j < nodeCount - 1; j++) {
-        if (y[j] <= y[j - 1] + MIN_GEOMETRIC_STEP_MM) y[j] = y[j - 1] + MIN_GEOMETRIC_STEP_MM;
+        const targetWeight =
+            totalWeight * j / (nodeCount - 1);
+
+        // Бинарный поиск интегральной координаты
+        let low = 0;
+        let high = integrationIntervals;
+
+        while (high - low > 1) {
+            const mid = (low + high) >> 1;
+
+            if (cumulative[mid] < targetWeight) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+
+        const c0 = cumulative[low];
+        const c1 = cumulative[high];
+
+        const fraction = c1 > c0
+            ? (targetWeight - c0) / (c1 - c0)
+            : 0;
+
+        const rawPosition =
+            (low + fraction) * integrationStep;
+
+        // Строго монотонные координаты
+        const lowerBound =
+            y[j - 1] + minSpacing;
+
+        const upperBound =
+            widthHalfMm -
+            (nodeCount - 1 - j) * minSpacing;
+
+        if (lowerBound > upperBound) {
+            throw new Error("Insufficient Y-grid spacing.");
+        }
+
+        y[j] = clamp(
+            rawPosition,
+            lowerBound,
+            upperBound
+        );
     }
-    y[nodeCount - 1] = widthHalfMm;
+
+    // ============================================================
+    // 5. ГЕОМЕТРИЧЕСКИЕ ИНТЕРВАЛЫ
+    // ============================================================
 
     const dy = new Float64Array(nodeCount - 1);
     const dyHat = new Float64Array(nodeCount);
 
     for (let j = 0; j < nodeCount - 1; j++) {
-        const diff = y[j + 1] - y[j];
-        dy[j] = diff < MIN_GEOMETRIC_STEP_MM ? MIN_GEOMETRIC_STEP_MM : diff;
+        dy[j] = y[j + 1] - y[j];
     }
 
     dyHat[0] = 0.5 * dy[0];
-    for (let j = 1; j < nodeCount - 1; j++) dyHat[j] = 0.5 * (dy[j - 1] + dy[j]);
-    dyHat[nodeCount - 1] = 0.5 * dy[nodeCount - 2];
+
+    for (let j = 1; j < nodeCount - 1; j++) {
+        dyHat[j] = 0.5 * (dy[j - 1] + dy[j]);
+    }
+
+    dyHat[nodeCount - 1] =
+        0.5 * dy[nodeCount - 2];
+
+    // ============================================================
+    // 6. ОБРАТНЫЕ ИНТЕРВАЛЫ
+    // ============================================================
 
     const invDyH = new Float64Array(nodeCount);
     const invDyL = new Float64Array(nodeCount);
     const invDyR = new Float64Array(nodeCount);
+
     for (let j = 0; j < nodeCount; j++) {
         invDyH[j] = 1000.0 / dyHat[j];
-        if (j > 0) invDyL[j] = 1000.0 / dy[j - 1];
-        if (j < nodeCount - 1) invDyR[j] = 1000.0 / dy[j];
+
+        if (j > 0) {
+            invDyL[j] = 1000.0 / dy[j - 1];
+        }
+
+        if (j < nodeCount - 1) {
+            invDyR[j] = 1000.0 / dy[j];
+        }
     }
-    return { y, dy, dyHat, invDyH, invDyL, invDyR, nodeCount };
+
+    return {
+        y,
+        dy,
+        dyHat,
+        invDyH,
+        invDyL,
+        invDyR,
+        nodeCount
+    };
 }
 
 export function getNonlinearViewFactors(yCoordinatesMm) {
@@ -469,12 +614,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const modeIdx = !isCustom ? ACCURACY_MODES.indexOf(mode) : 1;
     const am = isStringMode ? null : rawMode;
 
-    const GRID_X_STEP_MM           = isCustom ? (am?.gridX        ?? LIMITS.gridX[modeIdx])        : LIMITS.gridX[modeIdx];
-    const GRID_Y_STEP_MM           = isCustom ? (am?.gridY        ?? LIMITS.gridY[modeIdx])        : LIMITS.gridY[modeIdx];
-    const NONLINEAR_TOLERANCE_K    = isCustom ? (am?.tolerance    ?? LIMITS.tolerance[modeIdx])    : LIMITS.tolerance[modeIdx];
-    const TARGET_DELTA_T           = isCustom ? (am?.targetDt     ?? LIMITS.targetDt[modeIdx])     : LIMITS.targetDt[modeIdx];
-    const ADAPTIVE_GROWTH_FACTOR   = isCustom ? (am?.growthFactor ?? LIMITS.growthFactor[modeIdx]) : LIMITS.growthFactor[modeIdx];
-    const ADAPTIVE_SHRINK_FACTOR   = isCustom ? (am?.shrinkFactor ?? LIMITS.shrinkFactor[modeIdx]) : LIMITS.shrinkFactor[modeIdx];
+    const GRID_X_STEP_MM        = isCustom ? (am?.gridX    ?? LIMITS.gridX[modeIdx])    : LIMITS.gridX[modeIdx];
+    const GRID_Y_STEP_MM        = isCustom ? (am?.gridY    ?? LIMITS.gridY[modeIdx])    : LIMITS.gridY[modeIdx];
+    const TARGET_DELTA_T        = isCustom
+        ? (am?.tempStepK ?? am?.targetDt ?? LIMITS.tempStepK[modeIdx])
+        : LIMITS.tempStepK[modeIdx];
+    const NONLINEAR_TOLERANCE_K = clamp(0.02 * TARGET_DELTA_T * TARGET_DELTA_T, 0.001, 0.25);
 
     const shouldCalculateAccuracyError = simulation?.calculateAccuracyError !== false;
     const is1D = simulation.widthHalfMm === 0;
@@ -915,7 +1060,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     break mainSimulationLoop;
                 }
 
-                dt *= ADAPTIVE_SHRINK_FACTOR;
+                dt *= DT_SINGULARITY_SHRINK;
                 if (dt < 1e-6) {
                     status = { type: "error", message: `Time step reached critical minimum limit due to matrix singularity (${currentPhase}).` };
                     break mainSimulationLoop;
@@ -1009,7 +1154,18 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 break;
             }
 
-            dt *= ADAPTIVE_SHRINK_FACTOR;
+            const residualRatio = Number.isFinite(lastIterMaxSignedDiff) && Math.abs(lastIterMaxSignedDiff) > 0
+                ? Math.abs(lastIterMaxSignedDiff) / NONLINEAR_TOLERANCE_K
+                : DT_FALLBACK_RESIDUAL_RATIO;
+
+            const autoShrink = clamp(
+                DT_SAFETY_FACTOR / Math.sqrt(residualRatio),
+                DT_REJECT_MIN_SHRINK,
+                DT_REJECT_MAX_SHRINK
+            );
+
+            dt *= autoShrink;
+
             if (dt < 1e-6) {
                 status = { type: "error", message: `Time step reached critical minimum limit (${currentPhase}).` };
                 break;
@@ -1260,39 +1416,39 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             }
         }
 
-        const dtGrowth = dt * ADAPTIVE_GROWTH_FACTOR;
-
+// Заменить весь блок расчета следующего dt в конце while на:
         let maxStepTempChange = Math.max(
             Math.abs(buffers[newIdx][idxTop] - buffers[curIdx][idxTop]),
             Math.abs(buffers[newIdx][idxMid] - buffers[curIdx][idxMid]),
             Math.abs(buffers[newIdx][idxBot] - buffers[curIdx][idxBot])
         );
+
         const dtTemperature = maxStepTempChange > 1e-6
-            ? dt * (TARGET_DELTA_T / maxStepTempChange)
-            : dtGrowth;
+            ? dt * DT_SAFETY_FACTOR * (TARGET_DELTA_T / maxStepTempChange)
+            : dt * DT_MAX_GROWTH_FACTOR;
 
         const targetTimeTol = Math.max(NONLINEAR_TOLERANCE_K, TARGET_DELTA_T * 0.2);
         const dtAccuracy = (shouldCalculateAccuracyError && currentStepTimeErr > 1e-6)
-            ? dt * Math.sqrt(targetTimeTol / currentStepTimeErr)
-            : dtGrowth;
+            ? dt * DT_SAFETY_FACTOR * Math.sqrt(targetTimeTol / currentStepTimeErr)
+            : dt * DT_MAX_GROWTH_FACTOR;
 
         let dtPhysical = Infinity;
         if (currentPhase === "heating" && maxStepTempChange > 1e-6) {
             const heatingRate = maxStepTempChange / dt;
             const distToDecomp = decompTempK - maxObservedT;
             if (distToDecomp > 0) {
-                dtPhysical = Math.min(dtPhysical, (distToDecomp / heatingRate) * 0.85);
+                dtPhysical = Math.min(dtPhysical, Math.max(MIN_PHYSICAL_DT_SECONDS, (distToDecomp / heatingRate) * 0.85));
             }
             if (targetK != null && targetType !== "time") {
                 const distToTarget = targetK - currentStepCriticalValue;
                 if (distToTarget > 0) {
-                    dtPhysical = Math.min(dtPhysical, (distToTarget / heatingRate) * 0.9);
+                    dtPhysical = Math.min(dtPhysical, Math.max(MIN_PHYSICAL_DT_SECONDS, (distToTarget / heatingRate) * 0.9));
                 }
             }
         }
 
-        const rawNextDt = Math.min(dtGrowth, dtTemperature, dtAccuracy, dtPhysical);
-        dt = Math.max(dt * ADAPTIVE_SHRINK_FACTOR, rawNextDt);
+        const rawNextDt = Math.min(dtTemperature, dtAccuracy, dtPhysical);
+        dt = clamp(rawNextDt, dt * DT_MIN_SUCCESS_SHRINK, dt * DT_MAX_GROWTH_FACTOR);
 
         step++;
         currentStepCpuUnits = 0; // Обнуляем сложность шага, так как он официально принят алгоритмом
