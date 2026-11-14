@@ -2,6 +2,11 @@ import { createDiagnosticLogger } from "./optimizerDiagnostics.js";
 
 /* eslint-disable no-restricted-globals */
 
+// ============================================================================
+// 1. ЧИСЛЕННЫЕ И МАТЕМАТИЧЕСКИЕ ОСНОВЫ
+// Расстояния, ядро Матерна, линейная алгебра и функции нормального распределения.
+// ============================================================================
+
 // Вспомогательная функция: Расстояние с учетом шкал длин ядра (Махаланобиса-подобное)
 function calculateKernelDistance(x1, x2, lengthScales) {
     if (
@@ -342,6 +347,10 @@ function calculateConstrainedLogNormalEI(
         : 0;
 }
 
+// ============================================================================
+// 2. ГИПЕРПАРАМЕТРЫ GP: ОЦЕНКА И ОПТИМИЗАЦИЯ LENGTH SCALES
+// ============================================================================
+
 function estimateLengthScales(X, numParams) {
     if (
         !Array.isArray(X) ||
@@ -659,6 +668,10 @@ function optimizeLengthScales(
 
     return scales;
 }
+
+// ============================================================================
+// 3. ЯДРО GAUSSIAN PROCESS: ОБУЧЕНИЕ И ПРОГНОЗ
+// ============================================================================
 
 function fitGaussianProcess(X, Y, noise, lengthScales, isComplete) {
     const invalidModel = reason => ({
@@ -996,6 +1009,10 @@ function applySigmaCalibration(prediction, scale) {
         sigmaCalibration: factor
     };
 }
+
+// ============================================================================
+// 4. ДВОЙНАЯ GP-МОДЕЛЬ И РЕГИОНАЛЬНЫЕ ОБУЧАЮЩИЕ ВЫБОРКИ
+// ============================================================================
 
 function fitDualGaussianProcess(
     X,
@@ -1537,6 +1554,10 @@ function optimizeRegionalLengthScales(
 }
 
 
+// ============================================================================
+// 5. КАЛИБРОВКА НЕОПРЕДЕЛЁННОСТИ И ВЕРОЯТНОСТНЫЕ ОГРАНИЧЕНИЯ
+// ============================================================================
+
 // Условие 1,2,3,4,5,6: Интеллектуальный расчет калибровки с ЕМА-сглаживанием и глобальным контролем осей
 function estimateResidualSigmaScale(pairs, key, observedX = [], lastScaleValue = 1.0, progressFactor = 0.0) {
     const MIN_REQUIRED_SAMPLES = 20;
@@ -1810,6 +1831,10 @@ const SOBOL_PARAMETERS = [
     { s: 5, a: 7, m: [1, 1, 5, 1, 15] }
 ];
 
+// ============================================================================
+// 6. ГЕНЕРАТОР ГЛОБАЛЬНОГО ПРОСТРАНСТВЕННОГО ПОИСКА (SOBOL)
+// ============================================================================
+
 function createSobolGenerator(dimensions) {
     if (
         !Number.isInteger(dimensions) ||
@@ -1897,7 +1922,16 @@ function createSobolGenerator(dimensions) {
     };
 }
 
+// ============================================================================
+// 7. ГЛАВНЫЙ ОРКЕСТРАТОР ОПТИМИЗАЦИИ
+// Внутренние блоки ниже разделены по ответственности; алгоритм не изменён.
+// ============================================================================
+
 export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
+    // -----------------------------------------------------------------------
+    // 7.1. ВХОДНЫЕ ДАННЫЕ, ЦЕЛЬ ОПТИМИЗАЦИИ И ПРОВЕРКА КОНФИГУРАЦИИ
+    // -----------------------------------------------------------------------
+
     const state = options.resumeState || null;
     let currentExecutionCount = state ? state.currentExecutionCount : 0;
 
@@ -2059,6 +2093,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         );
     }
 
+    // -----------------------------------------------------------------------
+    // 7.2. ВОССТАНОВЛЕНИЕ СОСТОЯНИЯ (RESUME STATE)
+    // -----------------------------------------------------------------------
+
     // Глобальный контекст для сохранения истории ЕМА-калибровки остатков
     self.lastEMAStorage = state?.lastEMAStorage || { load: 1.0, error: 1.0 };
 
@@ -2101,6 +2139,11 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         self.lastEvaluatedBestMetrics = state.lastEvaluatedBestMetrics ?? state.gBestMetrics ?? null;
         self.lastEvaluatedBestStepNumber = state.lastEvaluatedBestStepNumber ?? null;
     }
+
+    // -----------------------------------------------------------------------
+    // 7.3. ПРЕОБРАЗОВАНИЕ ПАРАМЕТРОВ И КАНОНИЗАЦИЯ КАНДИДАТОВ
+    // Нормализованные координаты <-> физические значения, округление и ключи.
+    // -----------------------------------------------------------------------
 
     const getPhysicalKeyFromPhysical = physical =>
         paramKeys.map(key => String(physical[key])).join("|");
@@ -2308,6 +2351,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     const rawNextSobolPoint = createSobolGenerator(numParams);
     let sobolDrawsCount = state?.sobolDraws || 0;
 
+    // -----------------------------------------------------------------------
+    // 7.4. СОСТОЯНИЕ ПОИСКА, ГЕНЕРАЦИЯ ТОЧЕК И СЧЁТЧИКИ
+    // -----------------------------------------------------------------------
+
     // Если это продолжение — проматываем генератор Соболя до места остановки
     if (sobolDrawsCount > 0) {
         for (let i = 0; i < sobolDrawsCount; i++) {
@@ -2378,6 +2425,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     let fallbackObjective = state?.fallbackObjective ?? Infinity;
 
     let pendingDecision = null;
+
+    // -----------------------------------------------------------------------
+    // 7.5. ЛОГИРОВАНИЕ, ДИАГНОСТИКА И ОБРАТНАЯ СВЯЗЬ С UI
+    // -----------------------------------------------------------------------
 
     const formatLogValues = (value, key = null) => {
         if (typeof value === "number") {
@@ -2476,6 +2527,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         }
     };
 
+    // -----------------------------------------------------------------------
+    // 7.6. ЦЕЛЕВАЯ ФУНКЦИЯ, ОГРАНИЧЕНИЯ И СНИМОК СОСТОЯНИЯ
+    // -----------------------------------------------------------------------
+
     const getObjectiveValue = (load, error) => (
         objective === "minimize_load"
             ? load
@@ -2533,6 +2588,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 : null
         };
     }
+
+    // -----------------------------------------------------------------------
+    // 7.7. TRUST REGIONS: ПРИОРИТЕТ, ПРИВЯЗКА ТОЧЕК И ОБНОВЛЕНИЕ РЕГИОНОВ
+    // -----------------------------------------------------------------------
 
     const isGlobalLeaderRegion = region =>
         Boolean(gBestMetrics) &&
@@ -2816,6 +2875,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     };
 
 
+    // -----------------------------------------------------------------------
+    // 7.8. ВЫПОЛНЕНИЕ ОДНОЙ СИМУЛЯЦИИ И РЕГИСТРАЦИЯ НАБЛЮДЕНИЯ
+    // -----------------------------------------------------------------------
+
     const evaluate = (
         paramsObj,
         normX,
@@ -2862,6 +2925,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
         let predictedAbortCount = 0;
         let lastProgress = -1;
+
+        // Подготовка аргументов и callback раннего прерывания симуляции.
 
         const simArgs = {
             ...baseParams,
@@ -3035,6 +3100,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             }
         };
 
+        // Запуск симуляции и обработка её результата.
+
         let res;
 
         try {
@@ -3163,6 +3230,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
         const abortProgress =
             recordedAbortProgress?.percent;
+
+        // Классификация результата и добавление наблюдений в обучающую выборку.
 
         emitStepLog({
             stepNumber: currentExecutionCount,
@@ -3408,6 +3477,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             }
         }
 
+        // Финальный статус шага, логирование и обновление Trust Regions.
+
         const stepMode = customTag
             ? customTag.startsWith("PRESET_")
                 ? customTag
@@ -3471,12 +3542,19 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     };
 
 
+    // -----------------------------------------------------------------------
+    // 7.9. НАЧАЛЬНОЕ НАПОЛНЕНИЕ ВЫБОРКИ
+    // -----------------------------------------------------------------------
+
     if (!state) {
         // ------------------------------------------------------------
         // INITIAL PRESETS
         // ------------------------------------------------------------
 
-        if (options.modelPresets) {
+        const USE_INITIAL_PRESETS = false;
+
+        if (USE_INITIAL_PRESETS && options.modelPresets) {
+
             const modesToLoad =
                 Array.isArray(options.accuracyModes)
                     ? options.accuracyModes
@@ -3560,6 +3638,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         }
     }
 
+    // -----------------------------------------------------------------------
+    // 7.10. ОСНОВНОЙ ЦИКЛ BAYESIAN OPTIMIZATION
+    // -----------------------------------------------------------------------
+
     // ------------------------------------------------------------
     // BAYESIAN OPTIMIZATION
     // ------------------------------------------------------------
@@ -3596,6 +3678,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 message: "Fitting Gaussian Processes & evaluating candidates..."
             });
         }
+
+        // 7.10.1. АДАПТАЦИЯ ПРОГРЕССА И ПЕРИОДИЧНОСТИ ПЕРЕОБУЧЕНИЯ
 
         // ========================================================================
         // ГЛОБАЛЬНЫЙ ДИНАМИЧЕСКИЙ ДРЕЙФ ПРОГРЕССА (СВЯЗАНО С КОНФИГОМ ИНТЕРФЕЙСА)
@@ -3654,6 +3738,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             globalGPState.lastErrorScaleCompleteCount = currentCompleteCount;
         }
 
+        // 7.10.2. ОБУЧЕНИЕ ГЛОБАЛЬНОЙ ДВОЙНОЙ GP-МОДЕЛИ
+
         const globalDualGP = fitDualGaussianProcess(
             observedX,
             observedLogLoad,
@@ -3681,6 +3767,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             evaluate(fallback.physical, fallback.x, "FALLBACK_GP_FAILED");
             continue;
         }
+
+        // 7.10.3. ОБУЧЕНИЕ ЛОКАЛЬНЫХ REGIONAL GP
 
         // ========================================================================
         // ЭТАП 4: ОБУЧЕНИЕ ЛОКАЛЬНЫХ МОДЕЛЕЙ (REGIONAL GP) С АДАПТАЦИЕЙ МАСШТАБОВ
@@ -3825,6 +3913,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
         const candidates = [];
         const candidateSources = []; // Диагностический трекер источника точки
+
+        // 7.10.4. ФОРМИРОВАНИЕ ПУЛА ГЛОБАЛЬНЫХ И ЛОКАЛЬНЫХ КАНДИДАТОВ
 
         // Этап 5: Баланс 35% Global GP / 65% Regional GP (при наличии активных регионов)
         const basePool = 600 + numParams * 300;
@@ -4018,6 +4108,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             }
         }
 
+
+        // 7.10.5. ОЦЕНКА КАНДИДАТОВ И ACQUISITION FUNCTION
 
         // --------------------------------------------------------
         // ACQUISITION FUNCTION
@@ -4220,6 +4312,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         // Фиксируем максимальный EI до возможного переключения в режим разведки
         const maxPoolEI = bestCandidateStats?.ei ?? 0;
 
+        // 7.10.6. ВЫБОР РЕЖИМА: УЛУЧШЕНИЕ ИЛИ ИССЛЕДОВАНИЕ ДОПУСТИМОЙ ОБЛАСТИ
+
         // --------------------------------------------------------
         // CONTROLLED FEASIBILITY EXPLORATION
         // --------------------------------------------------------
@@ -4367,6 +4461,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
         const resolvedSelectedPhysical = quantizeCandidate(nextBestX)?.physical || toPhysical(nextBestX);
 
+
+        // 7.10.7. ФИКСАЦИЯ РЕШЕНИЯ, ДИАГНОСТИКА И ВЫБОР СЛЕДУЮЩЕЙ ТОЧКИ
 
         // --------------------------------------------------------
         // LOGGING / PENDING DECISION
@@ -4610,6 +4706,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             nextBestX
         );
 
+        // 7.10.8. КОНТРОЛЬ СХОДИМОСТИ И УСЛОВИЯ ДОСРОЧНОЙ ОСТАНОВКИ
+
         // 1. Обновляем счетчик стагнации глобального рекорда
         if (self.lastEvaluatedBestStepNumber && self.lastEvaluatedBestStepNumber > (stepBeforeEval || 0)) {
             stepsWithoutGlobalImprovement = 0;
@@ -4705,6 +4803,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             }
         }
     }
+
+    // -----------------------------------------------------------------------
+    // 7.11. ФОРМИРОВАНИЕ И ВОЗВРАТ ФИНАЛЬНОГО РЕЗУЛЬТАТА
+    // -----------------------------------------------------------------------
 
     // ------------------------------------------------------------
     // FINAL RESULT

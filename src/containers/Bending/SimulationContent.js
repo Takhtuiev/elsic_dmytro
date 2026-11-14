@@ -1,14 +1,12 @@
 import React, { useEffect, useState, useCallback, memo } from "react";
 import {
     Box, Typography, Radio, Card, CardContent,
-    FormControlLabel, Switch, ToggleButton, ToggleButtonGroup, MenuItem
+    FormControlLabel, Switch, MenuItem
 } from "@mui/material";
 import MyTextField from "./MyTextField";
 import { BlockMath } from "react-katex";
 import "katex/dist/katex.min.css";
 import {ACCURACY_MODES} from "./Heating2DSimulation/heating2DModel";
-
-const DEFAULT_2D_WIDTH_HALF_MM = 20;
 
 const CARD_SX = {
     borderRadius: 2,
@@ -111,8 +109,6 @@ export default function SimulationContent({ value = {}, onChange }) {
         showContours2D
     } = ui ?? {};
 
-    const dimension = widthHalfMm === 0 ? "1d" : "2d";
-
     useEffect(() => {
         setLinkTemps(
             temperatures?.ambientC === temperatures?.ambientRadiationC &&
@@ -146,14 +142,6 @@ export default function SimulationContent({ value = {}, onChange }) {
         }),
         [linkTemps, updateValue]
     );
-
-    const handleDimensionChange = useCallback((_, newDim) => {
-        if (!newDim) return;
-
-        updateValue(() => ({
-            widthHalfMm: newDim === "1d" ? 0 : DEFAULT_2D_WIDTH_HALF_MM
-        }));
-    }, [updateValue]);
 
     const handleChartUiChange = useCallback(
         (key) => (e) => updateValue((prev) => ({
@@ -306,35 +294,14 @@ export default function SimulationContent({ value = {}, onChange }) {
                 </ConfigCard>
 
                 <ConfigCard title="Workpiece Geometry">
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                        <ToggleButtonGroup
-                            value={dimension}
-                            exclusive
-                            onChange={handleDimensionChange}
-                            size="small"
-                        >
-                            <ToggleButton value="1d" sx={{
-                                px: 1.5, py: 0.5, fontSize: "0.75rem", fontWeight: 600
-                            }}>
-                                1D
-                            </ToggleButton>
-                            <ToggleButton value="2d" sx={{
-                                px: 1.5, py: 0.5, fontSize: "0.75rem", fontWeight: 600
-                            }}>
-                                2D
-                            </ToggleButton>
-                        </ToggleButtonGroup>
-
-                        <RowField
-                            label="Sheet half-width"
-                            value={widthHalfMm}
-                            onChange={(v) => updateValue(() => ({
-                                widthHalfMm: v === "" ? "" : Number(v)
-                            }))}
-                            unit="mm"
-                            disabled={dimension === "1d"}
-                        />
-                    </Box>
+                    <RowField
+                        label="Sheet half-width"
+                        value={widthHalfMm}
+                        onChange={(v) => updateValue(() => ({
+                            widthHalfMm: v === "" ? "" : Number(v)
+                        }))}
+                        unit="mm"
+                    />
                 </ConfigCard>
             </Box>
 

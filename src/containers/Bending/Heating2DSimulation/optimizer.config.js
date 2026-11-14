@@ -15,8 +15,8 @@ const snapTempStepK = rawStep => {
 
 export const OPTIMIZER_BASE_CONFIG = {
     gridDensityX: {
-        label: "gridDensityX (Thickness mesh density)",
-        unit: "nodes/mm^0.64",
+        label: "gridDensityX",
+        unit: "/mm⁰·⁶⁴",
         min: 3.50,
         max: 25.00,
         digits: 4,
@@ -30,8 +30,8 @@ export const OPTIMIZER_BASE_CONFIG = {
         }
     },
     gridDensityY: {
-        label: "gridDensityY (Width mesh density)",
-        unit: "nodes/mm^0.30",
+        label: "gridDensityY",
+        unit: "/mm⁰·³⁴",
         min: 5.00,
         max: 25.00,
         digits: 4,
@@ -45,11 +45,11 @@ export const OPTIMIZER_BASE_CONFIG = {
         }
     },
     tempStepK: {
-        label: "tempStepK (Temp step)",
+        label: "tempStepK",
         unit: "K",
         min: 0.30,
         max: 2.50,
-        digits: 2,
+        digits: 3,
         snap: snapTempStepK,
         step: (currentStep, deltaSteps) => {
             const minStep = 0.30;
@@ -93,9 +93,9 @@ export function getAdaptiveOptimizerBudget(config = OPTIMIZER_BASE_CONFIG, setti
 
 export const OPTIMIZER_SETTINGS = {
     optimizationObjective: 'minimize_load', // minimize_error, minimize_load
-    maxErrorScore: 0.50,
+    maxErrorScore: 1.0,
     maxAllowedLoad: 25000000,
     randomInitPoints: null,
     totalBudgetIterations: null,
-    earlyAbortLoadMultiplier: 2
+    earlyAbortLoadMultiplier: 3
 };
