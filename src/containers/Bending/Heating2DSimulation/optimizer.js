@@ -2383,20 +2383,17 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         if (typeof value === "number") {
             if (!Number.isFinite(value)) return null;
 
-            const configuredDigits =
-                config[key]?.digits;
+            // Не округляем через toFixed(3) очень малые числа (например, linearResidual ~ 1e-16)
+            if (key === "linearResidual" || (value !== 0 && Math.abs(value) < 1e-6)) {
+                return value;
+            }
 
+            const configuredDigits = config[key]?.digits;
             const digits = Number.isInteger(configuredDigits)
-                ? Math.max(
-                    0,
-                    Math.min(12, configuredDigits)
-                )
+                ? Math.max(0, Math.min(12, configuredDigits))
                 : 3;
 
-            const rounded = Number(
-                value.toFixed(digits)
-            );
-
+            const rounded = Number(value.toFixed(digits));
             return Object.is(rounded, -0) ? 0 : rounded;
         }
 
@@ -3141,8 +3138,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         const timeErr = acc?.timeIntegrationErrorC;
         const gridItemErr = acc?.spatialGridErrorC;
 
-        const solvErr = Number.isFinite(acc?.solverErrorC)
-            ? Math.abs(acc.solverErrorC)
+        const picardErr = Number.isFinite(acc?.picardConvergenceErrorC)
+            ? Math.abs(acc.picardConvergenceErrorC)
             : NaN;
 
         const errorScore = (
@@ -3150,13 +3147,13 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             timeErr >= 0 &&
             Number.isFinite(gridItemErr) &&
             gridItemErr >= 0 &&
-            Number.isFinite(solvErr) &&
-            solvErr >= 0
+            Number.isFinite(picardErr) &&
+            picardErr >= 0
         )
             ? Math.hypot(
                 timeErr,
                 gridItemErr,
-                solvErr
+                picardErr
             )
             : NaN;
 
@@ -3276,7 +3273,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     errorScore: Number.isFinite(errorScore) ? errorScore : null,
                     timeErr: Number.isFinite(timeErr) ? timeErr : null,
                     gridItemErr: Number.isFinite(gridItemErr) ? gridItemErr : null,
-                    solvErr: Number.isFinite(solvErr) ? solvErr : null,
+                    picardErr: Number.isFinite(picardErr) ? picardErr : null,
+                    linearResidual: Number.isFinite(acc?.linearResidual) ? acc.linearResidual : null,
                     abortProgress: abortProgress ?? null
                 }
             });

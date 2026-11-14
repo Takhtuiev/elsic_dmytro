@@ -121,10 +121,11 @@ try {
                 technicalMetrics: {
                     calculationTimeMs: durationMs,
                     iterations: {
-                        totalGridPointsProcessed: cleanResult.metrics?.achievedLoad || 0,
-                        totalTimeSteps: self.lastEvaluatedBestMetrics?.iterations?.totalTimeSteps
+                        ...(self.lastEvaluatedBestMetrics?.iterations || {}),
+                        totalGridPointsProcessed: cleanResult.metrics?.achievedLoad || 0
                     },
                     accuracy: {
+                        ...(self.lastEvaluatedBestMetrics?.accuracy || {}),
                         totalErrorScore: cleanResult.metrics?.resultingErrorScore || 0
                     }
                 },

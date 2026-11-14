@@ -53,58 +53,10 @@ function formatParamValue(name, value) {
     return value.toFixed(5);
 }
 
-function ParameterGrid({ params, color = "#e2e8f0" }) {
-    if (!params || typeof params !== "object") return null;
-
-    return (
-        <Box
-            sx={{
-                columnCount: { xs: 1, md: 2 },
-                columnGap: "40px",
-                width: "100%",
-                minWidth: 0
-            }}
-        >
-            {Object.entries(params).map(([name, value]) => {
-                const displayLabel = OPTIMIZER_BASE_CONFIG[name]?.label || name;
-
-                return (
-                    <Box
-                        key={name}
-                        sx={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "baseline",
-                            gap: 1,
-                            minWidth: 0,
-                            fontFamily: "monospace",
-                            fontSize: "0.75rem",
-                            borderBottom: "1px dashed rgba(255,255,255,0.05)",
-                            pb: 0.5,
-                            mb: 0.5,
-                            breakInside: "avoid"
-                        }}
-                    >
-                        <Box component="span" sx={{ color: "#64748b", overflowWrap: "anywhere" }}>
-                            {displayLabel}:
-                        </Box>
-                        <Box
-                            component="span"
-                            sx={{
-                                color,
-                                fontWeight: 600,
-                                textAlign: "right",
-                                overflowWrap: "anywhere",
-                                flexShrink: 0
-                            }}
-                        >
-                            {formatParamValue(name, value)}
-                        </Box>
-                    </Box>
-                );
-            })}
-        </Box>
-    );
+function formatResidual(val) {
+    if (!Number.isFinite(val)) return null;
+    if (val === 0 || val < 1e-16) return "<1e-16";
+    return val.toExponential(1);
 }
 
 export function BayeusianLogDialog({ open, onClose, parentState, setParentState, accuracyModes }) {
@@ -594,7 +546,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
         if (bestLogIndex === null || !logs[bestLogIndex]) {
             return {
                 errorScore: "—", load: "—", step: "—", solverRejected: "0", optimizerStep: "—", calcTime: "—",
-                timeError: "—", gridError: "—", solverError: "—",
+                timeError: "—", gridError: "—", picardError: "—", linearResidual: null,
                 picardIters: "—", params: null
             };
         }
@@ -623,6 +575,10 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
             return {
                 errorScore: Number.isFinite(Number(m.resultingErrorScore)) ? Number(m.resultingErrorScore).toFixed(3) : "—",
+                picardError: backupTm?.accuracy?.picardConvergenceErrorC !== undefined
+                    ? `${Math.abs(backupTm.accuracy.picardConvergenceErrorC).toFixed(3)}°C`
+                    : "—",
+                linearResidual: formatResidual(backupTm?.accuracy?.linearResidual),
                 load: Number.isFinite(rawLoad) ? formatNumberWithNBSP(rawLoad) : "—",
                 step: m?.iterations?.totalTimeSteps !== undefined ? String(m.iterations.totalTimeSteps) : "—",
                 solverRejected: m?.iterations?.rejectedTimeSteps !== undefined
@@ -633,7 +589,6 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
                 timeError: backupTm?.accuracy?.timeIntegrationErrorC !== undefined ? `${backupTm.accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
                 gridError: backupTm?.accuracy?.spatialGridErrorC !== undefined ? `${backupTm.accuracy.spatialGridErrorC.toFixed(3)}°C` : "—",
-                solverError: backupTm?.accuracy?.solverErrorC !== undefined ? `${Math.abs(backupTm.accuracy.solverErrorC).toFixed(3)}°C` : "—",
                 picardIters: m?.iterations?.totalPicardIterations !== undefined
                     ? String(m.iterations.totalPicardIterations)
                     : (backupTm?.iterations?.totalPicardIterations !== undefined ? String(backupTm.iterations.totalPicardIterations) : "—"),
@@ -645,6 +600,10 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
         const tm = targetLog.technicalMetrics;
         return {
             errorScore: tm?.accuracy?.totalErrorScore !== undefined ? tm.accuracy.totalErrorScore.toFixed(3) : "—",
+            picardError: tm?.accuracy?.picardConvergenceErrorC !== undefined
+                ? `${Math.abs(tm.accuracy.picardConvergenceErrorC).toFixed(3)}°C`
+                : "—",
+            linearResidual: formatResidual(tm?.accuracy?.linearResidual),
             load: tm?.iterations?.totalGridPointsProcessed !== undefined ? formatNumberWithNBSP(tm.iterations.totalGridPointsProcessed) : "—",
             step: tm?.iterations?.totalTimeSteps !== undefined ? String(tm.iterations.totalTimeSteps) : "—",
             solverRejected: tm?.iterations?.rejectedTimeSteps !== undefined ? String(tm.iterations.rejectedTimeSteps) : "0",
@@ -652,7 +611,6 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
             calcTime: tm?.calculationTimeMs !== undefined ? `${tm.calculationTimeMs.toFixed(1)} ms` : "—",
             timeError: tm?.accuracy?.timeIntegrationErrorC !== undefined ? `${tm.accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
             gridError: tm?.accuracy?.spatialGridErrorC !== undefined ? `${tm.accuracy.spatialGridErrorC.toFixed(3)}°C` : "—",
-            solverError: tm?.accuracy?.solverErrorC !== undefined ? `${Math.abs(tm.accuracy.solverErrorC).toFixed(3)}°C` : "—",
             picardIters: tm?.iterations?.totalPicardIterations !== undefined ? String(tm.iterations.totalPicardIterations) : "—",
             params: targetLog.candidateParams
         };
@@ -971,10 +929,10 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                                         let errVal = "—";
                                                         let loadVal = "—";
                                                         let calcTime = "—";
-                                                        let tErr = "—", gErr = "—", sErr = "—";
-                                                        let stepsSolver = "—";
+                                                        let tErr = "—", gErr = "—", pErr = "—", resVal = null;                                                        let stepsSolver = "—";
                                                         let rejectedSolverSteps = "0";
                                                         let picard = "—";
+
 
                                                         if (tm) {
                                                             errVal = tm?.accuracy?.totalErrorScore !== undefined ? tm.accuracy.totalErrorScore.toFixed(3) : "—";
@@ -982,7 +940,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                                             calcTime = tm?.calculationTimeMs !== undefined ? `${tm.calculationTimeMs.toFixed(1)} ms` : "—";
                                                             tErr = tm?.accuracy?.timeIntegrationErrorC !== undefined ? `${tm.accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—";
                                                             gErr = tm?.accuracy?.spatialGridErrorC !== undefined ? `${tm.accuracy.spatialGridErrorC.toFixed(3)}°C` : "—";
-                                                            sErr = tm?.accuracy?.solverErrorC !== undefined ? `${Math.abs(tm.accuracy.solverErrorC).toFixed(3)}°C` : "—";
+                                                            pErr = tm?.accuracy?.picardConvergenceErrorC !== undefined ? `${Math.abs(tm.accuracy.picardConvergenceErrorC).toFixed(3)}°C` : "—";
+                                                            resVal = formatResidual(tm?.accuracy?.linearResidual);
                                                             stepsSolver = tm?.iterations?.totalTimeSteps || "—";
                                                             rejectedSolverSteps = tm?.iterations?.rejectedTimeSteps !== undefined ? String(tm.iterations.rejectedTimeSteps) : "0";
                                                             picard = tm?.iterations?.totalPicardIterations || "—";
@@ -1003,7 +962,9 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                                                     <strong style={{ color: (log.type === "abort" || log.type === "error") ? "#ef4444" : "#2563eb" }}>
                                                                         {errVal}
                                                                     </strong>{" "}
-                                                                    <span style={{ color: "#64748b" }}>(Time: {tErr}, Grid: {gErr}, Solver: {sErr})</span>
+                                                                    <span style={{ color: "#64748b" }}>
+                                                                        (Time: {tErr}, Grid: {gErr}, Picard: {pErr}{resVal !== null ? `, Residual: ${resVal}` : ""})
+                                                                    </span>
                                                                 </Box>
                                                                 <Box>
                                                                     Solver steps: <strong style={{ color: "#ffffff" }}>{stepsSolver}</strong>
@@ -1015,7 +976,16 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                                     })()}
                                                 </Box>
                                                 <Box sx={{ width: "100%" }}>
-                                                    <ParameterGrid params={log.candidateParams} color="#10b981" />
+                                                    <Box sx={{ ...SYS_BOX_SX, borderBottom: "none", pb: 0 }}>
+                                                        {Object.entries(log.candidateParams).map(([name, value]) => {
+                                                            const displayLabel = OPTIMIZER_BASE_CONFIG[name]?.label || name;
+                                                            return (
+                                                                <Typography key={name} variant="body2" color="#94a3b8" fontSize="0.75rem" sx={{ fontFamily: "inherit" }}>
+                                                                    {displayLabel}: <strong style={{ color: "#10b981", fontWeight: 600 }}>{formatParamValue(name, value)}</strong>
+                                                                </Typography>
+                                                            );
+                                                        })}
+                                                    </Box>
                                                 </Box>
                                             </Box>
                                             )}
@@ -1074,8 +1044,11 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                             Error score: <strong style={{ color: "#f8fafc", fontSize: "0.9rem", fontWeight: 700 }}>{bestSnapshotState.errorScore}</strong>
                                             {bestSnapshotState.timeError !== "—" && (
                                                 <span style={{ marginLeft: 8, color: "#475569" }}>
-                            (Time: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.timeError}</strong>, Grid: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.gridError}</strong>, Solver: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.solverError}</strong>)
-                        </span>
+                                                    (Time: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.timeError}</strong>, Grid: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.gridError}</strong>, Picard: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.picardError}</strong>
+                                                    {bestSnapshotState.linearResidual !== null && (
+                                                        <>, Residual: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.linearResidual}</strong></>
+                                                    )})
+                                                </span>
                                             )}
                                         </Typography>
                                     </Box>

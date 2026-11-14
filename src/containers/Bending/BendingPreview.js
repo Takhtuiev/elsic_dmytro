@@ -130,6 +130,7 @@ const prepareTechnicalMetrics = (technicalMetrics) => {
     if (!technicalMetrics) return null;
 
     const { calculationTimeMs, accuracy, iterations } = technicalMetrics;
+    const picardErr = accuracy?.picardConvergenceErrorC;
 
     return {
         // Время процессорного расчёта
@@ -155,9 +156,12 @@ const prepareTechnicalMetrics = (technicalMetrics) => {
             grid: Number.isFinite(accuracy.spatialGridErrorC)
                 ? `${accuracy.spatialGridErrorC.toFixed(3)}°C`
                 : "—",
-            solver: Number.isFinite(accuracy.solverErrorC)
-                ? `${Math.abs(accuracy.solverErrorC).toFixed(3)}°C`
-                : "—"
+            picard: Number.isFinite(picardErr)
+                ? `${Math.abs(picardErr).toFixed(3)}°C`
+                : "—",
+            residual: Number.isFinite(accuracy.linearResidual)
+                ? accuracy.linearResidual.toExponential(1)
+                : null
         } : null,
 
         // Счётчики итераций
@@ -282,8 +286,11 @@ const Parameters = React.memo(({
                             Error score: <strong>{metrics.totalErrorScore}</strong>
                             {metrics.errorDetails && (
                                 <span style={{ marginLeft: 6, opacity: 0.85 }}>
-                        (Time: <strong>{metrics.errorDetails.time}</strong>, Grid: <strong>{metrics.errorDetails.grid}</strong>, Solver: <strong>{metrics.errorDetails.solver}</strong>)
-                    </span>
+                                    (Time: <strong>{metrics.errorDetails.time}</strong>, Grid: <strong>{metrics.errorDetails.grid}</strong>, Picard: <strong>{metrics.errorDetails.picard}</strong>
+                                    {metrics.errorDetails.residual !== null && (
+                                        <>, Residual: <strong>{metrics.errorDetails.residual}</strong></>
+                                    )})
+                                </span>
                             )}
                         </Typography>
 

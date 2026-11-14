@@ -18,7 +18,7 @@ export const OPTIMIZER_BASE_CONFIG = {
         label: "gridDensityX (Thickness mesh density)",
         unit: "nodes/mm^0.64",
         min: 3.50,
-        max: 14.00,
+        max: 25.00,
         digits: 4,
         snap: (rawDensity, baseParams) => snapGridDensityX(rawDensity, Number(baseParams.thicknessMm)),
         step: (currentDensity, deltaSteps, baseParams) => {
@@ -33,7 +33,7 @@ export const OPTIMIZER_BASE_CONFIG = {
         label: "gridDensityY (Width mesh density)",
         unit: "nodes/mm^0.30",
         min: 5.00,
-        max: 15.00,
+        max: 25.00,
         digits: 4,
         snap: (rawDensity, baseParams) => snapGridDensityY(rawDensity, Number(baseParams.simulation?.widthHalfMm)),
         step: (currentDensity, deltaSteps, baseParams) => {
@@ -92,9 +92,9 @@ export function getAdaptiveOptimizerBudget(config = OPTIMIZER_BASE_CONFIG, setti
 }
 
 export const OPTIMIZER_SETTINGS = {
-    optimizationObjective: 'minimize_error', // minimize_error, minimize_load
-    maxErrorScore: 0.20,
-    maxAllowedLoad: 250000000,
+    optimizationObjective: 'minimize_load', // minimize_error, minimize_load
+    maxErrorScore: 0.50,
+    maxAllowedLoad: 25000000,
     randomInitPoints: null,
     totalBudgetIterations: null,
     earlyAbortLoadMultiplier: 2
