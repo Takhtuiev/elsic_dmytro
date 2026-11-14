@@ -16,11 +16,10 @@ import {normalizeMachine} from "../pvc-1d-transient-heating";
 export const ACCURACY_MODES = ["fast", "optimal", "accurate", "accurate2"];
 
 export const LIMITS = {
-    gridX:        [0.35,  0.16,  0.116, 0.135 ], // Шаг сетки по горизонтали X (мм)
-    gridY:        [1.30,  0.78,  0.307, 0.330 ], // Шаг сетки по вертикали Y (мм)
+    gridDensityX: [4.5613, 10.3665, 14.0985, 12.4398], // Плотность сетки по толщине X (узлов / мм^0.635)
+    gridDensityY: [6.1064, 10.5844, 26.4610, 24.8326], // Плотность сетки по ширине Y (узлов / мм^0.300)
 
-    tempStepK:     [2.0,   2.13,  0.77,  0.65  ], // Целевой шаг изменения температуры за итерацию (К)
-
+    tempStepK:    [2.0,    2.13,    0.77,    0.65   ], // Целевой шаг изменения температуры за итерацию (К)
 };
 
 export const DEFAULT_SLOT_HALF_WIDTH_MM = 5.0;           // Половина ширины щели нагревателя (ТЭНа)
@@ -43,20 +42,39 @@ export function calculateGridNodeCountY(widthHalfMm, stepYMm) {
     return Math.max(MIN_GRID_NODES_Y, Math.round(widthHalfMm / stepYMm)) + 1;
 }
 
-export function snapGridStepX(rawStepMm, thicknessMm) {
-    if (!Number.isFinite(thicknessMm) || thicknessMm <= 0 || !Number.isFinite(rawStepMm) || rawStepMm <= 0) {
-        return rawStepMm;
+// Добавить после MIN_GRID_NODES_Y
+export const GRID_DENSITY_EXP_X = 0.635; // Показатель масштабирования по толщине (калибровано по 4-8 мм)
+export const GRID_DENSITY_EXP_Y = 0.300; // Показатель масштабирования по полуширине
+
+export function densityToGridStepX(densityX, thicknessMm) {
+    if (!Number.isFinite(thicknessMm) || thicknessMm <= 0 || !Number.isFinite(densityX) || densityX <= 0) {
+        return NaN;
     }
-    const intervals = calculateGridNodeCountX(thicknessMm, rawStepMm) - 1;
+    const intervals = Math.max(MIN_GRID_NODES_X, Math.round(densityX * Math.pow(thicknessMm, GRID_DENSITY_EXP_X)));
     return thicknessMm / intervals;
 }
 
-export function snapGridStepY(rawStepMm, widthHalfMm) {
-    if (!Number.isFinite(widthHalfMm) || widthHalfMm <= 0 || !Number.isFinite(rawStepMm) || rawStepMm <= 0) {
-        return rawStepMm;
+export function snapGridDensityX(rawDensityX, thicknessMm) {
+    if (!Number.isFinite(thicknessMm) || thicknessMm <= 0 || !Number.isFinite(rawDensityX) || rawDensityX <= 0) {
+        return rawDensityX;
     }
-    const intervals = calculateGridNodeCountY(widthHalfMm, rawStepMm) - 1;
+    const intervals = Math.max(MIN_GRID_NODES_X, Math.round(rawDensityX * Math.pow(thicknessMm, GRID_DENSITY_EXP_X)));
+    return intervals / Math.pow(thicknessMm, GRID_DENSITY_EXP_X);
+}
+
+export function densityToGridStepY(densityY, widthHalfMm) {
+    if (!Number.isFinite(widthHalfMm) || widthHalfMm <= 0) return 1.0;
+    if (!Number.isFinite(densityY) || densityY <= 0) return NaN;
+    const intervals = Math.max(MIN_GRID_NODES_Y, Math.round(densityY * Math.pow(widthHalfMm, GRID_DENSITY_EXP_Y)));
     return widthHalfMm / intervals;
+}
+
+export function snapGridDensityY(rawDensityY, widthHalfMm) {
+    if (!Number.isFinite(widthHalfMm) || widthHalfMm <= 0 || !Number.isFinite(rawDensityY) || rawDensityY <= 0) {
+        return rawDensityY;
+    }
+    const intervals = Math.max(MIN_GRID_NODES_Y, Math.round(rawDensityY * Math.pow(widthHalfMm, GRID_DENSITY_EXP_Y)));
+    return intervals / Math.pow(widthHalfMm, GRID_DENSITY_EXP_Y);
 }
 
 export const SIGMA = 5.670374419e-8;
@@ -101,13 +119,18 @@ export function validateSimulationParams({ thicknessMm, material, machine, simul
         return { isValid: false, errors };
     }
 
-    // 2. Валидация кастомных параметров точности (accuracyMode)
     const am = simulation.accuracyMode;
     if (am && typeof am === "object") {
-        if (!validPositive(am.gridX)) errors.push("Invalid custom parameter: gridX must be a positive number.");
-        if (!validPositive(am.gridY)) errors.push("Invalid custom parameter: gridY must be a positive number.");
-
-        if (!validPositive(am.tempStepK)) errors.push("Invalid custom parameter: tempStepK must be a positive number.");
+        const is1DMode = simulation.widthHalfMm === 0;
+        if (!validPositive(am.gridDensityX)) {
+            errors.push("Invalid custom parameter: gridDensityX must be a positive number.");
+        }
+        if (!is1DMode && !validPositive(am.gridDensityY)) {
+            errors.push("Invalid custom parameter: gridDensityY must be a positive number.");
+        }
+        if (!validPositive(am.tempStepK)) {
+            errors.push("Invalid custom parameter: tempStepK must be a positive number.");
+        }
     }
 
     // Итоговый вердикт по накопленным ошибкам
@@ -641,8 +664,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const modeIdx = !isCustom ? ACCURACY_MODES.indexOf(mode) : 1;
     const am = isStringMode ? null : rawMode;
 
-    const GRID_X_STEP_MM        = isCustom ? (am?.gridX    ?? LIMITS.gridX[modeIdx])    : LIMITS.gridX[modeIdx];
-    const GRID_Y_STEP_MM        = isCustom ? (am?.gridY    ?? LIMITS.gridY[modeIdx])    : LIMITS.gridY[modeIdx];
+    const activeDensityX = isCustom ? (am?.gridDensityX ?? LIMITS.gridDensityX[modeIdx]) : LIMITS.gridDensityX[modeIdx];
+    const activeDensityY = isCustom ? (am?.gridDensityY ?? LIMITS.gridDensityY[modeIdx]) : LIMITS.gridDensityY[modeIdx];
+
+    const GRID_X_STEP_MM = densityToGridStepX(activeDensityX, thicknessMm);
+    const GRID_Y_STEP_MM = densityToGridStepY(activeDensityY, simulation.widthHalfMm);
+
     const TARGET_DELTA_T        = isCustom
         ? (am?.tempStepK ?? am?.targetDt ?? LIMITS.tempStepK[modeIdx])
         : LIMITS.tempStepK[modeIdx];

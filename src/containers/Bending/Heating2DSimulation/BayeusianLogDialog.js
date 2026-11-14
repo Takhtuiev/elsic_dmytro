@@ -333,23 +333,30 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                         thinkingTimerRef.current = null;
                     }
 
-                    if (logEntry.isFinalReportMarker) {
+                    const normalizedLogEntry = (logEntry.type === "warning" && logEntry.candidateParams)
+                        ? {
+                            ...logEntry,
+                            type: "info", // Обычный шаг использует type: "info" (#cbd5e1), а не "success" (#4ec9b0)
+                            text: "Simulation completed",
+                            message: null
+                        }
+                        : logEntry;
+
+                    if (normalizedLogEntry.isFinalReportMarker) {
                         setFinalResultReceived(true);
                         setProgressPercent(100);
-                        // Если сработал Early Stop (например, на 70/125), фиксируем 70/70 (100%)
                         if (completedStepsRef.current > 0) {
                             setTotalBudgetTarget(completedStepsRef.current);
                         }
                     } else {
-                        completedStepsRef.current = logEntry.currentStepVisual;
+                        completedStepsRef.current = normalizedLogEntry.currentStepVisual;
                         setProgressPercent(0);
-                        setCompletedSteps(logEntry.currentStepVisual);
+                        setCompletedSteps(normalizedLogEntry.currentStepVisual);
                     }
 
-                    appendLog(logEntry);
+                    appendLog(normalizedLogEntry);
                     return;
                 }
-
                 if (status === "error") {
                     isOptimizingRef.current = false;
                     setIsOptimizing(false);
@@ -397,34 +404,42 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
     const buildWorkerPayload = useCallback((command) => {
         const uiModelPresets = {};
-        const keysToProcess = typeof LIMITS !== "undefined" ? Object.keys(LIMITS) : ["gridX", "gridY", "tempStepK"];
         const currentModes = accuracyModes || ["fast", "optimal", "accurate", "accurate2"];
+
+        const thicknessMm = Number(parentState.geometry?.thickness) || 0;
+        const widthHalfMm = parentState.simulation.widthHalfMm !== undefined
+            ? parentState.simulation.widthHalfMm
+            : ((Number(parentState.geometry?.width) || 0) / 2 || 20);
 
         currentModes.forEach((modeName, modeIdx) => {
             uiModelPresets[modeName] = {};
-            keysToProcess.forEach(paramKey => {
-                if (typeof LIMITS !== "undefined" && Array.isArray(LIMITS[paramKey]) && LIMITS[paramKey][modeIdx] !== undefined) {
-                    uiModelPresets[modeName][paramKey] = LIMITS[paramKey][modeIdx];
-                }
-            });
+
+            if (Array.isArray(LIMITS?.gridDensityX) && LIMITS.gridDensityX[modeIdx] !== undefined) {
+                uiModelPresets[modeName].gridDensityX = LIMITS.gridDensityX[modeIdx];
+            }
+            if (Array.isArray(LIMITS?.gridDensityY) && LIMITS.gridDensityY[modeIdx] !== undefined) {
+                uiModelPresets[modeName].gridDensityY = LIMITS.gridDensityY[modeIdx];
+            }
+            if (Array.isArray(LIMITS?.tempStepK) && LIMITS.tempStepK[modeIdx] !== undefined) {
+                uiModelPresets[modeName].tempStepK = LIMITS.tempStepK[modeIdx];
+            }
         });
 
-        // 🌟 Очищаем конфигурацию от функций (snap) перед передачей через postMessage
         const serializableConfig = Object.fromEntries(
-            Object.entries(OPTIMIZER_BASE_CONFIG).map(([key, { snap, ...rest }]) => [key, rest])
+            Object.entries(OPTIMIZER_BASE_CONFIG)
+                .filter(([key]) => !(widthHalfMm === 0 && key === "gridDensityY"))
+                .map(([key, { snap, step, ...rest }]) => [key, rest])
         );
 
         return {
             command,
             baseParams: {
-                thicknessMm: Number(parentState.geometry?.thickness) || 0,
+                thicknessMm,
                 material: { ...parentState.material },
                 machine: { ...parentState.machine },
                 simulation: {
                     ...parentState.simulation,
-                    widthHalfMm: parentState.simulation.widthHalfMm !== undefined
-                        ? parentState.simulation.widthHalfMm
-                        : ((Number(parentState.geometry?.width) || 0) / 2 || 20)
+                    widthHalfMm
                 }
             },
             options: {
@@ -678,7 +693,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
     const logTypeStyles = {
         info: { color: "#cbd5e1", label: "" },
         success: { color: "#4ec9b0", label: "" },
-        warning: { color: "#f59e0b", label: "[WARN]" }, // Яркий янтарно-желтый
+        warning: { color: "#cbd5e1", label: "" },     // Цвет как у обычного шага (info)
         abort: { color: "#f97316", label: "[ABORT]" },   // ОРАНЖЕВЫЙ (ближе к варнингу)
         error: { color: "#ef4444", label: "[CRIT]" },   // Чистый ярко-красный для ошибок
         progress: { color: "#6a9955", label: "" },
@@ -977,13 +992,19 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
                                                         return (
                                                             <>
-                                                                {(log.type === "warning" || log.type === "abort" || log.type === "error") && (
+                                                                {(log.type === "abort" || log.type === "error") && (
                                                                     <Box sx={{ color: "#ef4444", fontWeight: "bold", mb: 0.5 }}>
                                                                         🚨 CRITICAL EXCEPTION / VIOLATION: {log.message || "Simulation problem encountered. Candidate discarded."}
                                                                     </Box>
                                                                 )}
                                                                 <Box>Simulation calculation time: <strong style={{ color: "#ffffff" }}>{calcTime}</strong> | Mode: <strong style={{ color: "#4ec9b0" }}>{modeText}</strong></Box>
-                                                                <Box>Error score: <strong style={{ color: (log.type === "warning" || log.type === "abort" || log.type === "error") ? "#ef4444" : "#2563eb" }}>{errVal}</strong> <span style={{ color: "#64748b" }}>(Time: {tErr}, Grid: {gErr}, Solver: {sErr})</span></Box>
+                                                                <Box>
+                                                                    Error score:{" "}
+                                                                    <strong style={{ color: (log.type === "abort" || log.type === "error") ? "#ef4444" : "#2563eb" }}>
+                                                                        {errVal}
+                                                                    </strong>{" "}
+                                                                    <span style={{ color: "#64748b" }}>(Time: {tErr}, Grid: {gErr}, Solver: {sErr})</span>
+                                                                </Box>
                                                                 <Box>
                                                                     Solver steps: <strong style={{ color: "#ffffff" }}>{stepsSolver}</strong>
                                                                     <span style={{ color: Number(rejectedSolverSteps) > 0 ? "#ce9178" : "#64748b", marginLeft: 4 }}>({rejectedSolverSteps} rejected)</span>

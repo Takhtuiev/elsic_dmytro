@@ -1076,7 +1076,9 @@ function buildRegionalTrainingDataset(
     referenceScales
 ) {
     const MAX_LOCAL_SAMPLES = 45;
-    const MIN_REQUIRED_TO_FIT = 6;
+
+    const dim = observedX[0]?.length || 3;
+    const MIN_REQUIRED_TO_FIT = Math.max(4, dim + 3);
 
     const total = observedX.length;
     if (total < MIN_REQUIRED_TO_FIT) return null;
@@ -1959,6 +1961,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         );
     }
 
+    const minRegionRadius = Math.max(0.032, Math.min(0.05, 0.025 + numParams * 0.0035));
+
     // ✅ Объявляем ПОСЛЕ numParams и ДО проверки if (!Number.isFinite(...))
     const requestedInitialPoints = Number.isFinite(options.randomInitPoints)
         ? options.randomInitPoints
@@ -2206,6 +2210,54 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
         return { x: quantizedX, physical, key: getPhysicalKeyFromPhysical(physical) };
     };
+
+    const generateLatticeNeighbors = centerNormX => {
+        const centerQ = quantizeCandidate(centerNormX);
+        if (!centerQ) return [];
+
+        const totalCombos = Math.pow(3, numParams);
+        const neighbors = [];
+
+        for (let mask = 0; mask < totalCombos; mask++) {
+            let temp = mask;
+            const candidatePhys = {};
+            let isCenter = true;
+
+            for (let d = 0; d < numParams; d++) {
+                const shift = (temp % 3) - 1;
+                temp = Math.floor(temp / 3);
+                if (shift !== 0) isCenter = false;
+
+                const key = paramKeys[d];
+                const range = config[key];
+                const baseVal = centerQ.physical[key];
+
+                if (typeof range.step === "function" && shift !== 0) {
+                    candidatePhys[key] = range.step(baseVal, shift, baseParams);
+                } else {
+                    const fallbackStep = (range.max - range.min) * 0.025;
+                    candidatePhys[key] = baseVal + shift * fallbackStep;
+                }
+            }
+
+            if (isCenter) continue;
+
+            const normVec = new Float64Array(numParams);
+            for (let d = 0; d < numParams; d++) {
+                const key = paramKeys[d];
+                const range = config[key];
+                normVec[d] = range.max !== range.min
+                    ? (candidatePhys[key] - range.min) / (range.max - range.min)
+                    : 0;
+            }
+
+            const q = quantizeCandidate(normVec);
+            if (q) neighbors.push(q);
+        }
+
+        return neighbors;
+    };
+
 
     const normalizeParamObject = pObj => {
         if (
@@ -2517,9 +2569,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         // Регион с текущим глобальным рекордом сохраняет приоритет 0.25,
         // но после 25 шагов без улучшений на минимальном радиусе уступает бюджет новым долинам
         if (isGlobalLeaderRegion(region)) {
-            const leaderFloor = (region.radius <= 0.024 && idleSteps >= 25) ? 0.06 : 0.25;
+            const leaderFloor = (region.radius <= minRegionRadius * 1.1 && idleSteps >= 25) ? 0.06 : 0.25;
             return Math.max(leaderFloor, basePriority);
         }
+
         return basePriority;
     };
 
@@ -2577,7 +2630,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             region.rawDirection = null;
 
             if (region.failures % 3 === 0) {
-                region.radius = Math.max(0.022, region.radius * 0.72);
+                region.radius = Math.max(minRegionRadius, region.radius * 0.72);
             }
 
             if (region.failures >= 25) {
@@ -3776,7 +3829,9 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         const candidateSources = []; // Диагностический трекер источника точки
 
         // Этап 5: Баланс 35% Global GP / 65% Regional GP (при наличии активных регионов)
-        const totalPoolTarget = Math.min(2400, 1400 + currentExecutionCount * 5);
+        const basePool = 600 + numParams * 300;
+        const maxPool = 1000 + numParams * 500;
+        const totalPoolTarget = Math.min(maxPool, basePool + currentExecutionCount * (numParams + 2));
         const hasActiveRegions = searchRegions.some(r => r.active);
         const candidatesCount = hasActiveRegions
             ? Math.round(totalPoolTarget * 0.35)
@@ -3820,7 +3875,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     const diff = x[d] - observedX[i][d];
                     distSq += diff * diff;
                 }
-                if (distSq < 1e-8) {
+                if (distSq / numParams < 1e-8) {
                     isTooClose = true;
                     break;
                 }
@@ -3845,7 +3900,9 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         // Отслеживаем последовательные промахи (дубликаты) для каждого региона
         const regionConsecutiveMisses = new Map(activeRegions.map(r => [r.id, 0]));
         const exhaustedRegionIds = new Set();
-        const MAX_MISSES_PER_REGION = 45;
+
+        // Адаптивный лимит промахов: учитывает рост числа дискретных соседей при увеличении размерности
+        const MAX_MISSES_PER_REGION = Math.min(60, Math.max(16, numParams * 8 + 2));
 
         const buildRegionWeights = () => {
             let total = 0;
@@ -3860,6 +3917,21 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         };
 
         let { list: regionWeights, total: totalRegionScore } = buildRegionWeights();
+
+        for (const reg of activeRegions) {
+            const latticeNeighbors = generateLatticeNeighbors(reg.bestX);
+            for (const q of latticeNeighbors) {
+                if (!seenCandidateKeys.has(q.key)) {
+                    candidates.push(q.x);
+                    candidateSources.push({
+                        type: "LOCAL_LATTICE",
+                        regionId: reg.id
+                    });
+                    seenCandidateKeys.add(q.key);
+                    localCandidatesGenerated++;
+                }
+            }
+        }
 
         while (
             localCandidatesGenerated < localExplorers &&
@@ -4174,9 +4246,11 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             const candidateSourceType = selectedIndexInPool >= 0
                 ? candidateSources[selectedIndexInPool]?.type
                 : null;
+
             const isLocalCandidate =
                 candidateSourceType === "LOCAL" ||
-                candidateSourceType === "LOCAL_DIRECTIONAL";
+                candidateSourceType === "LOCAL_DIRECTIONAL" ||
+                candidateSourceType === "LOCAL_LATTICE";
 
             const minFeasibilityFloor = isLocalCandidate ? 0.0005 : 0.015;
 
@@ -4557,6 +4631,41 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             lowEIConsecutiveCount++;
         }
 
+        // 👇 ВСТАВИТЬ ПРАВКУ 5 СЮДА:
+        const leaderNeighbors = gBestPhysical ? generateLatticeNeighbors(normalizeParamObject(gBestPhysical)) : [];
+        const allLeaderNeighborsEvaluated =
+            leaderNeighbors.length > 0 &&
+            leaderNeighbors.every(q => evaluatedKeys.has(q.key));
+
+        if (
+            gBestMetrics &&
+            currentExecutionCount >= minStepsBeforeEarlyStop &&
+            stepsWithoutGlobalImprovement >= Math.floor(earlyStopPatience * 0.65) &&
+            allLeaderNeighborsEvaluated &&
+            lowEIConsecutiveCount >= 6
+        ) {
+            emitStepLog({
+                type: "EARLY_STOP_LATTICE_EXHAUSTED",
+                stepNumber: currentExecutionCount,
+                stepsWithoutGlobalImprovement
+            });
+
+            emitStructuredLog(
+                "SYSTEM",
+                `⚡ Early stop triggered at step #${currentExecutionCount}: Discrete neighborhood around leader exhausted.`,
+                buildSimulationSnapshot(
+                    currentExecutionCount,
+                    "SUCCESS",
+                    100,
+                    gBestPhysical,
+                    gBestMetrics,
+                    "Discrete optimum reached"
+                )
+            );
+
+            break;
+        }
+
         // 3. Проверяем условия автоматической досрочной остановки по сходимости
         if (
             gBestMetrics &&
@@ -4564,7 +4673,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             stepsWithoutGlobalImprovement >= earlyStopPatience
         ) {
             const leaderRegion = searchRegions.find(r => r.active && isGlobalLeaderRegion(r));
-            const leaderConverged = !leaderRegion || leaderRegion.radius <= 0.025;
+            const leaderConverged = !leaderRegion || leaderRegion.radius <= minRegionRadius * 1.15;
+
             const eiExhausted = lowEIConsecutiveCount >= 12;
             // Защита от бесконечных циклов разведки: если рекорд не бьется 1.5x от patience при низком EI
             const deepStagnation =
