@@ -73,6 +73,11 @@ self.onmessage = (event) => {
             }
         }
 
+        const ui = profile.simulation?.ui;
+        const shouldStoreHistory = Boolean(
+            ui?.showTimeDynamics || (ui?.showHeaterDynamics ?? true)
+        );
+
         // Запуск симуляции (ТЕПЕРЬ СТРОГО ПЕРЕДАЕМ maxHeatingPercent ВНУТРЬ)
         const result2D = simulate2DHeating({
             thicknessMm: profile.thickness,
@@ -82,7 +87,7 @@ self.onmessage = (event) => {
                 ...profile.simulation,
                 maxHeatingPercent
             },
-            storeHistory: profile.simulation?.recordHistory ?? false,
+            storeHistory: shouldStoreHistory,
             onProgress: (percent) => {
                 self.postMessage({ type: "PROGRESS", percent });
             }
@@ -97,7 +102,11 @@ self.onmessage = (event) => {
             technicalMetrics: result2D?.technicalMetrics // Прокидываем объединенную структуру
         };
 
-        const geometryData = prepareGeometryData(profile.material, result2D);
+        const geometryData = prepareGeometryData(
+            profile.material,
+            result2D,
+            profile.simulation?.ui
+        );
 
         self.postMessage({
             type: "SUCCESS",

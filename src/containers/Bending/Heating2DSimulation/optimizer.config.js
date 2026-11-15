@@ -93,7 +93,7 @@ export function getAdaptiveOptimizerBudget(config = OPTIMIZER_BASE_CONFIG, setti
 
 export const OPTIMIZER_SETTINGS = {
     optimizationObjective: 'minimize_load', // minimize_error, minimize_load
-    maxErrorScore: 1.0,
+    maxErrorScore: 0.5,
     maxAllowedLoad: 25000000,
     randomInitPoints: null,
     totalBudgetIterations: null,

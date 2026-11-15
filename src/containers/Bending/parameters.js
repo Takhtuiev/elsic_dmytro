@@ -5,20 +5,35 @@ export const MACHINES = {
 
         rTool: 1.2,
 
+        pidPhaseOffsetSeconds: 90,
+
         heaters: [
             {
                 // top
-                regulatorTemperatureC: 200,
-                heaterTemperatureFactor: 1.4,
+                regulatorTemperatureC: 190,
+                heaterTemperatureFactor: 1.45,
                 heaterEmissivity: 0.90,
                 viewFactor: 1,
                 radiationGain: 0.9,
                 convectiveHeatTransferCoefficient: 8,
-           },
+                pid: {
+                    amplitudeC: 38,
+                    periodSeconds: 245.0,
+                    phaseSeconds: 0,
+                    shape: 0.99
+                }
+            },
             {
                 // bottom
                 regulatorTemperatureC: 200,
+                heaterTemperatureFactor: 1.6,
                 convectiveHeatTransferCoefficient: 16,
+                pid: {
+                    amplitudeC: 36,
+                    periodSeconds: 245.0,
+                    phaseSeconds: 136.48,
+                    shape: 0.99
+                }
             }
         ]
     },
@@ -29,19 +44,35 @@ export const MACHINES = {
 
         rTool: 1.2,
 
+        pidPhaseOffsetSeconds: 0,
+
         heaters: [
             {
+                // top
                 regulatorTemperatureC: 270,
                 heaterTemperatureFactor: 1.0,
                 heaterEmissivity: 0.90,
                 viewFactor: 1,
                 radiationGain: 0.90,
                 convectiveHeatTransferCoefficient: 8,
+                pid: {
+                    amplitudeC: 12.0,
+                    periodSeconds: 84.0,
+                    phaseSeconds: 0,
+                    shape: 0.70
+                }
             },
             {
                 // bottom
                 regulatorTemperatureC: 280,
+                heaterTemperatureFactor: 1.0,
                 convectiveHeatTransferCoefficient: 16,
+                pid: {
+                    amplitudeC: 6.2,
+                    periodSeconds: 54.0,
+                    phaseSeconds: 4.30,
+                    shape: 0.70
+                }
             }
         ]
     }

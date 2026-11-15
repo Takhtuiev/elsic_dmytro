@@ -10,9 +10,15 @@ import {
  * Генерирует массивы точек для графиков React-компонента на основе физики материала
  * и рассчитанного двумерного температурного профиля.
  */
-export function prepareGeometryData(material, result2D) {
+export function prepareGeometryData(material, result2D, ui = {}) {
     const profileData = result2D?.temperatureProfile;
     if (!profileData) return null;
+
+    const showVerticalSlice = ui.showVerticalSlice ?? true;
+    const showHorizontalWidth = Boolean(ui.showHorizontalWidth);
+    const showContours2D = Boolean(ui.showContours2D);
+    const showTimeDynamics = Boolean(ui.showTimeDynamics);
+    const showHeaterDynamics = ui.showHeaterDynamics ?? true;
 
     const { xCoordinatesMm, yCoordinatesMm, Nx, Ny, heating, pause } = profileData;
     const thickness = xCoordinatesMm[Nx - 1];
@@ -34,7 +40,7 @@ export function prepareGeometryData(material, result2D) {
 
         // Данные для фазы нагрева
         const valH = heating[idx];
-        vertPointsHeating.push([xCoord, valH]);
+        if (showVerticalSlice) vertPointsHeating.push([xCoord, valH]);
         if (Number.isFinite(valH)) {
             if (valH > heatingMaxT) heatingMaxT = valH;
             if (valH < heatingMinT) heatingMinT = valH;
@@ -43,7 +49,7 @@ export function prepareGeometryData(material, result2D) {
 
         // Данные для фазы паузы (охлаждения)
         const valP = pause[idx];
-        vertPointsPause.push([xCoord, valP]);
+        if (showVerticalSlice) vertPointsPause.push([xCoord, valP]);
         if (Number.isFinite(valP)) {
             if (valP > pauseMaxT) pauseMaxT = valP;
             if (valP < pauseMinT) pauseMinT = valP;
@@ -57,29 +63,32 @@ export function prepareGeometryData(material, result2D) {
     // --- CHART 3 (Horizontal Width) ---
     const rawHorTopH = [], rawHorMidH = [], rawHorBotH = [];
     const rawHorTopP = [], rawHorMidP = [], rawHorBotP = [];
-    const midXIdx = Math.floor(Nx / 2);
-    const botXIdx = Nx - 1;
 
-    for (let j = Ny - 1; j > 0; j--) {
-        const yCoord = yCoordinatesMm[j];
-        if (yCoord > 0) {
-            const negY = -yCoord;
-            rawHorTopH.push([negY, heating[j]]);
-            rawHorMidH.push([negY, heating[midXIdx * Ny + j]]);
-            rawHorBotH.push([negY, heating[botXIdx * Ny + j]]);
-            rawHorTopP.push([negY, pause[j]]);
-            rawHorMidP.push([negY, pause[midXIdx * Ny + j]]);
-            rawHorBotP.push([negY, pause[botXIdx * Ny + j]]);
+    if (showHorizontalWidth && Ny > 1) {
+        const midXIdx = Math.floor(Nx / 2);
+        const botXIdx = Nx - 1;
+
+        for (let j = Ny - 1; j > 0; j--) {
+            const yCoord = yCoordinatesMm[j];
+            if (yCoord > 0) {
+                const negY = -yCoord;
+                rawHorTopH.push([negY, heating[j]]);
+                rawHorMidH.push([negY, heating[midXIdx * Ny + j]]);
+                rawHorBotH.push([negY, heating[botXIdx * Ny + j]]);
+                rawHorTopP.push([negY, pause[j]]);
+                rawHorMidP.push([negY, pause[midXIdx * Ny + j]]);
+                rawHorBotP.push([negY, pause[botXIdx * Ny + j]]);
+            }
         }
-    }
-    for (let j = 0; j < Ny; j++) {
-        const yCoord = yCoordinatesMm[j];
-        rawHorTopH.push([yCoord, heating[j]]);
-        rawHorMidH.push([yCoord, heating[midXIdx * Ny + j]]);
-        rawHorBotH.push([yCoord, heating[botXIdx * Ny + j]]);
-        rawHorTopP.push([yCoord, pause[j]]);
-        rawHorMidP.push([yCoord, pause[midXIdx * Ny + j]]);
-        rawHorBotP.push([yCoord, pause[botXIdx * Ny + j]]);
+        for (let j = 0; j < Ny; j++) {
+            const yCoord = yCoordinatesMm[j];
+            rawHorTopH.push([yCoord, heating[j]]);
+            rawHorMidH.push([yCoord, heating[midXIdx * Ny + j]]);
+            rawHorBotH.push([yCoord, heating[botXIdx * Ny + j]]);
+            rawHorTopP.push([yCoord, pause[j]]);
+            rawHorMidP.push([yCoord, pause[midXIdx * Ny + j]]);
+            rawHorBotP.push([yCoord, pause[botXIdx * Ny + j]]);
+        }
     }
 
     // --- ИСПРАВЛЕННЫЙ РАСЧЕТ: Точка перехода Tg на нейтральной линии (учитывая K-Factor) ---
@@ -118,69 +127,73 @@ export function prepareGeometryData(material, result2D) {
     }
     const finalXTgPauseValue = (yTgPause !== null && yTgPause <= width / 2) ? yTgPause : null;
 
-
     // --- CHART 4 (Contours & Polygons) ---
-    const Tmin = Number(material?.minFormingTemp);
-    const Tmax = Number(material?.maxFormingTemp);
-    const Tdecomp = Number(material?.decompositionTemp);
-    const gridConfig = { Nx, Ny, xCoordinatesMm, yCoordinatesMm };
+    let contourGraphsRaw = [];
+    let fillPolygonsRaw = [];
 
-    const boundaryPoints = (() => {
-        const points = [];
-        const maxWidth = yCoordinatesMm[Ny - 1];
-        const maxThickness = xCoordinatesMm[Nx - 1];
-        const addPoint = (i, j, pos) => {
-            const index = i * Ny + j;
-            points.push({ x: yCoordinatesMm[j], y: xCoordinatesMm[i], temperature: pause[index], index, position: pos });
-        };
-        for (let j = 0; j < Ny; j++) addPoint(0, j, yCoordinatesMm[j]);
-        for (let i = 1; i < Nx; i++) addPoint(i, Ny - 1, maxWidth + xCoordinatesMm[i]);
-        for (let j = Ny - 2; j >= 0; j--) addPoint(Nx - 1, j, maxWidth + maxThickness + maxWidth - yCoordinatesMm[j]);
-        for (let i = Nx - 2; i > 0; i--) addPoint(i, 0, 2 * maxWidth + maxThickness + maxThickness - xCoordinatesMm[i]);
-        return points;
-    })();
+    if (showContours2D && Ny > 1) {
+        const Tmin = Number(material?.minFormingTemp);
+        const Tmax = Number(material?.maxFormingTemp);
+        const Tdecomp = Number(material?.decompositionTemp);
+        const gridConfig = { Nx, Ny, xCoordinatesMm, yCoordinatesMm };
 
-    const heatingTargets = [{ targetTemp: glassTransition, key: "tg" }, { targetTemp: Tmin, key: "tmin" }, { targetTemp: Tmax, key: "tmax" }, { targetTemp: Tdecomp, key: "tdecomp" }];
-    const pauseTargets = [{ targetTemp: glassTransition, key: "tg" }, { targetTemp: Tmin, key: "tmin" }, { targetTemp: Tmax, key: "tmax" }, { targetTemp: Tdecomp, key: "tdecomp" }];
+        const boundaryPoints = (() => {
+            const points = [];
+            const maxWidth = yCoordinatesMm[Ny - 1];
+            const maxThickness = xCoordinatesMm[Nx - 1];
+            const addPoint = (i, j, pos) => {
+                const index = i * Ny + j;
+                points.push({ x: yCoordinatesMm[j], y: xCoordinatesMm[i], temperature: pause[index], index, position: pos });
+            };
+            for (let j = 0; j < Ny; j++) addPoint(0, j, yCoordinatesMm[j]);
+            for (let i = 1; i < Nx; i++) addPoint(i, Ny - 1, maxWidth + xCoordinatesMm[i]);
+            for (let j = Ny - 2; j >= 0; j--) addPoint(Nx - 1, j, maxWidth + maxThickness + maxWidth - yCoordinatesMm[j]);
+            for (let i = Nx - 2; i > 0; i--) addPoint(i, 0, 2 * maxWidth + maxThickness + maxThickness - xCoordinatesMm[i]);
+            return points;
+        })();
 
-    const heatingBatch = findMultipleIsothermsBatch(heatingTargets, heating, gridConfig);
-    const pauseBatch = findMultipleIsothermsBatch(pauseTargets, pause, gridConfig);
+        const heatingTargets = [{ targetTemp: glassTransition, key: "tg" }, { targetTemp: Tmin, key: "tmin" }, { targetTemp: Tmax, key: "tmax" }, { targetTemp: Tdecomp, key: "tdecomp" }];
+        const pauseTargets = [{ targetTemp: glassTransition, key: "tg" }, { targetTemp: Tmin, key: "tmin" }, { targetTemp: Tmax, key: "tmax" }, { targetTemp: Tdecomp, key: "tdecomp" }];
 
-    const isotherms = [
-        { name: "Tg", phase: "Heating", segments: heatingBatch.tg, style: {} },
-        { name: "T min", phase: "Heating", segments: heatingBatch.tmin, style: {} },
-        { name: "T max", phase: "Heating", segments: heatingBatch.tmax, style: {} },
-        { name: "Decomposition", phase: "Heating", segments: heatingBatch.tdecomp, style: {} },
-        { name: "Tg", phase: "Pause", segments: pauseBatch.tg, style: {} },
-        { name: "T min", phase: "Pause", segments: pauseBatch.tmin, style: {} },
-        { name: "T max", phase: "Pause", segments: pauseBatch.tmax, style: {} },
-        { name: "Decomposition", phase: "Pause", segments: pauseBatch.tdecomp, style: {} },
-    ];
+        const heatingBatch = findMultipleIsothermsBatch(heatingTargets, heating, gridConfig);
+        const pauseBatch = findMultipleIsothermsBatch(pauseTargets, pause, gridConfig);
 
-    const contourGraphsRaw = isotherms.flatMap(({ name, phase, segments, style }) => {
-        const rawLines = buildSymmetricIsothermGraph(segments, name, phase, style, gridConfig);
-        return rawLines.map(g => ({
-            name: g.name,
-            phase: g.phase,
-            points: g.points
-        }));
-    });
+        const isotherms = [
+            { name: "Tg", phase: "Heating", segments: heatingBatch.tg, style: {} },
+            { name: "T min", phase: "Heating", segments: heatingBatch.tmin, style: {} },
+            { name: "T max", phase: "Heating", segments: heatingBatch.tmax, style: {} },
+            { name: "Decomposition", phase: "Heating", segments: heatingBatch.tdecomp, style: {} },
+            { name: "Tg", phase: "Pause", segments: pauseBatch.tg, style: {} },
+            { name: "T min", phase: "Pause", segments: pauseBatch.tmin, style: {} },
+            { name: "T max", phase: "Pause", segments: pauseBatch.tmax, style: {} },
+            { name: "Decomposition", phase: "Pause", segments: pauseBatch.tdecomp, style: {} },
+        ];
 
-    const polygonFillsConfig = [
-        { name: "Solid Plastic", fromIsotherm: "Tg", toIsotherm: null, minTemp: -Infinity, maxTemp: glassTransition, phase: "Pause" },
-        { name: "High Elastic", fromIsotherm: "Tg", toIsotherm: "T min", minTemp: glassTransition, maxTemp: Tmin, phase: "Pause" },
-        { name: "Optimal Bending", fromIsotherm: "T min", toIsotherm: "T max", minTemp: Tmin, maxTemp: Tmax, phase: "Pause" },
-        { name: "High Temperature", fromIsotherm: "T max", toIsotherm: "Decomposition", minTemp: Tmax, maxTemp: Tdecomp, phase: "Pause" },
-        { name: "Decomposition Risk", fromIsotherm: "Decomposition", toIsotherm: null, minTemp: Tdecomp, maxTemp: Infinity, phase: "Heating" }
-    ];
+        contourGraphsRaw = isotherms.flatMap(({ name, phase, segments, style }) => {
+            const rawLines = buildSymmetricIsothermGraph(segments, name, phase, style, gridConfig);
+            return rawLines.map(g => ({
+                name: g.name,
+                phase: g.phase,
+                points: g.points
+            }));
+        });
 
-    const fillPolygonsRaw = buildSymmetricFillPolygons(
-        buildIsothermFillPolygons(polygonFillsConfig, boundaryPoints, isotherms, heating, pause)
-    );
+        const polygonFillsConfig = [
+            { name: "Solid Plastic", fromIsotherm: "Tg", toIsotherm: null, minTemp: -Infinity, maxTemp: glassTransition, phase: "Pause" },
+            { name: "High Elastic", fromIsotherm: "Tg", toIsotherm: "T min", minTemp: glassTransition, maxTemp: Tmin, phase: "Pause" },
+            { name: "Optimal Bending", fromIsotherm: "T min", toIsotherm: "T max", minTemp: Tmin, maxTemp: Tmax, phase: "Pause" },
+            { name: "High Temperature", fromIsotherm: "T max", toIsotherm: "Decomposition", minTemp: Tmax, maxTemp: Tdecomp, phase: "Pause" },
+            { name: "Decomposition Risk", fromIsotherm: "Decomposition", toIsotherm: null, minTemp: Tdecomp, maxTemp: Infinity, phase: "Pause" }
+        ];
+
+        fillPolygonsRaw = buildSymmetricFillPolygons(
+            buildIsothermFillPolygons(polygonFillsConfig, boundaryPoints, isotherms, heating, pause)
+        );
+    }
 
     // --- CHART 2 (Time Dynamics) ---
     const graphsChart2Raw = [];
-    if (result2D.history) {
+    if (showTimeDynamics && result2D.history) {
         const hist2D = result2D.history;
         const times = hist2D.time || [];
         const heatTimeSec = Number(result2D.heatingTimeSeconds || 0);
@@ -222,6 +235,37 @@ export function prepareGeometryData(material, result2D) {
         );
     }
 
+    // --- CHART 5 (Heater Dynamics) ---
+    const graphsHeaterRaw = [];
+    if (showHeaterDynamics && result2D.history?.topHeaterC && result2D.history?.bottomHeaterC) {
+        const hist2D = result2D.history;
+        const times = hist2D.time || [];
+        const heatTimeSec = Number(result2D.heatingTimeSeconds || 0);
+
+        const topHeaterPoints = [];
+        const bottomHeaterPoints = [];
+
+        for (let i = 0; i < times.length; i++) {
+            const t = times[i];
+            if (t <= heatTimeSec) {
+                const topC = hist2D.topHeaterC[i];
+                const botC = hist2D.bottomHeaterC[i];
+
+                if (topC !== null && Number.isFinite(Number(topC))) {
+                    topHeaterPoints.push([t, Number(topC)]);
+                }
+                if (botC !== null && Number.isFinite(Number(botC))) {
+                    bottomHeaterPoints.push([t, Number(botC)]);
+                }
+            }
+        }
+
+        graphsHeaterRaw.push(
+            { name: "Top Heater", points: topHeaterPoints, typeKey: "topHeater" },
+            { name: "Bottom Heater", points: bottomHeaterPoints, typeKey: "bottomHeater" }
+        );
+    }
+
     return {
         thickness,
         width,
@@ -235,6 +279,7 @@ export function prepareGeometryData(material, result2D) {
         contourGraphsRaw,
         fillPolygonsRaw,
         graphsChart2Raw,
+        graphsHeaterRaw,
         heatingDeltaT,
         pauseDeltaT
     };

@@ -94,18 +94,24 @@ export default function SimulationContent({ value = {}, onChange }) {
         cooling,
         target,
         stopAtMaxTemperature,
-        recordHistory,
         maxTimeSeconds,
         widthHalfMm,
         accuracyMode = "optimal",
+        customAccuracyParams = null,
         calculateAccuracyError = true,
         ui
     } = value;
+
+    const isCustomActive = typeof accuracyMode === "object" && accuracyMode !== null;
+    const savedCustomParams = isCustomActive ? accuracyMode : customAccuracyParams;
+    const hasCustomOption = Boolean(savedCustomParams);
+    const selectAccuracyValue = isCustomActive ? "custom" : accuracyMode;
 
     const {
         showVerticalSlice,
         showHorizontalWidth,
         showTimeDynamics,
+        showHeaterDynamics,
         showContours2D
     } = ui ?? {};
 
@@ -223,19 +229,6 @@ export default function SimulationContent({ value = {}, onChange }) {
                         label="Stop at maximum temperature"
                         sx={{ mx: 0.5 }}
                     />
-                    <FormControlLabel
-                        control={
-                            <Switch
-                                size="small"
-                                checked={recordHistory}
-                                onChange={(e) => updateValue(() => ({
-                                    recordHistory: e.target.checked
-                                }))}
-                            />
-                        }
-                        label="Record heating history"
-                        sx={{ mx: 0.5 }}
-                    />
 
                     <Box sx={{
                         display: "flex",
@@ -255,14 +248,25 @@ export default function SimulationContent({ value = {}, onChange }) {
                         <MyTextField
                             select
                             size="small"
-                            value={accuracyMode}
-                            onChange={(v) => updateValue(() => ({
-                                accuracyMode: v
-                            }))}
+                            value={selectAccuracyValue}
+                            onChange={(v) => {
+                                if (v === "custom") {
+                                    if (savedCustomParams) {
+                                        updateValue(() => ({
+                                            accuracyMode: savedCustomParams
+                                        }));
+                                    }
+                                    return;
+                                }
+                                updateValue(() => ({
+                                    accuracyMode: v,
+                                    ...(savedCustomParams ? { customAccuracyParams: savedCustomParams } : {})
+                                }));
+                            }}
                             sx={{
                                 flexGrow: 1,
                                 '& .MuiSelect-select': {
-                                    py: 0.75, // делает поле визуально более тонким и компактным по высоте
+                                    py: 0.75,
                                     fontSize: "0.85rem"
                                 }
                             }}
@@ -272,6 +276,11 @@ export default function SimulationContent({ value = {}, onChange }) {
                                     {mode.charAt(0).toUpperCase() + mode.slice(1)}
                                 </MenuItem>
                             ))}
+                            {hasCustomOption && (
+                                <MenuItem value="custom" sx={{ fontSize: "0.85rem" }}>
+                                    Custom (Optimized)
+                                </MenuItem>
+                            )}
                         </MyTextField>
                     </Box>
 
@@ -402,6 +411,10 @@ export default function SimulationContent({ value = {}, onChange }) {
                     <FormControlLabel
                         control={<Switch size="small" checked={showTimeDynamics} onChange={handleChartUiChange("showTimeDynamics")} />}
                         label="Time dynamics"
+                    />
+                    <FormControlLabel
+                        control={<Switch size="small" checked={Boolean(showHeaterDynamics)} onChange={handleChartUiChange("showHeaterDynamics")} />}
+                        label="Heater dynamics"
                     />
                     <FormControlLabel
                         control={<Switch size="small" checked={showHorizontalWidth} onChange={handleChartUiChange("showHorizontalWidth")} />}

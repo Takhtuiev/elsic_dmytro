@@ -55,7 +55,7 @@ const INITIAL_STATE={
     name:"Detail-4301",
 
     material:MATERIALS["PVC_CAW_RED"],
-    machine:MACHINES["MACHINE_LINE_2"],
+    machine:MACHINES["MACHINE_LINE_1"],
 
     geometry:{
         thickness:4,
@@ -97,22 +97,20 @@ const INITIAL_STATE={
         widthHalfMm: 20,
         temperatures: { ambientC: 20, ambientRadiationC: 20, initialC: 20 },
         cooling: { timeSeconds: 10, convectiveHeatTransferCoefficient: 8 },
-        stopAtMaxTemperature: true,
+        stopAtMaxTemperature: false,
         maxTimeSeconds: 1800,
 
         // ПАРАМЕТРЫ ДЛЯ ДВИЖКА ТОЧНОСТИ ВЫЧИСЛЕНИЙ
         accuracyMode: "optimal",          // Режим по умолчанию ("fast", "optimal", "accurate")
         calculateAccuracyError: true,     // Включен ли расчет погрешности по умолчанию
 
-        // --- Флаг движка (управляется автоматически через ui.showTimeDynamics) ---
-        recordHistory: false,              // Выставили true, так как ниже showTimeDynamics: true
-
         // --- Флаги отображения графиков (управление из интерфейса) ---
         ui: {
-            showVerticalSlice: true,   // График 1: Вертикальный срез по толщине
-            showHorizontalWidth: true, // График 2: Распределение по ширине
-            showTimeDynamics: true,    // График 3: Динамика во времени (История нагрева)
-            showContours2D: true       // График 4: 2D Изотермы (Контуры)
+            showVerticalSlice: true,   // График: Вертикальный срез по толщине
+            showHorizontalWidth: false, // График: Распределение по ширине
+            showTimeDynamics: true,    // График: Динамика во времени (История нагрева)
+            showHeaterDynamics: true,  // График: Температура ТЭНов во времени <-- ДОБАВИТЬ
+            showContours2D: true       // График: 2D Изотермы (Контуры)
         }
     },
 

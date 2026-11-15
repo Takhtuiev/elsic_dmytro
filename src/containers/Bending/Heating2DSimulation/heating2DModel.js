@@ -76,11 +76,27 @@ export function normalizeMachine(machine) {
     if (!machine || typeof machine !== "object") return null;
     if (!Array.isArray(machine.heaters) || machine.heaters.length !== 2) return null;
 
+    const top = machine.heaters[0];
+    const bot = machine.heaters[1];
+    const globalOffset = Number.isFinite(machine.pidPhaseOffsetSeconds) ? machine.pidPhaseOffsetSeconds : 0;
+
+    const applyOffset = (pid) => {
+        if (!pid) return null;
+        return {
+            ...pid,
+            phaseSeconds: (pid.phaseSeconds || 0) + globalOffset
+        };
+    };
+
+    const mergedBotPid = (top.pid || bot.pid)
+        ? { ...(top.pid || {}), ...(bot.pid || {}) }
+        : null;
+
     return {
         ...machine,
         heaters: [
-            { ...machine.heaters[0] },
-            { ...machine.heaters[0], ...machine.heaters[1] }
+            { ...top, pid: applyOffset(top.pid) },
+            { ...top, ...bot, pid: applyOffset(mergedBotPid) }
         ]
     };
 }
@@ -294,6 +310,35 @@ function create1DStubGridY() {
 // ============================================================================
 // 4. МОДЕЛЬ МАТЕРИАЛА И ГРАНИЧНЫХ УСЛОВИЙ
 // ============================================================================
+function getDynamicHeaterTempK(heater, ambT, timeSeconds) {
+    // 1. Сначала вычисляем базовую (среднюю) температуру самого ТЭНа
+    let effectiveTempC = ambT + heater.heaterTemperatureFactor * (heater.regulatorTemperatureC - ambT);
+    const pid = heater.pid;
+
+    // 2. Прибавляем колебания напрямую к температуре ТЭНа без масштабирования
+    if (pid && pid.amplitudeC > 0 && pid.periodSeconds > 0) {
+        const omega = (2.0 * Math.PI) / pid.periodSeconds;
+        const phaseSec = pid.phaseSeconds || 0.0;
+        const rawSin = Math.sin(omega * (timeSeconds + phaseSec));
+
+        // Параметр кривизны: 0 -> синусоида, 1 -> прямые линии
+        const shape = clamp(pid.shape ?? 0.0, -0.99, 1.0);
+        let wave;
+
+        if (Math.abs(shape) < 1e-4) {
+            wave = rawSin;
+        } else if (shape >= 0.9999) {
+            wave = (2.0 / Math.PI) * Math.asin(rawSin);
+        } else {
+            wave = Math.asin(shape * rawSin) / Math.asin(shape);
+        }
+
+        effectiveTempC += pid.amplitudeC * wave;
+    }
+
+    return toKelvin(effectiveTempC);
+}
+
 function getExcessEnthalpy(t, tg, jumpFactor, width, baseCp) {
     const halfWidth = width / 2;
     const tStart = tg - halfWidth;
@@ -551,43 +596,79 @@ function createBoundaryContext(mach, material, gridY, ambT) {
     const Ny = gridY.nodeCount;
     const ambientTemperatureK = toKelvin(ambT);
     const ambientTemperatureK_4 = Math.pow(ambientTemperatureK, 4);
-    const T_top_K = toKelvin(ambT + mach.heaters[0].heaterTemperatureFactor * (mach.heaters[0].regulatorTemperatureC - ambT));
-    const T_bot_K = toKelvin(ambT + mach.heaters[1].heaterTemperatureFactor * (mach.heaters[1].regulatorTemperatureC - ambT));
+
     const epsS = material.emissivity;
     const epsH_top = mach.heaters[0].heaterEmissivity;
     const epsH_bot = mach.heaters[1].heaterEmissivity;
     const epsEffH_top = (epsH_top * epsS) / (epsH_top + epsS - epsH_top * epsS);
     const epsEffH_bot = (epsH_bot * epsS) / (epsH_bot + epsS - epsH_bot * epsS);
+
     const hTop = mach.heaters[0].convectiveHeatTransferCoefficient;
     const hBot = mach.heaters[1].convectiveHeatTransferCoefficient;
+
     const precalcConvTopH = new Float64Array(Ny);
     const precalcConvTopAir = new Float64Array(Ny);
     const precalcConvBotH = new Float64Array(Ny);
     const precalcConvBotAir = new Float64Array(Ny);
+    const convWeightsTop = new Float64Array(Ny);
+    const convWeightsBot = new Float64Array(Ny);
+
     for (let j = 0; j < Ny; j++) {
         const yMm = gridY.y[j];
-        const cTop = getLocalConvection(yMm, T_top_K, ambientTemperatureK, hTop, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM, AMBIENT_CONVECTION_H_TOP);
-        precalcConvTopH[j] = cTop.h;
-        precalcConvTopAir[j] = cTop.airTemperatureK;
-        const cBot = getLocalConvection(yMm, T_bot_K, ambientTemperatureK, hBot, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM, AMBIENT_CONVECTION_H_BOT);
-        precalcConvBotH[j] = cBot.h;
-        precalcConvBotAir[j] = cBot.airTemperatureK;
+        const wTop = smoothStepCosine(yMm, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM);
+        convWeightsTop[j] = wTop;
+        precalcConvTopH[j] = wTop * hTop + (1 - wTop) * AMBIENT_CONVECTION_H_TOP;
+
+        const wBot = smoothStepCosine(yMm, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM);
+        convWeightsBot[j] = wBot;
+        precalcConvBotH[j] = wBot * hBot + (1 - wBot) * AMBIENT_CONVECTION_H_BOT;
     }
-    return {
+
+    const ctx = {
+        mach,
+        ambT,
+        Ny,
         viewFactorsY: getNonlinearViewFactors(gridY.y),
-        T_top_K_4: Math.pow(T_top_K, 4),
-        T_bot_K_4: Math.pow(T_bot_K, 4),
+        T_top_K: 0,
+        T_bot_K: 0,
+        T_top_K_4: 0,
+        T_bot_K_4: 0,
         ambientTemperatureK,
         ambientTemperatureK_4,
         radFactorTopBase: mach.heaters[0].radiationGain * epsEffH_top * SIGMA,
         radFactorBotBase: mach.heaters[1].radiationGain * epsEffH_bot * SIGMA,
         radFactorAmbient: epsS * SIGMA,
+        convWeightsTop,
+        convWeightsBot,
         precalcConvTopH,
         precalcConvTopAir,
         precalcConvBotH,
         precalcConvBotAir
     };
+
+    updateBoundaryContextForTime(ctx, 0);
+    return ctx;
 }
+
+function updateBoundaryContextForTime(bc, timeSeconds) {
+    const T_top_K = getDynamicHeaterTempK(bc.mach.heaters[0], bc.ambT, timeSeconds);
+    const T_bot_K = getDynamicHeaterTempK(bc.mach.heaters[1], bc.ambT, timeSeconds);
+
+    bc.T_top_K = T_top_K;
+    bc.T_bot_K = T_bot_K;
+    bc.T_top_K_4 = Math.pow(T_top_K, 4);
+    bc.T_bot_K_4 = Math.pow(T_bot_K, 4);
+
+    const ambK = bc.ambientTemperatureK;
+    for (let j = 0; j < bc.Ny; j++) {
+        const wTop = bc.convWeightsTop[j];
+        bc.precalcConvTopAir[j] = wTop * T_top_K + (1 - wTop) * ambK;
+
+        const wBot = bc.convWeightsBot[j];
+        bc.precalcConvBotAir[j] = wBot * T_bot_K + (1 - wBot) * ambK;
+    }
+}
+
 function buildAccuracyMetrics(mode, maxLinearResidual, maxPicardError, maxTimeError, maxGridError) {
     const totalErrorScore = Math.sqrt(
         maxPicardError ** 2 +
@@ -754,19 +835,49 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let reachedTarget = false;
     let status = null;
 // Настройки логирования истории и прогресса UI
-    const history = storeHistory ? { time: [], frontSurfaceC: [], centerC: [], backSurfaceC: [] } : undefined;
+    const history = storeHistory ? {
+        time: [],
+        frontSurfaceC: [],
+        centerC: [],
+        backSurfaceC: [],
+        topHeaterC: [],    // <-- ДОБАВИТЬ
+        bottomHeaterC: []  // <-- ДОБАВИТЬ
+    } : undefined;
+
     let lastLoggedTime = -1;
+
     const logHistoryGlobal = (currentAbsoluteTime, force = false) => {
         if (!storeHistory || !history) return;
         if (history.time.length > 0 && history.time[history.time.length - 1] === currentAbsoluteTime) return;
         if (!force && (currentAbsoluteTime - lastLoggedTime < 1.0)) return;
+
         const currentBuffer = buffers[step % 3];
         history.time.push(currentAbsoluteTime);
         history.frontSurfaceC.push(currentBuffer[idxTop] - 273.15);
         history.centerC.push(currentBuffer[idxMid] - 273.15);
         history.backSurfaceC.push(currentBuffer[idxBot] - 273.15);
+
+        // ЛОГИРОВАНИЕ ТЕМПЕРАТУРЫ ТЭНОВ:
+        if (currentPhase === "heating") {
+            // Если время 0, берем начальную температуру ТЭНов из bc
+            const topC = (step === 1 && currentAbsoluteTime === 0)
+                ? getDynamicHeaterTempK(mach.heaters[0], ambT, 0) - 273.15
+                : bc.T_top_K - 273.15;
+            const botC = (step === 1 && currentAbsoluteTime === 0)
+                ? getDynamicHeaterTempK(mach.heaters[1], ambT, 0) - 273.15
+                : bc.T_bot_K - 273.15;
+
+            history.topHeaterC.push(topC);
+            history.bottomHeaterC.push(botC);
+        } else {
+            // В фазе охлаждения ТЭНы отключены (прерываем линию на графике)
+            history.topHeaterC.push(null);
+            history.bottomHeaterC.push(null);
+        }
+
         lastLoggedTime = currentAbsoluteTime;
     };
+
     logHistoryGlobal(0, true);
     const maxHeatingPercent = simulation.maxHeatingPercent ?? (totalCoolingTime > 0 ? 95 : 99);
     const coolingWeightRange = 100 - maxHeatingPercent;
@@ -826,6 +937,11 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         const curIdx = step % 3;
         const newIdx = (step + 1) % 3;
         buffers[newIdx].set(buffers[curIdx]);
+
+        if (currentPhase === "heating") {
+            updateBoundaryContextForTime(bc, time + dt);
+        }
+
 // --- Итерации Пикара (нелинейная сходимость на текущем шаге dt) ---
         let nonlinearConverged = false;
         let lastIterMaxSignedDiff = 0.0;
@@ -1110,6 +1226,24 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         }
 // --- Оценка локальных погрешностей (пространственной и временной) ---
         let currentStepTimeErr = 0.0;
+        if (nonlinearConverged) {
+            const h2 = dt;
+            const h1 = t_n - t_nm1;
+            if (stepCountInPhase >= 2 && h1 > 1e-5 && h2 > 1e-5) {
+                const timeRatio = h2 / h1;
+                const currentBuffer = buffers[newIdx];
+                const errTimeTop = Math.abs((currentBuffer[idxTop] - T_n_top) - timeRatio * (T_n_top - T_nm1_top));
+                const errTimeMid = Math.abs((currentBuffer[idxMid] - T_n_mid) - timeRatio * (T_n_mid - T_nm1_mid));
+                const errTimeBot = Math.abs((currentBuffer[idxBot] - T_n_bot) - timeRatio * (T_n_bot - T_nm1_bot));
+                let localMaxTimeErr = errTimeTop > errTimeMid ? errTimeTop : errTimeMid;
+                if (errTimeBot > localMaxTimeErr) localMaxTimeErr = errTimeBot;
+                currentStepTimeErr = localMaxTimeErr;
+                if (cfg.shouldCalculateAccuracyError && localMaxTimeErr > maxTimeErrorC) {
+                    maxTimeErrorC = localMaxTimeErr;
+                }
+            }
+        }
+
         if (cfg.shouldCalculateAccuracyError && nonlinearConverged) {
             const lastPicardDeltaK = Math.abs(lastIterMaxSignedDiff);
             if (lastPicardDeltaK > maxPicardConvergenceErrorC) maxPicardConvergenceErrorC = lastPicardDeltaK;
@@ -1175,21 +1309,9 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             }
             const stepMaxGridError = Math.sqrt(stepMaxGridErrorSq);
             if (stepMaxGridError > maxGridErrorC) maxGridErrorC = stepMaxGridError;
-            const h2 = dt;
-            const h1 = t_n - t_nm1;
-            if (stepCountInPhase >= 2 && h1 > 1e-5 && h2 > 1e-5) {
-                const timeRatio = h2 / h1;
-                const currentBuffer = buffers[newIdx];
-                const errTimeTop = Math.abs((currentBuffer[idxTop] - T_n_top) - timeRatio * (T_n_top - T_nm1_top));
-                const errTimeMid = Math.abs((currentBuffer[idxMid] - T_n_mid) - timeRatio * (T_n_mid - T_nm1_mid));
-                const errTimeBot = Math.abs((currentBuffer[idxBot] - T_n_bot) - timeRatio * (T_n_bot - T_nm1_bot));
-                let localMaxTimeErr = errTimeTop > errTimeMid ? errTimeTop : errTimeMid;
-                if (errTimeBot > localMaxTimeErr) localMaxTimeErr = errTimeBot;
-                currentStepTimeErr = localMaxTimeErr;
-                if (localMaxTimeErr > maxTimeErrorC) maxTimeErrorC = localMaxTimeErr;
-            }
         }
-// --- Фиксация принятого шага и обновление регистров времени ---
+
+        // --- Фиксация принятого шага и обновление регистров времени ---
         t_nm1 = currentPhase === "heating" ? time : coolingTimeElapsed;
         t_n = t_nm1 + dt;
         T_nm1_top = T_n_top;
@@ -1276,20 +1398,29 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             ? dt * DT_SAFETY_FACTOR * (cfg.targetDeltaT / maxStepTempChange)
             : dt * DT_MAX_GROWTH_FACTOR;
         const targetTimeTol = Math.max(cfg.nonlinearToleranceK, cfg.targetDeltaT * 0.2);
-        const dtAccuracy = (cfg.shouldCalculateAccuracyError && currentStepTimeErr > 1e-6)
+        const dtAccuracy = (currentStepTimeErr > 1e-6)
             ? dt * DT_SAFETY_FACTOR * Math.sqrt(targetTimeTol / currentStepTimeErr)
             : dt * DT_MAX_GROWTH_FACTOR;
         let dtPhysical = Infinity;
-        if (currentPhase === "heating" && maxStepTempChange > 1e-6) {
-            const heatingRate = maxStepTempChange / dt;
-            const distToDecomp = decompTempK - maxObservedT;
-            if (distToDecomp > 0) {
-                dtPhysical = Math.min(dtPhysical, Math.max(MIN_PHYSICAL_DT_SECONDS, (distToDecomp / heatingRate) * 0.85));
+        if (currentPhase === "heating") {
+            const p1 = mach.heaters[0].pid?.periodSeconds || Infinity;
+            const p2 = mach.heaters[1].pid?.periodSeconds || Infinity;
+            const minPeriod = Math.min(p1, p2);
+            if (Number.isFinite(minPeriod) && minPeriod > 0) {
+                dtPhysical = Math.min(dtPhysical, minPeriod / 8.0);
             }
-            if (targetK != null && targetType !== "time") {
-                const distToTarget = targetK - currentStepCriticalValue;
-                if (distToTarget > 0) {
-                    dtPhysical = Math.min(dtPhysical, Math.max(MIN_PHYSICAL_DT_SECONDS, (distToTarget / heatingRate) * 0.9));
+
+            if (maxStepTempChange > 1e-6) {
+                const heatingRate = maxStepTempChange / dt;
+                const distToDecomp = decompTempK - maxObservedT;
+                if (distToDecomp > 0) {
+                    dtPhysical = Math.min(dtPhysical, Math.max(MIN_PHYSICAL_DT_SECONDS, (distToDecomp / heatingRate) * 0.85));
+                }
+                if (targetK != null && targetType !== "time") {
+                    const distToTarget = targetK - currentStepCriticalValue;
+                    if (distToTarget > 0) {
+                        dtPhysical = Math.min(dtPhysical, Math.max(MIN_PHYSICAL_DT_SECONDS, (distToTarget / heatingRate) * 0.9));
+                    }
                 }
             }
         }
