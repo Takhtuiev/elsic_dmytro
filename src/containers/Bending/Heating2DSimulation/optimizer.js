@@ -225,81 +225,41 @@ function normalCDF(x) {
 function calculateConstrainedLogNormalEI(
     bestRawY,
     objectivePrediction,
-    constraintPrediction,
-    constraintLimit,
-    rho
+    constraintProbFn,
+    isMaximize = false
 ) {
     if (
         !Number.isFinite(bestRawY) ||
         bestRawY < 0 ||
         !objectivePrediction ||
-        !constraintPrediction ||
         !Number.isFinite(objectivePrediction.meanLog) ||
         !Number.isFinite(objectivePrediction.sigmaLog) ||
-        objectivePrediction.sigmaLog < 0 ||
-        !Number.isFinite(constraintPrediction.meanLog) ||
-        !Number.isFinite(constraintPrediction.sigmaLog) ||
-        constraintPrediction.sigmaLog < 0 ||
-        !Number.isFinite(constraintLimit) ||
-        constraintLimit < 0
+        objectivePrediction.sigmaLog < 0
     ) {
         return 0;
     }
 
     const mu = objectivePrediction.meanLog;
     const sigma = objectivePrediction.sigmaLog;
-    const constraintSigma = constraintPrediction.sigmaLog;
 
     const target = 1 + bestRawY;
     const logTarget = Math.log(target);
-    const constraintZ = Math.log1p(constraintLimit);
 
     if (sigma < 1e-9) {
         const predictedValue = Math.exp(mu);
-
-        // 🌟 Нормализованное относительное улучшение (в долях от target)
+        const rawDiff = isMaximize ? (predictedValue - target) : (target - predictedValue);
         const improvement = Number.isFinite(predictedValue)
-            ? Math.max(0, (target - predictedValue) / Math.max(1e-9, target))
+            ? Math.max(0, rawDiff / Math.max(1e-9, target))
             : 0;
 
-        return improvement * probabilityBelow(
-            constraintPrediction,
-            constraintLimit
-        );
+        return improvement * constraintProbFn(0);
     }
 
-    if (constraintSigma < 1e-9) {
-        if (constraintPrediction.meanLog > constraintZ) {
-            return 0;
-        }
+    const thresholdZ = (logTarget - mu) / sigma;
+    const lower = isMaximize ? Math.max(-8, thresholdZ) : -8;
+    const upper = isMaximize ? 8 : Math.min(8, thresholdZ);
 
-        rho = 0;
-    }
-
-    const correlation = constraintSigma < 1e-9
-        ? 0
-        : Math.max(
-            -0.8,
-            Math.min(
-                0.8,
-                Number.isFinite(rho) ? rho : 0
-            )
-        );
-
-    const conditionalSigma = Math.sqrt(
-        Math.max(1e-12, 1 - correlation * correlation)
-    );
-
-    const constraintLimitZ = constraintSigma < 1e-9
-        ? 0
-        : (
-        constraintZ - constraintPrediction.meanLog
-    ) / constraintSigma;
-
-    const upper = Math.min(8, (logTarget - mu) / sigma);
-    const lower = -8;
-
-    if (!Number.isFinite(upper) || upper <= lower) {
+    if (!Number.isFinite(upper) || !Number.isFinite(lower) || upper <= lower) {
         return 0;
     }
 
@@ -313,18 +273,12 @@ function calculateConstrainedLogNormalEI(
         const z = lower + i * step;
         const predictedValue = Math.exp(mu + sigma * z);
 
-        // 🌟 Нормализованное относительное улучшение (в долях от target)
+        const rawDiff = isMaximize ? (predictedValue - target) : (target - predictedValue);
         const improvement = Number.isFinite(predictedValue)
-            ? Math.max(0, (target - predictedValue) / Math.max(1e-9, target))
+            ? Math.max(0, rawDiff / Math.max(1e-9, target))
             : 0;
 
-        const conditionalProbability = constraintSigma < 1e-9
-            ? 1
-            : normalCDF(
-                (constraintLimitZ - correlation * z) /
-                conditionalSigma
-            );
-
+        const conditionalProbability = constraintProbFn(z);
         const density = normalizer * Math.exp(-0.5 * z * z);
 
         const weight =
@@ -332,12 +286,7 @@ function calculateConstrainedLogNormalEI(
                 ? 1
                 : (i % 2 === 0 ? 2 : 4);
 
-        integral += (
-            weight *
-            improvement *
-            conditionalProbability *
-            density
-        );
+        integral += weight * improvement * conditionalProbability * density;
     }
 
     const result = integral * step / 3;
@@ -1014,73 +963,6 @@ function applySigmaCalibration(prediction, scale) {
 // 4. ДВОЙНАЯ GP-МОДЕЛЬ И РЕГИОНАЛЬНЫЕ ОБУЧАЮЩИЕ ВЫБОРКИ
 // ============================================================================
 
-function fitDualGaussianProcess(
-    X,
-    logLoad,
-    logError,
-    loadNoise,
-    errorNoise,
-    loadLengthScales,
-    errorLengthScales,
-    isComplete
-) {
-    const loadModel = fitGaussianProcess(
-        X,
-        logLoad,
-        loadNoise,
-        loadLengthScales,
-        isComplete
-    );
-
-    const errorModel = fitGaussianProcess(
-        X,
-        logError,
-        errorNoise,
-        errorLengthScales,
-        isComplete
-    );
-
-    const valid = Boolean(loadModel?.valid && errorModel?.valid);
-
-    return {
-        valid,
-        loadModel,
-        errorModel,
-        loadReason: loadModel?.reason || (loadModel?.valid ? null : "UNKNOWN"),
-        errorReason: errorModel?.reason || (errorModel?.valid ? null : "UNKNOWN")
-    };
-}
-
-function predictDualGaussianProcess(
-    dualModel,
-    x,
-    loadSigmaCalibration = 1.0,
-    errorSigmaCalibration = 1.0
-) {
-    if (!dualModel || !dualModel.valid) {
-        return null;
-    }
-
-    const rawLoadPrediction = predictGaussianProcess(dualModel.loadModel, x);
-    const rawErrorPrediction = predictGaussianProcess(dualModel.errorModel, x);
-
-    if (!rawLoadPrediction || !rawErrorPrediction) {
-        return null;
-    }
-
-    const loadPrediction = applySigmaCalibration(rawLoadPrediction, loadSigmaCalibration);
-    const errorPrediction = applySigmaCalibration(rawErrorPrediction, errorSigmaCalibration);
-
-    if (!loadPrediction || !errorPrediction) {
-        return null;
-    }
-
-    return {
-        loadPrediction,
-        errorPrediction
-    };
-}
-
 function buildRegionalTrainingDataset(
     region,
     observedX,
@@ -1192,6 +1074,7 @@ function buildRegionalTrainingDataset(
     // Восстанавливаем хронологический порядок индексов
     selected.sort((a, b) => a.index - b.index);
 
+    const localIndices = [];
     const localX = [];
     const localLogLoad = [];
     const localLogError = [];
@@ -1204,6 +1087,7 @@ function buildRegionalTrainingDataset(
 
     for (const item of selected) {
         const idx = item.index;
+        localIndices.push(idx);
         localX.push(observedX[idx]);
         localLogLoad.push(observedLogLoad[idx]);
         localLogError.push(observedLogError[idx]);
@@ -1228,6 +1112,7 @@ function buildRegionalTrainingDataset(
     if (completeCount < 4) return null;
 
     return {
+        indices: localIndices,
         X: localX,
         logLoad: localLogLoad,
         logError: localLogError,
@@ -1415,10 +1300,11 @@ function inspectLocalGeometry(X, numParams) {
 
 function optimizeRegionalLengthScales(
     localDataset,
+    localConstraintTargets,
     globalLoadScales,
-    globalErrorScales,
+    globalConstraintScales,
     prevLoadScales,
-    prevErrorScales,
+    prevConstraintScales,
     numParams,
     progressFactor
 ) {
@@ -1427,7 +1313,7 @@ function optimizeRegionalLengthScales(
 
     const makeFallbackResult = reason => ({
         loadScales: new Float64Array(globalLoadScales),
-        errorScales: new Float64Array(globalErrorScales),
+        constraintScales: globalConstraintScales.map(s => (s ? new Float64Array(s) : null)),
         adapted: false,
         reason
     });
@@ -1536,20 +1422,32 @@ function optimizeRegionalLengthScales(
         prevLoadScales
     );
 
-    const errorRes = optimizeSingleTarget(
-        localDataset.logError,
-        localDataset.errorNoise,
-        globalErrorScales,
-        prevErrorScales
-    );
+    let anyImproved = loadRes.improved;
+    const adaptedConstraintScales = [];
 
-    const adapted = loadRes.improved || errorRes.improved;
+    for (let k = 0; k < localConstraintTargets.length; k++) {
+        const cTarget = localConstraintTargets[k];
+        const gScale = globalConstraintScales[k];
+        if (!cTarget || !gScale) {
+            adaptedConstraintScales.push(gScale ? new Float64Array(gScale) : null);
+            continue;
+        }
+
+        const cRes = optimizeSingleTarget(
+            cTarget.Y,
+            cTarget.noise,
+            gScale,
+            prevConstraintScales?.[k] || null
+        );
+        adaptedConstraintScales.push(cRes.resultScales);
+        if (cRes.improved) anyImproved = true;
+    }
 
     return {
         loadScales: loadRes.resultScales,
-        errorScales: errorRes.resultScales,
-        adapted,
-        reason: adapted ? "ADAPTED" : "KEPT_PREVIOUS"
+        constraintScales: adaptedConstraintScales,
+        adapted: anyImproved,
+        reason: anyImproved ? "ADAPTED" : "KEPT_PREVIOUS"
     };
 }
 
@@ -1638,114 +1536,6 @@ function probabilityBelow(prediction, rawLimit) {
     return Number.isFinite(probability)
         ? Math.max(0, Math.min(1, probability))
         : 0;
-}
-
-function bivariateNormalCDF(h, k, rho) {
-    if (Number.isNaN(h) || Number.isNaN(k)) return 0;
-
-    if (h <= -8 || k <= -8) return 0;
-    if (h >= 8) return normalCDF(k);
-    if (k >= 8) return normalCDF(h);
-
-    const r = Math.max(
-        -0.8,
-        Math.min(0.8, Number.isFinite(rho) ? rho : 0)
-    );
-
-    if (Math.abs(r) < 1e-10) {
-        return normalCDF(h) * normalCDF(k);
-    }
-
-    const intervals = 64;
-    const step = r / intervals;
-
-    let integral = 0;
-
-    for (let i = 0; i <= intervals; i++) {
-        const t = i * step;
-        const oneMinusT2 = Math.max(1e-12, 1 - t * t);
-
-        const exponent = -(
-            h * h -
-            2 * h * k * t +
-            k * k
-        ) / (2 * oneMinusT2);
-
-        const value = Math.exp(
-            Math.max(-745, exponent)
-        ) / Math.sqrt(oneMinusT2);
-
-        const weight =
-            i === 0 || i === intervals
-                ? 1
-                : (i % 2 === 0 ? 2 : 4);
-
-        integral += weight * value;
-    }
-
-    integral *= step / 3 / (2 * Math.PI);
-
-    const result =
-        normalCDF(h) * normalCDF(k) + integral;
-
-    return Number.isFinite(result)
-        ? Math.max(0, Math.min(1, result))
-        : 0;
-}
-
-function jointProbabilityBelow(
-    loadPrediction,
-    errorPrediction,
-    loadLimit,
-    errorLimit,
-    rho
-) {
-    if (
-        !loadPrediction ||
-        !errorPrediction ||
-        !Number.isFinite(loadLimit) ||
-        loadLimit < 0 ||
-        !Number.isFinite(errorLimit) ||
-        errorLimit < 0 ||
-        !Number.isFinite(loadPrediction.meanLog) ||
-        !Number.isFinite(loadPrediction.sigmaLog) ||
-        loadPrediction.sigmaLog < 0 ||
-        !Number.isFinite(errorPrediction.meanLog) ||
-        !Number.isFinite(errorPrediction.sigmaLog) ||
-        errorPrediction.sigmaLog < 0
-    ) {
-        return 0;
-    }
-
-    const loadSigma = loadPrediction.sigmaLog;
-    const errorSigma = errorPrediction.sigmaLog;
-
-    const loadLimitLog = Math.log1p(loadLimit);
-    const errorLimitLog = Math.log1p(errorLimit);
-
-    const loadZ = loadSigma < 1e-9
-        ? (
-            loadPrediction.meanLog <= loadLimitLog
-                ? 8
-                : -8
-        )
-        : (
-            (loadLimitLog - loadPrediction.meanLog) /
-            loadSigma
-        );
-
-    const errorZ = errorSigma < 1e-9
-        ? (
-            errorPrediction.meanLog <= errorLimitLog
-                ? 8
-                : -8
-        )
-        : (
-            (errorLimitLog - errorPrediction.meanLog) /
-            errorSigma
-        );
-
-    return bivariateNormalCDF(loadZ, errorZ, rho);
 }
 
 // Оценка корреляции стандартизированных out-of-sample остатков GP.
@@ -1927,9 +1717,76 @@ function createSobolGenerator(dimensions) {
 // Внутренние блоки ниже разделены по ответственности; алгоритм не изменён.
 // ============================================================================
 
+function createProfileContext(res) {
+    const prof = res?.temperatureProfile;
+    const findYIndex = (yMm) => {
+        const yCoords = prof?.yCoordinatesMm;
+        if (!Array.isArray(yCoords) || yCoords.length === 0) return 0;
+        let bestIdx = 0;
+        let bestDist = Infinity;
+        for (let j = 0; j < yCoords.length; j++) {
+            const d = Math.abs(yCoords[j] - yMm);
+            if (d < bestDist) {
+                bestDist = d;
+                bestIdx = j;
+            }
+        }
+        return bestIdx;
+    };
+
+    const makeAccessors = (field) => ({
+        surfaceTop: (yMm = 0) => (field && prof ? field[findYIndex(yMm)] : NaN),
+        surfaceBottom: (yMm = 0) => (field && prof ? field[(prof.Nx - 1) * prof.Ny + findYIndex(yMm)] : NaN),
+        core: (yMm = 0) => (field && prof ? field[((prof.Nx - 1) >> 1) * prof.Ny + findYIndex(yMm)] : NaN)
+    });
+
+    return {
+        ...makeAccessors(prof?.heating),
+        afterCooling: makeAccessors(prof?.pause),
+        rawProfile: prof
+    };
+}
+
+function normalizeSingleConstraint(c) {
+    const val = c?.value;
+    if (!Number.isFinite(val)) {
+        return { gpVal: NaN, gpLimit: 0, violation: Infinity, feasible: false };
+    }
+
+    const hasMax = Number.isFinite(c?.max);
+    const hasMin = Number.isFinite(c?.min);
+
+    if (hasMax && !hasMin) {
+        const shift = c.max < 0 ? Math.abs(c.max) + 1 : 0;
+        const gpVal = Math.max(0, val + shift);
+        const gpLimit = Math.max(0, c.max + shift);
+        const scale = Math.max(1e-6, Math.abs(c.max));
+        const violation = Math.max(0, (val - c.max) / scale);
+        return { gpVal, gpLimit, violation, feasible: val <= c.max };
+    }
+
+    if (hasMin && !hasMax) {
+        const gpVal = Math.max(0, c.min * 2 - val);
+        const gpLimit = Math.max(0, c.min);
+        const scale = Math.max(1e-6, Math.abs(c.min));
+        const violation = Math.max(0, (c.min - val) / scale);
+        return { gpVal, gpLimit, violation, feasible: val >= c.min };
+    }
+
+    if (hasMin && hasMax) {
+        const center = (c.min + c.max) * 0.5;
+        const halfWidth = Math.max(1e-6, (c.max - c.min) * 0.5);
+        const dist = Math.abs(val - center);
+        const violation = Math.max(0, (dist - halfWidth) / halfWidth);
+        return { gpVal: dist, gpLimit: halfWidth, violation, feasible: val >= c.min && val <= c.max };
+    }
+
+    return { gpVal: 0, gpLimit: 0, violation: 0, feasible: true };
+}
+
 export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) {
     // -----------------------------------------------------------------------
-    // 7.1. ВХОДНЫЕ ДАННЫЕ, ЦЕЛЬ ОПТИМИЗАЦИИ И ПРОВЕРКА КОНФИГУРАЦИИ
+    // 7.1. ВХОДНЫЕ ДАННЫЕ, ЗАДАЧА ОПТИМИЗАЦИИ И ПРОВЕРКА КОНФИГУРАЦИИ
     // -----------------------------------------------------------------------
 
     const state = options.resumeState || null;
@@ -1945,40 +1802,23 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         );
     }
 
-    const objective =
-        options.optimizationObjective || "minimize_load";
+    const task = options.task;
 
     if (
-        ![
-            "minimize_load",
-            "minimize_error"
-        ].includes(objective)
+        !task ||
+        typeof task !== "object" ||
+        !task.parameters ||
+        typeof task.parameters !== "object" ||
+        Array.isArray(task.parameters) ||
+        typeof task.evaluateResult !== "function"
     ) {
         throw new Error(
-            "Неизвестная цель оптимизации: " + objective
+            "Конфигурация задачи (options.task) не передана или некорректна!"
         );
     }
 
-    const maxAllowedErrorScore =
-        options.maxErrorScore ?? 1;
-
-    const maxAllowedLoad =
-        options.maxAllowedLoad ?? 250000;
-
-    const earlyAbortLoadMultiplier =
-        options.earlyAbortLoadMultiplier ?? 1.2;
-
-    const config = options.config;
-
-    if (
-        !config ||
-        typeof config !== "object" ||
-        Array.isArray(config)
-    ) {
-        throw new Error(
-            "Конфигурация параметров не передана!"
-        );
-    }
+    const config = task.parameters;
+    const taskSettings = task.settings || {};
 
     const paramKeys = Object.keys(config);
     const numParams = paramKeys.length;
@@ -1997,13 +1837,12 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
     const minRegionRadius = Math.max(0.032, Math.min(0.05, 0.025 + numParams * 0.0035));
 
-    // ✅ Объявляем ПОСЛЕ numParams и ДО проверки if (!Number.isFinite(...))
-    const requestedInitialPoints = Number.isFinite(options.randomInitPoints)
-        ? options.randomInitPoints
+    const requestedInitialPoints = Number.isFinite(taskSettings.randomInitPoints)
+        ? taskSettings.randomInitPoints
         : Math.max(6, numParams * 4);
 
-    const requestedIterations = Number.isFinite(options.totalBudgetIterations)
-        ? options.totalBudgetIterations
+    const requestedIterations = Number.isFinite(taskSettings.totalBudgetIterations)
+        ? taskSettings.totalBudgetIterations
         : Math.max(80, numParams * 35 + 20);
 
     if (
@@ -2025,7 +1864,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
     const totalIterations = currentExecutionCount + extraIterations;
 
-    // Нужна хотя бы одна начальная точка для обучения GP.
     const initPointsCount = Math.min(
         totalIterations,
         Math.max(1, Math.floor(requestedInitialPoints))
@@ -2048,59 +1886,33 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         }
     }
 
-    if (
-        !Number.isFinite(maxAllowedLoad) ||
-        maxAllowedLoad <= 0 ||
-        !Number.isFinite(maxAllowedErrorScore) ||
-        maxAllowedErrorScore < 0 ||
-        !Number.isFinite(earlyAbortLoadMultiplier) ||
-        earlyAbortLoadMultiplier <= 0
-    ) {
-        throw new Error(
-            "Некорректные ограничения оптимизации!"
-        );
-    }
-
-
-    const absoluteCeiling =
-        maxAllowedLoad * earlyAbortLoadMultiplier;
-
-    const errorViolationScale =
-        maxAllowedErrorScore > 0
-            ? maxAllowedErrorScore
-            : (Number.isFinite(options.errorViolationScale) && options.errorViolationScale > 0
-                ? options.errorViolationScale
-                : 1.0);
-
-    if (
-        !Number.isFinite(errorViolationScale) ||
-        errorViolationScale <= 0
-    ) {
-        throw new Error(
-            "При maxErrorScore = 0 необходимо задать errorViolationScale > 0."
-        );
-    }
-
-    const massiveLoadLimit =
-        absoluteCeiling * 3;
-
-    if (
-        !Number.isFinite(absoluteCeiling) ||
-        !Number.isFinite(massiveLoadLimit)
-    ) {
-        throw new Error(
-            "Переполнение при расчёте ограничений нагрузки."
-        );
+    if (task.earlyAbort) {
+        const ceiling = task.earlyAbort.ceiling;
+        if (
+            typeof task.earlyAbort.metric !== "function" ||
+            !Number.isFinite(ceiling) ||
+            ceiling <= 0 ||
+            !Number.isFinite(ceiling * 3)
+        ) {
+            throw new Error(
+                "Некорректная конфигурация раннего прерывания (task.earlyAbort)!"
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
     // 7.2. ВОССТАНОВЛЕНИЕ СОСТОЯНИЯ (RESUME STATE)
     // -----------------------------------------------------------------------
 
-    // Глобальный контекст для сохранения истории ЕМА-калибровки остатков
-    self.lastEMAStorage = state?.lastEMAStorage || { load: 1.0, error: 1.0 };
+    self.lastEMAStorage = state?.lastEMAStorage
+        ? {
+            load: state.lastEMAStorage.load ?? 1.0,
+            errors: Array.isArray(state.lastEMAStorage.errors)
+                ? [...state.lastEMAStorage.errors]
+                : (Number.isFinite(state.lastEMAStorage.error) ? [state.lastEMAStorage.error] : [])
+        }
+        : { load: 1.0, errors: [] };
 
-    // Память регионов доверия (Trust Regions State) с восстановлением Float64Array
     const searchRegions = Array.isArray(state?.searchRegions)
         ? state.searchRegions.map(r => ({
             ...r,
@@ -2109,25 +1921,31 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             previousBestX: r.previousBestX ? (r.previousBestX instanceof Float64Array ? r.previousBestX : new Float64Array(Object.values(r.previousBestX))) : null,
             rawDirection: r.rawDirection ? (r.rawDirection instanceof Float64Array ? r.rawDirection : new Float64Array(Object.values(r.rawDirection))) : null,
             loadLengthScales: r.loadLengthScales ? (r.loadLengthScales instanceof Float64Array ? r.loadLengthScales : new Float64Array(Object.values(r.loadLengthScales))) : null,
-            errorLengthScales: r.errorLengthScales ? (r.errorLengthScales instanceof Float64Array ? r.errorLengthScales : new Float64Array(Object.values(r.errorLengthScales))) : null,
-            dualGP: null // Переобучится автоматически на первом же шаге
+            constraintLengthScales: Array.isArray(r.constraintLengthScales)
+                ? r.constraintLengthScales.map(s => (s ? (s instanceof Float64Array ? s : new Float64Array(Object.values(s))) : null))
+                : [],
+            regionalModels: null
         }))
         : [];
 
-    // Единый стейт глобальной модели (Global GP)
     const globalGPState = state?.globalGPState
         ? {
             ...state.globalGPState,
             loadLengthScales: state.globalGPState.loadLengthScales ? new Float64Array(Object.values(state.globalGPState.loadLengthScales)) : null,
-            errorLengthScales: state.globalGPState.errorLengthScales ? new Float64Array(Object.values(state.globalGPState.errorLengthScales)) : null,
-            model: null
+            constraintLengthScales: Array.isArray(state.globalGPState.constraintLengthScales)
+                ? state.globalGPState.constraintLengthScales.map(s => (s ? new Float64Array(Object.values(s)) : null))
+                : [],
+            lastConstraintScaleCompleteCount: Array.isArray(state.globalGPState.lastConstraintScaleCompleteCount)
+                ? [...state.globalGPState.lastConstraintScaleCompleteCount]
+                : [],
+            models: null
         }
         : {
             loadLengthScales: null,
-            errorLengthScales: null,
+            constraintLengthScales: [],
             lastLoadScaleCompleteCount: -Infinity,
-            lastErrorScaleCompleteCount: -Infinity,
-            model: null
+            lastConstraintScaleCompleteCount: [],
+            models: null
         };
 
     if (!state) {
@@ -2145,21 +1963,39 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     // Нормализованные координаты <-> физические значения, округление и ключи.
     // -----------------------------------------------------------------------
 
+    const applyParamsByPath = (base, paramsObj) => {
+        const cloned = {
+            ...base,
+            simulation: {
+                ...(base.simulation || {}),
+                ...(task.simOverrides || {})
+            }
+        };
+
+        for (const [key, val] of Object.entries(paramsObj)) {
+            const path = config[key]?.path;
+            if (!path) continue;
+
+            const parts = path.split(".");
+            let curr = cloned;
+
+            for (let i = 0; i < parts.length - 1; i++) {
+                const part = parts[i];
+                const existing = curr[part];
+                curr[part] = Array.isArray(existing)
+                    ? [...existing]
+                    : (existing && typeof existing === "object" ? { ...existing } : {});
+                curr = curr[part];
+            }
+
+            curr[parts[parts.length - 1]] = val;
+        }
+
+        return cloned;
+    };
+
     const getPhysicalKeyFromPhysical = physical =>
         paramKeys.map(key => String(physical[key])).join("|");
-
-    const getPhysicalKey = xNorm => {
-        const physical = toPhysical(xNorm);
-
-        paramKeys.forEach(key => {
-            const digits = config[key]?.digits;
-            if (Number.isInteger(digits) && Number.isFinite(physical[key])) {
-                physical[key] = Number(physical[key].toFixed(digits));
-            }
-        });
-
-        return getPhysicalKeyFromPhysical(physical);
-    };
 
     const canonicalizeNormalized = xNorm => {
         if (!xNorm || xNorm.length !== numParams) {
@@ -2219,29 +2055,22 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         return true;
     };
 
-    // Единая функция канонизации: возвращает округленные физические параметры и синхронизированный normX
     const quantizeCandidate = rawX => {
         const physical = toPhysical(rawX);
         if (!isValidPhysical(physical)) return null;
 
-        // Применяем кастомную функцию привязки (snap), если она задана для параметра
         for (const key of paramKeys) {
             const range = config[key];
             if (typeof range.snap === "function") {
                 const snappedVal = range.snap(physical[key], baseParams);
                 if (!Number.isFinite(snappedVal)) return null;
-
                 const roundedVal = Number.isInteger(range.digits)
                     ? Number(snappedVal.toFixed(range.digits))
                     : snappedVal;
-
                 physical[key] = Math.max(range.min, Math.min(range.max, roundedVal));
             }
         }
-
         if (!isValidPhysical(physical)) return null;
-
-        // Обратная синхронизация нормализованного вектора normX с фактическими значениями
         const quantizedX = new Float64Array(numParams);
         for (let i = 0; i < numParams; i++) {
             const key = paramKeys[i];
@@ -2250,31 +2079,24 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 ? Math.max(0, Math.min(1, (physical[key] - range.min) / (range.max - range.min)))
                 : 0;
         }
-
         return { x: quantizedX, physical, key: getPhysicalKeyFromPhysical(physical) };
     };
-
     const generateLatticeNeighbors = centerNormX => {
         const centerQ = quantizeCandidate(centerNormX);
         if (!centerQ) return [];
-
         const totalCombos = Math.pow(3, numParams);
         const neighbors = [];
-
         for (let mask = 0; mask < totalCombos; mask++) {
             let temp = mask;
             const candidatePhys = {};
             let isCenter = true;
-
             for (let d = 0; d < numParams; d++) {
                 const shift = (temp % 3) - 1;
                 temp = Math.floor(temp / 3);
                 if (shift !== 0) isCenter = false;
-
                 const key = paramKeys[d];
                 const range = config[key];
                 const baseVal = centerQ.physical[key];
-
                 if (typeof range.step === "function" && shift !== 0) {
                     candidatePhys[key] = range.step(baseVal, shift, baseParams);
                 } else {
@@ -2282,9 +2104,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     candidatePhys[key] = baseVal + shift * fallbackStep;
                 }
             }
-
             if (isCenter) continue;
-
             const normVec = new Float64Array(numParams);
             for (let d = 0; d < numParams; d++) {
                 const key = paramKeys[d];
@@ -2293,15 +2113,11 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     ? (candidatePhys[key] - range.min) / (range.max - range.min)
                     : 0;
             }
-
             const q = quantizeCandidate(normVec);
             if (q) neighbors.push(q);
         }
-
         return neighbors;
     };
-
-
     const normalizeParamObject = pObj => {
         if (
             !pObj ||
@@ -2310,16 +2126,12 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         ) {
             return null;
         }
-
         const normX = new Float64Array(numParams);
-
         for (let i = 0; i < numParams; i++) {
             const key = paramKeys[i];
             const value = pObj[key];
             const range = config[key];
-
             if (!Number.isFinite(value)) return null;
-
             normX[i] = range.max !== range.min
                 ? Math.max(
                     0,
@@ -2331,43 +2143,28 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 )
                 : 0;
         }
-
-        const canonicalX =
-            canonicalizeNormalized(normX);
-
+        const canonicalX = canonicalizeNormalized(normX);
         const physical = toPhysical(canonicalX);
-
         if (!isValidPhysical(physical)) return null;
-
         return canonicalX;
     };
-
-
     const evaluatedKeys = state?.evaluatedKeys instanceof Set
         ? state.evaluatedKeys
         : new Set(Array.isArray(state?.evaluatedKeys) ? state.evaluatedKeys : []);
-
-
     const rawNextSobolPoint = createSobolGenerator(numParams);
     let sobolDrawsCount = state?.sobolDraws || 0;
-
-    // -----------------------------------------------------------------------
-    // 7.4. СОСТОЯНИЕ ПОИСКА, ГЕНЕРАЦИЯ ТОЧЕК И СЧЁТЧИКИ
-    // -----------------------------------------------------------------------
-
-    // Если это продолжение — проматываем генератор Соболя до места остановки
+// -----------------------------------------------------------------------
+// 7.4. СОСТОЯНИЕ ПОИСКА, ГЕНЕРАЦИЯ ТОЧЕК И СЧЁТЧИКИ
+// -----------------------------------------------------------------------
     if (sobolDrawsCount > 0) {
         for (let i = 0; i < sobolDrawsCount; i++) {
             rawNextSobolPoint();
         }
     }
-
-    // Обёртка, которая автоматически считает количество вызовов Соболя
     const nextSobolPoint = () => {
         sobolDrawsCount++;
         return rawNextSobolPoint();
     };
-
     const generateRandomPoint = (
         seenKeys = null,
         maxAttempts = 100
@@ -2379,97 +2176,93 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         ) {
             const q = quantizeCandidate(nextSobolPoint());
             if (!q) continue;
-
             if (seenKeys && seenKeys.has(q.key)) {
                 continue;
             }
-
             return q;
         }
-
         return null;
     };
-
     const observedX = Array.isArray(state?.observedX)
         ? state.observedX.map(pt => pt instanceof Float64Array ? pt : new Float64Array(Object.values(pt)))
         : [];
     const observedLoad = state?.observedLoad || [];
-    const observedError = state?.observedError || [];
     const observedLogLoad = state?.observedLogLoad || [];
-    const observedLogError = state?.observedLogError || [];
     const observedLoadNoise = state?.observedLoadNoise || [];
-    const observedErrorNoise = state?.observedErrorNoise || [];
-    const observedRegionIds = state?.observedRegionIds || []; // -1 = Global / Init, >= 0 = ID региона
-
-    // false = частичное ABORT-наблюдение.
-    // true = полностью завершённая симуляция.
-    // ABORT остаётся в обучении GP, но не участвует в элитных точках.
+// Динамические массивы по числу ограничений: observedLogConstraints[k][i]
+    const observedLogConstraints = state?.observedLogConstraints || [];
+    const observedConstraintNoise = state?.observedConstraintNoise || [];
+    const constraintLimitsGP = state?.constraintLimitsGP || [];
+    const constraintNames = state?.constraintNames || [];
+    const observedAllFeasible = state?.observedAllFeasible || [];
+    const observedRegionIds = state?.observedRegionIds || [];
     const observedIsComplete = state?.observedIsComplete || [];
-
-    const residualPairs = state?.residualPairs || [];
+    const residualPairsByConstraint = Array.isArray(state?.residualPairsByConstraint)
+        ? state.residualPairsByConstraint
+        : (Array.isArray(state?.residualPairs) ? [state.residualPairs] : []);
     const MAX_RESIDUAL_PAIRS = 100;
-
     const MIN_ABORT_TRAINING_PROGRESS = 5;
     const MAX_ABORT_PROGRESS_PERCENT = 50;
-
+    let goalDirection = state?.goalDirection || task.goal || "min";
+    const isMaximize = () => goalDirection === "max";
+    const isBetterVal = (a, b) => (isMaximize() ? a > b : a < b);
+    let objectiveShift = state?.objectiveShift ?? 0;
+    const ensurePositiveObjective = (val) => {
+        if (!Number.isFinite(val)) return;
+        if (val + objectiveShift < 0) {
+            const newShift = Math.abs(val) + 10;
+            for (let i = 0; i < observedLoad.length; i++) {
+                observedLogLoad[i] = Math.log1p(Math.max(0, observedLoad[i] + newShift));
+            }
+            objectiveShift = newShift;
+            globalGPState.loadLengthScales = null;
+            for (const reg of searchRegions) {
+                reg.loadLengthScales = null;
+            }
+        }
+    };
     let gBestMetrics = state?.gBestMetrics || null;
     let gBestPhysical = state?.gBestPhysical || null;
-    let gBestLoad = state?.gBestLoad ?? Infinity;
-    let gBestError = state?.gBestError ?? Infinity;
-
+    let gBestLoad = state?.gBestLoad ?? (isMaximize() ? -Infinity : Infinity);
+    let gBestConstraints = state?.gBestConstraints || null;
     let fallbackMetrics = state?.fallbackMetrics || null;
     let fallbackPhysical = state?.fallbackPhysical || null;
-    let fallbackLoad = state?.fallbackLoad ?? Infinity;
-    let fallbackError = state?.fallbackError ?? Infinity;
+    let fallbackLoad = state?.fallbackLoad ?? (isMaximize() ? -Infinity : Infinity);
+    let fallbackConstraints = state?.fallbackConstraints || null;
     let fallbackViolation = state?.fallbackViolation ?? Infinity;
-    let fallbackObjective = state?.fallbackObjective ?? Infinity;
+    let fallbackObjective = state?.fallbackObjective ?? (isMaximize() ? -Infinity : Infinity);
 
     let pendingDecision = null;
-
-    // -----------------------------------------------------------------------
-    // 7.5. ЛОГИРОВАНИЕ, ДИАГНОСТИКА И ОБРАТНАЯ СВЯЗЬ С UI
-    // -----------------------------------------------------------------------
-
+// -----------------------------------------------------------------------
+// 7.5. ЛОГИРОВАНИЕ, ДИАГНОСТИКА И ОБРАТНАЯ СВЯЗЬ С UI
+// -----------------------------------------------------------------------
     const formatLogValues = (value, key = null) => {
         if (typeof value === "number") {
             if (!Number.isFinite(value)) return null;
-
-            // Не округляем через toFixed(3) очень малые числа (например, linearResidual ~ 1e-16)
             if (key === "linearResidual" || (value !== 0 && Math.abs(value) < 1e-6)) {
                 return value;
             }
-
             const configuredDigits = config[key]?.digits;
             const digits = Number.isInteger(configuredDigits)
                 ? Math.max(0, Math.min(12, configuredDigits))
                 : 3;
-
             const rounded = Number(value.toFixed(digits));
             return Object.is(rounded, -0) ? 0 : rounded;
         }
-
         if (Array.isArray(value)) {
-            return value.map(item =>
-                formatLogValues(item)
-            );
+            return value.map(item => formatLogValues(item));
         }
-
         if (value && typeof value === "object") {
             return Object.fromEntries(
-                Object.entries(value).map(
-                    ([childKey, item]) => [
-                        childKey,
-                        formatLogValues(item, childKey)
-                    ]
-                )
+                Object.entries(value).map(([childKey, item]) => [
+                    childKey,
+                    formatLogValues(item, childKey)
+                ])
             );
         }
-
         return value;
     };
-
     const diag = createDiagnosticLogger();
-
     const emitStepLog = record => {
         try {
             diag.log(formatLogValues(record));
@@ -2477,13 +2270,11 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             console.error("Optimizer log serialization failed:", e);
         }
     };
-
     const emitStructuredLog = (stepMode, message, snapshot) => {
         if (typeof self.optimizerStructuredLogger !== "function") {
             return;
         }
         try {
-            // Передаем копию объекта, чтобы избежать ссылочных завязок между потоками
             self.optimizerStructuredLogger(
                 stepMode,
                 message,
@@ -2493,7 +2284,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             console.error("Structured logger failed:", e);
         }
     };
-
     const notifyProgress = (
         percent,
         technicalMetrics,
@@ -2502,7 +2292,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         if (typeof options.onProgress !== "function") {
             return;
         }
-
         const snapshot = buildSimulationSnapshot(
             currentExecutionCount,
             "RUNNING",
@@ -2511,7 +2300,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             technicalMetrics,
             message
         );
-
         try {
             options.onProgress(
                 snapshot.percent,
@@ -2520,49 +2308,13 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 snapshot
             );
         } catch (e) {
-            console.error(
-                "Optimizer progress callback failed:",
-                e
-            );
+            console.error("Optimizer progress callback failed:", e);
         }
     };
-
-    // -----------------------------------------------------------------------
-    // 7.6. ЦЕЛЕВАЯ ФУНКЦИЯ, ОГРАНИЧЕНИЯ И СНИМОК СОСТОЯНИЯ
-    // -----------------------------------------------------------------------
-
-    const getObjectiveValue = (load, error) => (
-        objective === "minimize_load"
-            ? load
-            : error
-    );
-
-    const getConstraintViolation = (load, error) => {
-        if (
-            !Number.isFinite(load) ||
-            !Number.isFinite(error) ||
-            load < 0 ||
-            error < 0
-        ) {
-            return Infinity;
-        }
-
-        const loadViolation = Math.max(
-            0,
-            (load - maxAllowedLoad) / maxAllowedLoad
-        );
-
-        const errorViolation = Math.max(
-            0,
-            (error - maxAllowedErrorScore) / errorViolationScale
-        );
-
-        return Math.max(
-            loadViolation,
-            errorViolation
-        );
-    };
-
+// -----------------------------------------------------------------------
+// 7.6. ЦЕЛЕВАЯ ФУНКЦИЯ И СНИМОК СОСТОЯНИЯ
+// -----------------------------------------------------------------------
+    const getObjectiveValue = (load) => load;
     function buildSimulationSnapshot(
         stepVisual,
         status,
@@ -2575,15 +2327,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             currentStepVisual: stepVisual,
             status,
             percent: Number(percent),
-            candidateParams: currentParams
-                ? { ...currentParams }
-                : null,
+            candidateParams: currentParams ? { ...currentParams } : null,
             technicalMetrics: technicalMetrics || null,
             message,
-            bestStepNumber: [
-                "SUCCESS",
-                "WARN"
-            ].includes(status)
+            bestStepNumber: ["SUCCESS", "WARN"].includes(status)
                 ? self.lastEvaluatedBestStepNumber
                 : null
         };
@@ -2596,7 +2343,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     const isGlobalLeaderRegion = region =>
         Boolean(gBestMetrics) &&
         region.bestViolation === 0 &&
-        Math.abs(region.bestObjective - getObjectiveValue(gBestLoad, gBestError)) <= 1e-6;
+        Math.abs(region.bestObjective - getObjectiveValue(gBestLoad)) <= 1e-6;
 
     if (state && searchRegions.length > 0) {
         for (const reg of searchRegions) {
@@ -2609,21 +2356,16 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         }
     }
 
-    // Единая метрика приоритета региона для выбора и вытеснения
     const getRegionPriority = region => {
         const successRate = (region.improvements + 1) / (region.attempts + 2);
         const explorationValue = Math.sqrt(region.radius / 0.15);
         const failurePenalty = Math.pow(0.85, region.failures);
         const idleSteps = Math.max(0, currentExecutionCount - region.lastImprovementStep);
         const idlePenalty = idleSteps > 12 ? Math.pow(0.96, idleSteps - 12) : 1.0;
-
-        // 🌟 Бонус за новизну (UCB): дает шанс новым регионам (attempts = 1..3) поучаствовать в отборе
         const noveltyBonus = 1.0 + 0.8 / Math.sqrt(Math.max(1, region.attempts));
 
         const basePriority = successRate * explorationValue * failurePenalty * idlePenalty * noveltyBonus;
 
-        // Регион с текущим глобальным рекордом сохраняет приоритет 0.25,
-        // но после 25 шагов без улучшений на минимальном радиусе уступает бюджет новым долинам
         if (isGlobalLeaderRegion(region)) {
             const leaderFloor = (region.radius <= minRegionRadius * 1.1 && idleSteps >= 25) ? 0.06 : 0.25;
             return Math.max(leaderFloor, basePriority);
@@ -2635,7 +2377,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     const updateTrustRegions = (
         normX,
         load,
-        errorScore,
+        violation,
         outcomeStatus,
         isGlobalCandidate = false,
         sourceRegionId = -1
@@ -2644,7 +2386,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
         let associatedRegion = null;
 
-        // 1. Для локальных кандидатов приоритетно используем их исходный регион, если он активен
         if (Number.isInteger(sourceRegionId) && sourceRegionId >= 0) {
             const originRegion = searchRegions.find(r => r.id === sourceRegionId && r.active);
             if (originRegion) {
@@ -2652,12 +2393,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             }
         }
 
-        // 2. Геометрический поиск используется для GLOBAL, INIT, FALLBACK или если исходный регион уже закрыт
         if (!associatedRegion) {
-            const currentScales = objective === "minimize_load"
-                ? (globalGPState.loadLengthScales || new Float64Array(numParams).fill(0.55))
-                : (globalGPState.errorLengthScales || new Float64Array(numParams).fill(0.55));
-
+            const currentScales = globalGPState.loadLengthScales || new Float64Array(numParams).fill(0.55);
             let minDistance = Infinity;
 
             for (const region of searchRegions) {
@@ -2669,10 +2406,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     currentScales
                 );
 
-                const regionThreshold = Math.max(
-                    0.04,
-                    region.radius * 1.5
-                );
+                const regionThreshold = Math.max(0.04, region.radius * 1.5);
 
                 if (dist < regionThreshold && dist < minDistance) {
                     minDistance = dist;
@@ -2691,7 +2425,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
             if (region.failures >= 25) {
                 if (isGlobalLeaderRegion(region)) {
-                    // Никогда не удаляем регион с глобальным рекордом — перезапускаем микро-поиск
                     region.failures = 0;
                     region.radius = 0.03;
                 } else {
@@ -2708,10 +2441,9 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             return;
         }
 
-        if (!Number.isFinite(load) || !Number.isFinite(errorScore)) return;
+        if (!Number.isFinite(load) || !Number.isFinite(violation)) return;
 
-        const currentObjective = getObjectiveValue(load, errorScore);
-        const violation = getConstraintViolation(load, errorScore);
+        const currentObjective = getObjectiveValue(load);
 
         if (associatedRegion) {
             associatedRegion.attempts++;
@@ -2720,7 +2452,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
             const isImprovement =
                 violation < associatedRegion.bestViolation ||
-                (violation === associatedRegion.bestViolation && currentObjective < associatedRegion.bestObjective);
+                (violation === associatedRegion.bestViolation && isBetterVal(currentObjective, associatedRegion.bestObjective));
 
             if (isImprovement) {
                 const prevBest = associatedRegion.bestX.slice();
@@ -2739,7 +2471,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 associatedRegion.bestX = new Float64Array(normX);
                 associatedRegion.center = new Float64Array(normX);
                 associatedRegion.bestLoad = load;
-                associatedRegion.bestError = errorScore;
                 associatedRegion.bestObjective = currentObjective;
                 associatedRegion.bestViolation = violation;
                 associatedRegion.improvements++;
@@ -2747,10 +2478,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 associatedRegion.lastImprovementStep = currentExecutionCount;
                 associatedRegion.radius = Math.min(0.25, associatedRegion.radius * 1.12);
 
-                // 🌟 Слияние регионов (Merge), если два региона сошлись в одну точку
-                const currentScales = objective === "minimize_load"
-                    ? (globalGPState.loadLengthScales || new Float64Array(numParams).fill(0.55))
-                    : (globalGPState.errorLengthScales || new Float64Array(numParams).fill(0.55));
+                const currentScales = globalGPState.loadLengthScales || new Float64Array(numParams).fill(0.55);
 
                 for (const other of searchRegions) {
                     if (!other.active || other.id === associatedRegion.id) continue;
@@ -2770,7 +2498,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                         const otherIsBetter =
                             other.bestViolation < associatedRegion.bestViolation ||
                             (other.bestViolation === associatedRegion.bestViolation &&
-                                other.bestObjective < associatedRegion.bestObjective);
+                                isBetterVal(other.bestObjective, associatedRegion.bestObjective));
 
                         if (otherIsBetter) {
                             associatedRegion.active = false;
@@ -2793,7 +2521,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             previousBestX: null,
             rawDirection: null,
             bestLoad: load,
-            bestError: errorScore,
             bestObjective: currentObjective,
             bestViolation: violation,
             radius: 0.12,
@@ -2802,21 +2529,13 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             failures: 0,
             lastImprovementStep: currentExecutionCount,
             active: true,
-
-            // Неограниченный счётчик завершённых наблюдений региона
             completeObservationsCount: outcomeStatus === "SUCCESS" ? 1 : 0,
             lastScaleOptimizationCount: -Infinity,
-
-            // Локальные масштабы
             loadLengthScales: globalGPState.loadLengthScales
                 ? new Float64Array(globalGPState.loadLengthScales)
                 : null,
-            errorLengthScales: globalGPState.errorLengthScales
-                ? new Float64Array(globalGPState.errorLengthScales)
-                : null,
-
-            // Самостоятельная локальная пара моделей (Regional GP)
-            dualGP: null,
+            constraintLengthScales: globalGPState.constraintLengthScales.map(s => (s ? new Float64Array(s) : null)),
+            regionalModels: null,
             localTrainingStats: null
         });
 
@@ -2832,7 +2551,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             return;
         }
 
-        // Ищем самый слабый или давно заброшенный регион для замены
         let weakestIndex = -1;
         let lowestScore = Infinity;
 
@@ -2857,23 +2575,17 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
             const isStrictlyBetter =
                 violation < weakest.bestViolation ||
-                (violation === weakest.bestViolation && currentObjective < weakest.bestObjective);
-
-            const isComparableFeasible =
-                violation === 0 &&
-                weakest.bestViolation === 0 &&
-                currentObjective <= weakest.bestObjective * 1.25;
+                (violation === weakest.bestViolation && isBetterVal(currentObjective, weakest.bestObjective));
 
             const isIdleOrStagnant =
                 idleSteps >= 25 ||
-                (isGlobalCandidate && lowestScore < 0.12 && idleSteps >= 8 && isComparableFeasible);
+                (isGlobalCandidate && lowestScore < 0.12 && idleSteps >= 8);
 
             if (isStrictlyBetter || isIdleOrStagnant) {
                 searchRegions[weakestIndex] = createNewRegionObject(weakest.id);
             }
         }
     };
-
 
     // -----------------------------------------------------------------------
     // 7.8. ВЫПОЛНЕНИЕ ОДНОЙ СИМУЛЯЦИИ И РЕГИСТРАЦИЯ НАБЛЮДЕНИЯ
@@ -2886,51 +2598,36 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     ) => {
         const q = quantizeCandidate(normX);
         if (!q) return null;
-
         normX = q.x;
         paramsObj = q.physical;
         const physicalKey = q.key;
-
         if (evaluatedKeys.has(physicalKey)) {
-            return null; // Защита от повторного вызова одной и той же сетки после округления
+            return null;
         }
-
-        // Сохраняем ключ и для успешной, и для ошибочной,
-        // и для прерванной симуляции.
-        // Повторная оценка той же комбинации не допускается.
         evaluatedKeys.add(physicalKey);
-
         currentExecutionCount++;
-
         let recordedAbortProgress = null;
-
         const decision = pendingDecision;
         pendingDecision = null;
-
-        self.currentRunningStepNumber =
-            currentExecutionCount;
-
+        self.currentRunningStepNumber = currentExecutionCount;
         self.currentStepPhysicalParams = paramsObj;
         self.currentStepCustomTag = customTag;
-
         const stepType = customTag
             ? (customTag.startsWith("PRESET_") ? "PRESET" : customTag.startsWith("RANDOM_INIT_") ? "RANDOM_INIT" : customTag.startsWith("FALLBACK_") ? "FALLBACK_INIT" : "INIT")
             : (decision?.method || "BAYES_OPTIMIZATION");
-
         const progressHistory = [];
         const MAX_HISTORY = 10;
         const MIN_HISTORY = 6;
         const MIN_PREDICTION_PROGRESS = 15;
         const REQUIRED_PREDICTED_ABORTS = 3;
-
         let predictedAbortCount = 0;
         let lastProgress = -1;
-
-        // Подготовка аргументов и callback раннего прерывания симуляции.
-
+        const preparedParams = applyParamsByPath(baseParams, paramsObj);
+        const hasEarlyAbort = Boolean(task.earlyAbort && typeof task.earlyAbort.metric === "function");
+        const absoluteCeiling = hasEarlyAbort ? task.earlyAbort.ceiling : Infinity;
+        const massiveLoadLimit = absoluteCeiling * 3;
         const simArgs = {
-            ...baseParams,
-
+            ...preparedParams,
             onProgress: (percent, technicalMetrics) => {
                 if (
                     !Number.isFinite(percent) ||
@@ -2940,142 +2637,84 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 ) {
                     return false;
                 }
-
-                const rawCurrentLoad =
-                    technicalMetrics.iterations
-                        ?.totalGridPointsProcessed;
-
+                const isNewProgressStep = percent > lastProgress;
+                if (!hasEarlyAbort) {
+                    if (isNewProgressStep) lastProgress = percent;
+                    notifyProgress(percent, technicalMetrics);
+                    return false;
+                }
+                const rawCurrentLoad = task.earlyAbort.metric(
+                    percent,
+                    technicalMetrics,
+                    preparedParams
+                );
                 const currentLoad =
-                    Number.isFinite(rawCurrentLoad) &&
-                    rawCurrentLoad >= 0
+                    Number.isFinite(rawCurrentLoad) && rawCurrentLoad >= 0
                         ? rawCurrentLoad
                         : 0;
-
-                const lastSample =
-                    progressHistory[
-                    progressHistory.length - 1
-                        ];
-
-                const isNewProgressStep = percent > lastProgress;
-
+                const lastSample = progressHistory[progressHistory.length - 1];
                 if (isNewProgressStep) {
-                    progressHistory.push({
-                        percent,
-                        load: currentLoad
-                    });
-
+                    progressHistory.push({ percent, load: currentLoad });
                     lastProgress = percent;
-
-                    if (
-                        progressHistory.length > MAX_HISTORY
-                    ) {
-                        progressHistory.shift();
-                    }
-                } else if (
-                    percent === lastProgress &&
-                    lastSample
-                ) {
+                    if (progressHistory.length > MAX_HISTORY) progressHistory.shift();
+                } else if (percent === lastProgress && lastSample) {
                     lastSample.load = currentLoad;
                 }
-
                 let predictedFinalLoad = null;
-
                 if (
                     percent >= MIN_PREDICTION_PROGRESS &&
                     progressHistory.length >= MIN_HISTORY
                 ) {
                     const n = progressHistory.length;
-
-                    let sumX = 0;
-                    let sumY = 0;
-                    let sumXY = 0;
-                    let sumXX = 0;
-
+                    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
                     for (const point of progressHistory) {
                         sumX += point.percent;
                         sumY += point.load;
                         sumXY += point.percent * point.load;
                         sumXX += point.percent * point.percent;
                     }
-
-                    const denominator =
-                        n * sumXX - sumX * sumX;
-
-                    if (
-                        Number.isFinite(denominator) &&
-                        denominator > 0
-                    ) {
-                        const slope =
-                            (n * sumXY - sumX * sumY) /
-                            denominator;
-
+                    const denominator = n * sumXX - sumX * sumX;
+                    if (Number.isFinite(denominator) && denominator > 0) {
+                        const slope = (n * sumXY - sumX * sumY) / denominator;
                         if (Number.isFinite(slope)) {
-                            const prediction =
-                                currentLoad +
-                                Math.max(0, slope) *
-                                (100 - percent);
-
+                            const prediction = currentLoad + Math.max(0, slope) * (100 - percent);
                             if (Number.isFinite(prediction)) {
-                                predictedFinalLoad = Math.max(
-                                    currentLoad,
-                                    prediction
-                                );
+                                predictedFinalLoad = Math.max(currentLoad, prediction);
                             }
                         }
                     }
                 }
-
                 const requestAbort = abortInfo => {
                     recordedAbortProgress = abortInfo;
                     notifyProgress(percent, technicalMetrics, abortInfo.reason);
                     return true;
                 };
-
-                // Условие 1: Сначала ловим аномальный взрыв нагрузки на старте (до 10% прогресса)
-                if (
-                    percent < 10 &&
-                    currentLoad > massiveLoadLimit
-                ) {
+                if (percent < 10 && currentLoad > massiveLoadLimit) {
                     return requestAbort({
-                        reason: "MASSIVE_INITIAL_LOAD",
+                        reason: "MASSIVE_INITIAL_METRIC",
                         percent,
                         currentLoad,
                         predictedFinalLoad,
                         absoluteCeiling
                     });
                 }
-
-                // Шаг 2: Проверяем стандартное превышение физического потолка на дистанции
-                if (
-                    percent <= MAX_ABORT_PROGRESS_PERCENT &&
-                    currentLoad >= absoluteCeiling
-                ) {
+                if (percent <= MAX_ABORT_PROGRESS_PERCENT && currentLoad >= absoluteCeiling) {
                     return requestAbort({
-                        reason: "ABSOLUTE_LOAD_LIMIT",
+                        reason: "ABSOLUTE_CEILING_LIMIT",
                         percent,
                         currentLoad,
                         predictedFinalLoad,
                         absoluteCeiling
                     });
                 }
-
-                // Шаг 3: Проверяем экстраполированный прогноз тренда нагрузки
-// Шаг 3: Проверяем экстраполированный прогноз тренда нагрузки
-                if (
-                    percent <= MAX_ABORT_PROGRESS_PERCENT &&
-                    predictedFinalLoad !== null
-                ) {
+                if (percent <= MAX_ABORT_PROGRESS_PERCENT && predictedFinalLoad !== null) {
                     if (isNewProgressStep) {
-                        if (predictedFinalLoad > absoluteCeiling) {
-                            predictedAbortCount++;
-                        } else {
-                            predictedAbortCount = 0;
-                        }
+                        if (predictedFinalLoad > absoluteCeiling) predictedAbortCount++;
+                        else predictedAbortCount = 0;
                     }
-
                     if (predictedAbortCount >= REQUIRED_PREDICTED_ABORTS) {
                         return requestAbort({
-                            reason: "PREDICTED_LOAD_EXCEEDS_CEILING",
+                            reason: "PREDICTED_METRIC_EXCEEDS_CEILING",
                             percent,
                             currentLoad,
                             predictedFinalLoad: Math.round(predictedFinalLoad),
@@ -3086,39 +2725,28 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 } else {
                     predictedAbortCount = 0;
                 }
-
                 notifyProgress(percent, technicalMetrics);
-
                 return false;
             },
-
             simulation: {
-                ...baseParams.simulation,
-                accuracyMode: paramsObj,
-                calculateAccuracyError: true,
+                ...preparedParams.simulation,
                 stopAtMaxTemperature: false
             }
         };
-
-        // Запуск симуляции и обработка её результата.
-
         let res;
-
         try {
             res = simulateFn(simArgs);
         } catch (e) {
-            const message =
-                e?.message || String(e);
+            const message = e?.message || String(e);
 
-            const errorSnapshot =
-                buildSimulationSnapshot(
-                    currentExecutionCount,
-                    "ERROR",
-                    lastProgress >= 0 ? lastProgress : 0,
-                    paramsObj,
-                    null,
-                    message
-                );
+            const errorSnapshot = buildSimulationSnapshot(
+                currentExecutionCount,
+                "ERROR",
+                lastProgress >= 0 ? lastProgress : 0,
+                paramsObj,
+                null,
+                message
+            );
 
             emitStructuredLog(
                 "BAYES",
@@ -3130,23 +2758,14 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         }
 
         if (!res || !res.technicalMetrics) {
-            const returnedStatus =
-                typeof res?.status?.type === "string"
-                    ? res.status.type.trim().toLowerCase()
-                    : null;
-
-            const wasAborted =
-                returnedStatus === "abort" ||
-                Boolean(recordedAbortProgress);
-
-            const finalStatus = wasAborted
-                ? "ABORT"
-                : "ERROR";
-
+            const returnedStatus = typeof res?.status?.type === "string"
+                ? res.status.type.trim().toLowerCase()
+                : null;
+            const wasAborted = returnedStatus === "abort" || Boolean(recordedAbortProgress);
+            const finalStatus = wasAborted ? "ABORT" : "ERROR";
             const finalMessage = wasAborted
                 ? recordedAbortProgress?.reason || "ABORT_WITHOUT_METRICS"
                 : "MISSING_TECHNICAL_METRICS";
-
             const invalidSnapshot = buildSimulationSnapshot(
                 currentExecutionCount,
                 finalStatus,
@@ -3157,95 +2776,55 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 null,
                 finalMessage
             );
-
-            console.error("[OPTIMIZER INVALID RESULT]", {
-                step: currentExecutionCount,
-                returnedStatus,
-                wasAborted,
-                result: res
-            });
-
-            emitStructuredLog(
-                stepType,
-                finalMessage,
-                invalidSnapshot
-            );
-
+            emitStructuredLog(stepType, finalMessage, invalidSnapshot);
             if (wasAborted) {
                 updateTrustRegions(
                     normX,
                     NaN,
-                    NaN,
+                    Infinity,
                     "ABORT",
                     Boolean(decision?.isGlobalExploration),
                     decision?.sourceDiagnostics?.regionId ?? -1
                 );
             }
-
             return null;
         }
-
         const statusTypeRaw = res.status?.type;
-
-        const statusType =
-            typeof statusTypeRaw === "string"
-                ? statusTypeRaw.trim().toLowerCase()
-                : null;
-
-        const isAborted =
-            statusType === "abort" ||
-            Boolean(recordedAbortProgress);
-
+        const statusType = typeof statusTypeRaw === "string"
+            ? statusTypeRaw.trim().toLowerCase()
+            : null;
+        const isAborted = statusType === "abort" || Boolean(recordedAbortProgress);
         const metrics = res.technicalMetrics;
-        const acc = metrics?.accuracy;
-
-        const rawLoad =
-            metrics?.iterations?.totalGridPointsProcessed;
-
-        const timeErr = acc?.timeIntegrationErrorC;
-        const gridItemErr = acc?.spatialGridErrorC;
-
-        const picardErr = Number.isFinite(acc?.picardConvergenceErrorC)
-            ? Math.abs(acc.picardConvergenceErrorC)
-            : NaN;
-
-        const errorScore = (
-            Number.isFinite(timeErr) &&
-            timeErr >= 0 &&
-            Number.isFinite(gridItemErr) &&
-            gridItemErr >= 0 &&
-            Number.isFinite(picardErr) &&
-            picardErr >= 0
-        )
-            ? Math.hypot(
-                timeErr,
-                gridItemErr,
-                picardErr
-            )
-            : NaN;
-
-        const load = Number.isFinite(rawLoad)
-            ? rawLoad
-            : NaN;
-
-        const abortProgress =
-            recordedAbortProgress?.percent;
-
-        // Классификация результата и добавление наблюдений в обучающую выборку.
-
+        const evalOut = task.evaluateResult(res, preparedParams, createProfileContext(res));
+        if (evalOut?.objective?.goal && evalOut.objective.goal !== goalDirection) {
+            goalDirection = evalOut.objective.goal;
+            if (!gBestMetrics) {
+                gBestLoad = isMaximize() ? -Infinity : Infinity;
+            }
+            if (!fallbackMetrics) {
+                fallbackLoad = isMaximize() ? -Infinity : Infinity;
+                fallbackObjective = isMaximize() ? -Infinity : Infinity;
+            }
+        }
+        const load = evalOut?.objective?.value;
+        const rawConstraints = Array.isArray(evalOut?.constraints) ? evalOut.constraints : [];
+        const normalizedConstraints = rawConstraints.map(normalizeSingleConstraint);
+        let totalViolation = 0;
+        let allConstraintsFeasible = true;
+        for (const c of normalizedConstraints) {
+            totalViolation = Math.max(totalViolation, c.violation);
+            if (!c.feasible) allConstraintsFeasible = false;
+        }
+        const abortProgress = recordedAbortProgress?.percent;
         emitStepLog({
             stepNumber: currentExecutionCount,
             statusType,
-            load: Number.isFinite(load) ? load : null,
-            errorScore: Number.isFinite(errorScore) ? errorScore : null,
+            value: Number.isFinite(load) ? load : null,
+            violation: Number.isFinite(totalViolation) ? totalViolation : null
         });
-
-        const abortCurrentLoad =
-            recordedAbortProgress?.currentLoad;
-
-        const abortPredictedLoad =
-            recordedAbortProgress?.predictedFinalLoad;
-
+        const abortCurrentLoad = recordedAbortProgress?.currentLoad;
+        const abortPredictedLoad = recordedAbortProgress?.predictedFinalLoad;
+        const allConstraintsFinite = normalizedConstraints.every(c => Number.isFinite(c.gpVal) && c.gpVal >= 0);
         const isUsableAbortObservation =
             isAborted &&
             recordedAbortProgress &&
@@ -3254,92 +2833,93 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             abortProgress <= MAX_ABORT_PROGRESS_PERCENT &&
             Number.isFinite(abortCurrentLoad) &&
             abortCurrentLoad >= 0 &&
-            Number.isFinite(errorScore) &&
-            errorScore >= 0;
-
+            allConstraintsFinite;
         if (isUsableAbortObservation) {
+            while (observedLogConstraints.length < normalizedConstraints.length) {
+                const idx = observedLogConstraints.length;
+
+                observedLogConstraints.push([]);
+                observedConstraintNoise.push([]);
+                constraintLimitsGP.push(normalizedConstraints[idx].gpLimit);
+                constraintNames.push(rawConstraints[idx]?.name || `c_${idx}`);
+            }
             const hasPredictedLoad =
                 Number.isFinite(abortPredictedLoad) &&
                 abortPredictedLoad >= abortCurrentLoad;
-
-            // ИСПРАВЛЕНО: Базируем обучение регрессии нагрузки исключительно на честной экстраполяции,
-            // полностью вырезав искусственный massiveLoadLimit. Это сохраняет идеальную гладкость поверхности GP.
-            let abortTrainingLoad = hasPredictedLoad
-                ? abortPredictedLoad
-                : abortCurrentLoad;
-
+            let abortExtrapolated = hasPredictedLoad ? abortPredictedLoad : abortCurrentLoad;
             if (abortProgress < MAX_ABORT_PROGRESS_PERCENT) {
-                // Плавное масштабирование мягкого penalty-штрафа в зависимости от фазы отсечки
                 const penaltyFactor = 1 + (1 - abortProgress / MAX_ABORT_PROGRESS_PERCENT) * 0.5;
-                abortTrainingLoad *= penaltyFactor;
+                abortExtrapolated *= penaltyFactor;
             }
-
-            // ДИНАМИЧЕСКИЙ ШТРАФ ЗА ШУМ (Инвертируем логику):
-            // Чем меньше прогресс, тем меньше должен быть шум (высокая уверенность GP в провале)!
-            // Раньше функция возвращала большой шум для маленького процента.
             const progressRatio = Math.max(0, Math.min(1,
                 (abortProgress - MIN_ABORT_TRAINING_PROGRESS) /
                 (MAX_ABORT_PROGRESS_PERCENT - MIN_ABORT_TRAINING_PROGRESS)
             ));
-
             const loadNoise = 0.02 - 0.0199 * progressRatio;
-            const errorNoise = 0.01 - 0.0099 * progressRatio;
-
-            // Запись в массивы обучения GP
+            const cNoise = 0.01 - 0.0099 * progressRatio;
+// Если цель совпадает с метрикой earlyAbort (например, cpuLoad), пишем экстраполяцию; иначе текущее value
+            const objTrainingVal = (Number.isFinite(load) && Math.abs(load - abortCurrentLoad) <= 1)
+                ? abortExtrapolated
+                : (Number.isFinite(load) ? load : abortExtrapolated);
+            ensurePositiveObjective(objTrainingVal);
             observedX.push(new Float64Array(normX));
-            observedLoad.push(abortTrainingLoad);
-            observedError.push(errorScore);
-
-            observedLogLoad.push(
-                Math.log1p(abortTrainingLoad)
-            );
-
-            observedLogError.push(
-                Math.log1p(errorScore)
-            );
-
+            observedLoad.push(objTrainingVal);
+            observedLogLoad.push(Math.log1p(Math.max(0, objTrainingVal + objectiveShift)));
             observedLoadNoise.push(loadNoise);
-            observedErrorNoise.push(errorNoise);
-
+            for (let k = 0; k < normalizedConstraints.length; k++) {
+                const rawVal = rawConstraints[k]?.value;
+// Если k-й компас отслеживает ту же метрику, что вызвала ABORT (cpuLoad), подставляем экстраполированную величину!
+                if (Number.isFinite(rawVal) && Math.abs(rawVal - abortCurrentLoad) <= 1) {
+                    const extrapC = normalizeSingleConstraint({ ...rawConstraints[k], value: abortExtrapolated });
+                    observedLogConstraints[k].push(Math.log1p(extrapC.gpVal));
+                } else {
+                    observedLogConstraints[k].push(Math.log1p(normalizedConstraints[k].gpVal));
+                }
+                observedConstraintNoise[k].push(cNoise);
+                constraintLimitsGP[k] = normalizedConstraints[k].gpLimit;
+            }
+            observedAllFeasible.push(false);
             observedIsComplete.push(false);
             observedRegionIds.push(decision?.sourceDiagnostics?.regionId ?? -1);
         }
-
         const isError =
             statusType === "error" ||
             !Number.isFinite(load) ||
-            load < 0 ||
-            !Number.isFinite(errorScore);
-
+            !allConstraintsFinite;
         const isValidObservation =
             !isAborted &&
             !isError &&
             Number.isFinite(load) &&
-            load >= 0 &&
-            Number.isFinite(errorScore);
-
+            allConstraintsFinite;
         const isInitialPoint = customTag && (
             customTag.startsWith("PRESET_") ||
             customTag.startsWith("RANDOM_INIT_") ||
             customTag.startsWith("INIT")
         );
-
         if (!isInitialPoint) {
+            const acc = metrics?.accuracy;
+            const timeErr = acc?.timeIntegrationErrorC;
+            const gridItemErr = acc?.spatialGridErrorC;
+            const picardErr = Number.isFinite(acc?.picardConvergenceErrorC)
+                ? Math.abs(acc.picardConvergenceErrorC)
+                : NaN;
+
             emitStepLog({
                 type: "SIMULATION_EVALUATION",
                 stepNumber: currentExecutionCount,
                 customTag,
                 statusType,
-
-                status: isAborted
-                    ? "ABORT"
-                    : (isError ? "ERROR" : "SUCCESS"),
-
+                status: isAborted ? "ABORT" : (isError ? "ERROR" : "SUCCESS"),
                 isValidObservation,
-
                 observedMetrics: {
-                    load: Number.isFinite(load) ? load : null,
-                    errorScore: Number.isFinite(errorScore) ? errorScore : null,
+                    value: Number.isFinite(load) ? load : null,
+                    violation: Number.isFinite(totalViolation) ? totalViolation : null,
+                    constraints: normalizedConstraints.map((c, idx) => ({
+                        name: rawConstraints[idx]?.name || `c_${idx}`,
+                        value: Number.isFinite(rawConstraints[idx]?.value) ? rawConstraints[idx].value : null,
+                        violation: Number.isFinite(c.violation) ? c.violation : null,
+                        feasible: c.feasible
+                    })),
                     timeErr: Number.isFinite(timeErr) ? timeErr : null,
                     gridItemErr: Number.isFinite(gridItemErr) ? gridItemErr : null,
                     picardErr: Number.isFinite(picardErr) ? picardErr : null,
@@ -3348,325 +2928,193 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 }
             });
         }
-
-        let currentIsFeasible = false;
-
         if (isValidObservation) {
-            currentIsFeasible =
-                load <= maxAllowedLoad &&
-                errorScore <= maxAllowedErrorScore;
-
-            // Остатки только для завершённых симуляций.
-            const predicted =
-                decision?.predictionForResidual;
-
+            while (observedLogConstraints.length < normalizedConstraints.length) {
+                const idx = observedLogConstraints.length;
+                observedLogConstraints.push([]);
+                observedConstraintNoise.push([]);
+                constraintLimitsGP.push(normalizedConstraints[idx].gpLimit);
+                constraintNames.push(rawConstraints[idx]?.name || `c_${idx}`); // <-- Добавлены кавычки ` `
+            }
+            ensurePositiveObjective(load);
+            const predicted = decision?.predictionForResidual;
             if (
                 predicted &&
                 Number.isFinite(predicted.loadMeanLog) &&
                 Number.isFinite(predicted.loadSigmaLog) &&
                 predicted.loadSigmaLog > 0 &&
-                Number.isFinite(predicted.errorMeanLog) &&
-                Number.isFinite(predicted.errorSigmaLog) &&
-                predicted.errorSigmaLog > 0
+                Array.isArray(predicted.constraints)
             ) {
-                const loadResidual = (
-                    Math.log1p(load) -
-                    predicted.loadMeanLog
-                ) / Math.max(
-                    1e-9,
-                    predicted.loadSigmaLog
-                );
-
-                const errorResidual = (
-                    Math.log1p(errorScore) -
-                    predicted.errorMeanLog
-                ) / Math.max(
-                    1e-9,
-                    predicted.errorSigmaLog
-                );
-
-                if (
-                    Number.isFinite(loadResidual) &&
-                    Number.isFinite(errorResidual)
-                ) {
-                    residualPairs.push({
-                        load: Math.max(
-                            -5,
-                            Math.min(5, loadResidual)
-                        ),
-
-                        error: Math.max(
-                            -5,
-                            Math.min(5, errorResidual)
-                        )
-                    });
-
-                    if (
-                        residualPairs.length >
-                        MAX_RESIDUAL_PAIRS
-                    ) {
-                        residualPairs.shift();
+                const shiftedLogLoad = Math.log1p(Math.max(0, load + objectiveShift));
+                const loadResidual = (shiftedLogLoad - predicted.loadMeanLog) / Math.max(1e-9, predicted.loadSigmaLog);
+                if (Number.isFinite(loadResidual)) {
+                    const clampedLoadRes = Math.max(-5, Math.min(5, loadResidual));
+                    for (let k = 0; k < normalizedConstraints.length; k++) {
+                        while (residualPairsByConstraint.length <= k) {
+                            residualPairsByConstraint.push([]);
+                        }
+                        const cPred = predicted.constraints[k];
+                        if (cPred && Number.isFinite(cPred.meanLog) && Number.isFinite(cPred.sigmaLog) && cPred.sigmaLog > 0) {
+                            const errorResidual = (Math.log1p(normalizedConstraints[k].gpVal) - cPred.meanLog) / Math.max(1e-9, cPred.sigmaLog);
+                            if (Number.isFinite(errorResidual)) {
+                                residualPairsByConstraint[k].push({
+                                    load: clampedLoadRes,
+                                    error: Math.max(-5, Math.min(5, errorResidual))
+                                });
+                                if (residualPairsByConstraint[k].length > MAX_RESIDUAL_PAIRS) {
+                                    residualPairsByConstraint[k].shift();
+                                }
+                            }
+                        }
                     }
                 }
             }
-
             observedX.push(new Float64Array(normX));
             observedLoad.push(load);
-            observedError.push(errorScore);
-
-            observedLogLoad.push(Math.log1p(load));
-            observedLogError.push(Math.log1p(errorScore));
-
+            observedLogLoad.push(Math.log1p(Math.max(0, load + objectiveShift)));
             observedLoadNoise.push(0.0001);
-            observedErrorNoise.push(0.0001);
-
-            // Полностью завершённая симуляция.
+            for (let k = 0; k < normalizedConstraints.length; k++) {
+                observedLogConstraints[k].push(Math.log1p(normalizedConstraints[k].gpVal));
+                observedConstraintNoise[k].push(0.0001);
+                constraintLimitsGP[k] = normalizedConstraints[k].gpLimit;
+            }
+            observedAllFeasible.push(allConstraintsFeasible);
             observedIsComplete.push(true);
             observedRegionIds.push(decision?.sourceDiagnostics?.regionId ?? -1);
+            const currentConstraintsSummary = normalizedConstraints.map((c, idx) => ({
+                name: rawConstraints[idx]?.name || `c_${idx}`,
+                value: Number.isFinite(rawConstraints[idx]?.value) ? rawConstraints[idx].value : null,
+                min: Number.isFinite(rawConstraints[idx]?.min) ? rawConstraints[idx].min : null,
+                max: Number.isFinite(rawConstraints[idx]?.max) ? rawConstraints[idx].max : null,
+                violation: Number.isFinite(c.violation) ? c.violation : null,
+                feasible: c.feasible
+            }));
 
-            const currentObjective =
-                getObjectiveValue(load, errorScore);
-
-            if (currentIsFeasible) {
+            const currentObjective = getObjectiveValue(load);
+            if (allConstraintsFeasible) {
                 const previousObjective = gBestMetrics
-                    ? getObjectiveValue(
-                        gBestLoad,
-                        gBestError
-                    )
-                    : Infinity;
-
-                if (
-                    !gBestMetrics ||
-                    currentObjective < previousObjective
-                ) {
-
+                    ? getObjectiveValue(gBestLoad)
+                    : (isMaximize() ? -Infinity : Infinity);
+                if (!gBestMetrics || isBetterVal(currentObjective, previousObjective)) {
                     gBestMetrics = metrics;
                     gBestPhysical = paramsObj;
                     gBestLoad = load;
-                    gBestError = errorScore;
-
-                    self.lastEvaluatedBestParams =
-                        paramsObj;
-
-                    self.lastEvaluatedBestMetrics =
-                        metrics;
-
-                    self.lastEvaluatedBestStepNumber =
-                        currentExecutionCount;
+                    gBestConstraints = currentConstraintsSummary;
+                    self.lastEvaluatedBestParams = paramsObj;
+                    self.lastEvaluatedBestMetrics = metrics;
+                    self.lastEvaluatedBestStepNumber = currentExecutionCount;
                 }
             }
-
-            const violation =
-                getConstraintViolation(load, errorScore);
-
             if (
                 !fallbackMetrics ||
-                violation < fallbackViolation ||
-                (
-                    violation === fallbackViolation &&
-                    currentObjective < fallbackObjective
-                )
+                totalViolation < fallbackViolation ||
+                (totalViolation === fallbackViolation && isBetterVal(currentObjective, fallbackObjective))
             ) {
-                fallbackViolation = violation;
+                fallbackViolation = totalViolation;
                 fallbackObjective = currentObjective;
-
                 fallbackMetrics = metrics;
                 fallbackPhysical = paramsObj;
                 fallbackLoad = load;
-                fallbackError = errorScore;
+                fallbackConstraints = currentConstraintsSummary;
             }
         }
-
-        // Финальный статус шага, логирование и обновление Trust Regions.
-
         const stepMode = customTag
-            ? customTag.startsWith("PRESET_")
-                ? customTag
-                : stepType
+            ? (customTag.startsWith("PRESET_") ? customTag : stepType)
             : "BAYES";
-
         let finalStatus = "SUCCESS";
-
-        if (isAborted) {
-            finalStatus = "ABORT";
-        } else if (isError) {
-            finalStatus = "ERROR";
-        } else if (
-            statusType === "warning" ||
-            statusType === "warn"
-        ) {
-            finalStatus = "WARN";
-        }
-
-        let finalMessage =
-            recordedAbortProgress?.reason || null;
-
+        if (isAborted) finalStatus = "ABORT";
+        else if (isError) finalStatus = "ERROR";
+        else if (statusType === "warning" || statusType === "warn") finalStatus = "WARN";
         const finalPercent = isAborted
-            ? (
-                Number.isFinite(abortProgress)
-                    ? abortProgress
-                    : Math.max(0, lastProgress)
-            )
+            ? (Number.isFinite(abortProgress) ? abortProgress : Math.max(0, lastProgress))
             : 100;
+        const stepEvaluationSummary = {
+            objective: {
+                value: Number.isFinite(load) ? load : null,
+                goal: goalDirection,
+                unit: evalOut?.objective?.unit || task.unit || ""
+            },
+            constraints: normalizedConstraints.map((c, idx) => ({
+                name: rawConstraints[idx]?.name || `c_${idx}`,
+                value: Number.isFinite(rawConstraints[idx]?.value) ? rawConstraints[idx].value : null,
+                min: Number.isFinite(rawConstraints[idx]?.min) ? rawConstraints[idx].min : null,
+                max: Number.isFinite(rawConstraints[idx]?.max) ? rawConstraints[idx].max : null,
+                feasible: c.feasible
+            }))
+        };
 
-        const finalSnapshot =
-            buildSimulationSnapshot(
+        const finalSnapshot = {
+            ...buildSimulationSnapshot(
                 currentExecutionCount,
                 finalStatus,
                 finalPercent,
                 paramsObj,
                 metrics,
-                finalMessage
-            );
+                recordedAbortProgress?.reason || null
+            ),
+            evaluationSummary: stepEvaluationSummary
+        };
 
-        emitStructuredLog(
-            stepMode,
-            res.status?.message || "Simulation completed",
-            finalSnapshot
-        );
-
-        // Обновляем статистику регионов доверия на основе исхода шага
+        emitStructuredLog(stepMode, res.status?.message || "Simulation completed", finalSnapshot);
         const outcomeStatus = isValidObservation ? "SUCCESS" : (isAborted ? "ABORT" : "ERROR");
         updateTrustRegions(
             normX,
             load,
-            errorScore,
+            totalViolation,
             outcomeStatus,
             Boolean(decision?.isGlobalExploration),
             decision?.sourceDiagnostics?.regionId ?? -1
         );
-
         return isValidObservation
-            ? { load, errorScore, feasible: load <= maxAllowedLoad && errorScore <= maxAllowedErrorScore }
+            ? { load, violation: totalViolation, feasible: allConstraintsFeasible }
             : null;
     };
-
-
-    // -----------------------------------------------------------------------
-    // 7.9. НАЧАЛЬНОЕ НАПОЛНЕНИЕ ВЫБОРКИ
-    // -----------------------------------------------------------------------
-
+// -----------------------------------------------------------------------
+// 7.9. НАЧАЛЬНОЕ НАПОЛНЕНИЕ ВЫБОРКИ
+// -----------------------------------------------------------------------
     if (!state) {
-        // ------------------------------------------------------------
-        // INITIAL PRESETS
-        // ------------------------------------------------------------
-
-        const USE_INITIAL_PRESETS = false;
-
-        if (USE_INITIAL_PRESETS && options.modelPresets) {
-
-            const modesToLoad =
-                Array.isArray(options.accuracyModes)
-                    ? options.accuracyModes
-                    : Object.keys(options.modelPresets);
-
-            for (const presetKey of modesToLoad) {
-                if (typeof options.shouldStop === "function" && options.shouldStop()) {
-                    break;
-                }
-
-                // Presets не должны превышать начальный бюджет.
-                if (currentExecutionCount >= initPointsCount) {
-                    break;
-                }
-
-                if (!options.modelPresets[presetKey]) {
-                    continue;
-                }
-
-                const vec = normalizeParamObject(
-                    options.modelPresets[presetKey]
-                );
-
-                if (!vec) continue;
-
-                const key = getPhysicalKey(vec);
-
-                if (evaluatedKeys.has(key)) {
-                    continue;
-                }
-
-                evaluate(
-                    toPhysical(vec),
-                    vec,
-                    "PRESET_" + String(presetKey).toUpperCase()
-                );
-            }
-        }
-
-        // ------------------------------------------------------------
-        // RANDOM INITIALIZATION
-        // ------------------------------------------------------------
-
         let initialAttempts = 0;
-
-        const maxInitialAttempts = Math.max(
-            100,
-            initPointsCount * 100
-        );
-
+        const maxInitialAttempts = Math.max(100, initPointsCount * 100);
         while (
             currentExecutionCount < initPointsCount &&
             initialAttempts < maxInitialAttempts
             ) {
             await new Promise(resolve => setTimeout(resolve, 0));
-
             if (typeof options.shouldStop === "function" && options.shouldStop()) {
                 break;
             }
-
             initialAttempts++;
-
-            const candidate = generateRandomPoint(
-                evaluatedKeys,
-                1
-            );
-
+            const candidate = generateRandomPoint(evaluatedKeys, 1);
             if (!candidate) continue;
-
             evaluate(
                 candidate.physical,
                 candidate.x,
                 "RANDOM_INIT_" + currentExecutionCount
             );
         }
-
         if (currentExecutionCount === 0) {
             throw new Error(
                 "Не удалось сформировать ни одной допустимой начальной точки."
             );
         }
     }
-
-    // -----------------------------------------------------------------------
-    // 7.10. ОСНОВНОЙ ЦИКЛ BAYESIAN OPTIMIZATION
-    // -----------------------------------------------------------------------
-
-    // ------------------------------------------------------------
-    // BAYESIAN OPTIMIZATION
-    // ------------------------------------------------------------
-
+// -----------------------------------------------------------------------
+// 7.10. ОСНОВНОЙ ЦИКЛ BAYESIAN OPTIMIZATION
+// -----------------------------------------------------------------------
     let bayesianDecisionCount = 0;
     let consecutiveMatrixFailures = 0;
-
     let stepsWithoutGlobalImprovement = 0;
     let lowEIConsecutiveCount = 0;
     const minStepsBeforeEarlyStop = initPointsCount + Math.max(15, numParams * 10);
-    const earlyStopPatience = Math.max(24, numParams * 12); // 36 шагов для 3 параметров
-
+    const earlyStopPatience = Math.max(24, numParams * 12);
     while (currentExecutionCount < totalIterations) {
         await new Promise(resolve => setTimeout(resolve, 0));
-
         if (typeof options.shouldStop === "function" && options.shouldStop()) {
             break;
         }
-
         bayesianDecisionCount++;
-
         const N = observedX.length;
         if (N === 0) break;
-
-        // Сигнализируем UI, что началась фаза математического подбора следующей точки
         if (typeof options.onProgress === "function") {
             const nextStepNum = currentExecutionCount + 1;
             options.onProgress(0, nextStepNum, totalIterations, {
@@ -3678,34 +3126,18 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 message: "Fitting Gaussian Processes & evaluating candidates..."
             });
         }
-
-        // 7.10.1. АДАПТАЦИЯ ПРОГРЕССА И ПЕРИОДИЧНОСТИ ПЕРЕОБУЧЕНИЯ
-
-        // ========================================================================
-        // ГЛОБАЛЬНЫЙ ДИНАМИЧЕСКИЙ ДРЕЙФ ПРОГРЕССА (СВЯЗАНО С КОНФИГОМ ИНТЕРФЕЙСА)
-        // ========================================================================
-        // Чистый прогресс-фактор, который честно дорастает ровно до 1.0 на 200-м шаге
+// 7.10.1. АДАПТАЦИЯ ПРОГРЕССА И ПЕРИОДИЧНОСТИ ПЕРЕОБУЧЕНИЯ
         const progressFactor = Math.min(1.0, currentExecutionCount / Math.max(1, totalIterations));
-
-        // Определяем минимальный радиус среди активных регионов доверия
         const activeRegionsForSchedule = searchRegions.filter(r => r.active);
         const minActiveRadius = activeRegionsForSchedule.length > 0
             ? Math.min(...activeRegionsForSchedule.map(r => r.radius))
             : 0.15;
-
-        // Адаптивный интервал: 16 -> 12 -> 8 -> 5 по мере сужения области поиска
         let reoptimizeInterval = 16;
-        if (minActiveRadius <= 0.02) {
-            reoptimizeInterval = 5;
-        } else if (minActiveRadius <= 0.05) {
-            reoptimizeInterval = 8;
-        } else if (minActiveRadius <= 0.15) {
-            reoptimizeInterval = 12;
-        }
-
-        // Считаем только новые полностью завершённые симуляции (ABORT не приближает переобучение)
+        if (minActiveRadius <= 0.02) reoptimizeInterval = 5;
+        else if (minActiveRadius <= 0.05) reoptimizeInterval = 8;
+        else if (minActiveRadius <= 0.15) reoptimizeInterval = 12;
         const currentCompleteCount = observedIsComplete.filter(Boolean).length;
-
+        const numConstraints = observedLogConstraints.length;
         if (
             !globalGPState.loadLengthScales ||
             currentCompleteCount - globalGPState.lastLoadScaleCompleteCount >= reoptimizeInterval
@@ -3721,105 +3153,107 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             );
             globalGPState.lastLoadScaleCompleteCount = currentCompleteCount;
         }
-
-        if (
-            !globalGPState.errorLengthScales ||
-            currentCompleteCount - globalGPState.lastErrorScaleCompleteCount >= reoptimizeInterval
-        ) {
-            globalGPState.errorLengthScales = optimizeLengthScales(
-                observedX,
-                observedLogError,
-                observedErrorNoise,
-                numParams,
-                progressFactor,
-                observedIsComplete,
-                globalGPState.errorLengthScales
-            );
-            globalGPState.lastErrorScaleCompleteCount = currentCompleteCount;
+// Обучение масштабов для каждого компаса (с ленивым пропуском для "спящих" компасов)
+        for (let k = 0; k < numConstraints; k++) {
+            const lastCount = globalGPState.lastConstraintScaleCompleteCount[k] ?? -Infinity;
+            if (!globalGPState.constraintLengthScales[k] || currentCompleteCount - lastCount >= reoptimizeInterval) {
+                globalGPState.constraintLengthScales[k] = optimizeLengthScales(
+                    observedX,
+                    observedLogConstraints[k],
+                    observedConstraintNoise[k],
+                    numParams,
+                    progressFactor,
+                    observedIsComplete,
+                    globalGPState.constraintLengthScales[k] || null
+                );
+                globalGPState.lastConstraintScaleCompleteCount[k] = currentCompleteCount;
+            }
         }
-
-        // 7.10.2. ОБУЧЕНИЕ ГЛОБАЛЬНОЙ ДВОЙНОЙ GP-МОДЕЛИ
-
-        const globalDualGP = fitDualGaussianProcess(
+// 7.10.2. ОБУЧЕНИЕ ГЛОБАЛЬНЫХ GP-МОДЕЛЕЙ (ЦЕЛЬ + ВСЕ КОМПАСЫ)
+        const loadGP = fitGaussianProcess(
             observedX,
             observedLogLoad,
-            observedLogError,
             observedLoadNoise,
-            observedErrorNoise,
             globalGPState.loadLengthScales,
-            globalGPState.errorLengthScales,
             observedIsComplete
         );
-
-        globalGPState.model = globalDualGP;
-
-        if (!globalDualGP.valid) {
+        const globalConstraintModels = [];
+        let allConstraintsGPValid = true;
+        for (let k = 0; k < numConstraints; k++) {
+            const cGP = fitGaussianProcess(
+                observedX,
+                observedLogConstraints[k],
+                observedConstraintNoise[k],
+                globalGPState.constraintLengthScales[k],
+                observedIsComplete
+            );
+            if (!cGP?.valid) {
+                allConstraintsGPValid = false;
+                break;
+            }
+            globalConstraintModels.push(cGP);
+        }
+        if (!loadGP?.valid || !allConstraintsGPValid) {
             consecutiveMatrixFailures++;
             const fallback = generateRandomPoint(evaluatedKeys, 300);
             if (!fallback || consecutiveMatrixFailures >= 3) break;
             pendingDecision = {
                 method: "RANDOM_FALLBACK",
                 reason: "GP_FIT_FAILED",
-                loadGP: globalDualGP.loadReason,
-                errorGP: globalDualGP.errorReason,
                 trainingCount: N
             };
             evaluate(fallback.physical, fallback.x, "FALLBACK_GP_FAILED");
             continue;
         }
-
-        // 7.10.3. ОБУЧЕНИЕ ЛОКАЛЬНЫХ REGIONAL GP
-
-        // ========================================================================
-        // ЭТАП 4: ОБУЧЕНИЕ ЛОКАЛЬНЫХ МОДЕЛЕЙ (REGIONAL GP) С АДАПТАЦИЕЙ МАСШТАБОВ
-        // ========================================================================
+        consecutiveMatrixFailures = 0;
+// 7.10.3. ОБУЧЕНИЕ ЛОКАЛЬНЫХ REGIONAL GP
+// 7.10.3. ОБУЧЕНИЕ ЛОКАЛЬНЫХ REGIONAL GP С АДАПТАЦИЕЙ МАСШТАБОВ
         const activeRegionsForFit = searchRegions.filter(r => r.active);
-
         for (const reg of activeRegionsForFit) {
             if (!reg.loadLengthScales) {
                 reg.loadLengthScales = new Float64Array(globalGPState.loadLengthScales);
             }
-            if (!reg.errorLengthScales) {
-                reg.errorLengthScales = new Float64Array(globalGPState.errorLengthScales);
+            while (reg.constraintLengthScales.length < numConstraints) {
+                const idx = reg.constraintLengthScales.length;
+                reg.constraintLengthScales.push(new Float64Array(globalGPState.constraintLengthScales[idx]));
             }
 
-            // Пункт 5: Комбинированная метрика расстояния, учитывающая оба набора масштабов
+            // Комбинированная метрика расстояния по цели и активным ограничениям
             const combinedRefScales = new Float64Array(numParams);
             for (let d = 0; d < numParams; d++) {
-                const sLoad = Math.max(1e-6, reg.loadLengthScales[d]);
-                const sError = Math.max(1e-6, reg.errorLengthScales[d]);
-                combinedRefScales[d] = Math.sqrt(2 / (1 / (sLoad * sLoad) + 1 / (sError * sError)));
+                let invSqSum = 1 / Math.pow(Math.max(1e-6, reg.loadLengthScales[d]), 2);
+                let count = 1;
+                for (let k = 0; k < numConstraints; k++) {
+                    const sC = reg.constraintLengthScales[k]?.[d];
+                    if (Number.isFinite(sC) && sC > 0) {
+                        invSqSum += 1 / (sC * sC);
+                        count++;
+                    }
+                }
+                combinedRefScales[d] = Math.sqrt(count / invSqSum);
             }
 
             const localDataset = buildRegionalTrainingDataset(
                 reg,
                 observedX,
                 observedLogLoad,
-                observedLogError,
+                observedLogConstraints[0] || observedLogLoad,
                 observedLoadNoise,
-                observedErrorNoise,
+                observedConstraintNoise[0] || observedLoadNoise,
                 observedIsComplete,
                 observedRegionIds,
                 combinedRefScales
             );
 
             if (!localDataset) {
-                reg.dualGP = null;
-                reg.localTrainingStats = {
-                    usingFallback: true,
-                    reason: "INSUFFICIENT_LOCAL_DATA"
-                };
+                reg.regionalModels = null;
+                reg.localTrainingStats = { usingFallback: true, reason: "INSUFFICIENT_LOCAL_DATA" };
                 continue;
             }
 
-            const localGeometry = inspectLocalGeometry(
-                localDataset.X,
-                numParams
-            );
-
+            const localGeometry = inspectLocalGeometry(localDataset.X, numParams);
             if (!localGeometry.valid) {
-                reg.dualGP = null;
-
+                reg.regionalModels = null;
                 reg.localTrainingStats = {
                     usingFallback: true,
                     reason: `DEGENERATE_LOCAL_GEOMETRY_${localGeometry.reason}`,
@@ -3827,11 +3261,20 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     corePoints: localDataset.coreCount,
                     completePoints: localDataset.completeCount
                 };
-
                 continue;
             }
 
-            // Пункт 4: Отслеживаем реальный прирост завершённых наблюдений региона (не ограниченный 45 точками)
+            const localConstraintTargets = [];
+            for (let k = 0; k < numConstraints; k++) {
+                const localCY = [];
+                const localCNoise = [];
+                for (const origIdx of localDataset.indices) {
+                    localCY.push(observedLogConstraints[k][origIdx]);
+                    localCNoise.push(observedConstraintNoise[k][origIdx]);
+                }
+                localConstraintTargets.push({ Y: localCY, noise: localCNoise });
+            }
+
             const regionCompleteCount = reg.completeObservationsCount ?? localDataset.completeCount;
             const localReoptInterval = reg.radius <= 0.05 ? 6 : 12;
             const shouldAdaptLocalScales =
@@ -3840,40 +3283,73 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             let localScaleStatus = "REUSED";
 
             if (shouldAdaptLocalScales) {
-                // Пункты 1 и 3: Единый вызов с полным контрактом для load и error
                 const adaptation = optimizeRegionalLengthScales(
                     localDataset,
+                    localConstraintTargets,
                     globalGPState.loadLengthScales,
-                    globalGPState.errorLengthScales,
+                    globalGPState.constraintLengthScales,
                     reg.loadLengthScales,
-                    reg.errorLengthScales,
+                    reg.constraintLengthScales,
                     numParams,
                     progressFactor
                 );
 
                 reg.loadLengthScales = adaptation.loadScales;
-                reg.errorLengthScales = adaptation.errorScales;
+                reg.constraintLengthScales = adaptation.constraintScales;
                 reg.lastScaleOptimizationCount = regionCompleteCount;
                 localScaleStatus = adaptation.reason;
             } else if (localDataset.completeCount < 16) {
                 reg.loadLengthScales = new Float64Array(globalGPState.loadLengthScales);
-                reg.errorLengthScales = new Float64Array(globalGPState.errorLengthScales);
+                reg.constraintLengthScales = globalGPState.constraintLengthScales.map(
+                    s => (s ? new Float64Array(s) : null)
+                );
                 localScaleStatus = "SYNCED_GLOBAL";
             }
 
-            const fittedRegional = fitDualGaussianProcess(
+            const localObjGP = fitGaussianProcess(
                 localDataset.X,
                 localDataset.logLoad,
-                localDataset.logError,
                 localDataset.loadNoise,
-                localDataset.errorNoise,
                 reg.loadLengthScales,
-                reg.errorLengthScales,
                 localDataset.isComplete
             );
 
-            if (fittedRegional.valid) {
-                reg.dualGP = fittedRegional;
+            if (!localObjGP?.valid) {
+                reg.regionalModels = null;
+                reg.localTrainingStats = {
+                    usingFallback: true,
+                    reason: `OBJECTIVE_FIT_FAILED_${localObjGP?.reason ?? "UNKNOWN"}`,
+                    totalPoints: localDataset.totalCount,
+                    corePoints: localDataset.coreCount,
+                    completePoints: localDataset.completeCount,
+                    regionTotalComplete: regionCompleteCount,
+                    scaleStatus: localScaleStatus
+                };
+                continue;
+            }
+
+            const localCModels = [];
+            let localAllValid = true;
+            let failedConstraintReason = null;
+
+            for (let k = 0; k < numConstraints; k++) {
+                const cGP = fitGaussianProcess(
+                    localDataset.X,
+                    localConstraintTargets[k].Y,
+                    localConstraintTargets[k].noise,
+                    reg.constraintLengthScales[k],
+                    localDataset.isComplete
+                );
+                if (!cGP?.valid) {
+                    localAllValid = false;
+                    failedConstraintReason = cGP?.reason ?? "UNKNOWN";
+                    break;
+                }
+                localCModels.push(cGP);
+            }
+
+            if (localAllValid) {
+                reg.regionalModels = { loadModel: localObjGP, constraintModels: localCModels };
                 reg.localTrainingStats = {
                     usingFallback: false,
                     totalPoints: localDataset.totalCount,
@@ -3883,11 +3359,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     scaleStatus: localScaleStatus
                 };
             } else {
-                reg.dualGP = null;
-
+                reg.regionalModels = null;
                 reg.localTrainingStats = {
                     usingFallback: true,
-                    reason: `FIT_FAILED_${fittedRegional.loadReason ?? "UNKNOWN"}_${fittedRegional.errorReason ?? "UNKNOWN"}`,
+                    reason: `CONSTRAINT_FIT_FAILED_${failedConstraintReason}`,
                     totalPoints: localDataset.totalCount,
                     corePoints: localDataset.coreCount,
                     completePoints: localDataset.completeCount,
@@ -3896,27 +3371,13 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 };
             }
         }
-
-
-        const loadGP = globalDualGP.loadModel;
-        const errorGP = globalDualGP.errorModel;
-
-        if (!loadGP?.valid || !errorGP?.valid) {
-            consecutiveMatrixFailures++; const fallback = generateRandomPoint(evaluatedKeys, 300);
-            if (!fallback || consecutiveMatrixFailures >= 3) break;
-            pendingDecision = { method: "RANDOM_FALLBACK", reason: "GP_FIT_FAILED", loadGP: loadGP?.reason || "UNKNOWN", errorGP: errorGP?.reason || "UNKNOWN", trainingCount: N };
-            evaluate(fallback.physical, fallback.x, "FALLBACK_GP_FAILED"); continue;
-        }
-        consecutiveMatrixFailures = 0;
         const hasFeasibleResult = Boolean(gBestMetrics);
-        const bestObjective = hasFeasibleResult ? getObjectiveValue(gBestLoad, gBestError) : Infinity;
-
+        const bestObjectiveShifted = hasFeasibleResult
+            ? Math.max(0, getObjectiveValue(gBestLoad) + objectiveShift)
+            : (isMaximize() ? -Infinity : Infinity);
         const candidates = [];
-        const candidateSources = []; // Диагностический трекер источника точки
-
-        // 7.10.4. ФОРМИРОВАНИЕ ПУЛА ГЛОБАЛЬНЫХ И ЛОКАЛЬНЫХ КАНДИДАТОВ
-
-        // Этап 5: Баланс 35% Global GP / 65% Regional GP (при наличии активных регионов)
+        const candidateSources = [];
+// 7.10.4. ФОРМИРОВАНИЕ ПУЛА ГЛОБАЛЬНЫХ И ЛОКАЛЬНЫХ КАНДИДАТОВ
         const basePool = 600 + numParams * 300;
         const maxPool = 1000 + numParams * 500;
         const totalPoolTarget = Math.min(maxPool, basePool + currentExecutionCount * (numParams + 2));
@@ -3927,35 +3388,39 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         const localExplorers = hasActiveRegions
             ? Math.round(totalPoolTarget * 0.65)
             : 0;
-
-        let randomCandidatesGenerated = 0; let randomCandidatesRejected = 0;
-        let localCandidatesGenerated = 0; let localCandidatesRejected = 0;
+        let randomCandidatesGenerated = 0;
+        let randomCandidatesRejected = 0;
+        let localCandidatesGenerated = 0;
+        let localCandidatesRejected = 0;
         const seenCandidateKeys = new Set(evaluatedKeys);
-        const maxSobolAttempts = candidatesCount * 10; let sobolAttempts = 0;
-
-        const residualCorrelation = estimateResidualCorrelation(residualPairs);
-
-        // Передаем progressFactor в ЕМА калибратор (для динамического Novelty контроля осей)
-        self.lastEMAStorage.load = estimateResidualSigmaScale(residualPairs, "load", observedX, self.lastEMAStorage.load, progressFactor);
-        self.lastEMAStorage.error = estimateResidualSigmaScale(residualPairs, "error", observedX, self.lastEMAStorage.error, progressFactor);
+        const maxSobolAttempts = candidatesCount * 10;
+        let sobolAttempts = 0;
+        const primaryPairs = residualPairsByConstraint[0] || [];
+        self.lastEMAStorage.load = estimateResidualSigmaScale(primaryPairs, "load", observedX, self.lastEMAStorage.load, progressFactor);
         const loadSigmaCalibration = self.lastEMAStorage.load;
-        const errorSigmaCalibration = self.lastEMAStorage.error;
 
+        const constraintCorrelations = [];
+        const constraintSigmaCalibrations = [];
+        for (let k = 0; k < numConstraints; k++) {
+            const pairsK = residualPairsByConstraint[k] || [];
+            constraintCorrelations[k] = estimateResidualCorrelation(pairsK);
+            const prevScaleK = self.lastEMAStorage.errors[k] ?? 1.0;
+            const newScaleK = estimateResidualSigmaScale(pairsK, "error", observedX, prevScaleK, progressFactor);
+            self.lastEMAStorage.errors[k] = newScaleK;
+            constraintSigmaCalibrations[k] = newScaleK;
+        }
         while (
             randomCandidatesGenerated < candidatesCount &&
             sobolAttempts < maxSobolAttempts
             ) {
             sobolAttempts++;
-
             const q = quantizeCandidate(nextSobolPoint());
             if (!q || seenCandidateKeys.has(q.key)) {
                 randomCandidatesRejected++;
                 continue;
             }
-
             const x = q.x;
             const key = q.key;
-
             let isTooClose = false;
             for (let i = 0; i < observedX.length; i++) {
                 let distSq = 0;
@@ -3972,26 +3437,18 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 randomCandidatesRejected++;
                 continue;
             }
-
             seenCandidateKeys.add(key);
             candidates.push(x);
-            candidateSources.push({ type: "GLOBAL", regionId: -1 }); // Фикс 1: Пишем источник сразу
+            candidateSources.push({ type: "GLOBAL", regionId: -1 });
             randomCandidatesGenerated++;
         }
-
         localCandidatesGenerated = 0;
         let localAttempts = 0;
         const maxLocalAttempts = localExplorers * 5;
-        const minimizeLoad = objective === "minimize_load";
         const activeRegions = searchRegions.filter(r => r.active);
-
-        // Отслеживаем последовательные промахи (дубликаты) для каждого региона
         const regionConsecutiveMisses = new Map(activeRegions.map(r => [r.id, 0]));
         const exhaustedRegionIds = new Set();
-
-        // Адаптивный лимит промахов: учитывает рост числа дискретных соседей при увеличении размерности
         const MAX_MISSES_PER_REGION = Math.min(60, Math.max(16, numParams * 8 + 2));
-
         const buildRegionWeights = () => {
             let total = 0;
             const list = [];
@@ -4003,31 +3460,24 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             }
             return { list, total };
         };
-
         let { list: regionWeights, total: totalRegionScore } = buildRegionWeights();
-
         for (const reg of activeRegions) {
             const latticeNeighbors = generateLatticeNeighbors(reg.bestX);
             for (const q of latticeNeighbors) {
                 if (!seenCandidateKeys.has(q.key)) {
                     candidates.push(q.x);
-                    candidateSources.push({
-                        type: "LOCAL_LATTICE",
-                        regionId: reg.id
-                    });
+                    candidateSources.push({ type: "LOCAL_LATTICE", regionId: reg.id });
                     seenCandidateKeys.add(q.key);
                     localCandidatesGenerated++;
                 }
             }
         }
-
         while (
             localCandidatesGenerated < localExplorers &&
             localAttempts < maxLocalAttempts &&
             regionWeights.length > 0
             ) {
             localAttempts++;
-
             let region = null;
             if (totalRegionScore > 0) {
                 let rouletteSlot = Math.random() * totalRegionScore;
@@ -4039,32 +3489,23 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             if (!region) {
                 region = regionWeights[(localAttempts - 1) % regionWeights.length].reg;
             }
-
             const basePoint = region.bestX;
             const mutatedX = new Float64Array(numParams);
-            const regionScales = objective === "minimize_load"
-                ? (region.loadLengthScales || globalGPState.loadLengthScales)
-                : (region.errorLengthScales || globalGPState.errorLengthScales);
-
+            const regionScales = region.loadLengthScales || globalGPState.loadLengthScales;
             const useDirectional = Boolean(region.rawDirection) && Math.random() < 0.35;
-
             if (useDirectional) {
                 const scaledDir = new Float64Array(numParams);
                 let normSq = 0;
-
                 for (let d = 0; d < numParams; d++) {
                     const scale = Math.max(0.05, Math.min(1.5, regionScales?.[d] ?? 0.55));
                     const sDiff = region.rawDirection[d] / scale;
                     scaledDir[d] = sDiff;
                     normSq += sDiff * sDiff;
                 }
-
                 const rmsNormSq = normSq / numParams;
-
                 if (rmsNormSq > 1e-12) {
                     const invRmsNorm = 1 / Math.sqrt(rmsNormSq);
                     const step = region.radius * (0.3 + 0.9 * Math.random());
-
                     for (let d = 0; d < numParams; d++) {
                         const scale = Math.max(0.05, Math.min(1.5, regionScales?.[d] ?? 0.55));
                         const offset = (scaledDir[d] * invRmsNorm) * step * scale;
@@ -4083,9 +3524,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     mutatedX[d] = Math.max(0, Math.min(1, basePoint[d] + offset));
                 }
             }
-
             const q = quantizeCandidate(mutatedX);
-
             if (q && !seenCandidateKeys.has(q.key)) {
                 candidates.push(q.x);
                 candidateSources.push({
@@ -4099,147 +3538,154 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 localCandidatesRejected++;
                 const misses = (regionConsecutiveMisses.get(region.id) || 0) + 1;
                 regionConsecutiveMisses.set(region.id, misses);
-
-                // Если вокруг региона 45 раз подряд попадаем в уже проверенные узлы сетки — исключаем его на этом шаге
                 if (misses >= MAX_MISSES_PER_REGION) {
                     exhaustedRegionIds.add(region.id);
                     ({ list: regionWeights, total: totalRegionScore } = buildRegionWeights());
                 }
             }
         }
-
-
-        // 7.10.5. ОЦЕНКА КАНДИДАТОВ И ACQUISITION FUNCTION
-
-        // --------------------------------------------------------
-        // ACQUISITION FUNCTION
-        // --------------------------------------------------------
-
+// 7.10.5. ОЦЕНКА КАНДИДАТОВ И ACQUISITION FUNCTION
         let bestAcquisition = -Infinity;
         let nextBestX = null;
         let bestCandidateStats = null;
-        let selectedIndexInPool = -1; // Фикс 2: Объявляем переменную трекинга индекса
-
+        let selectedIndexInPool = -1;
         let invalidPredictionCount = 0;
         let zeroSigmaCount = 0;
         let nonFiniteEICount = 0;
-
-        const constraintLoadTarget = maxAllowedLoad;
-        const constraintErrorTarget = maxAllowedErrorScore;
-
         let bestFeasibilityX = null;
         let bestFeasibilityStats = null;
         let bestFeasibilityScore = -Infinity;
         let bestFeasibilitySelectedScore = -Infinity;
         let selectedFeasibilityIndexInPool = -1;
-
         const FEASIBILITY_TIE_EPSILON = 1e-9;
-
         const activeRegionMap = new Map(activeRegions.map(r => [r.id, r]));
-
-        if (!globalDualGP?.valid) {
-            throw new Error("GLOBAL_GP_INVALID: Cannot predict candidates");
-        }
-
+        const evaluateCandidatePredictions = (candX, candSource) => {
+            let ownerRegion = null;
+            if (candSource && candSource.regionId >= 0) {
+                ownerRegion = activeRegionMap.get(candSource.regionId) || null;
+            }
+            const activeLoadModel = ownerRegion?.regionalModels?.loadModel || loadGP;
+            const activeCModels = ownerRegion?.regionalModels?.constraintModels || globalConstraintModels;
+            const rawLoadPred = predictGaussianProcess(activeLoadModel, candX);
+            if (!rawLoadPred) return null;
+            const loadPrediction = applySigmaCalibration(rawLoadPred, loadSigmaCalibration);
+            const constraintPreds = [];
+            const probs = [];
+            for (let k = 0; k < numConstraints; k++) {
+                const rawCPred = predictGaussianProcess(activeCModels[k], candX);
+                if (!rawCPred) return null;
+                const scaleK = constraintSigmaCalibrations[k] ?? 1.0;
+                const cPred = applySigmaCalibration(rawCPred, scaleK);
+                constraintPreds.push(cPred);
+                probs.push(probabilityBelow(cPred, constraintLimitsGP[k]));
+            }
+            let pFeasible = 1.0;
+            if (numConstraints > 0) {
+                pFeasible = probs.reduce((acc, v) => acc * v, 1.0);
+            }
+            return {
+                loadPrediction,
+                constraintPreds,
+                probs,
+                pFeasible,
+                ownerRegion,
+                usingRegional: Boolean(ownerRegion?.regionalModels)
+            };
+        };
         for (let c = 0; c < candidates.length; c++) {
             const candX = candidates[c];
             const candSource = candidateSources[c];
-
-            // Выбираем модель: Regional GP для кандидатов региона (с fallback на Global GP)
-            let activeDualModel = globalDualGP;
-            let ownerRegion = null;
-
-            if (candSource && candSource.regionId >= 0) {
-                ownerRegion = activeRegionMap.get(candSource.regionId) || null;
-                if (ownerRegion?.dualGP?.valid) {
-                    activeDualModel = ownerRegion.dualGP;
-                }
-            }
-
-            const predictionPair = predictDualGaussianProcess(
-                activeDualModel,
-                candX,
-                loadSigmaCalibration,
-                errorSigmaCalibration
-            );
-
-            if (!predictionPair) {
+            const evalPred = evaluateCandidatePredictions(candX, candSource);
+            if (!evalPred) {
                 invalidPredictionCount++;
                 continue;
             }
-
-            const { loadPrediction, errorPrediction } = predictionPair;
-
-            const pLoad = probabilityBelow(loadPrediction, constraintLoadTarget);
-            const pError = probabilityBelow(errorPrediction, constraintErrorTarget);
-            const pFeasible = jointProbabilityBelow(
-                loadPrediction,
-                errorPrediction,
-                constraintLoadTarget,
-                constraintErrorTarget,
-                residualCorrelation.rho
-            );
-
-            const objectivePrediction = minimizeLoad ? loadPrediction : errorPrediction;
-            const sigmaObjective = objectivePrediction.sigmaLog;
-
+            const { loadPrediction, constraintPreds, pFeasible, ownerRegion, usingRegional } = evalPred;
+            const sigmaObjective = loadPrediction.sigmaLog;
             const feasibilityScore = pFeasible;
             bestFeasibilityScore = Math.max(bestFeasibilityScore, feasibilityScore);
-
             const SAFE_FEASIBILITY_THRESHOLD = 0.45;
             const isCandSafe = feasibilityScore >= SAFE_FEASIBILITY_THRESHOLD;
             const isBestSafe = bestFeasibilitySelectedScore >= SAFE_FEASIBILITY_THRESHOLD;
-
-            const candMetric = minimizeLoad ? (Math.exp(loadPrediction.meanLog) - 1) : (Math.exp(errorPrediction.meanLog) - 1);
-            const bestMetric = bestFeasibilityStats ? (minimizeLoad ? (Math.exp(bestFeasibilityStats.loadPrediction.meanLog) - 1) : (Math.exp(bestFeasibilityStats.errorPrediction.meanLog) - 1)) : Infinity;
-
+            const candMetric = (Math.exp(loadPrediction.meanLog) - 1) - objectiveShift;
+            const bestMetric = bestFeasibilityStats
+                ? ((Math.exp(bestFeasibilityStats.loadPrediction.meanLog) - 1) - objectiveShift)
+                : (isMaximize() ? -Infinity : Infinity);
             const isFirstCandidate = (bestFeasibilityX === null);
             const isStrictlyBetterFeasibility = (feasibilityScore > bestFeasibilitySelectedScore + FEASIBILITY_TIE_EPSILON);
             const isFeasibilityTie = Math.abs(feasibilityScore - bestFeasibilitySelectedScore) <= FEASIBILITY_TIE_EPSILON;
-
             let betterFeasibility = false;
             if (isFirstCandidate) {
                 betterFeasibility = true;
             } else if (isCandSafe && isBestSafe) {
-                betterFeasibility = candMetric < bestMetric;
+                betterFeasibility = isBetterVal(candMetric, bestMetric);
             } else if (isCandSafe !== isBestSafe) {
                 betterFeasibility = isCandSafe;
             } else {
-                betterFeasibility = isStrictlyBetterFeasibility || (isFeasibilityTie && candMetric < bestMetric);
+                betterFeasibility = isStrictlyBetterFeasibility || (isFeasibilityTie && isBetterVal(candMetric, bestMetric));
             }
-
             if (betterFeasibility) {
                 bestFeasibilitySelectedScore = feasibilityScore;
                 bestFeasibilityX = candX;
                 selectedFeasibilityIndexInPool = c;
                 bestFeasibilityStats = {
                     loadPrediction,
-                    errorPrediction,
-                    pLoad,
-                    pError,
+                    allConstraintPredictions: constraintPreds,
                     pFeasible,
-                    constraintProbability: pFeasible,
                     ei: null,
                     acquisition: pFeasible,
-                    objectivePrediction,
                     sigmaObjective
                 };
             }
-
             if (sigmaObjective <= 1e-9) {
                 zeroSigmaCount++;
             }
-
             if (hasFeasibleResult) {
-                const constraintPrediction = minimizeLoad ? errorPrediction : loadPrediction;
-                const constraintLimit = minimizeLoad ? constraintErrorTarget : constraintLoadTarget;
+                const activeCondParams = [];
+                let staticFeasibleProb = 1.0;
+
+                for (let k = 0; k < numConstraints; k++) {
+                    const cPred = constraintPreds[k];
+                    const probK = evalPred.probs[k];
+
+                    if (probK >= 0.999999) continue;
+
+                    const corrInfo = constraintCorrelations[k];
+                    const isSelfObjectiveConstraint =
+                        !isMaximize() &&
+                        corrInfo &&
+                        corrInfo.samples >= 12 &&
+                        corrInfo.rawRho > 0.92;
+
+                    if (isSelfObjectiveConstraint) continue;
+
+                    if (!cPred || cPred.sigmaLog <= 1e-9) {
+                        staticFeasibleProb *= probK;
+                        continue;
+                    }
+
+                    const rho = Math.max(-0.8, Math.min(0.8, corrInfo?.rho || 0));
+                    const condSigma = Math.sqrt(Math.max(1e-12, 1 - rho * rho));
+                    const limZ = (Math.log1p(constraintLimitsGP[k]) - cPred.meanLog) / cPred.sigmaLog;
+
+                    activeCondParams.push({ limZ, rho, condSigma });
+                }
+
+                const condProbFn = (z) => {
+                    if (staticFeasibleProb === 0) return 0;
+                    let prob = staticFeasibleProb;
+                    for (let i = 0; i < activeCondParams.length; i++) {
+                        const p = activeCondParams[i];
+                        prob *= normalCDF((p.limZ - p.rho * z) / p.condSigma);
+                    }
+                    return prob;
+                };
 
                 const ei = calculateConstrainedLogNormalEI(
-                    bestObjective,
-                    objectivePrediction,
-                    constraintPrediction,
-                    constraintLimit,
-                    residualCorrelation.rho
+                    bestObjectiveShifted,
+                    loadPrediction,
+                    condProbFn,
+                    isMaximize()
                 );
 
                 if (!Number.isFinite(ei)) {
@@ -4247,184 +3693,115 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     continue;
                 }
 
-                const acquisition = ei;
-
-                // Для crowding используем актуальные масштабы той модели, которая оценивает кандидата
-                const activeScales = (ownerRegion && activeDualModel === ownerRegion.dualGP)
-                    ? (minimizeLoad ? ownerRegion.loadLengthScales : ownerRegion.errorLengthScales)
-                    : (minimizeLoad ? globalGPState.loadLengthScales : globalGPState.errorLengthScales);
-
+                // Быстрый расчёт crowding без Math.sqrt и делений внутри цикла по observedX
+                const activeScales = usingRegional
+                    ? ownerRegion.loadLengthScales
+                    : globalGPState.loadLengthScales;
+                const invScales = new Float64Array(numParams);
+                for (let d = 0; d < numParams; d++) {
+                    const s = Number.isFinite(activeScales[d]) && activeScales[d] > 0 ? activeScales[d] : 0.55;
+                    invScales[d] = 1 / s;
+                }
+                const crowdingThresholdSq = 0.0625 * numParams; // (0.25)^2 * numParams
+                const invNumParams = 1 / numParams;
                 let crowding = 0;
+
                 for (let i = 0; i < observedX.length; i++) {
-                    const dKernel = calculateKernelDistance(candX, observedX[i], activeScales);
-                    if (dKernel < 0.25) {
-                        crowding += (1.0 - dKernel / 0.25) * 0.25;
+                    const obsPt = observedX[i];
+                    let sumSq = 0;
+                    for (let d = 0; d < numParams; d++) {
+                        const diff = (candX[d] - obsPt[d]) * invScales[d];
+                        sumSq += diff * diff;
+                    }
+                    if (sumSq < crowdingThresholdSq) {
+                        const dKernel = Math.sqrt(sumSq * invNumParams);
+                        crowding += (1.0 - dKernel * 4.0) * 0.25;
                     }
                 }
 
                 const clampedPenalty = Math.min(0.85, crowding);
-                const balancedAcquisition = acquisition * (1.0 - clampedPenalty);
-
+                const balancedAcquisition = ei * (1.0 - clampedPenalty);
                 if (balancedAcquisition > bestAcquisition) {
                     bestAcquisition = balancedAcquisition;
                     nextBestX = candX;
                     selectedIndexInPool = c;
-
                     bestCandidateStats = {
                         loadPrediction,
-                        errorPrediction,
-                        pLoad,
-                        pError,
+                        allConstraintPredictions: constraintPreds,
                         pFeasible,
-                        constraintProbability: minimizeLoad ? pError : pLoad,
                         ei,
                         acquisition: balancedAcquisition,
-                        objectivePrediction,
-                        sigmaObjective,
-                        bestLogTarget: Math.log1p(bestObjective)
+                        sigmaObjective
                     };
                 }
             } else {
                 const explorationBonus = 1e-4 * Math.min(10, sigmaObjective);
                 const acquisition = pFeasible + explorationBonus;
-
                 if (acquisition > bestAcquisition) {
                     bestAcquisition = acquisition;
                     nextBestX = candX;
                     selectedIndexInPool = c;
-
                     bestCandidateStats = {
                         loadPrediction,
-                        errorPrediction,
-                        pLoad,
-                        pError,
+                        allConstraintPredictions: constraintPreds,
                         pFeasible,
                         ei: null,
                         acquisition,
-                        objectivePrediction,
                         sigmaObjective
                     };
                 }
             }
         }
-
-
-        // Фиксируем максимальный EI до возможного переключения в режим разведки
         const maxPoolEI = bestCandidateStats?.ei ?? 0;
-
-        // 7.10.6. ВЫБОР РЕЖИМА: УЛУЧШЕНИЕ ИЛИ ИССЛЕДОВАНИЕ ДОПУСТИМОЙ ОБЛАСТИ
-
-        // --------------------------------------------------------
-        // CONTROLLED FEASIBILITY EXPLORATION
-        // --------------------------------------------------------
-
+// 7.10.6. ВЫБОР РЕЖИМА: УЛУЧШЕНИЕ ИЛИ ИССЛЕДОВАНИЕ ДОПУСТИМОЙ ОБЛАСТИ
         let selectionMethod = hasFeasibleResult
             ? "CONSTRAINED_EXPECTED_IMPROVEMENT"
             : "FEASIBILITY_SEARCH";
-
         let selectionFallbackReason = null;
-
-        // Минимальный порог относительного улучшения (0.01% от текущего рекорда)
-        const MIN_SIGNIFICANT_EI = 1e-4;
-
-        if (
-            hasFeasibleResult &&
-            bestFeasibilityX
-        ) {
+        const MIN_SIGNIFICANT_EI = 2.5e-5;
+        if (hasFeasibleResult && bestFeasibilityX) {
             const selectedFeasibility = bestCandidateStats?.pFeasible ?? 0;
             const dynamicFeasibilityInterval = Math.min(20, Math.floor(14 + (currentExecutionCount / 20)));
             const periodicExploration = bayesianDecisionCount % dynamicFeasibilityInterval === 0;
-
             const candidateSourceType = selectedIndexInPool >= 0
                 ? candidateSources[selectedIndexInPool]?.type
                 : null;
-
             const isLocalCandidate =
                 candidateSourceType === "LOCAL" ||
                 candidateSourceType === "LOCAL_DIRECTIONAL" ||
                 candidateSourceType === "LOCAL_LATTICE";
-
             const minFeasibilityFloor = isLocalCandidate ? 0.0005 : 0.015;
-
             const lowFeasibility =
                 selectedFeasibility < minFeasibilityFloor &&
                 bestFeasibilityScore - selectedFeasibility >= 0.25;
-
-            const noPositiveEI =
-                bestAcquisition < MIN_SIGNIFICANT_EI;
-
-            if (
-                periodicExploration ||
-                lowFeasibility ||
-                noPositiveEI
-            ) {
-                // Если EI исчерпан или идет плановая разведка, ищем лучшую допустимую точку среди GLOBAL кандидатов
+            const noPositiveEI = bestAcquisition < MIN_SIGNIFICANT_EI;
+            if (periodicExploration || lowFeasibility || noPositiveEI) {
                 let globalFeasibilityIdx = -1;
                 let bestGlobalFeasScore = -Infinity;
-
+                let bestGlobalPred = null;
                 for (let c = 0; c < candidates.length; c++) {
                     if (candidateSources[c]?.type === "GLOBAL") {
-                        const pred = predictDualGaussianProcess(
-                            globalDualGP,
-                            candidates[c],
-                            loadSigmaCalibration,
-                            errorSigmaCalibration
-                        );
-                        if (!pred) continue;
-
-                        const pFeas = jointProbabilityBelow(
-                            pred.loadPrediction,
-                            pred.errorPrediction,
-                            constraintLoadTarget,
-                            constraintErrorTarget,
-                            residualCorrelation.rho
-                        );
-
-                        // Добавляем бонус за неопределенность (sigma), чтобы исследовать белые пятна
-                        const objSigma = minimizeLoad
-                            ? pred.loadPrediction.sigmaLog
-                            : pred.errorPrediction.sigmaLog;
-                        const exploreScore = pFeas + 0.05 * Math.min(2.0, objSigma);
-
+                        const gEval = evaluateCandidatePredictions(candidates[c], { type: "GLOBAL", regionId: -1 });
+                        if (!gEval) continue;
+                        const exploreScore = gEval.pFeasible + 0.05 * Math.min(2.0, gEval.loadPrediction.sigmaLog);
                         if (exploreScore > bestGlobalFeasScore) {
                             bestGlobalFeasScore = exploreScore;
                             globalFeasibilityIdx = c;
+                            bestGlobalPred = gEval;
                         }
                     }
                 }
-
-                // Используем глобального кандидата для разведки, если нашли подходящего; иначе — общий bestFeasibilityX
-                if ((noPositiveEI || periodicExploration) && globalFeasibilityIdx >= 0) {
-                    const gPred = predictDualGaussianProcess(
-                        globalDualGP,
-                        candidates[globalFeasibilityIdx],
-                        loadSigmaCalibration,
-                        errorSigmaCalibration
-                    );
-                    const pLoad = probabilityBelow(gPred.loadPrediction, constraintLoadTarget);
-                    const pError = probabilityBelow(gPred.errorPrediction, constraintErrorTarget);
-                    const pFeasible = jointProbabilityBelow(
-                        gPred.loadPrediction,
-                        gPred.errorPrediction,
-                        constraintLoadTarget,
-                        constraintErrorTarget,
-                        residualCorrelation.rho
-                    );
-
+                if ((noPositiveEI || periodicExploration) && globalFeasibilityIdx >= 0 && bestGlobalPred) {
                     nextBestX = candidates[globalFeasibilityIdx];
                     selectedIndexInPool = globalFeasibilityIdx;
-                    bestAcquisition = pFeasible;
+                    bestAcquisition = bestGlobalPred.pFeasible;
                     bestCandidateStats = {
-                        loadPrediction: gPred.loadPrediction,
-                        errorPrediction: gPred.errorPrediction,
-                        pLoad,
-                        pError,
-                        pFeasible,
-                        constraintProbability: pFeasible,
+                        loadPrediction: bestGlobalPred.loadPrediction,
+                        allConstraintPredictions: bestGlobalPred.constraintPreds,
+                        pFeasible: bestGlobalPred.pFeasible,
                         ei: null,
-                        acquisition: pFeasible,
-                        objectivePrediction: minimizeLoad ? gPred.loadPrediction : gPred.errorPrediction,
-                        sigmaObjective: minimizeLoad ? gPred.loadPrediction.sigmaLog : gPred.errorPrediction.sigmaLog
+                        acquisition: bestGlobalPred.pFeasible,
+                        sigmaObjective: bestGlobalPred.loadPrediction.sigmaLog
                     };
                 } else {
                     nextBestX = bestFeasibilityX;
@@ -4432,7 +3809,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     bestAcquisition = bestFeasibilitySelectedScore;
                     selectedIndexInPool = selectedFeasibilityIndexInPool;
                 }
-
                 selectionMethod = "FEASIBILITY_EXPLORATION";
                 selectionFallbackReason = noPositiveEI
                     ? "NON_POSITIVE_CONSTRAINED_EI"
@@ -4441,249 +3817,162 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                         : "LOW_SELECTED_FEASIBILITY";
             }
         }
-
         if (!nextBestX) {
             selectionMethod = "RANDOM_FALLBACK";
             selectionFallbackReason = "NO_VALID_CANDIDATE";
-
             const fallback = generateRandomPoint(evaluatedKeys, 500);
             if (!fallback) break;
-
             nextBestX = fallback.x;
             bestCandidateStats = null;
             selectedIndexInPool = -1;
         }
-
         const chosenSource = selectedIndexInPool >= 0
             ? candidateSources[selectedIndexInPool]
             : { type: "FALLBACK", regionId: -1 };
-
-
         const resolvedSelectedPhysical = quantizeCandidate(nextBestX)?.physical || toPhysical(nextBestX);
-
-
-        // 7.10.7. ФИКСАЦИЯ РЕШЕНИЯ, ДИАГНОСТИКА И ВЫБОР СЛЕДУЮЩЕЙ ТОЧКИ
-
-        // --------------------------------------------------------
-        // LOGGING / PENDING DECISION
-        // --------------------------------------------------------
-
+// 7.10.7. ФИКСАЦИЯ РЕШЕНИЯ И ДИАГНОСТИКА
         const stats = bestCandidateStats;
-
-
-        const completeObservationCount =
-            observedIsComplete.filter(Boolean).length;
-
-        const abortObservationCount =
-            observedIsComplete.length -
-            completeObservationCount;
-
+        const completeObservationCount = observedIsComplete.filter(Boolean).length;
+        const abortObservationCount = observedIsComplete.length - completeObservationCount;
         pendingDecision = {
             method: selectionMethod,
             fallbackReason: selectionFallbackReason,
-            objective: objective,
+            objective: goalDirection,
             sourceDiagnostics: chosenSource,
-            isGlobalExploration: chosenSource.type === "GLOBAL", // Флаг для updateTrustRegions
-
+            isGlobalExploration: chosenSource.type === "GLOBAL",
             training: {
                 observations: N,
-
-                completeObservations:
-                completeObservationCount,
-
-                abortObservations:
-                abortObservationCount,
-
-                feasibleObservations:
-                observedLoad.filter(
-                    (load, i) =>
-                        observedIsComplete[i] &&
-                        load <= maxAllowedLoad &&
-                        observedError[i] <=
-                        maxAllowedErrorScore
-                ).length,
-
-                excludedFromElite:
-                abortObservationCount,
-
+                completeObservations: completeObservationCount,
+                abortObservations: abortObservationCount,
+                feasibleObservations: observedAllFeasible.filter(Boolean).length,
+                excludedFromElite: abortObservationCount,
                 hasFeasibleResult
             },
-
             gaussianProcess: {
                 kernel: "Matern5/2",
-
-                load: {
-                    lengthScales:
-                        Array.from(loadGP.lengthScales),
-
+                objective: {
+                    lengthScales: Array.from(loadGP.lengthScales),
                     yMean: loadGP.yMean,
                     yStd: loadGP.yStd,
-
                     jitter: loadGP.jitter,
                     jitterRetries: loadGP.jitterRetries
                 },
-
-                error: {
-                    lengthScales:
-                        Array.from(errorGP.lengthScales),
-
-                    yMean: errorGP.yMean,
-                    yStd: errorGP.yStd,
-
-                    jitter: errorGP.jitter,
-                    jitterRetries: errorGP.jitterRetries
-                }
+                constraints: globalConstraintModels.map((cGP, idx) => ({
+                    name: constraintNames[idx] || `c_${idx}`,
+                    lengthScales: Array.from(cGP.lengthScales),
+                    yMean: cGP.yMean,
+                    yStd: cGP.yStd,
+                    jitter: cGP.jitter,
+                    jitterRetries: cGP.jitterRetries
+                }))
             },
-
             candidates: {
                 requestedRandom: candidatesCount,
                 generatedRandom: randomCandidatesGenerated,
                 rejectedRandom: randomCandidatesRejected,
-
                 requestedLocal: localExplorers,
                 generatedLocal: localCandidatesGenerated,
                 rejectedLocal: localCandidatesRejected,
-
                 localAttempts,
                 total: candidates.length,
-
                 invalidPredictionCount,
                 zeroSigmaCount,
                 nonFiniteEICount
             },
-
-            residualCorrelation: {
-                rho: residualCorrelation.rho,
-                rawRho: residualCorrelation.rawRho,
-                samples: residualCorrelation.samples
-            },
-
+            constraintsDiagnostics: constraintNames.map((name, idx) => ({
+                name,
+                rho: constraintCorrelations[idx]?.rho ?? 0,
+                rawRho: constraintCorrelations[idx]?.rawRho ?? 0,
+                samples: constraintCorrelations[idx]?.samples ?? 0,
+                sigmaCalibration: constraintSigmaCalibrations[idx] ?? 1.0
+            })),
             sigmaCalibration: {
-                load: loadSigmaCalibration,
-                error: errorSigmaCalibration,
-                samples: residualPairs.length
+                objective: loadSigmaCalibration,
+                constraints: constraintSigmaCalibrations,
+                samples: primaryPairs.length
             },
-
-            // Используем именно тот прогноз, на основании
-            // которого выбрана точка.
             predictionForResidual: stats
                 ? {
-                    loadMeanLog:
-                    stats.loadPrediction.meanLog,
-
-                    loadSigmaLog:
-                    stats.loadPrediction.rawSigmaLog,
-
-                    errorMeanLog:
-                    stats.errorPrediction.meanLog,
-
-                    errorSigmaLog:
-                    stats.errorPrediction.rawSigmaLog
+                    loadMeanLog: stats.loadPrediction.meanLog,
+                    loadSigmaLog: stats.loadPrediction.rawSigmaLog,
+                    constraints: (stats.allConstraintPredictions || []).map(c => ({
+                        meanLog: c?.meanLog ?? NaN,
+                        sigmaLog: c?.rawSigmaLog ?? NaN
+                    }))
                 }
                 : null,
-
-            // ЗАМЕНИТЬ ВНУТРИ pendingDecision.prediction
-            // ИСПРАВЛЕНО: Чистая физическая медиана распределения GP без паники
             prediction: stats
                 ? {
-                    load: {
+                    objective: {
                         meanLog: stats.loadPrediction.meanLog,
                         sigmaLog: stats.loadPrediction.sigmaLog,
-                        predictedMean: Math.exp(stats.loadPrediction.meanLog) - 1
+                        predictedMean: (Math.exp(stats.loadPrediction.meanLog) - 1) - objectiveShift
                     },
-                    error: {
-                        meanLog: stats.errorPrediction.meanLog,
-                        sigmaLog: stats.errorPrediction.sigmaLog,
-                        predictedMean: Math.exp(stats.errorPrediction.meanLog) - 1 // Исправлен вызов stats.
-                    },
-                    pLoad: stats.pLoad,
-                    pError: stats.pError,
+                    constraints: (stats.allConstraintPredictions || []).map((cPred, idx) => ({
+                        name: constraintNames[idx] || `c_${idx}`,
+                        meanLog: cPred?.meanLog ?? null,
+                        sigmaLog: cPred?.sigmaLog ?? null,
+                        predictedMean: cPred ? (Math.exp(cPred.meanLog) - 1) : null,
+                        pFeasible: cPred ? probabilityBelow(cPred, constraintLimitsGP[idx]) : null
+                    })),
                     pFeasible: stats.pFeasible,
                     eiObjective: stats.ei,
                     acquisition: stats.acquisition,
-                    objective: minimizeLoad ? "load" : "error"
+                    goal: goalDirection
                 }
                 : null,
-
             selectedCandidate: {
                 normalized: Array.from(nextBestX),
                 physical: resolvedSelectedPhysical,
                 acquisition: stats?.acquisition ?? null
             }
         };
-
         const stepCountSnapshot = currentExecutionCount;
-
         emitStepLog({
             type: "CANDIDATE_SELECTION_EVALUATION",
-
-            stepNumber:
-                currentExecutionCount + 1,
-
+            stepNumber: currentExecutionCount + 1,
             selectionMethod,
-            fallbackReason:
-            selectionFallbackReason,
-
-            candidatesEvaluated:
-            candidates.length,
-
-            bestAcquisitionScore:
-            bestAcquisition,
-
+            fallbackReason: selectionFallbackReason,
+            candidatesEvaluated: candidates.length,
+            bestAcquisitionScore: bestAcquisition,
             bestFeasibilityScore,
-
             chosenSource: chosenSource.type,
             chosenRegionId: chosenSource.regionId,
-
-
-            // ГЛУБОКАЯ ДИАГНОСТИКА: Показывает, сколько кандидатов отсеялось на этапе генерации
             poolDiagnostics: {
                 totalCandidatesInPool: candidates.length,
-                randomGenerated: (pendingDecision?.candidates?.generatedRandom ?? 0),
-                randomRejected: (pendingDecision?.candidates?.rejectedRandom ?? 0),
-                localGenerated: (pendingDecision?.candidates?.generatedLocal ?? 0),
-                localRejected: (pendingDecision?.candidates?.rejectedLocal ?? 0),
-                localAttemptsUsed: (pendingDecision?.candidates?.localAttempts ?? 0)
+                randomGenerated: randomCandidatesGenerated,
+                randomRejected: randomCandidatesRejected,
+                localGenerated: localCandidatesGenerated,
+                localRejected: localCandidatesRejected,
+                localAttemptsUsed: localAttempts
             },
-
-            residualCorrelation: {
-                rho: residualCorrelation.rho,
-                rawRho: residualCorrelation.rawRho,
-                samples: residualCorrelation.samples
-            },
-
-            sigmaCalibration: {
-                load: loadSigmaCalibration,
-                error: errorSigmaCalibration,
-                samples: residualPairs.length
-            },
-
+            constraintsCalibration: constraintNames.map((name, idx) => ({
+                name,
+                rho: constraintCorrelations[idx]?.rho ?? 0,
+                rawRho: constraintCorrelations[idx]?.rawRho ?? 0,
+                samples: constraintCorrelations[idx]?.samples ?? 0,
+                sigmaScale: constraintSigmaCalibrations[idx] ?? 1.0
+            })),
+            objectiveSigmaCalibration: loadSigmaCalibration,
             metricsCounter: {
-                invalidPredictions:
-                invalidPredictionCount,
-
-                zeroSigma:
-                zeroSigmaCount,
-
-                nonFiniteEI:
-                nonFiniteEICount
+                invalidPredictions: invalidPredictionCount,
+                zeroSigma: zeroSigmaCount,
+                nonFiniteEI: nonFiniteEICount
             },
-
-            // ИСПРАВЛЕНО: Выводим в лог честную медиану без математического взрыва
             selectedCandidatePrediction: stats
                 ? {
-                    predictedLoad: Math.exp(stats.loadPrediction.meanLog) - 1,
-                    predictedError: Math.exp(stats.errorPrediction.meanLog) - 1,
-
-                    probabilityLoadFeasible: stats.pLoad,
-                    probabilityErrorFeasible: stats.pError,
+                    predictedValue: (Math.exp(stats.loadPrediction.meanLog) - 1) - objectiveShift,
+                    predictedConstraints: (stats.allConstraintPredictions || []).map((cPred, idx) => ({
+                        name: constraintNames[idx] || `c_${idx}`,
+                        predictedValue: cPred ? (Math.exp(cPred.meanLog) - 1) : null,
+                        sigmaLog: cPred?.sigmaLog ?? null,
+                        pFeasible: cPred ? probabilityBelow(cPred, constraintLimitsGP[idx]) : null
+                    })),
                     jointFeasibility: stats.pFeasible,
                     expectedImprovement: stats.ei
                 }
                 : "No predictions available (Random Fallback)",
-
             selectedParams: resolvedSelectedPhysical,
-
             regionsDiagnostics: activeRegions.map(reg => ({
                 id: reg.id,
                 priority: getRegionPriority(reg),
@@ -4693,30 +3982,24 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 failures: reg.failures,
                 idleSteps: stepCountSnapshot - reg.lastImprovementStep,
                 modelStatus: reg.localTrainingStats || { usingFallback: true },
-                ...(reg.attempts > 1 && reg.errorLengthScales ? {
-                    localErrorScales: Array.from(reg.errorLengthScales),
-                    localErrorLML: reg.dualGP?.errorModel?.logMarginalLikelihood ?? null
+                ...(reg.attempts > 1 && reg.loadLengthScales ? {
+                    localObjectiveScales: Array.from(reg.loadLengthScales),
+                    localObjectiveLML: reg.regionalModels?.loadModel?.logMarginalLikelihood ?? null,
+                    localConstraintsLML: (reg.regionalModels?.constraintModels || []).map(
+                        m => m?.logMarginalLikelihood ?? null
+                    )
                 } : {})
-            })),        });
-
+            }))
+        });
         const stepBeforeEval = self.lastEvaluatedBestStepNumber;
-
-        evaluate(
-            resolvedSelectedPhysical,
-            nextBestX
-        );
-
-        // 7.10.8. КОНТРОЛЬ СХОДИМОСТИ И УСЛОВИЯ ДОСРОЧНОЙ ОСТАНОВКИ
-
-        // 1. Обновляем счетчик стагнации глобального рекорда
+        evaluate(resolvedSelectedPhysical, nextBestX);
+// 7.10.8. КОНТРОЛЬ СХОДИМОСТИ И УСЛОВИЯ ДОСРОЧНОЙ ОСТАНОВКИ
         if (self.lastEvaluatedBestStepNumber && self.lastEvaluatedBestStepNumber > (stepBeforeEval || 0)) {
             stepsWithoutGlobalImprovement = 0;
         } else {
             stepsWithoutGlobalImprovement++;
         }
-
-        // 2. Отслеживаем исчерпание ожидаемого улучшения (EI < 0.25%)
-        const EI_EXHAUSTION_THRESHOLD = 0.0025;
+        const EI_EXHAUSTION_THRESHOLD = 0.001;
         if (selectionMethod === "CONSTRAINED_EXPECTED_IMPROVEMENT") {
             if (Number.isFinite(maxPoolEI) && maxPoolEI < EI_EXHAUSTION_THRESHOLD) {
                 lowEIConsecutiveCount++;
@@ -4726,13 +4009,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         } else if (selectionFallbackReason === "NON_POSITIVE_CONSTRAINED_EI") {
             lowEIConsecutiveCount++;
         }
-
-        // 👇 ВСТАВИТЬ ПРАВКУ 5 СЮДА:
         const leaderNeighbors = gBestPhysical ? generateLatticeNeighbors(normalizeParamObject(gBestPhysical)) : [];
         const allLeaderNeighborsEvaluated =
             leaderNeighbors.length > 0 &&
             leaderNeighbors.every(q => evaluatedKeys.has(q.key));
-
         if (
             gBestMetrics &&
             currentExecutionCount >= minStepsBeforeEarlyStop &&
@@ -4745,10 +4025,9 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 stepNumber: currentExecutionCount,
                 stepsWithoutGlobalImprovement
             });
-
             emitStructuredLog(
                 "SYSTEM",
-                `⚡ Early stop triggered at step #${currentExecutionCount}: Discrete neighborhood around leader exhausted.`,
+                `⚡ Early stop triggered at step #${currentExecutionCount}: Discrete neighborhood around leader exhausted.`, // <-- Добавлены кавычки ` `
                 buildSimulationSnapshot(
                     currentExecutionCount,
                     "SUCCESS",
@@ -4758,11 +4037,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     "Discrete optimum reached"
                 )
             );
-
             break;
         }
-
-        // 3. Проверяем условия автоматической досрочной остановки по сходимости
         if (
             gBestMetrics &&
             currentExecutionCount >= minStepsBeforeEarlyStop &&
@@ -4770,13 +4046,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         ) {
             const leaderRegion = searchRegions.find(r => r.active && isGlobalLeaderRegion(r));
             const leaderConverged = !leaderRegion || leaderRegion.radius <= minRegionRadius * 1.15;
-
             const eiExhausted = lowEIConsecutiveCount >= 12;
-            // Защита от бесконечных циклов разведки: если рекорд не бьется 1.5x от patience при низком EI
             const deepStagnation =
                 stepsWithoutGlobalImprovement >= Math.floor(earlyStopPatience * 1.5) &&
                 lowEIConsecutiveCount >= 6;
-
             if ((leaderConverged && eiExhausted) || deepStagnation) {
                 emitStepLog({
                     type: "EARLY_STOP_CONVERGED",
@@ -4798,133 +4071,93 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                         "Converged early"
                     )
                 );
-
-                break;
+                break; // <-- Перенесено внутрь if ((leaderConverged && eiExhausted) || deepStagnation)
             }
-        }
+        } // <-- Удалена лишняя закрывающая скобка
     }
-
-    // -----------------------------------------------------------------------
-    // 7.11. ФОРМИРОВАНИЕ И ВОЗВРАТ ФИНАЛЬНОГО РЕЗУЛЬТАТА
-    // -----------------------------------------------------------------------
-
-    // ------------------------------------------------------------
-    // FINAL RESULT
-    // ------------------------------------------------------------
-
-    const finalPhysical =
-        gBestPhysical || fallbackPhysical;
-
-    const finalMetrics =
-        gBestMetrics || fallbackMetrics;
-
+// -----------------------------------------------------------------------
+// 7.11. ФОРМИРОВАНИЕ И ВОЗВРАТ ФИНАЛЬНОГО РЕЗУЛЬТАТА
+// -----------------------------------------------------------------------
+    const finalPhysical = gBestPhysical || fallbackPhysical;
+    const finalMetrics = gBestMetrics || fallbackMetrics;
     if (!finalPhysical || !finalMetrics) {
         throw new Error(
             "Оптимизация не получила ни одного корректного завершённого результата симуляции."
         );
     }
-
-    const finalLoad = gBestMetrics
-        ? gBestLoad
-        : fallbackLoad;
-
-    const finalError = gBestMetrics
-        ? gBestError
-        : fallbackError;
+    const finalLoad = gBestMetrics ? gBestLoad : fallbackLoad;
+    const finalConstraints = gBestMetrics ? gBestConstraints : fallbackConstraints;
 
     emitStepLog({
         type: "OPTIMIZER_FINISHED",
         totalSteps: currentExecutionCount,
-        objective,
-
+        goal: goalDirection,
         result: {
             params: finalPhysical,
-            achievedLoad: finalLoad,
-            resultingErrorScore: finalError,
+            achievedValue: finalLoad,
+            constraints: finalConstraints || [],
             isFallbackActivated: !gBestMetrics,
-
-            bestStep:
-            self.lastEvaluatedBestStepNumber
+            bestStep: self.lastEvaluatedBestStepNumber
         },
-
         training: {
             observations: observedX.length,
-
-            completeObservations:
-            observedIsComplete.filter(Boolean).length,
-
-            abortObservations:
-            observedIsComplete.filter(
-                value => !value
-            ).length,
-
-            loadObservations:
-            observedLogLoad.length,
-
-            errorObservations:
-            observedLogError.length
+            completeObservations: observedIsComplete.filter(Boolean).length,
+            abortObservations: observedIsComplete.filter(value => !value).length,
+            objectiveObservations: observedLogLoad.length,
+            constraintObservations: observedLogConstraints.map((arr, idx) => ({
+                name: constraintNames[idx] || `c_${idx}`,
+                count: arr.length
+            }))
         }
     });
-
     return {
         optimalLimits: finalPhysical,
-
         metrics: {
-            achievedLoad:
-                finalLoad ?? maxAllowedLoad,
-
-            resultingErrorScore:
-                finalError ?? 1e10,
-
-            searchStepsMade:
-            currentExecutionCount,
-
-            isFallbackActivated:
-                !gBestMetrics,
-
-            appliedObjective:
-            objective,
-
-            bestStepNumber:
-            self.lastEvaluatedBestStepNumber,
-
-            technicalMetrics:
-            finalMetrics
+            achievedValue: finalLoad ?? null,
+            constraints: finalConstraints || [],
+            searchStepsMade: currentExecutionCount,
+            isFallbackActivated: !gBestMetrics,
+            appliedObjective: goalDirection,
+            bestStepNumber: self.lastEvaluatedBestStepNumber,
+            technicalMetrics: finalMetrics
         },
-
         diagnosticLogText: diag.getText(),
-
         resumeState: {
+            goalDirection,
+            objectiveShift,
             currentExecutionCount,
             sobolDraws: sobolDrawsCount,
             lastEMAStorage: self.lastEMAStorage,
             evaluatedKeys: Array.from(evaluatedKeys),
             observedX,
             observedLoad,
-            observedError,
             observedLogLoad,
-            observedLogError,
             observedLoadNoise,
-            observedErrorNoise,
+            observedLogConstraints,
+            observedConstraintNoise,
+            constraintLimitsGP,
+            constraintNames,
+            observedAllFeasible,
             observedRegionIds,
             observedIsComplete,
-            residualPairs,
+            residualPairsByConstraint,
             searchRegions,
             globalGPState,
             gBestMetrics,
             gBestPhysical,
             gBestLoad,
-            gBestError,
+            gBestConstraints,
             lastEvaluatedBestParams: self.lastEvaluatedBestParams,
             lastEvaluatedBestMetrics: self.lastEvaluatedBestMetrics,
             lastEvaluatedBestStepNumber: self.lastEvaluatedBestStepNumber,
             fallbackMetrics,
             fallbackPhysical,
             fallbackLoad,
-            fallbackError,
+            fallbackConstraints,
             fallbackViolation,
             fallbackObjective
         }
     };
 }
+
 

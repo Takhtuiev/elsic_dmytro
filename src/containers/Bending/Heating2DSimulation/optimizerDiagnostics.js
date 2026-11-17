@@ -22,11 +22,15 @@ export async function downloadDiagnosticLog(logText) {
     if (!ENABLE_DIAGNOSTIC_LOGS || !logText) return;
 
     try {
-        await fetch("/__save-optimizer-log", {
+        const response = await fetch("/__save-optimizer-log", {
             method: "POST",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: logText
         });
+
+        if (!response.ok) {
+            console.error(`Server rejected log save: ${response.status} ${response.statusText}`);
+        }
     } catch (err) {
         console.error("Failed to save the diagnostic log to the project:", err);
     }

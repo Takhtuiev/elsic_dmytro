@@ -25,8 +25,13 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 
-import { getAdaptiveOptimizerBudget, OPTIMIZER_BASE_CONFIG, OPTIMIZER_SETTINGS } from "./optimizer.config";
-import { LIMITS } from "./heating2DModel";
+import {
+    getAdaptiveOptimizerBudget,
+    OPTIMIZER_TASKS,
+    DEFAULT_TASK_ID,
+    resolveOptimizerTask
+} from "./optimizer.config";
+
 import { downloadDiagnosticLog } from "./optimizerDiagnostics";
 
 // ============================================================================
@@ -63,8 +68,6 @@ const SYS_BOX_SX = {
 };
 
 const EMPTY_SNAPSHOT_STATE = {
-    errorScore: "—",
-    load: "—",
     step: "—",
     solverRejected: "0",
     optimizerStep: "—",
@@ -101,11 +104,11 @@ function formatNumberWithNBSP(num) {
     return new Intl.NumberFormat("fr-FR").format(num).replace(/\s/g, "\u00A0");
 }
 
-function formatParamValue(name, value) {
+function formatParamValue(name, value, taskParameters = {}) {
     if (value === null || value === undefined) return "—";
     if (typeof value !== "number") return String(value);
 
-    const config = OPTIMIZER_BASE_CONFIG[name];
+    const config = taskParameters[name];
     if (config) {
         const digits = config.digits ?? 5;
         const formattedValue = value.toFixed(digits);
@@ -133,12 +136,32 @@ function getStepModeColor(stepMode) {
     return LOG_TYPE_STYLES[rootMode]?.color || LOG_TYPE_STYLES.system.color;
 }
 
+function formatMetricNumber(val, unit = "") {
+    if (val === null || val === undefined || !Number.isFinite(Number(val))) return "—";
+    const num = Number(val);
+    const formatted = Math.abs(num) >= 10000
+        ? formatNumberWithNBSP(Math.round(num))
+        : (Number.isInteger(num) ? String(num) : num.toFixed(3));
+    return unit ? `${formatted} ${unit}` : formatted;
+}
+
+function formatConstraintBound(c) {
+    if (!c) return "";
+    const fmt = (v) => (Math.abs(v) >= 10000 ? formatNumberWithNBSP(Math.round(v)) : String(v));
+    const hasMin = Number.isFinite(c.min);
+    const hasMax = Number.isFinite(c.max);
+    if (hasMin && hasMax) return `[${fmt(c.min)}..${fmt(c.max)}]`;
+    if (hasMax) return `≤ ${fmt(c.max)}`;
+    if (hasMin) return `≥ ${fmt(c.min)}`;
+    return "";
+}
+
 function extractTechnicalDetails(technicalMetrics) {
     if (!technicalMetrics) {
         return {
-            errVal: "—",
             loadVal: "—",
             calcTime: "—",
+            hasAccuracy: false,
             tErr: "—",
             gErr: "—",
             pErr: "—",
@@ -152,11 +175,11 @@ function extractTechnicalDetails(technicalMetrics) {
     const { accuracy, iterations, calculationTimeMs } = technicalMetrics;
 
     return {
-        errVal: accuracy?.totalErrorScore !== undefined ? accuracy.totalErrorScore.toFixed(3) : "—",
         loadVal: iterations?.totalGridPointsProcessed !== undefined
             ? formatNumberWithNBSP(iterations.totalGridPointsProcessed)
             : "—",
         calcTime: calculationTimeMs !== undefined ? `${calculationTimeMs.toFixed(1)} ms` : "—",
+        hasAccuracy: accuracy?.totalErrorScore !== undefined,
         tErr: accuracy?.timeIntegrationErrorC !== undefined ? `${accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
         gErr: accuracy?.spatialGridErrorC !== undefined ? `${accuracy.spatialGridErrorC.toFixed(3)}°C` : "—",
         pErr: accuracy?.picardConvergenceErrorC !== undefined
@@ -173,7 +196,7 @@ function extractTechnicalDetails(technicalMetrics) {
 // 3. ВНУТРЕННИЕ UI-ПОДКОМПОНЕНТЫ (ДЛЯ ЧИТАЕМОСТИ RENDER-ДЕРЕВА)
 // ============================================================================
 
-function LogItemRow({ log, idx, isExpanded, onToggleExpand }) {
+function LogItemRow({ log, idx, isExpanded, onToggleExpand, taskParameters = {} }) {
     if (!log || !log.text) return null;
 
     if (typeof log.text === "string" && log.text.includes("=====")) {
@@ -184,29 +207,36 @@ function LogItemRow({ log, idx, isExpanded, onToggleExpand }) {
     const statusColor = LOG_TYPE_STYLES[log.type]?.color || LOG_TYPE_STYLES.success.color;
     const modeColor = getStepModeColor(log.stepMode);
     const details = extractTechnicalDetails(log.technicalMetrics);
-    const modeText = OPTIMIZER_SETTINGS.optimizationObjective === "minimize_load"
-        ? "Optimal Speed"
-        : "Optimal Accuracy";
+
+    const summary = log.evaluationSummary || (log.finalMetricsCache ? {
+        objective: {
+            value: log.finalMetricsCache.achievedValue,
+            goal: log.finalMetricsCache.appliedObjective,
+            unit: ""
+        },
+        constraints: log.finalMetricsCache.constraints || []
+    } : null);
 
     const renderLogMessage = () => {
-        if (!log.candidateParams) return log.text;
+        if (!log.candidateParams || !summary?.objective) return log.text;
 
-        const tm = log.technicalMetrics;
-        const errVal = tm?.accuracy?.totalErrorScore !== undefined
-            ? tm.accuracy.totalErrorScore.toFixed(4)
-            : "—";
-        const loadVal = tm?.iterations?.totalGridPointsProcessed !== undefined
-            ? formatNumberWithNBSP(tm.iterations.totalGridPointsProcessed)
-            : "—";
+        const objText = formatMetricNumber(summary.objective.value, summary.objective.unit);
+        const constraintsList = Array.isArray(summary.constraints) ? summary.constraints : [];
 
         return (
             <>
                 {log.text}{" "}
                 <Box component="span" sx={{ fontWeight: 500 }}>
-                    <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>(err=</Box>
-                    {errVal}
-                    <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>, load=</Box>
-                    {loadVal}
+                    <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>(obj=</Box>
+                    {objText}
+                    {constraintsList.map((c, i) => (
+                        <React.Fragment key={i}>
+                            <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>, {c.name}=</Box>
+                            <Box component="span" sx={{ color: c.feasible ? "inherit" : "#f97316" }}>
+                                {formatMetricNumber(c.value)}
+                            </Box>
+                        </React.Fragment>
+                    ))}
                     <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>)</Box>
                 </Box>
             </>
@@ -335,19 +365,34 @@ function LogItemRow({ log, idx, isExpanded, onToggleExpand }) {
                         )}
 
                         <Box>
-                            Simulation calculation time: <strong style={{ color: "#ffffff" }}>{details.calcTime}</strong> | Mode: <strong style={{ color: "#4ec9b0" }}>{modeText}</strong>
+                            Simulation calculation time: <strong style={{ color: "#ffffff" }}>{details.calcTime}</strong>
                         </Box>
 
-                        <Box>
-                            Error score:{" "}
-                            <strong style={{ color: (log.type === "abort" || log.type === "error") ? "#ef4444" : "#2563eb" }}>
-                                {details.errVal}
-                            </strong>{" "}
-                            <span style={{ color: "#64748b" }}>
-                                (Time: {details.tErr}, Grid: {details.gErr}, Picard: {details.pErr}
-                                {details.resVal !== null ? `, Residual: ${details.resVal}` : ""})
-                            </span>
-                        </Box>
+                        {summary?.objective && (
+                            <Box sx={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
+                                <span>
+                                    Objective ({summary.objective.goal || "opt"}):{" "}
+                                    <strong style={{ color: (log.type === "abort" || log.type === "error") ? "#ef4444" : "#38bdf8" }}>
+                                        {formatMetricNumber(summary.objective.value, summary.objective.unit)}
+                                    </strong>
+                                </span>
+                                {Array.isArray(summary.constraints) && summary.constraints.map((c, i) => (
+                                    <span key={i}>
+                                        {c.name}:{" "}
+                                        <strong style={{ color: c.feasible ? "#10b981" : "#ef4444" }}>
+                                            {formatMetricNumber(c.value)}
+                                        </strong>
+                                    </span>
+                                ))}
+                            </Box>
+                        )}
+
+                        {details.hasAccuracy && (
+                            <Box sx={{ color: "#64748b" }}>
+                                Solver accuracy: Time: {details.tErr}, Grid: {details.gErr}, Picard: {details.pErr}
+                                {details.resVal !== null ? `, Residual: ${details.resVal}` : ""}
+                            </Box>
+                        )}
 
                         <Box>
                             Solver steps: <strong style={{ color: "#ffffff" }}>{details.stepsSolver}</strong>
@@ -361,10 +406,10 @@ function LogItemRow({ log, idx, isExpanded, onToggleExpand }) {
                     <Box sx={{ width: "100%" }}>
                         <Box sx={{ ...SYS_BOX_SX, borderBottom: "none", pb: 0 }}>
                             {Object.entries(log.candidateParams).map(([name, value]) => {
-                                const displayLabel = OPTIMIZER_BASE_CONFIG[name]?.label || name;
+                                const displayLabel = taskParameters[name]?.label || name;
                                 return (
                                     <Typography key={name} variant="body2" color="#94a3b8" fontSize="0.75rem" sx={{ fontFamily: "inherit" }}>
-                                        {displayLabel}: <strong style={{ color: "#10b981", fontWeight: 600 }}>{formatParamValue(name, value)}</strong>
+                                        {displayLabel}: <strong style={{ color: "#10b981", fontWeight: 600 }}>{formatParamValue(name, value, taskParameters)}</strong>
                                     </Typography>
                                 );
                             })}
@@ -376,7 +421,7 @@ function LogItemRow({ log, idx, isExpanded, onToggleExpand }) {
     );
 }
 
-function BestSnapshotCard({ bestSnapshotState, finalResultReceived, expanded, onToggleExpand }) {
+function BestSnapshotCard({ bestSnapshotState, finalResultReceived, expanded, onToggleExpand, taskParameters = {} }) {
     const hasParams = Boolean(bestSnapshotState.params);
 
     return (
@@ -401,7 +446,7 @@ function BestSnapshotCard({ bestSnapshotState, finalResultReceived, expanded, on
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <LeaderboardIcon sx={{ color: "#10b981", fontSize: "1.1rem" }} />
                     <Typography variant="caption" sx={{ color: "#cbd5e1", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                        {finalResultReceived ? "Final optimal layout configuration" : "Best step evaluation"}{" "}
+                        {finalResultReceived ? "Final optimal configuration" : "Best step evaluation"}{" "}
                         <span style={{ color: "#38bdf8", fontWeight: 700 }}>{bestSnapshotState.optimizerStep}</span>
                     </Typography>
                 </Box>
@@ -409,11 +454,17 @@ function BestSnapshotCard({ bestSnapshotState, finalResultReceived, expanded, on
                 <Box sx={{ display: "flex", alignItems: "center", gap: { xs: 1, sm: 3 }, flexWrap: "wrap" }}>
                     <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
                         <Typography variant="caption" sx={{ color: "#94a3b8", fontFamily: "monospace" }}>
-                            Error Score: <Box component="span" sx={{ color: "#2563eb", fontWeight: "bold" }}>{bestSnapshotState.errorScore}</Box>
+                            Objective ({bestSnapshotState.goalLabel || "MIN"}):{" "}
+                            <Box component="span" sx={{ color: "#38bdf8", fontWeight: "bold" }}>{bestSnapshotState.objectiveText || "—"}</Box>
                         </Typography>
-                        <Typography variant="caption" sx={{ color: "#94a3b8", fontFamily: "monospace" }}>
-                            Load: <Box component="span" sx={{ color: "#10b981", fontWeight: "bold" }}>{bestSnapshotState.load}</Box>
-                        </Typography>
+                        {Array.isArray(bestSnapshotState.constraints) && bestSnapshotState.constraints.map((c, idx) => (
+                            <Typography key={idx} variant="caption" sx={{ color: "#94a3b8", fontFamily: "monospace" }}>
+                                {c.name}:{" "}
+                                <Box component="span" sx={{ color: c.feasible ? "#10b981" : "#ef4444", fontWeight: "bold" }}>
+                                    {formatMetricNumber(c.value)}
+                                </Box>
+                            </Typography>
+                        ))}
                     </Box>
 
                     <Typography variant="caption" color="#64748b" sx={{ fontFamily: "inherit" }}>
@@ -444,21 +495,18 @@ function BestSnapshotCard({ bestSnapshotState, finalResultReceived, expanded, on
                             boxSizing: "border-box"
                         }}
                     >
-                        <Box sx={SYS_BOX_SX}>
-                            <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                                Error score: <strong style={{ color: "#f8fafc", fontSize: "0.9rem", fontWeight: 700 }}>{bestSnapshotState.errorScore}</strong>
-                                {bestSnapshotState.timeError !== "—" && (
-                                    <span style={{ marginLeft: 8, color: "#475569" }}>
-                                        (Time: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.timeError}</strong>,
-                                        Grid: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.gridError}</strong>,
-                                        Picard: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.picardError}</strong>
-                                        {bestSnapshotState.linearResidual !== null && (
-                                            <>, Residual: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.linearResidual}</strong></>
-                                        )})
-                                    </span>
-                                )}
-                            </Typography>
-                        </Box>
+                        {bestSnapshotState.hasAccuracy && (
+                            <Box sx={SYS_BOX_SX}>
+                                <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
+                                    Solver accuracy: Time: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.timeError}</strong>,
+                                    Grid: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.gridError}</strong>,
+                                    Picard: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.picardError}</strong>
+                                    {bestSnapshotState.linearResidual !== null && (
+                                        <>, Residual: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.linearResidual}</strong></>
+                                    )}
+                                </Typography>
+                            </Box>
+                        )}
 
                         <Box sx={SYS_BOX_SX}>
                             <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
@@ -485,10 +533,10 @@ function BestSnapshotCard({ bestSnapshotState, finalResultReceived, expanded, on
 
                         <Box sx={{ ...SYS_BOX_SX, borderBottom: "none", pb: 0 }}>
                             {Object.entries(bestSnapshotState.params).map(([name, value]) => {
-                                const displayLabel = OPTIMIZER_BASE_CONFIG[name]?.label || name;
+                                const displayLabel = taskParameters[name]?.label || name;
                                 return (
                                     <Typography key={name} variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                                        {displayLabel}: <strong style={{ color: "#38bdf8", fontWeight: 600 }}>{formatParamValue(name, value)}</strong>
+                                        {displayLabel}: <strong style={{ color: "#38bdf8", fontWeight: 600 }}>{formatParamValue(name, value, taskParameters)}</strong>
                                     </Typography>
                                 );
                             })}
@@ -504,14 +552,30 @@ function BestSnapshotCard({ bestSnapshotState, finalResultReceived, expanded, on
 // 4. ОСНОВНОЙ КОМПОНЕНТ ДИАЛОГА ОПТИМИЗАЦИИ
 // ============================================================================
 
-export function BayeusianLogDialog({ open, onClose, parentState, setParentState, accuracyModes }) {
+export function BayeusianLogDialog({ open, onClose, parentState, setParentState }) {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
     const pxSize = isMobile ? 2 : 2.5;
 
+    const [selectedTaskId, setSelectedTaskId] = useState(DEFAULT_TASK_ID);
+
+    const activeTask = useMemo(() => {
+        const thicknessMm = Number(parentState.geometry?.thickness) || 0;
+        const widthHalfMm = parentState.simulation?.widthHalfMm !== undefined
+            ? parentState.simulation.widthHalfMm
+            : ((Number(parentState.geometry?.width) || 0) / 2 || 20);
+
+        return resolveOptimizerTask(selectedTaskId, {
+            thicknessMm,
+            material: parentState.material,
+            machine: parentState.machine,
+            simulation: { ...parentState.simulation, widthHalfMm }
+        });
+    }, [selectedTaskId, parentState]);
+
     const defaultBudget = useMemo(
-        () => getAdaptiveOptimizerBudget(OPTIMIZER_BASE_CONFIG, OPTIMIZER_SETTINGS),
-        []
+        () => getAdaptiveOptimizerBudget(activeTask),
+        [activeTask]
     );
 
     // --- Состояние UI и процесса оптимизации ---
@@ -815,30 +879,13 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
     // --- Формирование конфигурации и управление задачами ---
     const buildWorkerPayload = useCallback((command) => {
-        const uiModelPresets = {};
-        const currentModes = accuracyModes || ["fast", "optimal", "accurate", "accurate2"];
-
         const thicknessMm = Number(parentState.geometry?.thickness) || 0;
         const widthHalfMm = parentState.simulation.widthHalfMm !== undefined
             ? parentState.simulation.widthHalfMm
             : ((Number(parentState.geometry?.width) || 0) / 2 || 20);
 
-        currentModes.forEach((modeName, modeIdx) => {
-            uiModelPresets[modeName] = {};
-
-            if (Array.isArray(LIMITS?.gridDensityX) && LIMITS.gridDensityX[modeIdx] !== undefined) {
-                uiModelPresets[modeName].gridDensityX = LIMITS.gridDensityX[modeIdx];
-            }
-            if (Array.isArray(LIMITS?.gridDensityY) && LIMITS.gridDensityY[modeIdx] !== undefined) {
-                uiModelPresets[modeName].gridDensityY = LIMITS.gridDensityY[modeIdx];
-            }
-            if (Array.isArray(LIMITS?.tempStepK) && LIMITS.tempStepK[modeIdx] !== undefined) {
-                uiModelPresets[modeName].tempStepK = LIMITS.tempStepK[modeIdx];
-            }
-        });
-
-        const serializableConfig = Object.fromEntries(
-            Object.entries(OPTIMIZER_BASE_CONFIG)
+        const paramOverrides = Object.fromEntries(
+            Object.entries(activeTask.parameters)
                 .filter(([key]) => !(widthHalfMm === 0 && key === "gridDensityY"))
                 .map(([key, { snap, step, ...rest }]) => [key, rest])
         );
@@ -855,13 +902,11 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                 }
             },
             options: {
-                ...OPTIMIZER_SETTINGS,
-                accuracyModes: currentModes,
-                config: serializableConfig,
-                modelPresets: uiModelPresets
+                taskId: selectedTaskId,
+                paramOverrides
             }
         };
-    }, [parentState, accuracyModes]);
+    }, [parentState, activeTask, selectedTaskId]);
 
     const runOptimization = useCallback(() => {
         if (!workerRef.current || isOptimizingRef.current) return;
@@ -981,8 +1026,17 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
 
     // --- Расчёт показателей лучшего найденного решения ---
     const bestSnapshotState = useMemo(() => {
+        const unit = activeTask.unit || "";
+        const goalLabel = activeTask.goal === "max" ? "MAX" : "MIN";
+
         if (bestLogIndex === null || !logs[bestLogIndex]) {
-            return EMPTY_SNAPSHOT_STATE;
+            return {
+                ...EMPTY_SNAPSHOT_STATE,
+                objectiveText: "—",
+                goalLabel,
+                constraints: [],
+                hasAccuracy: false
+            };
         }
 
         const targetLog = logs[bestLogIndex];
@@ -991,27 +1045,35 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
             const m = targetLog.finalMetricsCache;
             const bestStepLog = targetLog.bestStepNumber !== undefined && targetLog.bestStepNumber !== null
                 ? [...logs].reverse().find(
-                    (l) => l && !l.isFinalReportMarker && l.currentStepVisual === targetLog.bestStepNumber && l.technicalMetrics?.accuracy
+                    (l) => l && !l.isFinalReportMarker && l.currentStepVisual === targetLog.bestStepNumber && l.technicalMetrics
                 )
                 : null;
 
             const backupTm = bestStepLog?.technicalMetrics || [...logs]
                 .reverse()
-                .find((l) => l && l.technicalMetrics && l.technicalMetrics.accuracy)?.technicalMetrics;
+                .find((l) => l && l.technicalMetrics)?.technicalMetrics;
 
-            const rawLoad = m.achievedLoad !== undefined ? Number(m.achievedLoad) : NaN;
+            const rawAchieved = m.achievedValue !== undefined
+                ? Number(m.achievedValue)
+                : (m.achievedLoad !== undefined ? Number(m.achievedLoad) : NaN);
+
             const stepLabel = targetLog.bestStepNumber !== undefined && targetLog.bestStepNumber !== null
                 ? `#${targetLog.bestStepNumber}`
                 : "FINAL";
             const stepCalcTimeMs = m?.calculationTimeMs ?? backupTm?.calculationTimeMs;
 
             return {
-                errorScore: Number.isFinite(Number(m.resultingErrorScore)) ? Number(m.resultingErrorScore).toFixed(3) : "—",
+                objectiveText: formatMetricNumber(rawAchieved, unit),
+                goalLabel,
+                constraints: Array.isArray(m.constraints) ? m.constraints : (bestStepLog?.evaluationSummary?.constraints || []),
+                hasAccuracy: backupTm?.accuracy?.totalErrorScore !== undefined,
                 picardError: backupTm?.accuracy?.picardConvergenceErrorC !== undefined
                     ? `${Math.abs(backupTm.accuracy.picardConvergenceErrorC).toFixed(3)}°C`
                     : "—",
                 linearResidual: formatResidual(backupTm?.accuracy?.linearResidual),
-                load: Number.isFinite(rawLoad) ? formatNumberWithNBSP(rawLoad) : "—",
+                load: backupTm?.iterations?.totalGridPointsProcessed !== undefined
+                    ? formatNumberWithNBSP(backupTm.iterations.totalGridPointsProcessed)
+                    : "—",
                 step: m?.iterations?.totalTimeSteps !== undefined ? String(m.iterations.totalTimeSteps) : "—",
                 solverRejected: m?.iterations?.rejectedTimeSteps !== undefined
                     ? String(m.iterations.rejectedTimeSteps)
@@ -1028,8 +1090,13 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
         }
 
         const tm = targetLog.technicalMetrics;
+        const summary = targetLog.evaluationSummary;
+
         return {
-            errorScore: tm?.accuracy?.totalErrorScore !== undefined ? tm.accuracy.totalErrorScore.toFixed(3) : "—",
+            objectiveText: formatMetricNumber(summary?.objective?.value, summary?.objective?.unit || unit),
+            goalLabel,
+            constraints: Array.isArray(summary?.constraints) ? summary.constraints : [],
+            hasAccuracy: tm?.accuracy?.totalErrorScore !== undefined,
             picardError: tm?.accuracy?.picardConvergenceErrorC !== undefined
                 ? `${Math.abs(tm.accuracy.picardConvergenceErrorC).toFixed(3)}°C`
                 : "—",
@@ -1046,22 +1113,46 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
             picardIters: tm?.iterations?.totalPicardIterations !== undefined ? String(tm.iterations.totalPicardIterations) : "—",
             params: targetLog.candidateParams
         };
-    }, [bestLogIndex, logs]);
+    }, [bestLogIndex, logs, activeTask]);
 
     const handleApplyParameters = useCallback(() => {
         if (!bestSnapshotState || !bestSnapshotState.params) return;
 
-        setParentState((prev) => ({
-            ...prev,
-            simulation: {
-                ...prev.simulation,
-                accuracyMode: bestSnapshotState.params,
-                customAccuracyParams: bestSnapshotState.params
+        setParentState((prev) => {
+            let nextState = { ...prev };
+            let isGridTask = false;
+
+            for (const [key, val] of Object.entries(bestSnapshotState.params)) {
+                const path = activeTask.parameters[key]?.path;
+                if (!path) continue;
+
+                if (path.startsWith("simulation.accuracyMode")) {
+                    isGridTask = true;
+                }
+
+                const parts = path.split(".");
+                let curr = nextState;
+                for (let i = 0; i < parts.length - 1; i++) {
+                    const part = parts[i];
+                    curr[part] = Array.isArray(curr[part]) ? [...curr[part]] : { ...(curr[part] || {}) };
+                    curr = curr[part];
+                }
+                curr[parts[parts.length - 1]] = val;
             }
-        }));
+
+            if (isGridTask) {
+                nextState.simulation = {
+                    ...nextState.simulation,
+                    accuracyMode: bestSnapshotState.params,
+                    customAccuracyParams: bestSnapshotState.params
+                };
+            }
+
+            return nextState;
+        });
 
         onClose?.();
-    }, [bestSnapshotState, setParentState, onClose]);
+    }, [bestSnapshotState, activeTask, setParentState, onClose]);
 
     // --- Автопрокрутка консоли логов ---
     useEffect(() => {
@@ -1102,6 +1193,19 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
             : finalResultReceived
                 ? "OPTIMIZATION_COMPLETED"
                 : "WORKER_THREAD_IDLE";
+
+    const taskSpecConstraints = useMemo(() => {
+        if (Array.isArray(bestSnapshotState.constraints) && bestSnapshotState.constraints.length > 0) {
+            return bestSnapshotState.constraints;
+        }
+        try {
+            const preview = activeTask.evaluateResult({}, parentState, null);
+            return Array.isArray(preview?.constraints) ? preview.constraints : [];
+        } catch {
+            return [];
+        }
+    }, [bestSnapshotState.constraints, activeTask, parentState]);
+
 
     // --- Рендер ---
     return (
@@ -1150,6 +1254,33 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                     <Typography variant="subtitle1" component="span" sx={{ color: "#e2e8f0", fontWeight: 600, fontSize: isMobile ? "1.05rem" : "1.2rem", letterSpacing: "0.3px" }}>
                         Bayesian Grid Optimization Monitor
                     </Typography>
+                    <select
+                        value={selectedTaskId}
+                        disabled={isOptimizing}
+                        onChange={(e) => {
+                            setSelectedTaskId(e.target.value);
+                            setLogs([]);
+                            setBestLogIndex(null);
+                            setFinalResultReceived(false);
+                        }}
+                        style={{
+                            marginLeft: 12,
+                            backgroundColor: "#0f172a",
+                            color: "#e2e8f0",
+                            border: "1px solid #334155",
+                            borderRadius: "4px",
+                            padding: "4px 8px",
+                            fontSize: "0.85rem",
+                            cursor: isOptimizing ? "not-allowed" : "pointer"
+                        }}
+                    >
+                        {Object.values(OPTIMIZER_TASKS).map((t) => (
+                            <option key={t.id} value={t.id}>
+                                {t.label}
+                            </option>
+                        ))}
+                    </select>
+
                 </Box>
                 <IconButton
                     aria-label="close"
@@ -1169,13 +1300,33 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                         <Typography variant="caption" sx={{ color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", fontSize: "0.75rem", whiteSpace: "nowrap" }}>
                             Total Optimization Progress
                         </Typography>
-                        <Typography variant="caption" sx={{ color: isOptimizing ? "#3b82f6" : "#f8fafc", fontFamily: "monospace", fontWeight: 700, display: "flex", alignItems: "center", gap: 0.5 }}>
-                            <TimerIcon sx={{ fontSize: "0.9rem", opacity: 0.8 }} />
-                            {formatTime(elapsedTime)}
+                        <Typography variant="caption" sx={{ color: "#64748b", fontFamily: "monospace", fontSize: "0.75rem" }}>
+                            Goal:{" "}
+                            <Box component="span" sx={{ color: "#38bdf8", fontWeight: 600 }}>
+                                {(activeTask.goal || "min").toUpperCase()}{activeTask.unit ? ` (${activeTask.unit})` : ""}
+                            </Box>
+                            {taskSpecConstraints.length > 0 && (
+                                <>
+                                    {" | "}
+                                    {taskSpecConstraints.map((c, idx) => (
+                                        <React.Fragment key={c.name || idx}>
+                                            {idx > 0 ? ", " : ""}
+                                            <Box component="span" sx={{ color: "#94a3b8" }}>
+                                                {c.name} {formatConstraintBound(c)}
+                                            </Box>
+                                        </React.Fragment>
+                                    ))}
+                                </>
+                            )}
                         </Typography>
                     </Box>
 
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexGrow: 1, width: { xs: "100%", sm: "auto" }, justifyContent: "flex-end" }}>
+                        <Typography variant="caption" sx={{ color: isOptimizing ? "#3b82f6" : "#f8fafc", fontFamily: "monospace", fontWeight: 700, display: "flex", alignItems: "center", gap: 0.5, whiteSpace: "nowrap" }}>
+                            <TimerIcon sx={{ fontSize: "0.9rem", opacity: 0.8 }} />
+                            {formatTime(elapsedTime)}
+                        </Typography>
+
                         <Typography variant="caption" sx={{ color: "#2563eb", fontWeight: "bold", fontFamily: "monospace", whiteSpace: "nowrap" }}>
                             {completedSteps}/{totalBudgetTarget}
                         </Typography>
@@ -1219,11 +1370,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                             STDOUT / LOGS_STREAM
                         </Typography>
                         <Typography variant="body2" color="#64748b" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                            Objective: <strong style={{ color: "#94a3b8" }}>{OPTIMIZER_SETTINGS.optimizationObjective}</strong>
-                            <span style={{ color: "#64748b", marginLeft: "12px" }}>
-                                Constraints: [Max Error: <strong style={{ color: "#94a3b8" }}>{OPTIMIZER_SETTINGS.maxErrorScore}</strong> | Max Load:{" "}
-                                <strong style={{ color: "#94a3b8" }}>{formatNumberWithNBSP(OPTIMIZER_SETTINGS.maxAllowedLoad)} nodes</strong>]
-                            </span>
+                            Task: <strong style={{ color: "#94a3b8" }}>{activeTask.label}</strong>
                         </Typography>
                     </Box>
 
@@ -1255,6 +1402,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                                     idx={idx}
                                     isExpanded={Boolean(expandedLogs[idx])}
                                     onToggleExpand={handleToggleLogExpand}
+                                    taskParameters={activeTask.parameters}
                                 />
                             ))
                         )}
@@ -1268,6 +1416,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState,
                         finalResultReceived={finalResultReceived}
                         expanded={bestPanelExpanded}
                         onToggleExpand={() => setBestPanelExpanded((prev) => !prev)}
+                        taskParameters={activeTask.parameters}
                     />
                 )}
             </DialogContent>

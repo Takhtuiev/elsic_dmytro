@@ -402,12 +402,6 @@ function smoothStepCosine(value, start, end) {
     const s = (value - start) / (end - start);
     return 0.5 * (1 + Math.cos(Math.PI * s));
 }
-function getLocalConvection(yMm, heaterTemperatureK, ambientTemperatureK, hSlot, slotHalfWidthMm, convectionTransitionEndMm, hAmbientSide) {
-    const weight = smoothStepCosine(yMm, slotHalfWidthMm, convectionTransitionEndMm);
-    const airTemperatureK = weight * heaterTemperatureK + (1 - weight) * ambientTemperatureK;
-    const h = weight * hSlot + (1 - weight) * hAmbientSide;
-    return { weight, airTemperatureK, h };
-}
 // ============================================================================
 // 5. РЕШАТЕЛЬ ЛЕНТОЧНЫХ СЛАУ (LU-РАЗЛОЖЕНИЕ С ПОДСЧЕТОМ НЕВЯЗКИ)
 // ============================================================================
@@ -898,8 +892,9 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         T_n_top = T_nm1_top = currentBuffer[idxTop];
         T_n_mid = T_nm1_mid = currentBuffer[idxMid];
         T_n_bot = T_nm1_bot = currentBuffer[idxBot];
-        dt = cfg.targetDeltaT * 0.2;
+        dt = Math.min(0.05, Math.max(0.005, cfg.targetDeltaT * 0.02));
         countConsecutiveRejectedSteps = 0;
+        currentStepCpuUnits = 0;
         logHistoryGlobal(time + coolingTimeElapsed, true);
     };
     const { invDxH, invDxL, invDxR } = gridX;
@@ -926,7 +921,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 switchToCoolingPhase();
                 continue;
             }
-            if (step <= 1 || (!reachedTarget && targetType !== "time")) {
+            const isCoolingFinished = currentPhase === "cooling" && (totalCoolingTime - coolingTimeElapsed) <= 1e-4;
+            if (!isCoolingFinished && (step <= 1 || (!reachedTarget && targetType !== "time"))) {
                 status = {
                     type: "error",
                     message: `Simulation stalled completely: Time step fell below critical limit (1e-5) on step #${step} (${currentPhase}).`
@@ -1105,21 +1101,31 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     localMaxSignedDiff = diffSigned;
                 }
             }
-            buffers[newIdx].set(solverX);
+
+            // Если Пикар начал осциллировать (невязка не падает), применяем демпфирование 0.5 для гашения колебаний
+            const useDamping = iter >= 4 && maxDeltaK >= prevDeltaK * 0.92;
+            if (useDamping) {
+                for (let k = 0; k < size2D; k++) {
+                    buffers[newIdx][k] = 0.5 * buffers[newIdx][k] + 0.5 * solverX[k];
+                }
+            } else {
+                buffers[newIdx].set(solverX);
+            }
+
             lastIterMaxSignedDiff = localMaxSignedDiff;
             if (maxDeltaK < cfg.nonlinearToleranceK) {
                 nonlinearConverged = true;
                 break;
             }
-// Контроль расходимости и стагнации Пикара
-            if (iter >= 4) {
-                if (maxDeltaK > prevDeltaK * 1.20) {
+// Контроль расходимости и стагнации Пикара (даем демпфированию поработать до 16-й итерации)
+            if (iter >= 6) {
+                if (maxDeltaK > prevDeltaK * 1.35) {
                     consecutiveBadSteps++;
-                    if (consecutiveBadSteps >= 2) break;
+                    if (consecutiveBadSteps >= 3) break;
                 } else {
                     consecutiveBadSteps = 0;
                 }
-                if (iter >= 6 && maxDeltaK >= prevDeltaK * 0.95) break;
+                if (iter >= 16 && maxDeltaK >= prevDeltaK * 0.98) break;
             }
             prevDeltaK = maxDeltaK;
         }
@@ -1179,6 +1185,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             if (stopAtMaxTemperature) {
                 time += dt;
                 countTimeSteps++;
+                if (totalCoolingTime > 0) {
+                    step++;
+                    currentStepCpuUnits = 0;
+                    switchToCoolingPhase();
+                    continue;
+                }
                 logHistoryGlobal(time + coolingTimeElapsed, true);
                 break;
             }

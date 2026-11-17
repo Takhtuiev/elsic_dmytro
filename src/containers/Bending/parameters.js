@@ -17,7 +17,7 @@ export const MACHINES = {
                 radiationGain: 0.9,
                 convectiveHeatTransferCoefficient: 8,
                 pid: {
-                    amplitudeC: 38,
+                    amplitudeC: 38, //38
                     periodSeconds: 245.0,
                     phaseSeconds: 0,
                     shape: 0.99
@@ -29,7 +29,7 @@ export const MACHINES = {
                 heaterTemperatureFactor: 1.6,
                 convectiveHeatTransferCoefficient: 16,
                 pid: {
-                    amplitudeC: 36,
+                    amplitudeC: 36, //36
                     periodSeconds: 245.0,
                     phaseSeconds: 136.48,
                     shape: 0.99

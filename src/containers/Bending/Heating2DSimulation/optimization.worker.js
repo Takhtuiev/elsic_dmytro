@@ -1,9 +1,9 @@
 /* eslint-disable no-restricted-globals */
 
 try {
-    const { optimizeForMaxSpeed } = require('./optimizer.js');
-    const { simulate2DHeating } = require('./heating2DModel.js');
-    const { resolveOptimizerConfig } = require('./optimizer.config.js');
+    const { optimizeForMaxSpeed: runBayesianOptimization } = require("./optimizer.js");
+    const { simulate2DHeating } = require("./heating2DModel.js");
+    const { resolveOptimizerTask, DEFAULT_TASK_ID } = require("./optimizer.config.js");
 
     function getTimestamp() {
         return new Date().toLocaleTimeString("uk-UA", { hour12: false });
@@ -43,7 +43,7 @@ try {
             };
 
             self.postMessage({
-                status: 'log_step',
+                status: "log_step",
                 logEntry: {
                     stepMode: stepMode || "BAYES",
                     type: logTypeMap[snapshot.status] || "info",
@@ -54,6 +54,7 @@ try {
                     currentStepVisual: snapshot.currentStepVisual,
                     bestStepNumber: snapshot.bestStepNumber,
                     message: snapshot.message,
+                    evaluationSummary: snapshot.evaluationSummary || null,
                     isFinalReportMarker: Boolean(snapshot.isFinalReportMarker),
                     finalMetricsCache: snapshot.finalMetricsCache || null
                 }
@@ -62,12 +63,19 @@ try {
 
         self.optimizerStructuredLogger = sendStructuredLog;
 
+        const task = resolveOptimizerTask(
+            options?.taskId || DEFAULT_TASK_ID,
+            baseParams,
+            options?.paramOverrides || null,
+            options?.settingsOverrides || null
+        );
+
         const simulateWithDynamicProgress = (params) => {
             const simulationParams = {
                 ...params,
                 simulation: {
                     ...(params.simulation || {}),
-                    calculateAccuracyError: true,
+                    ...(task.simOverrides || {}),
                     maxHeatingPercent: fixedHeatingPercent
                 }
             };
@@ -77,18 +85,18 @@ try {
             return result;
         };
 
-        const progressHandler = (percent, currentExecutionCount, totalIterations, snapshot) => {
+        const progressHandler = (percent, _currentExecutionCount, totalIterations, snapshot) => {
             if (snapshot.status === "ABORT" || snapshot.status === "ERROR") {
                 sendStructuredLog("BAYES", snapshot.message || "Simulation stopped", snapshot);
                 return;
             }
 
             self.postMessage({
-                status: 'progress_tick',
+                status: "progress_tick",
                 snapshotStatus: snapshot.status,
                 percent: snapshot.percent,
                 currentExecutionCount: snapshot.currentStepVisual,
-                totalIterations: totalIterations,
+                totalIterations,
                 currentParams: snapshot.candidateParams,
                 technicalMetrics: snapshot.technicalMetrics,
                 bestStepNumber: snapshot.bestStepNumber
@@ -96,22 +104,34 @@ try {
         };
 
         try {
-            const result = await optimizeForMaxSpeed(
+            const result = await runBayesianOptimization(
                 baseParams,
                 simulateWithDynamicProgress,
                 {
                     ...options,
-                    config: resolveOptimizerConfig(options?.config),
+                    task,
                     resumeState: activeResumeState,
                     shouldStop: () => stopRequested,
                     onProgress: progressHandler
                 }
             );
+
             savedResumeState = result.resumeState;
             const cleanResult = { ...result };
             delete cleanResult.resumeState;
 
             const durationMs = performance.now() - workerStartTime;
+
+            const bestTm = cleanResult.metrics?.technicalMetrics || self.lastEvaluatedBestMetrics || {};
+
+            const finalEvaluationSummary = {
+                objective: {
+                    value: cleanResult.metrics?.achievedValue ?? null,
+                    goal: cleanResult.metrics?.appliedObjective || task.goal || "min",
+                    unit: task.unit || ""
+                },
+                constraints: cleanResult.metrics?.constraints || []
+            };
 
             const finalReportSnapshot = {
                 currentStepVisual: totalSimulationsExecuted,
@@ -119,22 +139,17 @@ try {
                 percent: 100,
                 candidateParams: cleanResult.optimalLimits,
                 technicalMetrics: {
-                    calculationTimeMs: durationMs,
-                    iterations: {
-                        ...(self.lastEvaluatedBestMetrics?.iterations || {}),
-                        totalGridPointsProcessed: cleanResult.metrics?.achievedLoad || 0
-                    },
-                    accuracy: {
-                        ...(self.lastEvaluatedBestMetrics?.accuracy || {}),
-                        totalErrorScore: cleanResult.metrics?.resultingErrorScore || 0
-                    }
+                    ...bestTm,
+                    calculationTimeMs: durationMs
                 },
+                evaluationSummary: finalEvaluationSummary,
                 message: null,
                 bestStepNumber: self.lastEvaluatedBestStepNumber,
                 isFinalReportMarker: true,
                 finalMetricsCache: {
                     ...cleanResult.metrics,
-                    iterations: self.lastEvaluatedBestMetrics?.iterations || {}
+                    unit: task.unit || "",
+                    iterations: bestTm.iterations || {}
                 }
             };
 
@@ -147,22 +162,21 @@ try {
             );
 
             self.postMessage({
-                status: 'success',
+                status: "success",
                 data: cleanResult
             });
         } catch (error) {
             self.postMessage({
-                status: 'error',
+                status: "error",
                 error: error?.message || String(error)
             });
         }
     };
-
 } catch (importError) {
     self.onmessage = function () {
         self.postMessage({
-            status: 'error',
-            error: 'Worker crash: ' + (importError?.message || String(importError))
+            status: "error",
+            error: "Worker crash: " + (importError?.message || String(importError))
         });
     };
 }
