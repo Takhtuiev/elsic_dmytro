@@ -359,12 +359,13 @@ function createMaterialModel(material) {
     const matDensity = material.density;
     const matThermalConductivity = material.thermalConductivity;
     const matSpecificHeat = material.specificHeat;
+
+    const outProps = { density: 0, k: 0, cp: 0 };
+
     return {
         constant: false,
         properties: null,
         get: (temperatureC, oldTemperatureC = null) => {
-            const density = isFnDensity ? matDensity(temperatureC) : matDensity;
-            const k = isFnThermalConductivity ? matThermalConductivity(temperatureC) : matThermalConductivity;
             const baseCp = isFnSpecificHeat ? matSpecificHeat(temperatureC) : matSpecificHeat;
             let cp = baseCp;
             if (oldTemperatureC !== null && Math.abs(temperatureC - oldTemperatureC) > 1e-4) {
@@ -381,10 +382,14 @@ function createMaterialModel(material) {
                     cp = baseCp * jumpFactor;
                 }
             }
-            return { density, k, cp };
+            outProps.density = isFnDensity ? matDensity(temperatureC) : matDensity;
+            outProps.k = isFnThermalConductivity ? matThermalConductivity(temperatureC) : matThermalConductivity;
+            outProps.cp = cp;
+            return outProps;
         }
     };
 }
+
 export function getNonlinearViewFactors(yCoordinatesMm) {
     const Ny = yCoordinatesMm.length;
     const viewFactors = new Float64Array(Ny);
@@ -1268,7 +1273,8 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     if (isTopBound || isBotBound) {
                         const props = matModel.get(currentTempK - 273.15, prevT[idxRow] - 273.15);
                         const kEff = Math.max(1e-6, props.k);
-                        const currentTempK_4 = Math.pow(currentTempK, 4);
+                        const t2 = currentTempK * currentTempK;
+                        const currentTempK_4 = t2 * t2;
                         let qSurf = 0.0;
                         if (currentPhase === "heating") {
                             const fH = bc.viewFactorsY[j];
