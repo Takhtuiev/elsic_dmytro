@@ -75,8 +75,35 @@ export const MACHINES = {
                 }
             }
         ]
-    }
+    },
+    MACHINE_LINE_3: {
+        name: "Line 3",
+
+        rTool: 1.2,
+
+        pidPhaseOffsetSeconds: 90,
+
+        heaters: [
+            {
+                // top
+                regulatorTemperatureC: 190,
+                heaterTemperatureFactor: 1.45,
+                heaterEmissivity: 0.90,
+                viewFactor: 1,
+                radiationGain: 0.9,
+                convectiveHeatTransferCoefficient: 8,
+            },
+            {
+                // bottom
+                regulatorTemperatureC: 200,
+                heaterTemperatureFactor: 1.6,
+                convectiveHeatTransferCoefficient: 16,
+            }
+        ]
+    },
+
 };
+
 
 
 export const MATERIALS = {

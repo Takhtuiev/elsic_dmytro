@@ -105,7 +105,7 @@ export const GRID_LOAD_TASK = {
 
     earlyAbort: {
         metric: (_percent, techMetrics) => techMetrics?.iterations?.totalGridPointsProcessed ?? 0,
-        ceiling: 25000000 * 3
+        ceiling: 27000000 * 3
     },
 
     evaluateResult: (res) => {

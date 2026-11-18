@@ -263,9 +263,10 @@ function LogItemRow({ log, idx, isExpanded, onToggleExpand, taskParameters = {} 
                 onClick={hasParams ? () => onToggleExpand(idx) : undefined}
                 sx={{
                     display: "flex",
-                    alignItems: "center",
-                    gap: 1,
-                    py: 0.25,
+                    flexDirection: { xs: "column", sm: "row" },
+                    alignItems: { xs: "flex-start", sm: "center" },
+                    gap: { xs: 0.25, sm: 1 },
+                    py: 0.5,
                     cursor: hasParams ? "pointer" : "default",
                     borderRadius: "4px",
                     px: 1,
@@ -275,33 +276,29 @@ function LogItemRow({ log, idx, isExpanded, onToggleExpand, taskParameters = {} 
                     "&:hover": { bgcolor: hasParams ? "rgba(255, 255, 255, 0.04)" : "transparent" }
                 }}
             >
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                {/* Шапка строки: стрелка + шаг + режим */}
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexShrink: 0 }}>
                     {hasParams && (
                         isExpanded
                             ? <KeyboardArrowDownIcon sx={{ fontSize: "1rem", color: "#64748b" }} />
                             : <KeyboardArrowRightIcon sx={{ fontSize: "1rem", color: "#64748b" }} />
                     )}
+
+                    {hasParams && !log.isFinalReportMarker && (
+                        <Typography
+                            component="span"
+                            sx={{ color: statusColor, fontSize: "inherit", fontFamily: "inherit", fontWeight: 500 }}
+                        >
+                            {`step:${String(log.currentStepVisual !== undefined ? log.currentStepVisual : idx).padStart(2, "0")}`}
+                        </Typography>
+                    )}
+
+                    <Box component="span" sx={{ color: modeColor, fontWeight: 600 }}>
+                        {log.stepMode ? `[${String(log.stepMode).toUpperCase()}]` : "[SYSTEM]"}
+                    </Box>
                 </Box>
 
-                {/* Номер шага */}
-                <Typography
-                    component="span"
-                    sx={{
-                        color: statusColor,
-                        fontSize: "inherit",
-                        fontFamily: "inherit",
-                        userSelect: "none",
-                        flexShrink: 0,
-                        fontWeight: 500,
-                        display: "inline-block"
-                    }}
-                >
-                    {hasParams && !log.isFinalReportMarker
-                        ? `step:${String(log.currentStepVisual !== undefined ? log.currentStepVisual : idx).padStart(2, "0")}`
-                        : null}
-                </Typography>
-
-                {/* Режим задачи и текст сообщения */}
+                {/* Текст лога на всю ширину */}
                 <Typography
                     component="span"
                     sx={{
@@ -309,19 +306,10 @@ function LogItemRow({ log, idx, isExpanded, onToggleExpand, taskParameters = {} 
                         fontSize: "inherit",
                         fontFamily: "inherit",
                         minWidth: 0,
-                        flexGrow: 1
+                        pl: { xs: hasParams ? 2.5 : 0, sm: 0 }
                     }}
                 >
-                    <Box
-                        component="span"
-                        sx={{ color: modeColor, fontWeight: 600, userSelect: "none", mr: 1.5 }}
-                    >
-                        {log.stepMode ? `[${String(log.stepMode).toUpperCase()}]` : "[SYSTEM]"}
-                    </Box>
-
-                    <Box component="span" sx={{ color: statusColor }}>
-                        {renderLogMessage()}
-                    </Box>
+                    {renderLogMessage()}
                 </Typography>
             </Box>
 
@@ -1242,18 +1230,40 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                     bgcolor: "#1a1d24",
                     borderBottom: "1px solid rgba(255,255,255,0.08)",
                     flexShrink: 0,
-                    minHeight: "auto",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    gap: 1.5
+                    gap: 1
                 }}
             >
-                <Box sx={{ flexGrow: 1, pr: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 1 }}>
-                    <TerminalIcon sx={{ color: "#2563eb", fontSize: "1.2rem", flexShrink: 0 }} />
-                    <Typography variant="subtitle1" component="span" sx={{ color: "#e2e8f0", fontWeight: 600, fontSize: isMobile ? "1.05rem" : "1.2rem", letterSpacing: "0.3px" }}>
-                        Bayesian Grid Optimization Monitor
-                    </Typography>
+                <Box
+                    sx={{
+                        flexGrow: 1,
+                        minWidth: 0,
+                        display: "flex",
+                        flexDirection: { xs: "column", sm: "row" },
+                        alignItems: { xs: "flex-start", sm: "center" },
+                        gap: { xs: 1, sm: 1.5 }
+                    }}
+                >
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, maxWidth: "100%" }}>
+                        <TerminalIcon sx={{ color: "#2563eb", fontSize: "1.2rem", flexShrink: 0 }} />
+                        <Typography
+                            variant="subtitle1"
+                            component="span"
+                            sx={{
+                                color: "#e2e8f0",
+                                fontWeight: 600,
+                                fontSize: isMobile ? "0.95rem" : "1.2rem",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap"
+                            }}
+                        >
+                            Bayesian Grid Optimization Monitor
+                        </Typography>
+                    </Box>
+
                     <select
                         value={selectedTaskId}
                         disabled={isOptimizing}
@@ -1264,12 +1274,13 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                             setFinalResultReceived(false);
                         }}
                         style={{
-                            marginLeft: 12,
+                            width: isMobile ? "100%" : "auto",
+                            maxWidth: "100%",
                             backgroundColor: "#0f172a",
                             color: "#e2e8f0",
                             border: "1px solid #334155",
                             borderRadius: "4px",
-                            padding: "4px 8px",
+                            padding: "6px 8px",
                             fontSize: "0.85rem",
                             cursor: isOptimizing ? "not-allowed" : "pointer"
                         }}
@@ -1280,13 +1291,13 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                             </option>
                         ))}
                     </select>
-
                 </Box>
+
                 <IconButton
                     aria-label="close"
                     onClick={onClose}
                     disabled={isOptimizing}
-                    sx={{ p: 0.5, color: "text.secondary", transition: "all 0.2s ease-in-out", "&:hover": { backgroundColor: "action.hover", color: "text.primary" } }}
+                    sx={{ p: 0.5, alignSelf: { xs: "flex-start", sm: "center" }, color: "text.secondary" }}
                 >
                     <CloseIcon fontSize="medium" />
                 </IconButton>
@@ -1334,7 +1345,15 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                         <LinearProgress
                             variant="determinate"
                             value={rawTotalProgress}
-                            sx={{ height: 4, width: "100%", maxWidth: { sm: "300px", md: "400px" }, borderRadius: 2, bgcolor: "#22252e", "& .MuiLinearProgress-bar": { bgcolor: "#2563eb", borderRadius: 2, transition: "transform 0.3s ease-out" } }}
+                            sx={{
+                                height: 4,
+                                width: "100%",
+                                minWidth: 40,
+                                maxWidth: { sm: "300px", md: "400px" },
+                                borderRadius: 2,
+                                bgcolor: "#22252e",
+                                "& .MuiLinearProgress-bar": { bgcolor: "#2563eb", borderRadius: 2 }
+                            }}
                         />
 
                         <Typography variant="caption" sx={{ color: "#2563eb", fontWeight: "bold", fontFamily: "monospace", whiteSpace: "nowrap" }}>
@@ -1381,12 +1400,13 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                             bgcolor: "#0b0c10",
                             p: { xs: 1, sm: 2 },
                             fontFamily: "Consolas, Monaco, 'Courier New', monospace",
-                            fontSize: "0.8rem",
+                            fontSize: { xs: "0.75rem", sm: "0.8rem" },
                             whiteSpace: "pre-wrap",
                             overflowWrap: "anywhere",
-                            height: isMobile ? "100%" : "50vh",
+                            height: isMobile ? "42vh" : "50vh",
+                            minHeight: 160,
                             overflowY: "auto",
-                            lineHeight: 1.6,
+                            lineHeight: 1.5,
                             flexGrow: 1
                         }}
                     >
