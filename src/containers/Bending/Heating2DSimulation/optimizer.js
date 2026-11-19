@@ -991,6 +991,36 @@ function applySigmaCalibration(prediction, scale) {
 // 4. ДВОЙНАЯ GP-МОДЕЛЬ И РЕГИОНАЛЬНЫЕ ОБУЧАЮЩИЕ ВЫБОРКИ
 // ============================================================================
 
+function computeAdaptiveNoise(values, isCompleteFlags, hasCoarseAxes) {
+    if (!Array.isArray(values) || values.length === 0) return 0;
+
+    let sum = 0;
+    let count = 0;
+    for (let i = 0; i < values.length; i++) {
+        if ((!isCompleteFlags || isCompleteFlags[i]) && Number.isFinite(values[i])) {
+            sum += values[i];
+            count++;
+        }
+    }
+
+    if (count < 3) {
+        return hasCoarseAxes ? 0.005 : 0.0002;
+    }
+
+    const mean = sum / count;
+    let sqDiffSum = 0;
+    for (let i = 0; i < values.length; i++) {
+        if ((!isCompleteFlags || isCompleteFlags[i]) && Number.isFinite(values[i])) {
+            const diff = values[i] - mean;
+            sqDiffSum += diff * diff;
+        }
+    }
+
+    const localVar = sqDiffSum / (count - 1);
+    const ratio = hasCoarseAxes ? 0.025 : 0.001;
+    return Math.max(1e-7, Math.min(0.015, localVar * ratio));
+}
+
 function buildRegionalTrainingDataset(
     region,
     observedX,
@@ -1132,15 +1162,21 @@ function buildRegionalTrainingDataset(
             contextNoisePenalty = Math.min(0.25, slopeCoeff * excessRatio * excessRatio);
         }
 
-        const hasCoarseAxes = Array.isArray(observedX) && observedX.length > 0 && isCoarseAxis
-            ? Array.from(isCoarseAxis).some(flag => flag === 1)
-            : false;
-        const LOCAL_SMOOTHING_NOISE = hasCoarseAxes ? 0.015 : 0.0005;
-        localLoadNoise.push(Math.max(LOCAL_SMOOTHING_NOISE, observedLoadNoise[idx]) + contextNoisePenalty);
-        localErrorNoise.push(Math.max(LOCAL_SMOOTHING_NOISE, observedErrorNoise[idx]) + contextNoisePenalty);
+        localLoadNoise.push(observedLoadNoise[idx] + contextNoisePenalty);
+        localErrorNoise.push(observedErrorNoise[idx] + contextNoisePenalty);
     }
 
     if (completeCount < 4) return null;
+
+    // Адаптивный сглаживающий шум пропорционально локальной дисперсии
+    const hasCoarseAxes = Boolean(isCoarseAxis && Array.from(isCoarseAxis).some(flag => flag === 1));
+    const objAdaptiveNoise = computeAdaptiveNoise(localLogLoad, localIsComplete, hasCoarseAxes);
+    const errAdaptiveNoise = computeAdaptiveNoise(localLogError, localIsComplete, hasCoarseAxes);
+
+    for (let i = 0; i < localLoadNoise.length; i++) {
+        localLoadNoise[i] += objAdaptiveNoise;
+        localErrorNoise[i] += errAdaptiveNoise;
+    }
 
     return {
         indices: localIndices,
