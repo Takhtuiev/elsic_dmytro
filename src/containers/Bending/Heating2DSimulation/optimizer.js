@@ -489,11 +489,12 @@ function optimizeLengthScales(
 ) {
     const totalObservations = Array.isArray(X) ? X.length : 0;
 
-    const MIN_SCALE = 0.25 - (0.17 * progressFactor);
+    const effectiveSamples = Math.max(4, Math.min(totalObservations, 60));
+    const nyquistScale = 0.65 * Math.pow(effectiveSamples, -1 / numParams);
+    const MIN_SCALE = Math.max(0.02, Math.min(0.25, nyquistScale * (1.0 - 0.35 * progressFactor)));
     const MAX_SCALE = 3.5 - (2.0 * progressFactor);
     const MAX_SAMPLES = Math.min(60, 35 + Math.floor(progressFactor * 25));
-    const MAX_PASSES = totalObservations > 60 ? 3 : 2;
-
+    const MAX_PASSES = 4;
     if (
         !Array.isArray(X) ||
         !Array.isArray(Y) ||
@@ -999,11 +1000,11 @@ function buildRegionalTrainingDataset(
     observedErrorNoise,
     observedIsComplete,
     observedRegionIds,
-    referenceScales
+    referenceScales,
+    isCoarseAxis = null
 ) {
-    const MAX_LOCAL_SAMPLES = 45;
-
     const dim = observedX[0]?.length || 3;
+    const MAX_LOCAL_SAMPLES = Math.min(60, Math.max(16, 12 + dim * 11));
     const MIN_REQUIRED_TO_FIT = Math.max(4, dim + 3);
 
     const total = observedX.length;
@@ -1131,7 +1132,10 @@ function buildRegionalTrainingDataset(
             contextNoisePenalty = Math.min(0.25, slopeCoeff * excessRatio * excessRatio);
         }
 
-        const LOCAL_SMOOTHING_NOISE = 0.015;
+        const hasCoarseAxes = Array.isArray(observedX) && observedX.length > 0 && isCoarseAxis
+            ? Array.from(isCoarseAxis).some(flag => flag === 1)
+            : false;
+        const LOCAL_SMOOTHING_NOISE = hasCoarseAxes ? 0.015 : 0.0005;
         localLoadNoise.push(Math.max(LOCAL_SMOOTHING_NOISE, observedLoadNoise[idx]) + contextNoisePenalty);
         localErrorNoise.push(Math.max(LOCAL_SMOOTHING_NOISE, observedErrorNoise[idx]) + contextNoisePenalty);
     }
@@ -1337,8 +1341,8 @@ function optimizeRegionalLengthScales(
     minAxisScales = null,
     isCoarseAxis = null
 ) {
-    const MIN_COMPLETE_FOR_LOCAL_OPT = 16;
-    const MIN_CORE_FOR_LOCAL_OPT = 12;
+    const MIN_COMPLETE_FOR_LOCAL_OPT = Math.max(7, 5 + numParams * 3);
+    const MIN_CORE_FOR_LOCAL_OPT = Math.max(5, 4 + numParams * 2);
 
     const makeFallbackResult = reason => ({
         loadScales: new Float64Array(globalLoadScales),
@@ -1363,7 +1367,8 @@ function optimizeRegionalLengthScales(
         );
     }
 
-    const MIN_ABS_SCALE = Math.max(0.12, 0.22 - 0.08 * progressFactor);
+    const localNyquist = 0.55 * Math.pow(Math.max(4, localDataset.completeCount), -1 / numParams);
+    const MIN_ABS_SCALE = Math.max(0.02, Math.min(0.22, localNyquist));
     const MAX_ABS_SCALE = 3.0;
 
     const evaluateLocalLML = (targetY, targetNoise, candidateScales) => {
@@ -1396,16 +1401,16 @@ function optimizeRegionalLengthScales(
                 ? Math.max(MIN_ABS_SCALE, minAxisScales[d])
                 : MIN_ABS_SCALE;
             const gScale = Math.max(axisMin, Math.min(MAX_ABS_SCALE, globalScales[d]));
-            const globalMin = Math.max(axisMin, gScale * 0.65);
+            const globalMin = axisMin;
             const globalMax = Math.min(MAX_ABS_SCALE, gScale * 1.8);
 
             const startVal = hasPrev
                 ? Math.max(globalMin, Math.min(globalMax, prevScales[d]))
-                : gScale;
+                : Math.max(globalMin, gScale * 0.65);
 
             current[d] = startVal;
-            lowerBounds[d] = Math.max(globalMin, startVal * 0.70);
-            upperBounds[d] = Math.min(globalMax, startVal * 1.30);
+            lowerBounds[d] = Math.max(globalMin, startVal * 0.50);
+            upperBounds[d] = Math.min(globalMax, startVal * 1.40);
         }
 
         let bestScore = evaluateLocalLML(targetY, targetNoise, current);
@@ -1870,9 +1875,12 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
     const minRegionRadius = Math.max(0.032, Math.min(0.05, 0.025 + numParams * 0.0035));
 
+    const budgetCap = Number.isFinite(taskSettings.totalBudgetIterations)
+        ? Math.max(6, Math.floor(taskSettings.totalBudgetIterations * 0.25))
+        : 16;
     const requestedInitialPoints = Number.isFinite(taskSettings.randomInitPoints)
         ? taskSettings.randomInitPoints
-        : Math.max(6, numParams * 4);
+        : Math.min(budgetCap, Math.max(8, numParams * 4 + 4));
 
     const requestedIterations = Number.isFinite(taskSettings.totalBudgetIterations)
         ? taskSettings.totalBudgetIterations
@@ -2114,6 +2122,79 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         }
         return { x: quantizedX, physical, key: getPhysicalKeyFromPhysical(physical) };
     };
+    // Предварительный сбор уникальных дискретных значений для индексного Соболя
+    const discreteLevels = Array.from({ length: numParams }, (_, d) => {
+        const key = paramKeys[d];
+        const range = config[key];
+        const span = range.max - range.min;
+        if (span <= 0) return [range.min];
+
+        const MAX_INDEXED_LEVELS = 5000;
+        const levels = [];
+
+        if (typeof range.step === "function") {
+            const startVec = new Float64Array(numParams).fill(0);
+            const startQ = quantizeCandidate(startVec);
+            let curr = startQ ? startQ.physical[key] : range.min;
+            let safety = 0;
+
+            while (Number.isFinite(curr) && curr <= range.max && safety++ < MAX_INDEXED_LEVELS) {
+                if (levels.length === 0 || Math.abs(curr - levels[levels.length - 1]) > 1e-12) {
+                    levels.push(curr);
+                }
+                let next = range.step(curr, 1, baseParams);
+                if (typeof range.snap === "function" && Number.isFinite(next)) {
+                    next = range.snap(next, baseParams);
+                }
+                if (Number.isInteger(range.digits) && Number.isFinite(next)) {
+                    next = Number(next.toFixed(range.digits));
+                }
+                if (!Number.isFinite(next) || next <= curr + 1e-12) break;
+                curr = next;
+            }
+            return levels.length > 0 ? levels : null;
+        }
+
+        if (range.integer && span <= MAX_INDEXED_LEVELS) {
+            for (let v = Math.ceil(range.min); v <= Math.floor(range.max); v++) {
+                levels.push(v);
+            }
+            return levels.length > 0 ? levels : null;
+        }
+
+        if (Number.isInteger(range.digits)) {
+            const stepSize = Math.pow(10, -range.digits);
+            const count = Math.round(span / stepSize);
+            if (count > 0 && count <= MAX_INDEXED_LEVELS) {
+                for (let i = 0; i <= count; i++) {
+                    const val = Number((range.min + i * stepSize).toFixed(range.digits));
+                    if (val <= range.max) levels.push(val);
+                }
+                return levels.length > 0 ? levels : null;
+            }
+        }
+
+        return null;
+    });
+
+    const quantizeSobolPoint = rawSobolX => {
+        const mappedNormX = new Float64Array(numParams);
+        for (let d = 0; d < numParams; d++) {
+            const levels = discreteLevels[d];
+            const u = Number.isFinite(rawSobolX[d]) ? Math.max(0, Math.min(0.999999999999, rawSobolX[d])) : 0.5;
+            if (levels && levels.length > 0) {
+                const idx = Math.floor(u * levels.length);
+                const physVal = levels[idx];
+                const range = config[paramKeys[d]];
+                const span = range.max - range.min;
+                mappedNormX[d] = span > 0 ? (physVal - range.min) / span : 0;
+            } else {
+                mappedNormX[d] = u;
+            }
+        }
+        return quantizeCandidate(mappedNormX);
+    };
+
     const generateLatticeNeighbors = centerNormX => {
         const centerQ = quantizeCandidate(centerNormX);
         if (!centerQ) return [];
@@ -2243,7 +2324,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             attempt < maxAttempts;
             attempt++
         ) {
-            const q = quantizeCandidate(nextSobolPoint());
+            const q = quantizeSobolPoint(nextSobolPoint());
             if (!q) continue;
             if (seenKeys && seenKeys.has(q.key)) {
                 continue;
@@ -2583,6 +2664,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             return;
         }
 
+        const initialRegionRadius = 0.22 / Math.sqrt(numParams);
+
         const createNewRegionObject = id => ({
             id,
             center: new Float64Array(normX),
@@ -2592,7 +2675,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             bestLoad: load,
             bestObjective: currentObjective,
             bestViolation: violation,
-            radius: 0.12,
+            radius: initialRegionRadius,
             attempts: 1,
             improvements: 1,
             failures: 0,
@@ -2614,7 +2697,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             return;
         }
 
-        if (searchRegions.length < 5) {
+        const maxTrustRegions = Math.min(6, Math.max(2, numParams + 2));
+        if (searchRegions.length < maxTrustRegions) {
             const nextId = searchRegions.length ? Math.max(...searchRegions.map(r => r.id)) + 1 : 0;
             searchRegions.push(createNewRegionObject(nextId));
             return;
@@ -3018,20 +3102,33 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 const loadResidual = (shiftedLogLoad - predicted.loadMeanLog) / Math.max(1e-9, predicted.loadSigmaLog);
                 if (Number.isFinite(loadResidual)) {
                     const clampedLoadRes = Math.max(-5, Math.min(5, loadResidual));
-                    for (let k = 0; k < normalizedConstraints.length; k++) {
-                        while (residualPairsByConstraint.length <= k) {
-                            residualPairsByConstraint.push([]);
+                    if (normalizedConstraints.length === 0) {
+                        if (!residualPairsByConstraint[0]) {
+                            residualPairsByConstraint[0] = [];
                         }
-                        const cPred = predicted.constraints[k];
-                        if (cPred && Number.isFinite(cPred.meanLog) && Number.isFinite(cPred.sigmaLog) && cPred.sigmaLog > 0) {
-                            const errorResidual = (Math.log1p(normalizedConstraints[k].gpVal) - cPred.meanLog) / Math.max(1e-9, cPred.sigmaLog);
-                            if (Number.isFinite(errorResidual)) {
-                                residualPairsByConstraint[k].push({
-                                    load: clampedLoadRes,
-                                    error: Math.max(-5, Math.min(5, errorResidual))
-                                });
-                                if (residualPairsByConstraint[k].length > MAX_RESIDUAL_PAIRS) {
-                                    residualPairsByConstraint[k].shift();
+                        residualPairsByConstraint[0].push({
+                            load: clampedLoadRes,
+                            error: 0
+                        });
+                        if (residualPairsByConstraint[0].length > MAX_RESIDUAL_PAIRS) {
+                            residualPairsByConstraint[0].shift();
+                        }
+                    } else {
+                        for (let k = 0; k < normalizedConstraints.length; k++) {
+                            while (residualPairsByConstraint.length <= k) {
+                                residualPairsByConstraint.push([]);
+                            }
+                            const cPred = predicted.constraints[k];
+                            if (cPred && Number.isFinite(cPred.meanLog) && Number.isFinite(cPred.sigmaLog) && cPred.sigmaLog > 0) {
+                                const errorResidual = (Math.log1p(normalizedConstraints[k].gpVal) - cPred.meanLog) / Math.max(1e-9, cPred.sigmaLog);
+                                if (Number.isFinite(errorResidual)) {
+                                    residualPairsByConstraint[k].push({
+                                        load: clampedLoadRes,
+                                        error: Math.max(-5, Math.min(5, errorResidual))
+                                    });
+                                    if (residualPairsByConstraint[k].length > MAX_RESIDUAL_PAIRS) {
+                                        residualPairsByConstraint[k].shift();
+                                    }
                                 }
                             }
                         }
@@ -3174,8 +3271,14 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     let consecutiveMatrixFailures = 0;
     let stepsWithoutGlobalImprovement = 0;
     let lowEIConsecutiveCount = 0;
-    const minStepsBeforeEarlyStop = initPointsCount + Math.max(15, numParams * 10);
-    const earlyStopPatience = Math.max(24, numParams * 12);
+    const minStepsBeforeEarlyStop = Math.min(
+        Math.floor(extraIterations * 0.45),
+        initPointsCount + Math.max(6, numParams * 8)
+    );
+    const earlyStopPatience = Math.min(
+        Math.floor(extraIterations * 0.35),
+        Math.max(10, numParams * 10)
+    );
     while (currentExecutionCount < totalIterations) {
         await new Promise(resolve => setTimeout(resolve, 0));
         if (typeof options.shouldStop === "function" && options.shouldStop()) {
@@ -3317,7 +3420,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 observedConstraintNoise[0] || observedLoadNoise,
                 observedIsComplete,
                 observedRegionIds,
-                combinedRefScales
+                combinedRefScales,
+                isCoarseAxis
             );
 
             if (!localDataset) {
@@ -3457,8 +3561,9 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         const candidates = [];
         const candidateSources = [];
 // 7.10.4. ФОРМИРОВАНИЕ ПУЛА ГЛОБАЛЬНЫХ И ЛОКАЛЬНЫХ КАНДИДАТОВ
-        const basePool = 600 + numParams * 300;
-        const maxPool = 1000 + numParams * 500;
+        const basePool = 350 + numParams * 150 + numParams * numParams * 80;
+        const maxPool = 750 + numParams * 250 + numParams * numParams * 110;
+
         const totalPoolTarget = Math.min(maxPool, basePool + currentExecutionCount * (numParams + 2));
         const hasActiveRegions = searchRegions.some(r => r.active);
         const candidatesCount = hasActiveRegions
@@ -3493,7 +3598,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             sobolAttempts < maxSobolAttempts
             ) {
             sobolAttempts++;
-            const q = quantizeCandidate(nextSobolPoint());
+            const q = quantizeSobolPoint(nextSobolPoint());
             if (!q || seenCandidateKeys.has(q.key)) {
                 randomCandidatesRejected++;
                 continue;
