@@ -1,18 +1,37 @@
 import {
     snapGridDensityX,
-    snapGridDensityY,
-    GRID_DENSITY_EXP_X,
-    GRID_DENSITY_EXP_Y
+    snapGridDensityY
 } from "./heating2DModel";
 
-const snapTempStepK = rawStep => {
-    if (!Number.isFinite(rawStep) || rawStep <= 0) return rawStep;
-    const minStep = 0.30;
-    const ratio = 1.01;
-    const index = Math.round(Math.log(rawStep / minStep) / Math.log(ratio));
-    return minStep * Math.pow(ratio, Math.max(0, index));
-};
+// Автоматически извлекает шаг (1 ячейка) и минимум модели из её функции snap
+function getModelGridBounds(snapFn, dimensionMm, userMin) {
+    if (!Number.isFinite(dimensionMm) || dimensionMm <= 0) {
+        return { min: userMin, step: NaN };
+    }
 
+    const modelMin = snapFn(1e-9, dimensionMm);
+    if (!Number.isFinite(modelMin) || modelMin <= 0) {
+        return { min: userMin, step: NaN };
+    }
+
+    let step = NaN;
+    let probe = modelMin * 1e-4;
+    while (probe <= modelMin * 10) {
+        const nextVal = snapFn(modelMin + probe, dimensionMm);
+        if (nextVal > modelMin + 1e-12) {
+            step = nextVal - modelMin;
+            break;
+        }
+        probe *= 1.2;
+    }
+
+    const baseMin = Math.max(userMin, modelMin);
+    const alignedMin = Number.isFinite(step) && step > 0
+        ? Math.ceil((baseMin - 1e-12) / step) * step
+        : baseMin;
+
+    return { min: alignedMin, step };
+}
 
 const extractGridMetrics = (res) => {
     const acc = res?.technicalMetrics?.accuracy;
@@ -60,15 +79,7 @@ export const GRID_LOAD_TASK = {
             unit: "/mm⁰·⁶⁴",
             min: 3.50,
             max: 25.00,
-            digits: 4,
-            snap: (rawDensity, baseParams) => snapGridDensityX(rawDensity, Number(baseParams.thicknessMm)),
-            step: (currentDensity, deltaSteps, baseParams) => {
-                const L = Number(baseParams.thicknessMm);
-                if (!Number.isFinite(L) || L <= 0) return currentDensity;
-                const scale = Math.pow(L, GRID_DENSITY_EXP_X);
-                const intervals = Math.max(5, Math.round(currentDensity * scale) + deltaSteps);
-                return intervals / scale;
-            }
+            step: (baseParams) => getModelGridBounds(snapGridDensityX, Number(baseParams.thicknessMm), 3.50).step
         },
         gridDensityY: {
             label: "gridDensityY",
@@ -76,15 +87,7 @@ export const GRID_LOAD_TASK = {
             unit: "/mm⁰·³⁴",
             min: 5.00,
             max: 25.00,
-            digits: 4,
-            snap: (rawDensity, baseParams) => snapGridDensityY(rawDensity, Number(baseParams.simulation?.widthHalfMm)),
-            step: (currentDensity, deltaSteps, baseParams) => {
-                const W = Number(baseParams.simulation?.widthHalfMm);
-                if (!Number.isFinite(W) || W <= 0) return currentDensity;
-                const scale = Math.pow(W, GRID_DENSITY_EXP_Y);
-                const intervals = Math.max(12, Math.round(currentDensity * scale) + deltaSteps);
-                return intervals / scale;
-            }
+            step: (baseParams) => getModelGridBounds(snapGridDensityY, Number(baseParams.simulation?.widthHalfMm), 5.00).step
         },
         tempStepK: {
             label: "tempStepK",
@@ -92,14 +95,7 @@ export const GRID_LOAD_TASK = {
             unit: "K",
             min: 0.30,
             max: 2.50,
-            digits: 3,
-            snap: snapTempStepK,
-            step: (currentStep, deltaSteps) => {
-                const minStep = 0.30;
-                const ratio = 1.01;
-                const index = Math.round(Math.log(currentStep / minStep) / Math.log(ratio));
-                return minStep * Math.pow(ratio, Math.max(0, index + deltaSteps));
-            }
+            step: 0.01
         }
     },
 
@@ -177,13 +173,12 @@ export const PID_MAX_TEMP_TASK = {
             unit: "s",
             min: 0.0,
             max: (baseParams) => baseParams?.machine?.heaters?.[0]?.pid?.periodSeconds || 245.0,
-            digits: 1
+            step: 0.1
         }
     },
 
-    evaluateResult: (_res, baseParams, ctx) => {
+    evaluateResult: (_res, _baseParams, ctx) => {
         const maxSurfaceT = Math.max(ctx.surfaceTop(0), ctx.surfaceBottom(0));
-        //const decompT = baseParams?.material?.decompositionTemp ?? 215;
 
         return {
             objective: {
@@ -191,9 +186,7 @@ export const PID_MAX_TEMP_TASK = {
                 goal: "max",
                 unit: "°C"
             },
-            constraints: [
-                //{ name: "noBurn", value: maxSurfaceT, max: decompT }
-            ]
+            constraints: []
         };
     }
 };
@@ -223,7 +216,7 @@ export const PID_MIN_TEMP_TASK = {
             unit: "s",
             min: 0.0,
             max: (baseParams) => baseParams?.machine?.heaters?.[0]?.pid?.periodSeconds || 245.0,
-            digits: 1
+            step: 0.1
         }
     },
 
@@ -271,15 +264,25 @@ export function resolveOptimizerTask(
         const template = task.parameters[key];
         const rawMin = range.min ?? template?.min;
         const rawMax = range.max ?? template?.max;
+        const rawStep = range.step ?? template?.step;
+
+        let min = typeof rawMin === "function" ? rawMin(baseParams) : rawMin;
+        const max = typeof rawMax === "function" ? rawMax(baseParams) : rawMax;
+        const step = typeof rawStep === "function" ? rawStep(baseParams) : rawStep;
+
+        if (Number.isFinite(step) && step > 0 && Number.isFinite(min)) {
+            min = Math.ceil((min - 1e-12) / step) * step || 0;
+        }
+
         resolvedParameters[key] = {
             ...range,
             path: template?.path || range.path,
-            min: typeof rawMin === "function" ? rawMin(baseParams) : rawMin,
-            max: typeof rawMax === "function" ? rawMax(baseParams) : rawMax,
-            ...(typeof template?.snap === "function" ? { snap: template.snap } : {}),
-            ...(typeof template?.step === "function" ? { step: template.step } : {})
+            min,
+            max,
+            ...(Number.isFinite(step) && step > 0 ? { step } : {})
         };
     }
+
     return {
         ...task,
         parameters: resolvedParameters,
@@ -289,6 +292,7 @@ export function resolveOptimizerTask(
         }
     };
 }
+
 export function getAdaptiveOptimizerBudget(task) {
     const paramsObj = task?.parameters || {};
     const settings = task?.settings || {};

@@ -490,9 +490,9 @@ function optimizeLengthScales(
     const totalObservations = Array.isArray(X) ? X.length : 0;
 
     const effectiveSamples = Math.max(4, Math.min(totalObservations, 60));
-    const nyquistScale = 0.65 * Math.pow(effectiveSamples, -1 / numParams);
-    const MIN_SCALE = Math.max(0.02, Math.min(0.25, nyquistScale * (1.0 - 0.35 * progressFactor)));
-    const MAX_SCALE = 3.5 - (2.0 * progressFactor);
+    const avgSpacing = Math.pow(effectiveSamples, -1 / numParams);
+    const MIN_SCALE = Math.max(0.02, Math.min(0.25, 0.65 * avgSpacing * (1.0 - 0.35 * progressFactor)));
+    const MAX_SCALE = Math.max(0.25, Math.min(1.40, 2.6 * avgSpacing));
     const MAX_SAMPLES = Math.min(60, 35 + Math.floor(progressFactor * 25));
     const MAX_PASSES = 4;
     if (
@@ -779,7 +779,9 @@ function fitGaussianProcess(X, Y, noise, lengthScales, isComplete, isCoarseAxis 
             return invalidModel("INVALID_OBSERVATION_NOISE");
         }
 
-        normalizedNoise[i] = rawNoise / yVarianceScale;
+        normalizedNoise[i] = rawNoise > 0
+            ? (rawNoise / yVarianceScale)
+            : 1e-4;
 
         if (!Number.isFinite(normalizedNoise[i])) {
             return invalidModel("INVALID_NORMALIZED_NOISE");
@@ -987,544 +989,6 @@ function applySigmaCalibration(prediction, scale) {
     };
 }
 
-// ============================================================================
-// 4. ДВОЙНАЯ GP-МОДЕЛЬ И РЕГИОНАЛЬНЫЕ ОБУЧАЮЩИЕ ВЫБОРКИ
-// ============================================================================
-
-function computeAdaptiveNoise(values, isCompleteFlags, hasCoarseAxes) {
-    if (!Array.isArray(values) || values.length === 0) return 0;
-
-    let sum = 0;
-    let count = 0;
-    for (let i = 0; i < values.length; i++) {
-        if ((!isCompleteFlags || isCompleteFlags[i]) && Number.isFinite(values[i])) {
-            sum += values[i];
-            count++;
-        }
-    }
-
-    if (count < 3) {
-        return hasCoarseAxes ? 0.005 : 0.0002;
-    }
-
-    const mean = sum / count;
-    let sqDiffSum = 0;
-    for (let i = 0; i < values.length; i++) {
-        if ((!isCompleteFlags || isCompleteFlags[i]) && Number.isFinite(values[i])) {
-            const diff = values[i] - mean;
-            sqDiffSum += diff * diff;
-        }
-    }
-
-    const localVar = sqDiffSum / (count - 1);
-    const ratio = hasCoarseAxes ? 0.025 : 0.001;
-    return Math.max(1e-7, Math.min(0.015, localVar * ratio));
-}
-
-function buildRegionalTrainingDataset(
-    region,
-    observedX,
-    observedLogLoad,
-    observedLogError,
-    observedLoadNoise,
-    observedErrorNoise,
-    observedIsComplete,
-    observedRegionIds,
-    referenceScales,
-    isCoarseAxis = null
-) {
-    const dim = observedX[0]?.length || 3;
-    const MAX_LOCAL_SAMPLES = Math.min(60, Math.max(16, 12 + dim * 11));
-    const MIN_REQUIRED_TO_FIT = Math.max(4, dim + 3);
-
-    const total = observedX.length;
-    if (total < MIN_REQUIRED_TO_FIT) return null;
-
-    const coreRadius = Math.max(0.08, region.radius * 2.5);
-    const items = [];
-
-    for (let i = 0; i < total; i++) {
-        const dist = calculateKernelDistance(
-            observedX[i],
-            region.center,
-            referenceScales
-        );
-
-        if (!Number.isFinite(dist)) continue;
-
-        const belongsToRegion = observedRegionIds[i] === region.id;
-        const isNearCenter = dist <= coreRadius;
-        const isCore = isNearCenter;
-        const isOwnedContext = belongsToRegion && !isNearCenter;
-
-        items.push({
-            index: i,
-            dist,
-            isCore,
-            isOwnedContext,
-            isComplete: observedIsComplete[i] === true
-        });
-    }
-
-    if (items.length < MIN_REQUIRED_TO_FIT) return null;
-
-    // Разделяем актуальное ядро региона и внешний контекст
-    const coreItems = items.filter(it => it.isCore);
-    const contextItems = items.filter(it => !it.isCore);
-
-    // Сортируем по близости к текущему центру (при равном расстоянии приоритет завершённым и родным точкам)
-    const sortByProximity = (a, b) => {
-        if (Math.abs(a.dist - b.dist) > 1e-6) return a.dist - b.dist;
-        if (a.isOwnedContext !== b.isOwnedContext) return Number(b.isOwnedContext) - Number(a.isOwnedContext);
-        return Number(b.isComplete) - Number(a.isComplete);
-    };
-
-    coreItems.sort(sortByProximity);
-    contextItems.sort(sortByProximity);
-
-    // Порог минимальной дистанции в ARD-шкалах ядра для защиты от вырождения матрицы
-    const MIN_KERNEL_SEPARATION = Math.max(0.008, region.radius * 0.25);
-
-    const isSpatiallyDistinct = (candidateIdx, chosenList) => {
-        const candX = observedX[candidateIdx];
-        for (const chosen of chosenList) {
-            const d = calculateKernelDistance(candX, observedX[chosen.index], referenceScales);
-            if (d < MIN_KERNEL_SEPARATION) {
-                return false;
-            }
-        }
-        return true;
-    };
-
-    const selected = [];
-    // Оставляем минимум 10 слотов под внешний контекст, чтобы GP видел градиент вокруг региона
-    const MAX_CORE_SLOTS = Math.min(35, MAX_LOCAL_SAMPLES - 10);
-
-    // 1. Забираем пространственно-разнообразные точки ядра (не более MAX_CORE_SLOTS)
-    for (let i = 0; i < coreItems.length && selected.length < MAX_CORE_SLOTS; i++) {
-        // Самую первую (ближайшую к центру) точку берем всегда, остальные — с проверкой дистанции
-        if (selected.length === 0 || isSpatiallyDistinct(coreItems[i].index, selected)) {
-            selected.push(coreItems[i]);
-        }
-    }
-
-    // 2. Обязательно добираем внешний контекст до MAX_LOCAL_SAMPLES (также без дубликатов)
-    for (let i = 0; i < contextItems.length && selected.length < MAX_LOCAL_SAMPLES; i++) {
-        if (isSpatiallyDistinct(contextItems[i].index, selected)) {
-            selected.push(contextItems[i]);
-        }
-    }
-
-    // 3. Fallback: если уникальных точек оказалось меньше MIN_REQUIRED_TO_FIT, добираем оставшиеся без фильтра дистанции
-    if (selected.length < MIN_REQUIRED_TO_FIT) {
-        const selectedSet = new Set(selected.map(it => it.index));
-        const allSorted = [...coreItems, ...contextItems];
-        for (let i = 0; i < allSorted.length && selected.length < MIN_REQUIRED_TO_FIT; i++) {
-            if (!selectedSet.has(allSorted[i].index)) {
-                selected.push(allSorted[i]);
-                selectedSet.add(allSorted[i].index);
-            }
-        }
-    }
-
-    if (selected.length < MIN_REQUIRED_TO_FIT) return null;
-
-    // Восстанавливаем хронологический порядок индексов
-    selected.sort((a, b) => a.index - b.index);
-
-    const localIndices = [];
-    const localX = [];
-    const localLogLoad = [];
-    const localLogError = [];
-    const localLoadNoise = [];
-    const localErrorNoise = [];
-    const localIsComplete = [];
-
-    let coreCount = 0;
-    let completeCount = 0;
-
-    for (const item of selected) {
-        const idx = item.index;
-        localIndices.push(idx);
-        localX.push(observedX[idx]);
-        localLogLoad.push(observedLogLoad[idx]);
-        localLogError.push(observedLogError[idx]);
-        localIsComplete.push(observedIsComplete[idx]);
-
-        if (item.isCore) coreCount++;
-        if (observedIsComplete[idx]) completeCount++;
-
-        // Плавное снижение веса контекстных точек через добавление дисперсии шума
-        let contextNoisePenalty = 0;
-        if (!item.isCore && item.dist > coreRadius) {
-            const excessRatio = (item.dist / coreRadius) - 1;
-            const slopeCoeff = item.isOwnedContext ? 0.025 : 0.05;
-            contextNoisePenalty = Math.min(0.25, slopeCoeff * excessRatio * excessRatio);
-        }
-
-        localLoadNoise.push(observedLoadNoise[idx] + contextNoisePenalty);
-        localErrorNoise.push(observedErrorNoise[idx] + contextNoisePenalty);
-    }
-
-    if (completeCount < 4) return null;
-
-    // Адаптивный сглаживающий шум пропорционально локальной дисперсии
-    const hasCoarseAxes = Boolean(isCoarseAxis && Array.from(isCoarseAxis).some(flag => flag === 1));
-    const objAdaptiveNoise = computeAdaptiveNoise(localLogLoad, localIsComplete, hasCoarseAxes);
-    const errAdaptiveNoise = computeAdaptiveNoise(localLogError, localIsComplete, hasCoarseAxes);
-
-    for (let i = 0; i < localLoadNoise.length; i++) {
-        localLoadNoise[i] += objAdaptiveNoise;
-        localErrorNoise[i] += errAdaptiveNoise;
-    }
-
-    return {
-        indices: localIndices,
-        X: localX,
-        logLoad: localLogLoad,
-        logError: localLogError,
-        loadNoise: localLoadNoise,
-        errorNoise: localErrorNoise,
-        isComplete: localIsComplete,
-        totalCount: selected.length,
-        coreCount,
-        completeCount
-    };
-}
-
-function inspectLocalGeometry(X, numParams) {
-    if (
-        !Array.isArray(X) ||
-        X.length < 2 ||
-        !Number.isInteger(numParams) ||
-        numParams < 1
-    ) {
-        return { valid: false, reason: "INVALID_INPUT" };
-    }
-
-    const n = X.length;
-    const means = new Float64Array(numParams);
-    const stds = new Float64Array(numParams);
-
-    // 1. Одномерная проверка размаха и дисперсии по каждой оси (по всей выборке X)
-    for (let d = 0; d < numParams; d++) {
-        let min = Infinity;
-        let max = -Infinity;
-        let mean = 0;
-
-        for (let i = 0; i < n; i++) {
-            const value = X[i]?.[d];
-
-            if (!Number.isFinite(value)) {
-                return {
-                    valid: false,
-                    reason: `NON_FINITE_AXIS_${d}`
-                };
-            }
-
-            min = Math.min(min, value);
-            max = Math.max(max, value);
-            mean += value / n;
-        }
-
-        const range = max - min;
-
-        if (!Number.isFinite(range) || range < 1e-3) {
-            return {
-                valid: false,
-                reason: `COLLAPSED_AXIS_${d}`
-            };
-        }
-
-        let variance = 0;
-
-        for (let i = 0; i < n; i++) {
-            const diff = X[i][d] - mean;
-            variance += diff * diff;
-        }
-
-        variance /= n;
-
-        if (!Number.isFinite(variance) || variance < 1e-6) {
-            return {
-                valid: false,
-                reason: `LOW_VARIANCE_AXIS_${d}`
-            };
-        }
-
-        means[d] = mean;
-        stds[d] = Math.sqrt(variance);
-    }
-
-    // 2. Многомерная проверка через корреляционную матрицу и численный ранг
-    if (numParams > 1) {
-        if (n <= numParams) {
-            return {
-                valid: false,
-                reason: "INSUFFICIENT_POINTS_FOR_RANK"
-            };
-        }
-
-        const corr = Array.from(
-            { length: numParams },
-            () => new Float64Array(numParams)
-        );
-
-        const COLLINEARITY_LIMIT = 0.995;
-
-        for (let i = 0; i < numParams; i++) {
-            corr[i][i] = 1.0;
-
-            for (let j = i + 1; j < numParams; j++) {
-                let cov = 0;
-
-                for (let k = 0; k < n; k++) {
-                    cov += (X[k][i] - means[i]) * (X[k][j] - means[j]);
-                }
-
-                const r = (cov / n) / (stds[i] * stds[j]);
-
-                if (!Number.isFinite(r)) {
-                    return {
-                        valid: false,
-                        reason: `NON_FINITE_CORR_${i}_${j}`
-                    };
-                }
-
-                if (Math.abs(r) >= COLLINEARITY_LIMIT) {
-                    return {
-                        valid: false,
-                        reason: `COLLINEAR_AXES_${i}_${j}`
-                    };
-                }
-
-                corr[i][j] = r;
-                corr[j][i] = r;
-            }
-        }
-
-        // Вычисление численного ранга методом Гаусса с полным выбором главного элемента
-        const work = corr.map(row => new Float64Array(row));
-        const RANK_EPSILON = 1e-3;
-        let numericalRank = 0;
-
-        for (let step = 0; step < numParams; step++) {
-            let pivotRow = step;
-            let pivotCol = step;
-            let maxVal = 0;
-
-            for (let r = step; r < numParams; r++) {
-                for (let c = step; c < numParams; c++) {
-                    const absVal = Math.abs(work[r][c]);
-                    if (absVal > maxVal) {
-                        maxVal = absVal;
-                        pivotRow = r;
-                        pivotCol = c;
-                    }
-                }
-            }
-
-            if (maxVal < RANK_EPSILON) {
-                break;
-            }
-
-            numericalRank++;
-
-            if (pivotRow !== step) {
-                const tmpRow = work[step];
-                work[step] = work[pivotRow];
-                work[pivotRow] = tmpRow;
-            }
-
-            if (pivotCol !== step) {
-                for (let r = 0; r < numParams; r++) {
-                    const tmpVal = work[r][step];
-                    work[r][step] = work[r][pivotCol];
-                    work[r][pivotCol] = tmpVal;
-                }
-            }
-
-            const pivot = work[step][step];
-
-            for (let r = step + 1; r < numParams; r++) {
-                const factor = work[r][step] / pivot;
-                for (let c = step; c < numParams; c++) {
-                    work[r][c] -= factor * work[step][c];
-                }
-            }
-        }
-
-        if (numericalRank < numParams) {
-            return {
-                valid: false,
-                reason: `RANK_DEFICIENT_${numericalRank}_OF_${numParams}`
-            };
-        }
-    }
-
-    return { valid: true, reason: "OK" };
-}
-
-function optimizeRegionalLengthScales(
-    localDataset,
-    localConstraintTargets,
-    globalLoadScales,
-    globalConstraintScales,
-    prevLoadScales,
-    prevConstraintScales,
-    numParams,
-    progressFactor,
-    minAxisScales = null,
-    isCoarseAxis = null
-) {
-    const MIN_COMPLETE_FOR_LOCAL_OPT = Math.max(7, 5 + numParams * 3);
-    const MIN_CORE_FOR_LOCAL_OPT = Math.max(5, 4 + numParams * 2);
-
-    const makeFallbackResult = reason => ({
-        loadScales: new Float64Array(globalLoadScales),
-        constraintScales: globalConstraintScales.map(s => (s ? new Float64Array(s) : null)),
-        adapted: false,
-        reason
-    });
-
-    if (
-        !localDataset ||
-        localDataset.completeCount < MIN_COMPLETE_FOR_LOCAL_OPT ||
-        localDataset.coreCount < MIN_CORE_FOR_LOCAL_OPT
-    ) {
-        return makeFallbackResult("INSUFFICIENT_LOCAL_DIVERSITY");
-    }
-
-    const geometry = inspectLocalGeometry(localDataset.X, numParams);
-
-    if (!geometry.valid) {
-        return makeFallbackResult(
-            `DEGENERATE_LOCAL_GEOMETRY_${geometry.reason}`
-        );
-    }
-
-    const localNyquist = 0.55 * Math.pow(Math.max(4, localDataset.completeCount), -1 / numParams);
-    const MIN_ABS_SCALE = Math.max(0.02, Math.min(0.22, localNyquist));
-    const MAX_ABS_SCALE = 3.0;
-
-    const evaluateLocalLML = (targetY, targetNoise, candidateScales) => {
-        const model = fitGaussianProcess(
-            localDataset.X,
-            targetY,
-            targetNoise,
-            candidateScales,
-            localDataset.isComplete,
-            isCoarseAxis
-        );
-        return model?.valid && Number.isFinite(model.logMarginalLikelihood)
-            ? model.logMarginalLikelihood
-            : -Infinity;
-    };
-
-    const optimizeSingleTarget = (targetY, targetNoise, globalScales, prevScales) => {
-        const fallback = new Float64Array(globalScales);
-        const hasPrev =
-            prevScales &&
-            prevScales.length === numParams &&
-            Array.from(prevScales).every(v => Number.isFinite(v) && v > 0);
-
-        const current = new Float64Array(numParams);
-        const lowerBounds = new Float64Array(numParams);
-        const upperBounds = new Float64Array(numParams);
-
-        for (let d = 0; d < numParams; d++) {
-            const axisMin = minAxisScales && Number.isFinite(minAxisScales[d])
-                ? Math.max(MIN_ABS_SCALE, minAxisScales[d])
-                : MIN_ABS_SCALE;
-            const gScale = Math.max(axisMin, Math.min(MAX_ABS_SCALE, globalScales[d]));
-            const globalMin = axisMin;
-            const globalMax = Math.min(MAX_ABS_SCALE, gScale * 1.8);
-
-            const startVal = hasPrev
-                ? Math.max(globalMin, Math.min(globalMax, prevScales[d]))
-                : Math.max(globalMin, gScale * 0.65);
-
-            current[d] = startVal;
-            lowerBounds[d] = Math.max(globalMin, startVal * 0.50);
-            upperBounds[d] = Math.min(globalMax, startVal * 1.40);
-        }
-
-        let bestScore = evaluateLocalLML(targetY, targetNoise, current);
-
-        if (!Number.isFinite(bestScore)) {
-            return { resultScales: fallback, improved: false };
-        }
-
-        let anyImproved = false;
-
-        for (let pass = 0; pass < 2; pass++) {
-            let passImproved = false;
-
-            for (let d = 0; d < numParams; d++) {
-                const orig = current[d];
-                const candidates = [
-                    Math.max(lowerBounds[d], orig * 0.78),
-                    Math.min(upperBounds[d], orig * 1.28)
-                ];
-
-                for (const cand of candidates) {
-                    if (Math.abs(cand - current[d]) < 1e-9) continue;
-
-                    const testScales = new Float64Array(current);
-                    testScales[d] = cand;
-
-                    const score = evaluateLocalLML(targetY, targetNoise, testScales);
-                    if (score > bestScore + 1e-6) {
-                        current[d] = cand;
-                        bestScore = score;
-                        passImproved = true;
-                        anyImproved = true;
-                    }
-                }
-            }
-
-            if (!passImproved) break;
-        }
-
-        return { resultScales: current, improved: anyImproved };
-    };
-
-    const loadRes = optimizeSingleTarget(
-        localDataset.logLoad,
-        localDataset.loadNoise,
-        globalLoadScales,
-        prevLoadScales
-    );
-
-    let anyImproved = loadRes.improved;
-    const adaptedConstraintScales = [];
-
-    for (let k = 0; k < localConstraintTargets.length; k++) {
-        const cTarget = localConstraintTargets[k];
-        const gScale = globalConstraintScales[k];
-        if (!cTarget || !gScale) {
-            adaptedConstraintScales.push(gScale ? new Float64Array(gScale) : null);
-            continue;
-        }
-
-        const cRes = optimizeSingleTarget(
-            cTarget.Y,
-            cTarget.noise,
-            gScale,
-            prevConstraintScales?.[k] || null
-        );
-        adaptedConstraintScales.push(cRes.resultScales);
-        if (cRes.improved) anyImproved = true;
-    }
-
-    return {
-        loadScales: loadRes.resultScales,
-        constraintScales: adaptedConstraintScales,
-        adapted: anyImproved,
-        reason: anyImproved ? "ADAPTED" : "KEPT_PREVIOUS"
-    };
-}
-
 
 // ============================================================================
 // 5. КАЛИБРОВКА НЕОПРЕДЕЛЁННОСТИ И ВЕРОЯТНОСТНЫЕ ОГРАНИЧЕНИЯ
@@ -1536,19 +1000,21 @@ function estimateResidualSigmaScale(pairs, key, observedX = [], lastScaleValue =
     const SMOOTHING_FACTOR = 0.15;
 
     // Санитарная нормализация входящего стейта ЕМА
-    const MAX_SIGMA_SCALE = 1.5;
+    const MAX_SIGMA_SCALE = 1.25;
     const previousScale = Number.isFinite(lastScaleValue)
         ? Math.max(0.75, Math.min(MAX_SIGMA_SCALE, lastScaleValue))
         : 1.0;
 
-    // ИСПРАВЛЕНО: Все ранние возвраты теперь строго отдают валидированный previousScale
     if (!Array.isArray(pairs) || pairs.length < MIN_REQUIRED_SAMPLES) return previousScale;
 
     let sumSquares = 0;
     let validCount = 0;
     for (const pair of pairs) {
         const value = pair?.[key];
-        if (Number.isFinite(value)) { sumSquares += value * value; validCount++; }
+        if (Number.isFinite(value)) {
+            sumSquares += Math.min(4.0, value * value);
+            validCount++;
+        }
     }
     if (validCount < MIN_REQUIRED_SAMPLES) return previousScale;
 
@@ -1699,7 +1165,7 @@ const SOBOL_PARAMETERS = [
 // 6. ГЕНЕРАТОР ГЛОБАЛЬНОГО ПРОСТРАНСТВЕННОГО ПОИСКА (SOBOL)
 // ============================================================================
 
-function createSobolGenerator(dimensions) {
+function createSobolGenerator(dimensions, digitalShift = null, initialDraws = 0) {
     if (
         !Number.isInteger(dimensions) ||
         dimensions < 1 ||
@@ -1761,16 +1227,13 @@ function createSobolGenerator(dimensions) {
     const state = new Uint32Array(dimensions);
     let index = 0;
 
-    return () => {
+    const draw = () => {
         index++;
 
         let bit = 0;
         let n = index;
 
-        while (
-            (n & 1) === 0 &&
-            bit < BITS - 1
-            ) {
+        while ((n & 1) === 0 && bit < BITS - 1) {
             n >>>= 1;
             bit++;
         }
@@ -1779,12 +1242,235 @@ function createSobolGenerator(dimensions) {
 
         for (let d = 0; d < dimensions; d++) {
             state[d] ^= directions[d][bit];
-            point[d] = state[d] / 4294967296;
+            const shifted = digitalShift ? ((state[d] ^ digitalShift[d]) >>> 0) : state[d];
+            point[d] = shifted / 4294967296;
         }
 
         return point;
     };
+
+    for (let i = 0; i < initialDraws; i++) {
+        draw();
+    }
+
+    return draw;
 }
+
+
+function roundByStep(val, step) {
+    const str = step.toString();
+    const precision = str.includes("e-")
+        ? Math.min(8, Number(str.split("e-")[1]))
+        : (str.includes(".") ? Math.min(6, str.length - str.indexOf(".") - 1) : 0);
+    const rounded = Number(val.toFixed(precision));
+    return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+function generateDiscreteSobolPoints({
+                                         count,
+                                         bounds,
+                                         sobolState = { drawsCount: 0, digitalShift: null },
+                                         seenKeys = null
+                                     }) {
+    if (!Array.isArray(bounds) || bounds.length === 0) {
+        throw new Error("Параметр bounds обязателен и должен быть непустым массивом.");
+    }
+
+    const numDims = bounds.length;
+    if (!Number.isFinite(count) || count <= 0) {
+        return { points: [], exhausted: false, remainingAvailable: 0 };
+    }
+
+    const externalSeen = seenKeys;
+    const batchSeen = new Set();
+
+    let shiftArray = null;
+    if (sobolState.digitalShift) {
+        shiftArray = sobolState.digitalShift instanceof Uint32Array
+            ? sobolState.digitalShift
+            : new Uint32Array(Object.values(sobolState.digitalShift));
+    }
+
+    if (typeof sobolState._draw !== "function") {
+        const drawFn = createSobolGenerator(numDims, shiftArray, sobolState.drawsCount || 0);
+        Object.defineProperty(sobolState, "_draw", {
+            value: drawFn,
+            enumerable: false,
+            writable: true,
+            configurable: true
+        });
+    }
+
+    const axes = new Array(numDims);
+    let totalCombinations = 1;
+    let isDiscreteSpace = true;
+
+    for (let d = 0; d < numDims; d++) {
+        const b = bounds[d];
+
+        if (Array.isArray(b.levels) && b.levels.length > 0) {
+            const levels = b.levels;
+            const lowLimit = Number.isFinite(b.min) ? b.min : levels[0];
+            const highLimit = Number.isFinite(b.max) ? b.max : levels[levels.length - 1];
+
+            let minIdx = 0;
+            while (minIdx < levels.length - 1 && levels[minIdx] < lowLimit - 1e-12) minIdx++;
+
+            let maxIdx = levels.length - 1;
+            while (maxIdx > 0 && levels[maxIdx] > highLimit + 1e-12) maxIdx--;
+
+            if (minIdx > maxIdx) {
+                const mid = (lowLimit + highLimit) * 0.5;
+                let bestIdx = 0;
+                let bestDist = Infinity;
+                for (let i = 0; i < levels.length; i++) {
+                    const dist = Math.abs(levels[i] - mid);
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        bestIdx = i;
+                    }
+                }
+                minIdx = maxIdx = bestIdx;
+            }
+
+            const nodesCount = maxIdx - minIdx + 1;
+            const actualMin = levels[minIdx];
+            const actualMax = levels[maxIdx];
+            totalCombinations *= nodesCount;
+
+            axes[d] = {
+                mode: "LEVELS",
+                levels,
+                minIdx,
+                nodesCount,
+                min: actualMin,
+                max: actualMax,
+                span: actualMax - actualMin
+            };
+        } else if (Number.isFinite(b.min) && Number.isFinite(b.max) && Number.isFinite(b.step) && b.step > 0) {
+            const low = Math.min(b.min, b.max);
+            const high = Math.max(b.min, b.max);
+            const span = high - low;
+            const nodesCount = Math.max(1, Math.floor((span + 1e-12) / b.step) + 1);
+            const actualMax = roundByStep(low + (nodesCount - 1) * b.step, b.step);
+
+            totalCombinations *= nodesCount;
+
+            axes[d] = {
+                mode: "STEP",
+                step: b.step,
+                nodesCount,
+                min: low,
+                max: actualMax,
+                span: actualMax - low
+            };
+        } else {
+            const low = Math.min(b.min, b.max);
+            const high = Math.max(b.min, b.max);
+            isDiscreteSpace = false;
+            totalCombinations = Infinity;
+
+            axes[d] = {
+                mode: "CONTINUOUS",
+                nodesCount: Infinity,
+                min: low,
+                max: high,
+                span: high - low
+            };
+        }
+    }
+
+    let occupiedInZone = 0;
+    const totalOccupied = externalSeen ? externalSeen.size : 0;
+    // Сканируем ключи только когда общее число комбинаций сопоставимо с числом занятых точек
+    if (isDiscreteSpace && totalOccupied > 0 && (totalCombinations - totalOccupied) < count) {
+        for (const key of externalSeen) {
+            const parts = key.split("|");
+            if (parts.length !== numDims) continue;
+
+            let isInside = true;
+            for (let d = 0; d < numDims; d++) {
+                const val = Number(parts[d]);
+                const ax = axes[d];
+                if (!Number.isFinite(val) || val < ax.min - 1e-9 || val > ax.max + 1e-9) {
+                    isInside = false;
+                    break;
+                }
+            }
+            if (isInside) occupiedInZone++;
+        }
+    }
+
+    const remainingAvailable = isDiscreteSpace
+        ? Math.max(0, totalCombinations - occupiedInZone)
+        : Infinity;
+
+    if (remainingAvailable === 0) {
+        return { points: [], exhausted: true, remainingAvailable: 0 };
+    }
+
+    const getAxisValue = (ax, nodeIdx, uContinuous = 0.5) => {
+        if (ax.mode === "LEVELS") return ax.levels[ax.minIdx + nodeIdx];
+        if (ax.mode === "STEP") return roundByStep(ax.min + nodeIdx * ax.step, ax.step);
+        return ax.min + uContinuous * ax.span;
+    };
+
+    const targetCount = Math.min(count, remainingAvailable);
+    const results = [];
+    let consecutiveMisses = 0;
+    const MAX_CONSECUTIVE_MISSES = 25;
+    let exhausted = false;
+
+    while (results.length < targetCount) {
+        if (consecutiveMisses >= MAX_CONSECUTIVE_MISSES) {
+            exhausted = true;
+            break;
+        }
+
+        const u = sobolState._draw();
+        sobolState.drawsCount++;
+
+        const values = new Array(numDims);
+        const normalized = new Float64Array(numDims);
+
+        for (let d = 0; d < numDims; d++) {
+            const ax = axes[d];
+            let val;
+
+            if (ax.nodesCount <= 1) {
+                val = getAxisValue(ax, 0, 0.5);
+            } else {
+                const uVal = Number.isFinite(u[d]) ? Math.max(0, Math.min(0.999999999999, u[d])) : 0.5;
+                const nodeIdx = ax.mode === "CONTINUOUS" ? 0 : Math.floor(uVal * ax.nodesCount);
+                val = getAxisValue(ax, nodeIdx, uVal);
+            }
+
+            values[d] = val;
+            normalized[d] = ax.span > 0 ? (val - ax.min) / ax.span : 0;
+        }
+
+        const key = values.join("|");
+        if ((externalSeen && externalSeen.has(key)) || batchSeen.has(key)) {
+            consecutiveMisses++;
+            continue;
+        }
+
+        consecutiveMisses = 0;
+        batchSeen.add(key);
+        results.push({ values, normalized, key });
+    }
+
+    const leftAfter = isDiscreteSpace
+        ? Math.max(0, remainingAvailable - results.length)
+        : Infinity;
+
+    return {
+        points: results,
+        exhausted: exhausted || leftAfter === 0,
+        remainingAvailable: leftAfter
+    };
+}
+
 
 // ============================================================================
 // 7. ГЛАВНЫЙ ОРКЕСТРАТОР ОПТИМИЗАЦИИ
@@ -1990,8 +1676,38 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         }
         : { load: 1.0, errors: [] };
 
+    // Детерминированный PRNG (Mulberry32) для рулетки, ветвлений и направленных шагов
+    let prngState = (state?.prngState ?? options.seed ?? 1337) >>> 0;
+    const nextRandom = () => {
+        prngState = (prngState + 0x6D2B79F5) | 0;
+        let t = Math.imul(prngState ^ (prngState >>> 15), 1 | prngState);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+
+    const createDigitalShift = () => {
+        const shift = new Uint32Array(numParams);
+        for (let d = 0; d < numParams; d++) {
+            shift[d] = (nextRandom() * 4294967296) >>> 0;
+        }
+        return shift;
+    };
+
+    const attachRegionSobol = (reg) => {
+        const shift = reg.digitalShift
+            ? (reg.digitalShift instanceof Uint32Array ? reg.digitalShift : new Uint32Array(Object.values(reg.digitalShift)))
+            : createDigitalShift();
+        const draws = Number.isInteger(reg.sobolDraws) ? reg.sobolDraws : 0;
+
+        reg.sobolState = {
+            drawsCount: draws,
+            digitalShift: shift
+        };
+        return reg;
+    };
+
     const searchRegions = Array.isArray(state?.searchRegions)
-        ? state.searchRegions.map(r => ({
+        ? state.searchRegions.map(r => attachRegionSobol({
             ...r,
             center: r.center instanceof Float64Array ? r.center : new Float64Array(Object.values(r.center || {})),
             bestX: r.bestX instanceof Float64Array ? r.bestX : new Float64Array(Object.values(r.bestX || {})),
@@ -2102,19 +1818,78 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         return result;
     };
 
+    const getStepPrecision = (step) => {
+        if (!Number.isFinite(step) || step <= 0) return null;
+        const str = step.toString();
+        if (str.includes("e-")) {
+            return Math.min(8, Number(str.split("e-")[1]));
+        }
+        const dotIdx = str.indexOf(".");
+        return dotIdx >= 0 ? Math.min(6, str.length - dotIdx - 1) : 0;
+    };
+
+    const roundByPrecision = (val, precision) =>
+        Number.isInteger(precision) ? Number(val.toFixed(precision)) : val;
+
+    // 1. Построение статического массива допустимых уровней из числового step
+    const discreteLevels = Array.from({ length: numParams }, (_, d) => {
+        const range = config[paramKeys[d]];
+        const span = range.max - range.min;
+        if (span <= 0) return [range.min];
+
+        const MAX_INDEXED_LEVELS = 5000;
+        const step = range.step;
+
+        if (Number.isFinite(step) && step > 0) {
+            const precision = getStepPrecision(step);
+            const count = Math.floor((span + 1e-12) / step);
+            if (count > 0 && count <= MAX_INDEXED_LEVELS) {
+                const levels = [];
+                for (let i = 0; i <= count; i++) {
+                    const val = roundByPrecision(range.min + i * step, precision);
+                    if (val <= range.max + 1e-12) {
+                        levels.push(Math.min(range.max, val));
+                    }
+                }
+                return levels.length > 0 ? levels : null;
+            }
+        }
+        return null;
+    });
+
+    const findNearestLevelIndex = (levels, physVal) => {
+        let low = 0;
+        let high = levels.length - 1;
+        while (low < high) {
+            const mid = (low + high) >>> 1;
+            if (levels[mid] < physVal) low = mid + 1;
+            else high = mid;
+        }
+        if (low > 0 && Math.abs(levels[low - 1] - physVal) < Math.abs(levels[low] - physVal)) {
+            return low - 1;
+        }
+        return low;
+    };
+
     const toPhysical = xNorm => {
         const canonicalX = canonicalizeNormalized(xNorm);
         const result = {};
 
         paramKeys.forEach((key, idx) => {
             const range = config[key];
-            let val = range.min + canonicalX[idx] * (range.max - range.min);
-            if (range.integer) {
-                val = Math.round(val);
-            } else if (Number.isInteger(range.digits)) {
-                val = Number(val.toFixed(range.digits));
+            const span = range.max - range.min;
+            const rawPhys = range.min + canonicalX[idx] * span;
+            const levels = discreteLevels[idx];
+
+            if (levels && levels.length > 0) {
+                result[key] = levels[findNearestLevelIndex(levels, rawPhys)];
+            } else if (Number.isFinite(range.step) && range.step > 0) {
+                const precision = getStepPrecision(range.step);
+                const snapped = range.min + Math.round((rawPhys - range.min) / range.step) * range.step;
+                result[key] = Math.max(range.min, Math.min(range.max, roundByPrecision(snapped, precision)));
+            } else {
+                result[key] = rawPhys;
             }
-            result[key] = Math.max(range.min, Math.min(range.max, val));
         });
 
         return result;
@@ -2125,7 +1900,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         for (const key of paramKeys) {
             const val = physical[key];
             const range = config[key];
-            if (!Number.isFinite(val) || val < range.min || val > range.max) {
+            if (!Number.isFinite(val) || val < range.min - 1e-12 || val > range.max + 1e-12) {
                 return false;
             }
         }
@@ -2136,18 +1911,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         const physical = toPhysical(rawX);
         if (!isValidPhysical(physical)) return null;
 
-        for (const key of paramKeys) {
-            const range = config[key];
-            if (typeof range.snap === "function") {
-                const snappedVal = range.snap(physical[key], baseParams);
-                if (!Number.isFinite(snappedVal)) return null;
-                const roundedVal = Number.isInteger(range.digits)
-                    ? Number(snappedVal.toFixed(range.digits))
-                    : snappedVal;
-                physical[key] = Math.max(range.min, Math.min(range.max, roundedVal));
-            }
-        }
-        if (!isValidPhysical(physical)) return null;
         const quantizedX = new Float64Array(numParams);
         for (let i = 0; i < numParams; i++) {
             const key = paramKeys[i];
@@ -2158,113 +1921,47 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         }
         return { x: quantizedX, physical, key: getPhysicalKeyFromPhysical(physical) };
     };
-    // Предварительный сбор уникальных дискретных значений для индексного Соболя
-    const discreteLevels = Array.from({ length: numParams }, (_, d) => {
-        const key = paramKeys[d];
-        const range = config[key];
-        const span = range.max - range.min;
-        if (span <= 0) return [range.min];
-
-        const MAX_INDEXED_LEVELS = 5000;
-        const levels = [];
-
-        if (typeof range.step === "function") {
-            const startVec = new Float64Array(numParams).fill(0);
-            const startQ = quantizeCandidate(startVec);
-            let curr = startQ ? startQ.physical[key] : range.min;
-            let safety = 0;
-
-            while (Number.isFinite(curr) && curr <= range.max && safety++ < MAX_INDEXED_LEVELS) {
-                if (levels.length === 0 || Math.abs(curr - levels[levels.length - 1]) > 1e-12) {
-                    levels.push(curr);
-                }
-                let next = range.step(curr, 1, baseParams);
-                if (typeof range.snap === "function" && Number.isFinite(next)) {
-                    next = range.snap(next, baseParams);
-                }
-                if (Number.isInteger(range.digits) && Number.isFinite(next)) {
-                    next = Number(next.toFixed(range.digits));
-                }
-                if (!Number.isFinite(next) || next <= curr + 1e-12) break;
-                curr = next;
-            }
-            return levels.length > 0 ? levels : null;
-        }
-
-        if (range.integer && span <= MAX_INDEXED_LEVELS) {
-            for (let v = Math.ceil(range.min); v <= Math.floor(range.max); v++) {
-                levels.push(v);
-            }
-            return levels.length > 0 ? levels : null;
-        }
-
-        if (Number.isInteger(range.digits)) {
-            const stepSize = Math.pow(10, -range.digits);
-            const count = Math.round(span / stepSize);
-            if (count > 0 && count <= MAX_INDEXED_LEVELS) {
-                for (let i = 0; i <= count; i++) {
-                    const val = Number((range.min + i * stepSize).toFixed(range.digits));
-                    if (val <= range.max) levels.push(val);
-                }
-                return levels.length > 0 ? levels : null;
-            }
-        }
-
-        return null;
-    });
-
-    const quantizeSobolPoint = rawSobolX => {
-        const mappedNormX = new Float64Array(numParams);
-        for (let d = 0; d < numParams; d++) {
-            const levels = discreteLevels[d];
-            const u = Number.isFinite(rawSobolX[d]) ? Math.max(0, Math.min(0.999999999999, rawSobolX[d])) : 0.5;
-            if (levels && levels.length > 0) {
-                const idx = Math.floor(u * levels.length);
-                const physVal = levels[idx];
-                const range = config[paramKeys[d]];
-                const span = range.max - range.min;
-                mappedNormX[d] = span > 0 ? (physVal - range.min) / span : 0;
-            } else {
-                mappedNormX[d] = u;
-            }
-        }
-        return quantizeCandidate(mappedNormX);
-    };
 
     const generateLatticeNeighbors = centerNormX => {
         const centerQ = quantizeCandidate(centerNormX);
         if (!centerQ) return [];
         const totalCombos = Math.pow(3, numParams);
         const neighbors = [];
+
         for (let mask = 0; mask < totalCombos; mask++) {
             let temp = mask;
-            const candidatePhys = {};
+            const normVec = new Float64Array(numParams);
             let isCenter = true;
+
             for (let d = 0; d < numParams; d++) {
                 const shift = (temp % 3) - 1;
                 temp = Math.floor(temp / 3);
                 if (shift !== 0) isCenter = false;
+
                 const key = paramKeys[d];
                 const range = config[key];
+                const span = range.max - range.min;
+                const levels = discreteLevels[d];
                 const baseVal = centerQ.physical[key];
-                if (typeof range.step === "function" && shift !== 0) {
-                    candidatePhys[key] = range.step(baseVal, shift, baseParams);
-                } else {
-                    const fallbackStep = (range.max - range.min) * 0.025;
-                    candidatePhys[key] = baseVal + shift * fallbackStep;
+
+                let nextVal = baseVal;
+                if (shift !== 0) {
+                    if (levels && levels.length > 0) {
+                        const baseIdx = findNearestLevelIndex(levels, baseVal);
+                        const nextIdx = Math.max(0, Math.min(levels.length - 1, baseIdx + shift));
+                        nextVal = levels[nextIdx];
+                    } else if (Number.isFinite(range.step) && range.step > 0) {
+                        nextVal = baseVal + shift * range.step;
+                    } else {
+                        nextVal = baseVal + shift * (span * 0.025);
+                    }
                 }
+                normVec[d] = span > 0 ? (nextVal - range.min) / span : 0;
             }
+
             if (isCenter) continue;
-            const normVec = new Float64Array(numParams);
-            for (let d = 0; d < numParams; d++) {
-                const key = paramKeys[d];
-                const range = config[key];
-                normVec[d] = range.max !== range.min
-                    ? (candidatePhys[key] - range.min) / (range.max - range.min)
-                    : 0;
-            }
             const q = quantizeCandidate(normVec);
-            if (q) neighbors.push(q);
+            if (q && q.key !== centerQ.key) neighbors.push(q);
         }
         return neighbors;
     };
@@ -2284,18 +1981,13 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             continue;
         }
 
+        const levels = discreteLevels[d];
         let normStep = 0;
-        const midPhys = (range.min + range.max) * 0.5;
 
-        if (typeof range.step === "function") {
-            const nextVal = range.step(midPhys, 1, baseParams);
-            if (Number.isFinite(nextVal)) {
-                normStep = Math.abs(nextVal - midPhys) / span;
-            }
-        } else if (range.integer) {
-            normStep = 1.0 / span;
-        } else if (Number.isInteger(range.digits)) {
-            normStep = Math.pow(10, -range.digits) / span;
+        if (levels && levels.length > 1) {
+            normStep = 1 / (levels.length - 1);
+        } else if (Number.isFinite(range.step) && range.step > 0) {
+            normStep = range.step / span;
         }
 
         // Ось считается грубо-ступенчатой, если в диапазоне меньше ~65 ступенек (шаг > 0.015)
@@ -2337,37 +2029,65 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     const evaluatedKeys = state?.evaluatedKeys instanceof Set
         ? state.evaluatedKeys
         : new Set(Array.isArray(state?.evaluatedKeys) ? state.evaluatedKeys : []);
-    const rawNextSobolPoint = createSobolGenerator(numParams);
-    let sobolDrawsCount = state?.sobolDraws || 0;
+
+    // Адаптеры границ для изолированного генератора Соболя
+    const globalBounds = paramKeys.map((key, d) => {
+        const range = config[key];
+        const levels = discreteLevels[d];
+        if (levels && levels.length > 0) {
+            return { levels, min: range.min, max: range.max };
+        }
+        if (Number.isFinite(range.step) && range.step > 0) {
+            return { min: range.min, max: range.max, step: range.step };
+        }
+        return { min: range.min, max: range.max };
+    });
+
+    const buildRegionBounds = (region) => {
+        const regionScales = globalGPState.loadLengthScales;
+        return paramKeys.map((key, d) => {
+            const range = config[key];
+            const span = range.max - range.min;
+            const scale = Math.max(0.05, Math.min(1.5, regionScales?.[d] ?? 0.55));
+            const halfW = region.radius * scale;
+            const minPhys = range.min + Math.max(0, region.bestX[d] - halfW) * span;
+            const maxPhys = range.min + Math.min(1, region.bestX[d] + halfW) * span;
+
+            const levels = discreteLevels[d];
+            if (levels && levels.length > 0) {
+                return { levels, min: minPhys, max: maxPhys };
+            }
+            if (Number.isFinite(range.step) && range.step > 0) {
+                return { min: minPhys, max: maxPhys, step: range.step };
+            }
+            return { min: minPhys, max: maxPhys };
+        });
+    };
+
+    const toCandidateFromSobolPoint = (pt) => {
+        const physical = {};
+        for (let d = 0; d < numParams; d++) {
+            physical[paramKeys[d]] = pt.values[d];
+        }
+        const normX = normalizeParamObject(physical);
+        return normX ? quantizeCandidate(normX) : null;
+    };
+
+    const globalSobolState = {
+        drawsCount: state?.sobolDraws || 0,
+        digitalShift: null
+    };
 // -----------------------------------------------------------------------
 // 7.4. СОСТОЯНИЕ ПОИСКА, ГЕНЕРАЦИЯ ТОЧЕК И СЧЁТЧИКИ
 // -----------------------------------------------------------------------
-    if (sobolDrawsCount > 0) {
-        for (let i = 0; i < sobolDrawsCount; i++) {
-            rawNextSobolPoint();
-        }
-    }
-    const nextSobolPoint = () => {
-        sobolDrawsCount++;
-        return rawNextSobolPoint();
-    };
-    const generateRandomPoint = (
-        seenKeys = null,
-        maxAttempts = 100
-    ) => {
-        for (
-            let attempt = 0;
-            attempt < maxAttempts;
-            attempt++
-        ) {
-            const q = quantizeSobolPoint(nextSobolPoint());
-            if (!q) continue;
-            if (seenKeys && seenKeys.has(q.key)) {
-                continue;
-            }
-            return q;
-        }
-        return null;
+    const generateRandomPoint = (seenKeys = null) => {
+        const { points } = generateDiscreteSobolPoints({
+            count: 1,
+            bounds: globalBounds,
+            sobolState: globalSobolState,
+            seenKeys
+        });
+        return points.length > 0 ? toCandidateFromSobolPoint(points[0]) : null;
     };
     const observedX = Array.isArray(state?.observedX)
         ? state.observedX.map(pt => pt instanceof Float64Array ? pt : new Float64Array(Object.values(pt)))
@@ -2402,9 +2122,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             }
             objectiveShift = newShift;
             globalGPState.loadLengthScales = null;
-            for (const reg of searchRegions) {
-                reg.loadLengthScales = null;
-            }
         }
     };
     let gBestMetrics = state?.gBestMetrics || null;
@@ -2417,6 +2134,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     let fallbackConstraints = state?.fallbackConstraints || null;
     let fallbackViolation = state?.fallbackViolation ?? Infinity;
     let fallbackObjective = state?.fallbackObjective ?? (isMaximize() ? -Infinity : Infinity);
+    let bestBoundaryX = state?.bestBoundaryX
+        ? (state.bestBoundaryX instanceof Float64Array ? state.bestBoundaryX : new Float64Array(Object.values(state.bestBoundaryX)))
+        : null;
+    let bestBoundaryObjective = state?.bestBoundaryObjective ?? (isMaximize() ? -Infinity : Infinity);
 
     let pendingDecision = null;
 // -----------------------------------------------------------------------
@@ -2428,9 +2149,9 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             if (key === "linearResidual" || (value !== 0 && Math.abs(value) < 1e-6)) {
                 return value;
             }
-            const configuredDigits = config[key]?.digits;
-            const digits = Number.isInteger(configuredDigits)
-                ? Math.max(0, Math.min(12, configuredDigits))
+            const step = config[key]?.step;
+            const digits = Number.isFinite(step) && step > 0
+                ? Math.min(4, getStepPrecision(step))
                 : 3;
             const rounded = Number(value.toFixed(digits));
             return Object.is(rounded, -0) ? 0 : rounded;
@@ -2656,6 +2377,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
                 associatedRegion.bestX = new Float64Array(normX);
                 associatedRegion.center = new Float64Array(normX);
+                associatedRegion.sobolState = {
+                    drawsCount: 0,
+                    digitalShift: createDigitalShift()
+                };
                 associatedRegion.bestLoad = load;
                 associatedRegion.bestObjective = currentObjective;
                 associatedRegion.bestViolation = violation;
@@ -2702,7 +2427,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 
         const initialRegionRadius = 0.22 / Math.sqrt(numParams);
 
-        const createNewRegionObject = id => ({
+        const createNewRegionObject = id => attachRegionSobol({
             id,
             center: new Float64Array(normX),
             bestX: new Float64Array(normX),
@@ -3174,10 +2899,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             observedX.push(new Float64Array(normX));
             observedLoad.push(load);
             observedLogLoad.push(Math.log1p(Math.max(0, load + objectiveShift)));
-            observedLoadNoise.push(0.0001);
+            observedLoadNoise.push(0);
             for (let k = 0; k < normalizedConstraints.length; k++) {
                 observedLogConstraints[k].push(Math.log1p(normalizedConstraints[k].gpVal));
-                observedConstraintNoise[k].push(0.0001);
+                observedConstraintNoise[k].push(0);
                 constraintLimitsGP[k] = normalizedConstraints[k].gpLimit;
             }
             observedAllFeasible.push(allConstraintsFeasible);
@@ -3218,6 +2943,14 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 fallbackPhysical = paramsObj;
                 fallbackLoad = load;
                 fallbackConstraints = currentConstraintsSummary;
+            }
+            if (
+                !allConstraintsFeasible &&
+                totalViolation <= 0.05 &&
+                (!bestBoundaryX || isBetterVal(currentObjective, bestBoundaryObjective))
+            ) {
+                bestBoundaryX = new Float64Array(normX);
+                bestBoundaryObjective = currentObjective;
             }
         }
         const stepMode = customTag
@@ -3275,18 +3008,20 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
 // 7.9. НАЧАЛЬНОЕ НАПОЛНЕНИЕ ВЫБОРКИ
 // -----------------------------------------------------------------------
     if (!state) {
-        let initialAttempts = 0;
-        const maxInitialAttempts = Math.max(100, initPointsCount * 100);
-        while (
-            currentExecutionCount < initPointsCount &&
-            initialAttempts < maxInitialAttempts
-            ) {
+        const initBatch = generateDiscreteSobolPoints({
+            count: initPointsCount,
+            bounds: globalBounds,
+            sobolState: globalSobolState,
+            seenKeys: evaluatedKeys
+        });
+
+        for (const pt of initBatch.points) {
+            if (currentExecutionCount >= initPointsCount) break;
             await new Promise(resolve => setTimeout(resolve, 0));
             if (typeof options.shouldStop === "function" && options.shouldStop()) {
                 break;
             }
-            initialAttempts++;
-            const candidate = generateRandomPoint(evaluatedKeys, 1);
+            const candidate = toCandidateFromSobolPoint(pt);
             if (!candidate) continue;
             evaluate(
                 candidate.physical,
@@ -3294,6 +3029,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 "RANDOM_INIT_" + currentExecutionCount
             );
         }
+
         if (currentExecutionCount === 0) {
             throw new Error(
                 "Не удалось сформировать ни одной допустимой начальной точки."
@@ -3311,9 +3047,11 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         Math.floor(extraIterations * 0.45),
         initPointsCount + Math.max(6, numParams * 8)
     );
+    const latticeCount = Math.pow(3, numParams) - 1;
+    const basePatience = Math.max(8, Math.min(28, Math.round(latticeCount * 0.85) + numParams * 2));
     const earlyStopPatience = Math.min(
-        Math.floor(extraIterations * 0.35),
-        Math.max(10, numParams * 10)
+        Math.floor(extraIterations * 0.30),
+        basePatience
     );
     while (currentExecutionCount < totalIterations) {
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -3340,10 +3078,11 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         const minActiveRadius = activeRegionsForSchedule.length > 0
             ? Math.min(...activeRegionsForSchedule.map(r => r.radius))
             : 0.15;
-        let reoptimizeInterval = 16;
-        if (minActiveRadius <= 0.02) reoptimizeInterval = 5;
-        else if (minActiveRadius <= 0.05) reoptimizeInterval = 8;
-        else if (minActiveRadius <= 0.15) reoptimizeInterval = 12;
+        let reoptimizeInterval = 10;
+        if (minActiveRadius <= 0.02) reoptimizeInterval = 4;
+        else if (minActiveRadius <= 0.05) reoptimizeInterval = 6;
+        else if (minActiveRadius <= 0.15) reoptimizeInterval = 8;
+
         const currentCompleteCount = observedIsComplete.filter(Boolean).length;
         const numConstraints = observedLogConstraints.length;
         if (
@@ -3420,176 +3159,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             continue;
         }
         consecutiveMatrixFailures = 0;
-// 7.10.3. ОБУЧЕНИЕ ЛОКАЛЬНЫХ REGIONAL GP
-// 7.10.3. ОБУЧЕНИЕ ЛОКАЛЬНЫХ REGIONAL GP С АДАПТАЦИЕЙ МАСШТАБОВ
-        const activeRegionsForFit = searchRegions.filter(r => r.active);
-        for (const reg of activeRegionsForFit) {
-            if (!reg.loadLengthScales) {
-                reg.loadLengthScales = new Float64Array(globalGPState.loadLengthScales);
-            }
-            while (reg.constraintLengthScales.length < numConstraints) {
-                const idx = reg.constraintLengthScales.length;
-                reg.constraintLengthScales.push(new Float64Array(globalGPState.constraintLengthScales[idx]));
-            }
-
-            // Комбинированная метрика расстояния по цели и активным ограничениям
-            const combinedRefScales = new Float64Array(numParams);
-            for (let d = 0; d < numParams; d++) {
-                let invSqSum = 1 / Math.pow(Math.max(1e-6, reg.loadLengthScales[d]), 2);
-                let count = 1;
-                for (let k = 0; k < numConstraints; k++) {
-                    const sC = reg.constraintLengthScales[k]?.[d];
-                    if (Number.isFinite(sC) && sC > 0) {
-                        invSqSum += 1 / (sC * sC);
-                        count++;
-                    }
-                }
-                combinedRefScales[d] = Math.sqrt(count / invSqSum);
-            }
-
-            const localDataset = buildRegionalTrainingDataset(
-                reg,
-                observedX,
-                observedLogLoad,
-                observedLogConstraints[0] || observedLogLoad,
-                observedLoadNoise,
-                observedConstraintNoise[0] || observedLoadNoise,
-                observedIsComplete,
-                observedRegionIds,
-                combinedRefScales,
-                isCoarseAxis
-            );
-
-            if (!localDataset) {
-                reg.regionalModels = null;
-                reg.localTrainingStats = { usingFallback: true, reason: "INSUFFICIENT_LOCAL_DATA" };
-                continue;
-            }
-
-            const localGeometry = inspectLocalGeometry(localDataset.X, numParams);
-            if (!localGeometry.valid) {
-                reg.regionalModels = null;
-                reg.localTrainingStats = {
-                    usingFallback: true,
-                    reason: `DEGENERATE_LOCAL_GEOMETRY_${localGeometry.reason}`,
-                    totalPoints: localDataset.totalCount,
-                    corePoints: localDataset.coreCount,
-                    completePoints: localDataset.completeCount
-                };
-                continue;
-            }
-
-            const localConstraintTargets = [];
-            for (let k = 0; k < numConstraints; k++) {
-                const localCY = [];
-                const localCNoise = [];
-                for (const origIdx of localDataset.indices) {
-                    localCY.push(observedLogConstraints[k][origIdx]);
-                    localCNoise.push(observedConstraintNoise[k][origIdx]);
-                }
-                localConstraintTargets.push({ Y: localCY, noise: localCNoise });
-            }
-
-            const regionCompleteCount = reg.completeObservationsCount ?? localDataset.completeCount;
-            const localReoptInterval = reg.radius <= 0.05 ? 6 : 12;
-            const shouldAdaptLocalScales =
-                (regionCompleteCount - (reg.lastScaleOptimizationCount ?? -Infinity)) >= localReoptInterval;
-
-            let localScaleStatus = "REUSED";
-
-            if (shouldAdaptLocalScales) {
-                const adaptation = optimizeRegionalLengthScales(
-                    localDataset,
-                    localConstraintTargets,
-                    globalGPState.loadLengthScales,
-                    globalGPState.constraintLengthScales,
-                    reg.loadLengthScales,
-                    reg.constraintLengthScales,
-                    numParams,
-                    progressFactor,
-                    minAxisScales,
-                    isCoarseAxis
-                );
-
-                reg.loadLengthScales = adaptation.loadScales;
-                reg.constraintLengthScales = adaptation.constraintScales;
-                reg.lastScaleOptimizationCount = regionCompleteCount;
-                localScaleStatus = adaptation.reason;
-            } else if (localDataset.completeCount < 16) {
-                reg.loadLengthScales = new Float64Array(globalGPState.loadLengthScales);
-                reg.constraintLengthScales = globalGPState.constraintLengthScales.map(
-                    s => (s ? new Float64Array(s) : null)
-                );
-                localScaleStatus = "SYNCED_GLOBAL";
-            }
-
-            const localObjGP = fitGaussianProcess(
-                localDataset.X,
-                localDataset.logLoad,
-                localDataset.loadNoise,
-                reg.loadLengthScales,
-                localDataset.isComplete,
-                isCoarseAxis
-            );
-
-            if (!localObjGP?.valid) {
-                reg.regionalModels = null;
-                reg.localTrainingStats = {
-                    usingFallback: true,
-                    reason: `OBJECTIVE_FIT_FAILED_${localObjGP?.reason ?? "UNKNOWN"}`,
-                    totalPoints: localDataset.totalCount,
-                    corePoints: localDataset.coreCount,
-                    completePoints: localDataset.completeCount,
-                    regionTotalComplete: regionCompleteCount,
-                    scaleStatus: localScaleStatus
-                };
-                continue;
-            }
-
-            const localCModels = [];
-            let localAllValid = true;
-            let failedConstraintReason = null;
-
-            for (let k = 0; k < numConstraints; k++) {
-                const cGP = fitGaussianProcess(
-                    localDataset.X,
-                    localConstraintTargets[k].Y,
-                    localConstraintTargets[k].noise,
-                    reg.constraintLengthScales[k],
-                    localDataset.isComplete,
-                    isCoarseAxis
-                );
-                if (!cGP?.valid) {
-                    localAllValid = false;
-                    failedConstraintReason = cGP?.reason ?? "UNKNOWN";
-                    break;
-                }
-                localCModels.push(cGP);
-            }
-
-            if (localAllValid) {
-                reg.regionalModels = { loadModel: localObjGP, constraintModels: localCModels };
-                reg.localTrainingStats = {
-                    usingFallback: false,
-                    totalPoints: localDataset.totalCount,
-                    corePoints: localDataset.coreCount,
-                    completePoints: localDataset.completeCount,
-                    regionTotalComplete: regionCompleteCount,
-                    scaleStatus: localScaleStatus
-                };
-            } else {
-                reg.regionalModels = null;
-                reg.localTrainingStats = {
-                    usingFallback: true,
-                    reason: `CONSTRAINT_FIT_FAILED_${failedConstraintReason}`,
-                    totalPoints: localDataset.totalCount,
-                    corePoints: localDataset.coreCount,
-                    completePoints: localDataset.completeCount,
-                    regionTotalComplete: regionCompleteCount,
-                    scaleStatus: localScaleStatus
-                };
-            }
-        }
         const hasFeasibleResult = Boolean(gBestMetrics);
         const bestObjectiveShifted = hasFeasibleResult
             ? Math.max(0, getObjectiveValue(gBestLoad) + objectiveShift)
@@ -3613,8 +3182,6 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         let localCandidatesGenerated = 0;
         let localCandidatesRejected = 0;
         const seenCandidateKeys = new Set(evaluatedKeys);
-        const maxSobolAttempts = candidatesCount * 10;
-        let sobolAttempts = 0;
         const primaryPairs = residualPairsByConstraint[0] || [];
         self.lastEMAStorage.load = estimateResidualSigmaScale(primaryPairs, "load", observedX, self.lastEMAStorage.load, progressFactor);
         const loadSigmaCalibration = self.lastEMAStorage.load;
@@ -3629,18 +3196,21 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             self.lastEMAStorage.errors[k] = newScaleK;
             constraintSigmaCalibrations[k] = newScaleK;
         }
-        while (
-            randomCandidatesGenerated < candidatesCount &&
-            sobolAttempts < maxSobolAttempts
-            ) {
-            sobolAttempts++;
-            const q = quantizeSobolPoint(nextSobolPoint());
+
+        const globalBatch = generateDiscreteSobolPoints({
+            count: candidatesCount,
+            bounds: globalBounds,
+            sobolState: globalSobolState,
+            seenKeys: seenCandidateKeys
+        });
+
+        for (const pt of globalBatch.points) {
+            const q = toCandidateFromSobolPoint(pt);
             if (!q || seenCandidateKeys.has(q.key)) {
                 randomCandidatesRejected++;
                 continue;
             }
             const x = q.x;
-            const key = q.key;
             let isTooClose = false;
             for (let i = 0; i < observedX.length; i++) {
                 let distSq = 0;
@@ -3657,30 +3227,32 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 randomCandidatesRejected++;
                 continue;
             }
-            seenCandidateKeys.add(key);
+            seenCandidateKeys.add(q.key);
             candidates.push(x);
             candidateSources.push({ type: "GLOBAL", regionId: -1 });
             randomCandidatesGenerated++;
         }
+
         localCandidatesGenerated = 0;
         let localAttempts = 0;
         const maxLocalAttempts = localExplorers * 5;
         const activeRegions = searchRegions.filter(r => r.active);
         const regionConsecutiveMisses = new Map(activeRegions.map(r => [r.id, 0]));
-        const exhaustedRegionIds = new Set();
+        const sobolExhaustedIds = new Set();
+        const dirExhaustedIds = new Set();
         const MAX_MISSES_PER_REGION = Math.min(60, Math.max(16, numParams * 8 + 2));
-        const buildRegionWeights = () => {
+        const buildRegionWeights = (excludedSet) => {
             let total = 0;
             const list = [];
             for (const reg of activeRegions) {
-                if (exhaustedRegionIds.has(reg.id)) continue;
+                if (excludedSet.has(reg.id)) continue;
                 const score = getRegionPriority(reg);
                 total += score;
                 list.push({ reg, score });
             }
             return { list, total };
         };
-        let { list: regionWeights, total: totalRegionScore } = buildRegionWeights();
+        let { list: regionWeights, total: totalRegionScore } = buildRegionWeights(sobolExhaustedIds);
 
         // 1. Гарантированно добавляем непроверенных дискретных соседей глобального лидера (gBestPhysical)
         if (gBestPhysical) {
@@ -3713,65 +3285,190 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 }
             }
         }
+
+        // 2.1. Добавляем соседей лучшей пограничной точки, если её цель превосходит текущий допустимый рекорд
+        if (bestBoundaryX && (!hasFeasibleResult || isBetterVal(bestBoundaryObjective, getObjectiveValue(gBestLoad)))) {
+            const boundaryNeighbors = generateLatticeNeighbors(bestBoundaryX);
+            for (const q of boundaryNeighbors) {
+                if (!seenCandidateKeys.has(q.key)) {
+                    candidates.push(q.x);
+                    candidateSources.push({ type: "LOCAL_LATTICE", regionId: -1 });
+                    seenCandidateKeys.add(q.key);
+                    localCandidatesGenerated++;
+                }
+            }
+        }
+
+        // 3. Пакетная генерация локального Соболя с перераспределением квоты исчерпанных регионов
+        let sobolTargetTotal = localCandidatesGenerated + Math.round(
+            Math.max(0, localExplorers - localCandidatesGenerated) * 0.65
+        );
+        if (!activeRegions.some(reg => Boolean(reg.rawDirection))) {
+            sobolTargetTotal = localExplorers;
+        }
+
+        let batchRounds = 0;
+        while (localCandidatesGenerated < sobolTargetTotal && regionWeights.length > 0 && batchRounds < 4) {
+            batchRounds++;
+            const needed = sobolTargetTotal - localCandidatesGenerated;
+            let generatedInRound = 0;
+
+            for (const item of regionWeights) {
+                const reg = item.reg;
+                const share = totalRegionScore > 0
+                    ? needed * (item.score / totalRegionScore)
+                    : needed / regionWeights.length;
+                const quota = Math.max(1, Math.ceil(share));
+
+                localAttempts++;
+                const localBatch = generateDiscreteSobolPoints({
+                    count: quota,
+                    bounds: buildRegionBounds(reg),
+                    sobolState: reg.sobolState,
+                    seenKeys: seenCandidateKeys
+                });
+
+                for (const pt of localBatch.points) {
+                    if (localCandidatesGenerated >= sobolTargetTotal) break;
+                    const q = toCandidateFromSobolPoint(pt);
+                    if (q && !seenCandidateKeys.has(q.key)) {
+                        seenCandidateKeys.add(q.key);
+                        candidates.push(q.x);
+                        candidateSources.push({ type: "LOCAL", regionId: reg.id });
+                        localCandidatesGenerated++;
+                        generatedInRound++;
+                    }
+                }
+
+                if (localBatch.exhausted) {
+                    sobolExhaustedIds.add(reg.id);
+                }
+            }
+
+            ({ list: regionWeights, total: totalRegionScore } = buildRegionWeights(sobolExhaustedIds));
+            if (generatedInRound === 0) break;
+        }
+
+        // 4. Остаток локального бюджета добираем направленными шагами (только для регионов с rawDirection)
+        const buildDirectionalWeights = () => {
+            const { list: activeDirPool } = buildRegionWeights(dirExhaustedIds);
+            let total = 0;
+            const list = [];
+            for (const item of activeDirPool) {
+                if (!item.reg.rawDirection) continue;
+                total += item.score;
+                list.push(item);
+            }
+            return { list, total };
+        };
+        let { list: dirWeights, total: totalDirScore } = buildDirectionalWeights();
+
         while (
             localCandidatesGenerated < localExplorers &&
             localAttempts < maxLocalAttempts &&
-            regionWeights.length > 0
+            dirWeights.length > 0
             ) {
             localAttempts++;
             let region = null;
-            if (totalRegionScore > 0) {
-                let rouletteSlot = Math.random() * totalRegionScore;
-                for (const item of regionWeights) {
+            if (totalDirScore > 0) {
+                let rouletteSlot = nextRandom() * totalDirScore;
+                for (const item of dirWeights) {
                     rouletteSlot -= item.score;
                     if (rouletteSlot <= 0) { region = item.reg; break; }
                 }
             }
             if (!region) {
-                region = regionWeights[(localAttempts - 1) % regionWeights.length].reg;
+                region = dirWeights[(localAttempts - 1) % dirWeights.length].reg;
             }
+
+            // Направленный шаг вдоль вектора улучшения (LOCAL_DIRECTIONAL)
             const basePoint = region.bestX;
+            const basePhysical = toPhysical(basePoint);
             const mutatedX = new Float64Array(numParams);
-            const regionScales = region.loadLengthScales || globalGPState.loadLengthScales;
-            const useDirectional = Boolean(region.rawDirection) && Math.random() < 0.35;
-            if (useDirectional) {
-                const scaledDir = new Float64Array(numParams);
-                let normSq = 0;
-                for (let d = 0; d < numParams; d++) {
-                    const scale = Math.max(0.05, Math.min(1.5, regionScales?.[d] ?? 0.55));
-                    const sDiff = region.rawDirection[d] / scale;
-                    scaledDir[d] = sDiff;
-                    normSq += sDiff * sDiff;
-                }
-                const rmsNormSq = normSq / numParams;
-                if (rmsNormSq > 1e-12) {
-                    const invRmsNorm = 1 / Math.sqrt(rmsNormSq);
-                    const step = region.radius * (0.3 + 0.9 * Math.random());
-                    for (let d = 0; d < numParams; d++) {
-                        const scale = Math.max(0.05, Math.min(1.5, regionScales?.[d] ?? 0.55));
-                        const offset = (scaledDir[d] * invRmsNorm) * step * scale;
-                        mutatedX[d] = Math.max(0, Math.min(1, basePoint[d] + offset));
-                    }
+            const regionScales = globalGPState.loadLengthScales;
+
+            const scaledDir = new Float64Array(numParams);
+            let normSq = 0;
+            for (let d = 0; d < numParams; d++) {
+                const scale = Math.max(0.05, Math.min(1.5, regionScales?.[d] ?? 0.55));
+                const sDiff = region.rawDirection[d] / scale;
+                scaledDir[d] = sDiff;
+                normSq += sDiff * sDiff;
+            }
+            const rmsNormSq = normSq / numParams;
+            if (rmsNormSq <= 1e-12) {
+                region.rawDirection = null;
+                continue;
+            }
+            const invRmsNorm = 1 / Math.sqrt(rmsNormSq);
+            const dirStepRatio = region.radius * (0.12 + 0.38 * nextRandom());
+
+            const deltaIndices = new Int32Array(numParams);
+            const baseIndices = new Int32Array(numParams);
+            const continuousShifts = new Float64Array(numParams);
+            let hasDiscreteShift = false;
+
+            for (let d = 0; d < numParams; d++) {
+                const levels = discreteLevels[d];
+                const scale = Math.max(0.05, Math.min(1.5, regionScales?.[d] ?? 0.55));
+
+                if (levels && levels.length > 1) {
+                    const maxIdx = levels.length - 1;
+                    const baseIdx = findNearestLevelIndex(levels, basePhysical[paramKeys[d]]);
+                    baseIndices[d] = baseIdx;
+
+                    const rawShift = (scaledDir[d] * invRmsNorm) * dirStepRatio * scale * maxIdx;
+                    continuousShifts[d] = rawShift;
+                    const stepIdx = Math.round(rawShift);
+
+                    const clampedIdx = Math.max(0, Math.min(maxIdx, baseIdx + stepIdx));
+                    deltaIndices[d] = clampedIdx - baseIdx;
+                    if (deltaIndices[d] !== 0) hasDiscreteShift = true;
                 } else {
-                    for (let d = 0; d < numParams; d++) {
-                        const scale = Math.max(0.05, Math.min(1.5, regionScales?.[d] ?? 0.55));
-                        mutatedX[d] = Math.max(0, Math.min(1, basePoint[d] + (Math.random() * 2 - 1) * region.radius * scale));
-                    }
-                }
-            } else {
-                for (let d = 0; d < numParams; d++) {
-                    const scale = Math.max(0.05, Math.min(1.5, regionScales?.[d] ?? 0.55));
-                    const offset = (Math.random() * 2 - 1) * region.radius * scale;
+                    const offset = (scaledDir[d] * invRmsNorm) * dirStepRatio * scale;
                     mutatedX[d] = Math.max(0, Math.min(1, basePoint[d] + offset));
                 }
             }
+
+            if (!hasDiscreteShift) {
+                const movableAxes = [];
+                for (let d = 0; d < numParams; d++) {
+                    if (discreteLevels[d] && discreteLevels[d].length > 1) movableAxes.push(d);
+                }
+                if (movableAxes.length > 0) {
+                    let chosenAxis = movableAxes[0];
+                    let preferredSign = 1;
+                    let maxAbs = -1;
+                    for (const d of movableAxes) {
+                        if (Math.abs(continuousShifts[d]) > maxAbs) {
+                            maxAbs = Math.abs(continuousShifts[d]);
+                            chosenAxis = d;
+                            preferredSign = continuousShifts[d] >= 0 ? 1 : -1;
+                        }
+                    }
+                    const maxIdx = discreteLevels[chosenAxis].length - 1;
+                    const baseIdx = baseIndices[chosenAxis];
+                    let targetIdx = baseIdx + preferredSign;
+                    if (targetIdx < 0 || targetIdx > maxIdx) targetIdx = baseIdx - preferredSign;
+                    deltaIndices[chosenAxis] = Math.max(0, Math.min(maxIdx, targetIdx)) - baseIdx;
+                }
+            }
+
+            for (let d = 0; d < numParams; d++) {
+                const levels = discreteLevels[d];
+                if (levels && levels.length > 1) {
+                    const key = paramKeys[d];
+                    const range = config[key];
+                    const span = range.max - range.min;
+                    const physVal = levels[baseIndices[d] + deltaIndices[d]];
+                    mutatedX[d] = span > 0 ? (physVal - range.min) / span : 0;
+                }
+            }
+
             const q = quantizeCandidate(mutatedX);
             if (q && !seenCandidateKeys.has(q.key)) {
                 candidates.push(q.x);
-                candidateSources.push({
-                    type: useDirectional ? "LOCAL_DIRECTIONAL" : "LOCAL",
-                    regionId: region.id
-                });
+                candidateSources.push({ type: "LOCAL_DIRECTIONAL", regionId: region.id });
                 seenCandidateKeys.add(q.key);
                 localCandidatesGenerated++;
                 regionConsecutiveMisses.set(region.id, 0);
@@ -3780,8 +3477,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 const misses = (regionConsecutiveMisses.get(region.id) || 0) + 1;
                 regionConsecutiveMisses.set(region.id, misses);
                 if (misses >= MAX_MISSES_PER_REGION) {
-                    exhaustedRegionIds.add(region.id);
-                    ({ list: regionWeights, total: totalRegionScore } = buildRegionWeights());
+                    dirExhaustedIds.add(region.id);
+                    ({ list: dirWeights, total: totalDirScore } = buildDirectionalWeights());
                 }
             }
         }
@@ -3802,21 +3499,14 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         let bestGlobalFeasScore = -Infinity;
         let bestGlobalPred = null;
         const FEASIBILITY_TIE_EPSILON = 1e-9;
-        const activeRegionMap = new Map(activeRegions.map(r => [r.id, r]));
-        const evaluateCandidatePredictions = (candX, candSource) => {
-            let ownerRegion = null;
-            if (candSource && candSource.regionId >= 0) {
-                ownerRegion = activeRegionMap.get(candSource.regionId) || null;
-            }
-            const activeLoadModel = ownerRegion?.regionalModels?.loadModel || loadGP;
-            const activeCModels = ownerRegion?.regionalModels?.constraintModels || globalConstraintModels;
-            const rawLoadPred = predictGaussianProcess(activeLoadModel, candX);
+        const evaluateCandidatePredictions = (candX) => {
+            const rawLoadPred = predictGaussianProcess(loadGP, candX);
             if (!rawLoadPred) return null;
             const loadPrediction = applySigmaCalibration(rawLoadPred, loadSigmaCalibration);
             const constraintPreds = [];
             const probs = [];
             for (let k = 0; k < numConstraints; k++) {
-                const rawCPred = predictGaussianProcess(activeCModels[k], candX);
+                const rawCPred = predictGaussianProcess(globalConstraintModels[k], candX);
                 if (!rawCPred) return null;
                 const scaleK = constraintSigmaCalibrations[k] ?? 1.0;
                 const cPred = applySigmaCalibration(rawCPred, scaleK);
@@ -3831,26 +3521,24 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 loadPrediction,
                 constraintPreds,
                 probs,
-                pFeasible,
-                ownerRegion,
-                usingRegional: Boolean(ownerRegion?.regionalModels)
+                pFeasible
             };
         };
         for (let c = 0; c < candidates.length; c++) {
             const candX = candidates[c];
             const candSource = candidateSources[c];
-            const evalPred = evaluateCandidatePredictions(candX, candSource);
+            const evalPred = evaluateCandidatePredictions(candX);
             if (!evalPred) {
                 invalidPredictionCount++;
                 continue;
             }
-            const { loadPrediction, constraintPreds, pFeasible, ownerRegion, usingRegional } = evalPred;
+            const { loadPrediction, constraintPreds, pFeasible } = evalPred;
             const sigmaObjective = loadPrediction.sigmaLog;
             const feasibilityScore = pFeasible;
             bestFeasibilityScore = Math.max(bestFeasibilityScore, feasibilityScore);
 
             // Кэшируем лучшего глобального кандидата для режима разведки (без повторного вызова GP)
-            if (candSource?.type === "GLOBAL") {
+            if (candSource?.type === "GLOBAL" && pFeasible >= 0.25) {
                 const normObj = loadPrediction.meanLog;
                 const feasBonus = pFeasible >= 0.5 ? (1.0 - Math.abs(pFeasible - 0.65)) : pFeasible;
                 const exploreScore = feasBonus + 0.05 * Math.min(2.0, loadPrediction.sigmaLog) - 0.02 * normObj;
@@ -3949,16 +3637,14 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     continue;
                 }
 
-                // Быстрый расчёт crowding без Math.sqrt и делений внутри цикла по observedX
-                const activeScales = usingRegional
-                    ? ownerRegion.loadLengthScales
-                    : globalGPState.loadLengthScales;
                 const invScales = new Float64Array(numParams);
                 for (let d = 0; d < numParams; d++) {
-                    const s = Number.isFinite(activeScales[d]) && activeScales[d] > 0 ? activeScales[d] : 0.55;
+                    const s = Number.isFinite(globalGPState.loadLengthScales[d]) && globalGPState.loadLengthScales[d] > 0
+                        ? globalGPState.loadLengthScales[d]
+                        : 0.55;
                     invScales[d] = 1 / s;
                 }
-                const crowdingThresholdSq = 0.0625 * numParams; // (0.25)^2 * numParams
+                const crowdingThresholdSq = 0.0064 * numParams; // (0.08)^2 * numParams
                 const invNumParams = 1 / numParams;
                 let crowding = 0;
 
@@ -3971,11 +3657,12 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     }
                     if (sumSq < crowdingThresholdSq) {
                         const dKernel = Math.sqrt(sumSq * invNumParams);
-                        crowding += (1.0 - dKernel * 4.0) * 0.25;
+                        crowding += (1.0 - dKernel * 12.5) * 0.12;
                     }
                 }
 
-                const clampedPenalty = Math.min(0.85, crowding);
+                const clampedPenalty = Math.min(0.35, crowding);
+
                 const balancedAcquisition = ei * (1.0 - clampedPenalty);
                 if (balancedAcquisition > bestAcquisition) {
                     bestAcquisition = balancedAcquisition;
@@ -4008,12 +3695,12 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 }
             }
         }
-        const maxPoolEI = bestCandidateStats?.ei ?? 0;
 // 7.10.6. ВЫБОР РЕЖИМА: УЛУЧШЕНИЕ ИЛИ ИССЛЕДОВАНИЕ ДОПУСТИМОЙ ОБЛАСТИ
         let selectionMethod = hasFeasibleResult
             ? "CONSTRAINED_EXPECTED_IMPROVEMENT"
             : "FEASIBILITY_SEARCH";
         let selectionFallbackReason = null;
+        const bestPoolAcquisition = bestAcquisition;
         const MIN_SIGNIFICANT_EI = 1e-6;
         if (hasFeasibleResult && bestFeasibilityX) {
             const selectedFeasibility = bestCandidateStats?.pFeasible ?? 0;
@@ -4026,7 +3713,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 candidateSourceType === "LOCAL" ||
                 candidateSourceType === "LOCAL_DIRECTIONAL" ||
                 candidateSourceType === "LOCAL_LATTICE";
-            const minFeasibilityFloor = isLocalCandidate ? 0.0005 : 0.02;
+            const minFeasibilityFloor = isLocalCandidate ? 0.0005 : 0.15;
             const hasMeaningfulEI = bestAcquisition >= 5e-4;
             const lowFeasibility =
                 !hasMeaningfulEI &&
@@ -4034,7 +3721,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 bestFeasibilityScore - selectedFeasibility >= 0.25;
             const noPositiveEI = bestAcquisition < MIN_SIGNIFICANT_EI;
             if (periodicExploration || lowFeasibility || noPositiveEI) {
-                if ((noPositiveEI || periodicExploration) && globalFeasibilityIdx >= 0 && bestGlobalPred) {                    nextBestX = candidates[globalFeasibilityIdx];
+                if ((noPositiveEI || periodicExploration) && globalFeasibilityIdx >= 0 && bestGlobalPred) {
+                    nextBestX = candidates[globalFeasibilityIdx];
                     selectedIndexInPool = globalFeasibilityIdx;
                     bestAcquisition = bestGlobalPred.pFeasible;
                     bestCandidateStats = {
@@ -4222,15 +3910,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                 attempts: reg.attempts,
                 improvements: reg.improvements,
                 failures: reg.failures,
-                idleSteps: stepCountSnapshot - reg.lastImprovementStep,
-                modelStatus: reg.localTrainingStats || { usingFallback: true },
-                ...(reg.attempts > 1 && reg.loadLengthScales ? {
-                    localObjectiveScales: Array.from(reg.loadLengthScales),
-                    localObjectiveLML: reg.regionalModels?.loadModel?.logMarginalLikelihood ?? null,
-                    localConstraintsLML: (reg.regionalModels?.constraintModels || []).map(
-                        m => m?.logMarginalLikelihood ?? null
-                    )
-                } : {})
+                idleSteps: stepCountSnapshot - reg.lastImprovementStep
             }))
         });
         const stepBeforeEval = self.lastEvaluatedBestStepNumber;
@@ -4241,26 +3921,34 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         } else {
             stepsWithoutGlobalImprovement++;
         }
-        const EI_EXHAUSTION_THRESHOLD = 0.001;
-        if (selectionMethod === "CONSTRAINED_EXPECTED_IMPROVEMENT") {
-            if (Number.isFinite(maxPoolEI) && maxPoolEI < EI_EXHAUSTION_THRESHOLD) {
-                lowEIConsecutiveCount++;
-            } else {
-                lowEIConsecutiveCount = 0;
-            }
-        } else if (selectionFallbackReason === "NON_POSITIVE_CONSTRAINED_EI") {
+        const stagnationRatio = Math.min(
+            1.0,
+            stepsWithoutGlobalImprovement / Math.max(1, earlyStopPatience)
+        );
+        const EI_EXHAUSTION_THRESHOLD =
+            0.0005 + 0.0015 * Math.max(progressFactor, stagnationRatio);
+        if (Number.isFinite(bestPoolAcquisition) && bestPoolAcquisition < EI_EXHAUSTION_THRESHOLD) {
             lowEIConsecutiveCount++;
+        } else {
+            lowEIConsecutiveCount = 0;
         }
         const leaderNeighbors = gBestPhysical ? generateLatticeNeighbors(normalizeParamObject(gBestPhysical)) : [];
         const allLeaderNeighborsEvaluated =
             leaderNeighbors.length > 0 &&
             leaderNeighbors.every(q => evaluatedKeys.has(q.key));
+        const hasOtherActiveRegions = searchRegions.some(
+            r => r.active &&
+                !isGlobalLeaderRegion(r) &&
+                (r.attempts < 6 || r.radius > minRegionRadius * 1.5) &&
+                getRegionPriority(r) > 0.2
+        );
         if (
             gBestMetrics &&
             currentExecutionCount >= minStepsBeforeEarlyStop &&
             stepsWithoutGlobalImprovement >= Math.floor(earlyStopPatience * 0.65) &&
             allLeaderNeighborsEvaluated &&
-            lowEIConsecutiveCount >= 6
+            !hasOtherActiveRegions &&
+            lowEIConsecutiveCount >= 12
         ) {
             emitStepLog({
                 type: "EARLY_STOP_LATTICE_EXHAUSTED",
@@ -4288,11 +3976,16 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         ) {
             const leaderRegion = searchRegions.find(r => r.active && isGlobalLeaderRegion(r));
             const leaderConverged = !leaderRegion || leaderRegion.radius <= minRegionRadius * 1.15;
-            const eiExhausted = lowEIConsecutiveCount >= 12;
+            const hasUnexploredRegions = searchRegions.some(
+                r => r.active && !isGlobalLeaderRegion(r) && r.attempts <= 2
+            );
+            const hasCoarse = Array.from(isCoarseAxis).some(flag => flag === 1);
+            const requiredLowEISteps = hasCoarse ? 18 : 12;
+            const eiExhausted = lowEIConsecutiveCount >= requiredLowEISteps;
             const deepStagnation =
                 stepsWithoutGlobalImprovement >= Math.floor(earlyStopPatience * 1.5) &&
-                lowEIConsecutiveCount >= 6;
-            if ((leaderConverged && eiExhausted) || deepStagnation) {
+                lowEIConsecutiveCount >= 8;
+            if ((leaderConverged && eiExhausted && !hasUnexploredRegions) || deepStagnation) {
                 emitStepLog({
                     type: "EARLY_STOP_CONVERGED",
                     stepNumber: currentExecutionCount,
@@ -4368,7 +4061,8 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             goalDirection,
             objectiveShift,
             currentExecutionCount,
-            sobolDraws: sobolDrawsCount,
+            sobolDraws: globalSobolState.drawsCount,
+            prngState,
             lastEMAStorage: self.lastEMAStorage,
             evaluatedKeys: Array.from(evaluatedKeys),
             observedX,
@@ -4383,7 +4077,11 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             observedRegionIds,
             observedIsComplete,
             residualPairsByConstraint,
-            searchRegions,
+            searchRegions: searchRegions.map(({ sobolState, ...rest }) => ({
+                ...rest,
+                sobolDraws: sobolState?.drawsCount ?? 0,
+                digitalShift: sobolState?.digitalShift ?? null
+            })),
             globalGPState,
             gBestMetrics,
             gBestPhysical,
@@ -4397,7 +4095,9 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             fallbackLoad,
             fallbackConstraints,
             fallbackViolation,
-            fallbackObjective
+            fallbackObjective,
+            bestBoundaryX,
+            bestBoundaryObjective
         }
     };
 }
