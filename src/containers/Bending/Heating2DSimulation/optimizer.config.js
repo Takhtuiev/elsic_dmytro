@@ -109,13 +109,15 @@ export const GRID_LOAD_TASK = {
 
         return {
             objective: {
+                name: "cpuLoad",
                 value: load,
                 goal: "min",
-                unit: "ops"
+                max: 25000000,
+                unit: "ops",
+                tolerance: 1
             },
             constraints: [
-                { name: "errorScore", value: errorScore, max: 0.5 },
-                { name: "cpuLoad", value: load, max: 25000000 }
+                { name: "errorScore", value: errorScore, max: 0.5, tolerance: 0.001 }
             ]
         };
     }
@@ -136,13 +138,15 @@ export const GRID_ERROR_TASK = {
 
         return {
             objective: {
+                name: "errorScore",
                 value: errorScore,
                 goal: "min",
-                unit: "K"
+                max: 0.5,
+                unit: "K",
+                tolerance: 0.001
             },
             constraints: [
-                { name: "errorScore", value: errorScore, max: 0.5 },
-                { name: "cpuLoad", value: load, max: 25000000 }
+                { name: "cpuLoad", value: load, max: 25000000, tolerance: 1 }
             ]
         };
     }
@@ -158,8 +162,8 @@ export const PID_MAX_TEMP_TASK = {
     unit: "°C",
 
     settings: {
-        randomInitPoints: 8,
-        totalBudgetIterations: 35
+        randomInitPoints: null,
+        totalBudgetIterations: null
     },
 
     simOverrides: {
@@ -182,9 +186,11 @@ export const PID_MAX_TEMP_TASK = {
 
         return {
             objective: {
+                name: "maxSurfaceTemp",
                 value: maxSurfaceT,
                 goal: "max",
-                unit: "°C"
+                unit: "°C",
+                tolerance: 0.005
             },
             constraints: []
         };
@@ -201,8 +207,8 @@ export const PID_MIN_TEMP_TASK = {
     unit: "°C",
 
     settings: {
-        randomInitPoints: 8,
-        totalBudgetIterations: 35
+        randomInitPoints: null,
+        totalBudgetIterations: null
     },
 
     simOverrides: {
@@ -225,9 +231,11 @@ export const PID_MIN_TEMP_TASK = {
 
         return {
             objective: {
+                name: "minSurfaceTemp",
                 value: maxSurfaceT,
                 goal: "min",
-                unit: "°C"
+                unit: "°C",
+                tolerance: 0.005
             },
             constraints: []
         };
