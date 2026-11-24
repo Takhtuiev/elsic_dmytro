@@ -22,9 +22,6 @@ try {
 
         if (command === "start") {
             savedResumeState = null;
-            self.lastEvaluatedBestParams = null;
-            self.lastEvaluatedBestMetrics = null;
-            self.lastEvaluatedBestStepNumber = null;
         }
 
         stopRequested = false;
@@ -112,7 +109,8 @@ try {
                     task,
                     resumeState: activeResumeState,
                     shouldStop: () => stopRequested,
-                    onProgress: progressHandler
+                    onProgress: progressHandler,
+                    onStructuredLog: sendStructuredLog
                 }
             );
 
@@ -122,7 +120,7 @@ try {
 
             const durationMs = performance.now() - workerStartTime;
 
-            const bestTm = cleanResult.metrics?.technicalMetrics || self.lastEvaluatedBestMetrics || {};
+            const bestTm = cleanResult.metrics?.technicalMetrics || {};
 
             const finalEvaluationSummary = {
                 objective: {
@@ -144,7 +142,7 @@ try {
                 },
                 evaluationSummary: finalEvaluationSummary,
                 message: null,
-                bestStepNumber: self.lastEvaluatedBestStepNumber,
+                bestStepNumber: cleanResult.metrics?.bestStepNumber ?? null,
                 isFinalReportMarker: true,
                 finalMetricsCache: {
                     ...cleanResult.metrics,

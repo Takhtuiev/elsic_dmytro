@@ -279,7 +279,12 @@ export function resolveOptimizerTask(
         const step = typeof rawStep === "function" ? rawStep(baseParams) : rawStep;
 
         if (Number.isFinite(step) && step > 0 && Number.isFinite(min)) {
-            min = Math.ceil((min - 1e-12) / step) * step || 0;
+            const str = step.toString();
+            const prec = str.includes("e-")
+                ? Math.min(8, Number(str.split("e-")[1]))
+                : (str.includes(".") ? Math.min(6, str.length - str.indexOf(".") - 1) : 0);
+            const aligned = Math.ceil((min - 1e-12) / step) * step || 0;
+            min = Number(aligned.toFixed(prec));
         }
 
         resolvedParameters[key] = {
