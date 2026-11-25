@@ -65,7 +65,9 @@ export const GRID_LOAD_TASK = {
 
     settings: {
         randomInitPoints: null,
-        totalBudgetIterations: null
+        totalBudgetIterations: null,
+        // Преобразование цели для модели: "auto" (выбор по данным), "log" или "linear"
+        objectiveTransform: "auto"
     },
 
     simOverrides: {
@@ -94,14 +96,18 @@ export const GRID_LOAD_TASK = {
             path: "simulation.accuracyMode.tempStepK",
             unit: "K",
             min: 0.30,
-            max: 2.50,
+            // С BDF2 ошибка по времени мала даже при крупном шаге — оптимизатору нужен широкий диапазон
+            max: 8.00,
             step: 0.01
         }
     },
 
     earlyAbort: {
         metric: (_percent, techMetrics) => techMetrics?.iterations?.totalGridPointsProcessed ?? 0,
-        ceiling: 27000000 * 3
+        ceiling: 27000000 * 3,
+        // Нагрузка только накапливается: как только она превысила лимит ограничения,
+        // точка гарантированно недопустима и симуляцию можно прервать сразу.
+        monotonic: true
     },
 
     evaluateResult: (res) => {
@@ -112,12 +118,12 @@ export const GRID_LOAD_TASK = {
                 name: "cpuLoad",
                 value: load,
                 goal: "min",
-                max: 25000000,
+                max: 250000000,
                 unit: "ops",
                 tolerance: 1
             },
             constraints: [
-                { name: "errorScore", value: errorScore, max: 0.5, tolerance: 0.001 }
+                { name: "errorScore", value: errorScore, max: 0.1, tolerance: 0.0005 }
             ]
         };
     }
@@ -143,7 +149,7 @@ export const GRID_ERROR_TASK = {
                 goal: "min",
                 max: 0.5,
                 unit: "K",
-                tolerance: 0.001
+                tolerance: 0.0005
             },
             constraints: [
                 { name: "cpuLoad", value: load, max: 25000000, tolerance: 1 }
@@ -153,17 +159,50 @@ export const GRID_ERROR_TASK = {
 };
 
 // ============================================================================
+// ПИД: период совместного цикла и применимость задач
+// ============================================================================
+// Нижний ТЭН наследует поля ПИД верхнего (как в normalizeMachine модели)
+function getHeaterPids(baseParams) {
+    const heaters = baseParams?.machine?.heaters;
+    if (!Array.isArray(heaters) || heaters.length < 2) return [];
+    const top = heaters[0]?.pid || null;
+    const bot = (top || heaters[1]?.pid) ? { ...(top || {}), ...(heaters[1]?.pid || {}) } : null;
+    return [top, bot].filter(p => p && Number.isFinite(p.periodSeconds) && p.periodSeconds > 0);
+}
+export function machineHasPid(baseParams) {
+    return getHeaterPids(baseParams).length > 0;
+}
+// Сдвиг фазы повторяется с периодом НОК периодов верхнего и нижнего ТЭНа (Line 2: НОК(84, 54) = 756 с)
+export function getPidPhaseRangeSeconds(baseParams, fallback = 245.0, maxCycles = 20) {
+    const periods = getHeaterPids(baseParams).map(p => p.periodSeconds);
+    if (periods.length === 0) return fallback;
+    const toTenths = (v) => Math.max(1, Math.round(v * 10));
+    const gcd = (a, b) => { while (b) [a, b] = [b, a % b]; return a; };
+    let lcm = toTenths(periods[0]);
+    for (const p of periods.slice(1)) {
+        const t = toTenths(p);
+        lcm = (lcm / gcd(lcm, t)) * t;
+    }
+    // Несоизмеримые периоды дают огромный НОК — ограничиваем разумным числом циклов
+    return Math.min(lcm / 10, Math.max(...periods) * maxCycles);
+}
+
+// ============================================================================
 // ЗАДАЧА 3: Подбор pidPhaseOffsetSeconds (МАКСИМУМ температуры поверхности)
 // ============================================================================
 export const PID_MAX_TEMP_TASK = {
     id: "pid_max_temp",
+    // Задача имеет смысл только для машины с ПИД-колебаниями ТЭНов
+    isApplicable: (baseParams) => machineHasPid(baseParams),
     label: "Сдвиг фазы ПИД (макс. T поверхности)",
     goal: "max",
     unit: "°C",
 
     settings: {
         randomInitPoints: null,
-        totalBudgetIterations: null
+        totalBudgetIterations: null,
+        // Преобразование цели для модели: "auto" (выбор по данным), "log" или "linear"
+        objectiveTransform: "auto"
     },
 
     simOverrides: {
@@ -176,7 +215,7 @@ export const PID_MAX_TEMP_TASK = {
             path: "machine.pidPhaseOffsetSeconds",
             unit: "s",
             min: 0.0,
-            max: (baseParams) => baseParams?.machine?.heaters?.[0]?.pid?.periodSeconds || 245.0,
+            max: (baseParams) => getPidPhaseRangeSeconds(baseParams),
             step: 0.1
         }
     },
@@ -190,7 +229,7 @@ export const PID_MAX_TEMP_TASK = {
                 value: maxSurfaceT,
                 goal: "max",
                 unit: "°C",
-                tolerance: 0.005
+                tolerance: 0.0005
             },
             constraints: []
         };
@@ -202,13 +241,17 @@ export const PID_MAX_TEMP_TASK = {
 // ============================================================================
 export const PID_MIN_TEMP_TASK = {
     id: "pid_min_temp",
+    // Задача имеет смысл только для машины с ПИД-колебаниями ТЭНов
+    isApplicable: (baseParams) => machineHasPid(baseParams),
     label: "Сдвиг фазы ПИД (мин. T поверхности)",
     goal: "min",
     unit: "°C",
 
     settings: {
         randomInitPoints: null,
-        totalBudgetIterations: null
+        totalBudgetIterations: null,
+        // Преобразование цели для модели: "auto" (выбор по данным), "log" или "linear"
+        objectiveTransform: "auto"
     },
 
     simOverrides: {
@@ -221,7 +264,7 @@ export const PID_MIN_TEMP_TASK = {
             path: "machine.pidPhaseOffsetSeconds",
             unit: "s",
             min: 0.0,
-            max: (baseParams) => baseParams?.machine?.heaters?.[0]?.pid?.periodSeconds || 245.0,
+            max: (baseParams) => getPidPhaseRangeSeconds(baseParams),
             step: 0.1
         }
     },
@@ -235,7 +278,7 @@ export const PID_MIN_TEMP_TASK = {
                 value: maxSurfaceT,
                 goal: "min",
                 unit: "°C",
-                tolerance: 0.005
+                tolerance: 0.0005
             },
             constraints: []
         };
@@ -253,6 +296,11 @@ export const OPTIMIZER_TASKS = {
 };
 
 export const DEFAULT_TASK_ID = GRID_LOAD_TASK.id;
+
+// Задачи, доступные для текущих параметров (для списка задач в интерфейсе)
+export function getApplicableTasks(baseParams) {
+    return Object.values(OPTIMIZER_TASKS).filter(t => typeof t.isApplicable !== "function" || t.isApplicable(baseParams));
+}
 
 export function resolveOptimizerTask(
     taskId = DEFAULT_TASK_ID,

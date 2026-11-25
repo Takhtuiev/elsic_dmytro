@@ -151,13 +151,13 @@ try {
                 }
             };
 
-            sendStructuredLog(
-                "FINAL_REPORT",
-                stopRequested
-                    ? "⏹️ Optimization stopped by user! Best found parameters selected."
-                    : "🏆 Optimization successfully completed! Final optimal parameters selected.",
-                finalReportSnapshot
-            );
+            const finalMessage = stopRequested
+                ? "⏹️ Optimization stopped by user! Best found parameters selected."
+                : cleanResult.metrics?.isFallbackActivated
+                    ? "⚠️ No configuration satisfied all constraints. The least-violating parameters were selected."
+                    : "🏆 Optimization successfully completed! Final optimal parameters selected.";
+
+            sendStructuredLog("FINAL_REPORT", finalMessage, finalReportSnapshot);
 
             self.postMessage({
                 status: "success",
