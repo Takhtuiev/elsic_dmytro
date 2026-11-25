@@ -1080,7 +1080,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                         const currentTempK_2 = currentTempK * currentTempK;
                         const currentTempK_3 = currentTempK_2 * currentTempK;
                         const currentTempK_4 = currentTempK_2 * currentTempK_2;
-                        let q_conv = 0, dq_conv = 0, q_rad = 0, dq_rad = 0;
+                        let q_conv, dq_conv, q_rad, dq_rad;
                         if (currentPhase === "heating") {
                             const fH = isTopBound ? bc.viewFactorsTop[j] : bc.viewFactorsBot[j];
                             if (isTopBound) {
@@ -1419,13 +1419,13 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     const idxRow = iNy + j;
                     const currentTempK = convergedT[idxRow];
                     const weightY = yErrorWeights[j];
-                    let errX = 0.0;
+                    let errX;
                     if (isTopBound || isBotBound) {
                         const props = matModel.get(currentTempK - 273.15, prevT[idxRow] - 273.15);
                         const kEff = Math.max(1e-6, props.k);
                         const t2 = currentTempK * currentTempK;
                         const currentTempK_4 = t2 * t2;
-                        let qSurf = 0.0;
+                        let qSurf;
                         if (currentPhase === "heating") {
                             const fH = isTopBound ? bc.viewFactorsTop[j] : bc.viewFactorsBot[j];
                             if (isTopBound) {
@@ -1495,7 +1495,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         logHistoryGlobal(time + coolingTimeElapsed, forceStop, buffers[newIdx]);
         // --- Отчет о прогрессе в UI ---
         if (onProgress) {
-            let currentPercent = 0;
+            let currentPercent;
             if (currentPhase === "heating") {
                 let heatingProgressFraction = 0;
                 if (targetType === "time" && targetValue > 0) {
