@@ -118,12 +118,12 @@ export const GRID_LOAD_TASK = {
                 name: "cpuLoad",
                 value: load,
                 goal: "min",
-                max: 250000000,
+                max: 25000000,
                 unit: "ops",
                 tolerance: 1
             },
             constraints: [
-                { name: "errorScore", value: errorScore, max: 0.1, tolerance: 0.0005 }
+                { name: "errorScore", value: errorScore, max: 0.5, tolerance: 0.0005 }
             ]
         };
     }
