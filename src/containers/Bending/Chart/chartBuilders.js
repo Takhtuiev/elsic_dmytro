@@ -70,9 +70,14 @@ const createHorizontalXAxis = (width, finalXTgPauseValue, colors) => {
 };
 
 const createContoursAxes = (width, contourGraphsRaw, lastXCoord, matKFactor, colors) => {
-    const allXCoords = (contourGraphsRaw || [])
-        .flatMap((g) => (g.points || []).filter((p) => Array.isArray(p) && Number.isFinite(p[0])).map((p) => Math.abs(p[0])));
-    const maxXRaw = allXCoords.length > 0 ? Math.max(...allXCoords) : width > 0 ? width / 2 : 15;
+    // Без промежуточных массивов и Math.max(...): на больших контурах это переполняет стек
+    let maxAbsX = -Infinity;
+    for (const g of contourGraphsRaw || []) {
+        for (const p of g.points || []) {
+            if (Array.isArray(p) && Number.isFinite(p[0]) && Math.abs(p[0]) > maxAbsX) maxAbsX = Math.abs(p[0]);
+        }
+    }
+    const maxXRaw = Number.isFinite(maxAbsX) ? maxAbsX : width > 0 ? width / 2 : 15;
     const roundedXMax = Math.ceil(maxXRaw / 5) * 5;
 
     const xLines = [{ value: 0, color: colors.textSecondary, label: "Центр" }];
@@ -218,34 +223,62 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
         vertPointsHeating, vertPointsPause,
         rawHorTopH, rawHorMidH, rawHorBotH,
         rawHorTopP, rawHorMidP, rawHorBotP,
-        contourGraphsRaw, fillPolygonsRaw, xCoordinatesMm,
+        contourGraphsRaw, fillPolygonsRaw, fillPolygonsByPhase, xCoordinatesMm,
     } = rawData;
 
-    const contourGraphs = (contourGraphsRaw || []).map((g) => {
-        const style = { lineWidth: g.phase === "Pause" ? 1.6 : 0.7, opacity: 0.7, color: colors.textPrimary };
-        if (g.name === "Tg") style.color = colors.primaryMain;
-        else if (g.name === "T min") style.color = g.phase === "Heating" ? colors.successMain : colors.successDark;
-        else if (g.name === "T max") style.color = colors.successMain;
-        else if (g.name === "Decomposition") {
-            style.color = g.phase === "Heating" ? colors.errorMain : colors.errorDark;
-            style.opacity = 1;
-        }
-        return { ...g, ...style };
+    // Изотермы: после паузы (момент гибки) — сплошные, в конце нагрева — тонкие штриховые
+    const isothermColor = {
+        "Tg": colors.infoMain,
+        "T min": colors.successMain,
+        "T max": colors.warningMain,
+        "Decomposition": colors.errorMain,
+    };
+    // Изотермы выбранной фазы — сплошные и толще, другой фазы — тонкие штриховые
+    const styleContours = (activePhase) => (contourGraphsRaw || []).map((g) => {
+        const active = g.phase === activePhase;
+        return {
+            ...g,
+            color: isothermColor[g.name] || colors.textPrimary,
+            lineWidth: active ? 1.4 : 0.8,
+            opacity: active ? 0.95 : 0.55,
+            dashArray: active ? null : "3 2",
+            showMarker: false,
+        };
     });
 
-    const polygonStyleMap = {
-        "Solid Plastic":      { color: colors.infoMain,    opacity: 0.3 },
-        "High Elastic":       { color: colors.successMain, opacity: 0.05 },
-        "Optimal Bending":    { color: colors.successMain, opacity: 0.15 },
-        "High Temperature":   { color: colors.warningMain, opacity: 0.1 },
-        "Decomposition Risk": { color: colors.errorMain,   opacity: 0.3 },
+    // Зоны по температуре: от холодной (синей) до опасной (красной)
+    const zoneStyle = {
+        "Solid Plastic":      { color: colors.infoMain,    opacity: 0.26 },
+        "High Elastic":       { color: colors.infoMain,    opacity: 0.09 },
+        "Optimal Bending":    { color: colors.successMain, opacity: 0.24 },
+        "High Temperature":   { color: colors.warningMain, opacity: 0.22 },
+        "Decomposition Risk": { color: colors.errorMain,   opacity: 0.38 },
     };
-
-    const fillPolygons = (fillPolygonsRaw || []).map((p) => ({
+    const deg = (v) => `${Math.round(v)}°`;
+    const zoneLabel = (p) => (
+        !Number.isFinite(p.lo) ? `<${deg(p.hi)}`
+            : !Number.isFinite(p.hi) ? `>${deg(p.lo)}`
+                : `${deg(p.lo)}–${deg(p.hi)}`
+    ) + (p.name === "Optimal Bending" ? " гибка" : "");
+    const styleZones = (raw) => (raw || []).map((p) => ({
         ...p,
-        color: polygonStyleMap[p.name]?.color || colors.successMain,
-        opacity: polygonStyleMap[p.name]?.opacity || 0.15,
+        color: zoneStyle[p.name]?.color || colors.successMain,
+        opacity: zoneStyle[p.name]?.opacity ?? 0.15,
     }));
+    const zoneLegend = (zones) => zones.map((p) => ({ label: zoneLabel(p), color: p.color, opacity: Math.min(1, p.opacity * 2.2), stroke: p.color }));
+
+    // Два вида: зоны после паузы (момент гибки, по умолчанию) и в конце нагрева
+    const zonesByPhase = {
+        Pause: styleZones(fillPolygonsByPhase?.Pause ?? fillPolygonsRaw),
+        Heating: styleZones(fillPolygonsByPhase?.Heating),
+    };
+    const contourViews = [
+        { key: "Pause", label: "Пауза", fillPolygons: zonesByPhase.Pause, legend: zoneLegend(zonesByPhase.Pause), graphs: styleContours("Pause") },
+        { key: "Heating", label: "Нагрев", fillPolygons: zonesByPhase.Heating, legend: zoneLegend(zonesByPhase.Heating), graphs: styleContours("Heating") },
+    ].filter((v) => v.fillPolygons.length || v.key === "Pause");
+    const contourGraphs = contourViews[0].graphs;
+    const fillPolygons = contourViews[0].fillPolygons;
+    const legend = contourViews[0].legend;
 
     const lastXCoord = Array.isArray(xCoordinatesMm) && xCoordinatesMm.length > 0 ? xCoordinatesMm[xCoordinatesMm.length - 1] : -10;
 
@@ -281,6 +314,10 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
             showPoints: false,
             axes: createContoursAxes(width, contourGraphsRaw, lastXCoord, matKFactor, colors),
             fillPolygons,
+            legend,
+            // Переключатель вида над графиком: каждый вид заменяет graphs / fillPolygons / legend
+            views: contourViews.length > 1 ? contourViews : undefined,
+            defaultView: "Pause",
         },
     };
 };

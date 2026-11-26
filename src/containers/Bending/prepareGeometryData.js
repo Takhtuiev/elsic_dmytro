@@ -1,9 +1,9 @@
 /* eslint-disable no-restricted-globals */
 import {
-    buildIsothermFillPolygons,
-    buildSymmetricFillPolygons,
-    buildSymmetricIsothermGraph,
-    findMultipleIsothermsBatch
+    buildIsobands,
+    buildIsolines,
+    buildSectionField,
+    findHalfWidthAboveLevel
 } from "./IsothermsModel";
 
 /**
@@ -91,104 +91,71 @@ export function prepareGeometryData(material, result2D, ui = {}) {
         }
     }
 
-    // --- ИСПРАВЛЕННЫЙ РАСЧЕТ: Точка перехода Tg на нейтральной линии (учитывая K-Factor) ---
+    // --- Гибочная зона: полуширина, на которой нейтральный слой (толщина × K) выше Tg после паузы ---
+    // Температура берётся линейно между слоями сетки, а не в ближайшем слое
     const glassTransition = Number(material?.glassTransitionTemp);
-    let yTgPause = null;
-
-    if (Number.isFinite(glassTransition)) {
-        // Находим слой по толщине, максимально близкий к нейтральной линии изгиба (X)
-        const targetXValue = thickness * matKFactor;
-        let closestXIdx = 0;
-        let minDiff = Infinity;
-        for (let i = 0; i < Nx; i++) {
-            const diff = Math.abs(xCoordinatesMm[i] - targetXValue);
-            if (diff < minDiff) {
-                minDiff = diff;
-                closestXIdx = i;
-            }
-        }
-
-        // Проверяем изменение температуры по ширине (Y) на уровне нейтральной линии
-        const rowOffset = closestXIdx * Ny;
-        for (let j = 0; j < Ny - 1; j++) {
-            const t1 = pause[rowOffset + j];
-            const t2 = pause[rowOffset + j + 1];
-            if ((t1 >= glassTransition && t2 <= glassTransition) || (t1 <= glassTransition && t2 >= glassTransition)) {
-                const y1 = yCoordinatesMm[j];
-                const y2 = yCoordinatesMm[j + 1];
-                if (Math.abs(t2 - t1) < 1e-5) {
-                    yTgPause = y1;
-                } else {
-                    yTgPause = y1 + (glassTransition - t1) * (y2 - y1) / (t2 - t1);
-                }
-                break;
-            }
-        }
-    }
-    const finalXTgPauseValue = (yTgPause !== null && yTgPause <= width / 2) ? yTgPause : null;
+    const finalXTgPauseValue = Number.isFinite(glassTransition)
+        ? findHalfWidthAboveLevel(pause, Nx, Ny, xCoordinatesMm, yCoordinatesMm, thickness * matKFactor, glassTransition)
+        : null;
 
     // --- CHART 4 (Contours & Polygons) ---
     let contourGraphsRaw = [];
     let fillPolygonsRaw = [];
+    let fillPolygonsByPhase = { Heating: [], Pause: [] };
 
-    if (showContours2D && Ny > 1) {
+    if (showContours2D && Ny > 1 && Nx > 1) {
         const Tmin = Number(material?.minFormingTemp);
         const Tmax = Number(material?.maxFormingTemp);
         const Tdecomp = Number(material?.decompositionTemp);
-        const gridConfig = { Nx, Ny, xCoordinatesMm, yCoordinatesMm };
+        const levels = [
+            { name: "Tg", value: glassTransition },
+            { name: "T min", value: Tmin },
+            { name: "T max", value: Tmax },
+            { name: "Decomposition", value: Tdecomp }
+        ].filter(l => Number.isFinite(l.value));
 
-        const boundaryPoints = (() => {
-            const points = [];
-            const maxWidth = yCoordinatesMm[Ny - 1];
-            const maxThickness = xCoordinatesMm[Nx - 1];
-            const addPoint = (i, j, pos) => {
-                const index = i * Ny + j;
-                points.push({ x: yCoordinatesMm[j], y: xCoordinatesMm[i], temperature: pause[index], index, position: pos });
-            };
-            for (let j = 0; j < Ny; j++) addPoint(0, j, yCoordinatesMm[j]);
-            for (let i = 1; i < Nx; i++) addPoint(i, Ny - 1, maxWidth + xCoordinatesMm[i]);
-            for (let j = Ny - 2; j >= 0; j--) addPoint(Nx - 1, j, maxWidth + maxThickness + maxWidth - yCoordinatesMm[j]);
-            for (let i = Nx - 2; i > 0; i--) addPoint(i, 0, 2 * maxWidth + maxThickness + maxThickness - xCoordinatesMm[i]);
-            return points;
-        })();
+        const fields = {
+            Heating: buildSectionField(heating, Nx, Ny, xCoordinatesMm, yCoordinatesMm),
+            Pause: buildSectionField(pause, Nx, Ny, xCoordinatesMm, yCoordinatesMm)
+        };
 
-        const heatingTargets = [{ targetTemp: glassTransition, key: "tg" }, { targetTemp: Tmin, key: "tmin" }, { targetTemp: Tmax, key: "tmax" }, { targetTemp: Tdecomp, key: "tdecomp" }];
-        const pauseTargets = [{ targetTemp: glassTransition, key: "tg" }, { targetTemp: Tmin, key: "tmin" }, { targetTemp: Tmax, key: "tmax" }, { targetTemp: Tdecomp, key: "tdecomp" }];
+        // Изотермы обеих фаз: ломаные через null
+        for (const phase of ["Heating", "Pause"]) {
+            for (const level of levels) {
+                const lines = buildIsolines(fields[phase], level.value);
+                if (!lines.length) continue;
+                const points = [];
+                lines.forEach((line, k) => {
+                    if (k) points.push(null);
+                    for (const p of line) points.push(p);
+                });
+                contourGraphsRaw.push({ name: level.name, phase, points });
+            }
+        }
 
-        const heatingBatch = findMultipleIsothermsBatch(heatingTargets, heating, gridConfig);
-        const pauseBatch = findMultipleIsothermsBatch(pauseTargets, pause, gridConfig);
-
-        const isotherms = [
-            { name: "Tg", phase: "Heating", segments: heatingBatch.tg, style: {} },
-            { name: "T min", phase: "Heating", segments: heatingBatch.tmin, style: {} },
-            { name: "T max", phase: "Heating", segments: heatingBatch.tmax, style: {} },
-            { name: "Decomposition", phase: "Heating", segments: heatingBatch.tdecomp, style: {} },
-            { name: "Tg", phase: "Pause", segments: pauseBatch.tg, style: {} },
-            { name: "T min", phase: "Pause", segments: pauseBatch.tmin, style: {} },
-            { name: "T max", phase: "Pause", segments: pauseBatch.tmax, style: {} },
-            { name: "Decomposition", phase: "Pause", segments: pauseBatch.tdecomp, style: {} },
-        ];
-
-        contourGraphsRaw = isotherms.flatMap(({ name, phase, segments, style }) => {
-            const rawLines = buildSymmetricIsothermGraph(segments, name, phase, style, gridConfig);
-            return rawLines.map(g => ({
-                name: g.name,
-                phase: g.phase,
-                points: g.points
-            }));
-        });
-
-        const polygonFillsConfig = [
-            { name: "Solid Plastic", fromIsotherm: "Tg", toIsotherm: null, minTemp: -Infinity, maxTemp: glassTransition, phase: "Pause" },
-            { name: "High Elastic", fromIsotherm: "Tg", toIsotherm: "T min", minTemp: glassTransition, maxTemp: Tmin, phase: "Pause" },
-            { name: "Optimal Bending", fromIsotherm: "T min", toIsotherm: "T max", minTemp: Tmin, maxTemp: Tmax, phase: "Pause" },
-            { name: "High Temperature", fromIsotherm: "T max", toIsotherm: "Decomposition", minTemp: Tmax, maxTemp: Tdecomp, phase: "Pause" },
-            { name: "Decomposition Risk", fromIsotherm: "Decomposition", toIsotherm: null, minTemp: Tdecomp, maxTemp: Infinity, phase: "Pause" }
-        ];
-
-        fillPolygonsRaw = buildSymmetricFillPolygons(
-            buildIsothermFillPolygons(polygonFillsConfig, boundaryPoints, isotherms, heating, pause)
-        );
+        // Зоны (полосы между изотермами, кольца через null) — для конца нагрева и после паузы
+        const edges = [-Infinity, glassTransition, Tmin, Tmax, Tdecomp, Infinity];
+        const zoneNames = ["Solid Plastic", "High Elastic", "Optimal Bending", "High Temperature", "Decomposition Risk"];
+        const bands = zoneNames
+            .map((key, k) => ({ key, lo: edges[k], hi: edges[k + 1] }))
+            .filter(b => !Number.isNaN(b.lo) && !Number.isNaN(b.hi) && b.lo < b.hi);
+        const buildZones = (field) => {
+            const zoneRings = buildIsobands(field, bands);
+            return bands
+                .map(b => {
+                    const rings = zoneRings.get(b.key) || [];
+                    if (!rings.length) return null;
+                    const points = [];
+                    rings.forEach((ring, k) => {
+                        if (k) points.push(null);
+                        for (const p of ring) points.push(p);
+                    });
+                    return { name: b.key, lo: b.lo, hi: b.hi, points };
+                })
+                .filter(Boolean);
+        };
+        fillPolygonsByPhase = { Heating: buildZones(fields.Heating), Pause: buildZones(fields.Pause) };
+        fillPolygonsRaw = fillPolygonsByPhase.Pause;
     }
 
     // --- CHART 2 (Time Dynamics) ---
@@ -278,6 +245,7 @@ export function prepareGeometryData(material, result2D, ui = {}) {
         rawHorTopP, rawHorMidP, rawHorBotP,
         contourGraphsRaw,
         fillPolygonsRaw,
+        fillPolygonsByPhase,
         graphsChart2Raw,
         graphsHeaterRaw,
         heatingDeltaT,

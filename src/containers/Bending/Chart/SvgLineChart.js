@@ -1,509 +1,810 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Paper, useTheme } from "@mui/material";
+import { alpha } from "@mui/material/styles";
+import {
+    decimalsForStep,
+    decimateColumns,
+    formatNumber,
+    isMonotoneX,
+    makeScale,
+    monotonePath,
+    niceTicks,
+    polylinePath,
+    resolveDomain,
+    splitSegments,
+    valueAtX
+} from "./chartMath";
+import { placeLabels, spreadAlongAxis } from "./labelPlacement";
 
-// --- Константы конфигурации ---
-const GRID_STEP_C = 10;
-const Y_AXIS_LABEL_MIN_DISTANCE = 12;
-const X_AXIS_LABEL_MIN_DISTANCE = 35;
-const X_AXIS_LABEL_OFFSET = 5;
-const Y_AXIS_LABEL_OFFSET = 5;
-const LIMIT_RANGE_OPACITY = 0.06;
-const SHOW_ALL_POINTS = true;
+// ============================================================================
+// Оформление
+// ============================================================================
+const FONT_FAMILY = '"Roboto Mono","SF Mono",Consolas,"Liberation Mono",monospace';
+const TICK_FONT = 8;
+const VALUE_FONT = 9;
+const CHAR_WIDTH = 0.6;              // ширина символа моноширинного шрифта, доля от кегля
+const PX_PER_Y_TICK = 26;            // желаемое расстояние между делениями по вертикали
+const PX_PER_X_TICK = 64;            // ...и по горизонтали
+const AXIS_LABEL_GAP = 10;           // минимальный зазор между подписями на оси
+const RANGE_OPACITY = 0.07;
+const SMOOTH_MAX_POINTS_PER_PX = 1 / 3;  // сглаживать, если точек не больше 1 на 3 px
+const DOTS_MAX_POINTS_PER_PX = 1 / 5;    // точки узлов рисовать, если не гуще 1 на 5 px
+const DECIMATE_POINTS_PER_PX = 1.5;      // прореживать, если гуще 1,5 точки на px
 
-const buildLimitData = ({ axis, lines, ranges, mapValue, minValue, maxValue, plotStart, plotEnd }) => {
-    const limitLines = [
-        ...(Array.isArray(lines) ? lines : []),
-        ...(Array.isArray(ranges) ? ranges.flatMap(range => [{ value: range.from, color: range.color }, { value: range.to, color: range.color }]) : []),
-    ].filter(line => typeof line?.value === "number" && Number.isFinite(line.value));
+const textWidth = (text, fontSize) => String(text).length * fontSize * CHAR_WIDTH;
+const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 
-    if (!limitLines.some(line => line.value === minValue)) limitLines.push({ value: minValue });
-    if (!limitLines.some(line => line.value === maxValue)) limitLines.push({ value: maxValue });
+// Значение предела: как у делений, а если оно не «круглое» — на один знак точнее
+function formatExact(value, baseDecimals, step) {
+    const close = Math.abs(Number(value.toFixed(baseDecimals)) - value) <= Math.max(step * 0.005, Math.abs(value) * 1e-9);
+    return formatNumber(value, close ? baseDecimals : baseDecimals + 1);
+}
 
-    const limitRanges = Array.isArray(ranges) ? ranges.filter(range => typeof range?.from === "number" && typeof range?.to === "number" && Number.isFinite(range.from) && Number.isFinite(range.to) && range.from !== range.to) : [];
+// Легенда в одну строку: пункты слева направо, не влезающие — не показываются
+function layoutLegend(items, x0, xMax) {
+    const out = [];
+    let x = x0;
+    for (const it of items) {
+        const w = 10 + textWidth(it.label, TICK_FONT) + 10;
+        if (x + w - 10 > xMax) break;
+        out.push({ ...it, x });
+        x += w;
+    }
+    return out;
+}
 
-    const lineData = limitLines.map((line, index) => {
-        const coordinate = mapValue(line.value);
-        return { ...line, index, x: axis === "x" ? coordinate : undefined, y: axis === "y" ? coordinate : undefined, visible: Number.isFinite(coordinate) && line.value >= minValue && line.value <= maxValue };
-    }).filter(line => line.visible);
+function minorStepFor(step) {
+    const mantissa = Math.round(step / 10 ** Math.floor(Math.log10(step)));
+    return step / (mantissa === 2 ? 4 : 5);
+}
 
-    const rangeData = limitRanges.map((range, index) => {
-        const lowValue = Math.min(range.from, range.to); const highValue = Math.max(range.from, range.to);
-        const rawStart = mapValue(lowValue); const rawEnd = mapValue(highValue);
-        const start = Math.max(plotStart, Math.min(plotEnd, Math.min(rawStart, rawEnd)));
-        const end = Math.max(plotStart, Math.min(plotEnd, Math.max(rawStart, rawEnd)));
-        return { ...range, index, lowValue, highValue, start, end, visible: lowValue <= maxValue && highValue >= minValue };
-    }).filter(range => range.visible && range.end > range.start);
+// ============================================================================
+// Подготовка всей геометрии графика (чистая функция: chart + размеры + тема)
+// ============================================================================
+export function buildChartModel(chart, width, height, palette, { headerReserve = 0 } = {}) {
+    const xAxis = chart.axes?.x || {};
+    const yAxis = chart.axes?.y || {};
+    const units = { x: xAxis.unit ?? "mm", y: yAxis.unit ?? "°" };
+    const showPoints = chart.showPoints !== false;
+    const showLabels = chart.showLabels !== false;
 
-    return { lines: lineData, ranges: rangeData };
-};
+    // --- Ряды ---
+    const graphs = (chart.graphs || [])
+        .filter(g => g && Array.isArray(g.points) && g.points.length >= 2)
+        .map((g, index) => {
+            const segments = splitSegments(g.points);
+            return {
+                index,
+                name: g.name || `#${index + 1}`,
+                segments,
+                monotone: isMonotoneX(segments),
+                color: g.color || palette.text.primary,
+                opacity: isNum(g.opacity) ? Math.max(0, Math.min(1, g.opacity)) : 1,
+                lineWidth: isNum(g.lineWidth) && g.lineWidth > 0 ? g.lineWidth : 1.5,
+                showMarker: g.showMarker !== false,
+                dashArray: g.dashArray || null
+            };
+        })
+        .filter(g => g.segments.length > 0);
 
-const makePath = (graph, xs, ys, xAbsoluteMin, xAbsoluteMax) => {
-    if (!graph || !Array.isArray(graph.points) || !graph.points.length) return "";
-    const segments = []; let currentSegment = [];
-    graph.points.forEach(p => {
-        if (p === null) { if (currentSegment.length >= 2) segments.push(currentSegment); currentSegment = []; }
-        else { currentSegment.push(p); }
+    // --- Границы данных ---
+    let xLo = Infinity, xHi = -Infinity, yLo = Infinity, yHi = -Infinity;
+    for (const g of graphs) {
+        for (const seg of g.segments) {
+            for (const [x, y] of seg) {
+                if (x < xLo) xLo = x;
+                if (x > xHi) xHi = x;
+                if (y < yLo) yLo = y;
+                if (y > yHi) yHi = y;
+            }
+        }
+    }
+    for (const r of yAxis.ranges || []) {
+        if (isNum(r?.from) && isNum(r?.to)) {
+            yLo = Math.min(yLo, r.from, r.to);
+            yHi = Math.max(yHi, r.from, r.to);
+        }
+    }
+
+    // --- Поля и масштабы (поле слева зависит от ширины подписей делений) ---
+    // Легенда (chart.legend: [{ label, color, opacity }]) — строка над областью графика
+    const legendItems = (chart.legend || []).filter(it => it && it.label);
+    const top = legendItems.length || headerReserve > 0 ? 20 : 8;
+    const bottom = 17;
+    const roughH = Math.max(20, height - top - bottom);
+    const [yd0, yd1] = resolveDomain(yAxis, yLo, yHi, { nice: true, targetTicks: roughH / PX_PER_Y_TICK });
+    const yMinV = Math.min(yd0, yd1), yMaxV = Math.max(yd0, yd1);
+    const yTickInfo = niceTicks(yMinV, yMaxV, roughH / PX_PER_Y_TICK);
+    const yDecimals = decimalsForStep(yTickInfo.step);
+    const fmtY = (v) => formatNumber(v, yDecimals);
+
+    const yLimitItems = [];
+    for (const line of yAxis.lines || []) {
+        if (isNum(line?.value)) yLimitItems.push({ value: line.value, color: line.color, label: line.label });
+    }
+    for (const r of yAxis.ranges || []) {
+        if (isNum(r?.from) && isNum(r?.to) && r.from !== r.to) {
+            yLimitItems.push({ value: r.from, color: r.color }, { value: r.to, color: r.color });
+        }
+    }
+    const yLimits = yLimitItems.filter((it, i, a) =>
+        it.value >= yMinV - 1e-9 && it.value <= yMaxV + 1e-9 && a.findIndex(o => Math.abs(o.value - it.value) < 1e-9) === i
+    );
+
+    const fmtYExact = (v) => formatExact(v, yDecimals, yTickInfo.step);
+    const leftLabelChars = Math.max(
+        1,
+        ...yTickInfo.ticks.map(t => fmtY(t).length + units.y.length + (units.y.length > 1 ? 1 : 0)),
+        ...yLimits.map(l => fmtYExact(l.value).length)
+    );
+    const left = Math.round(Math.max(24, textWidth("0".repeat(leftLabelChars), TICK_FONT) + 9));
+
+    // Подписи концов кривых справа (последняя точка у правого края)
+    const [xd0, xd1] = resolveDomain(xAxis, xLo, xHi, { nice: false, targetTicks: 5 });
+    const xMinV = Math.min(xd0, xd1), xMaxV = Math.max(xd0, xd1);
+    const endCandidates = [];
+    if (showLabels) {
+        for (const g of graphs) {
+            if (!g.showMarker) continue;
+            const lastSeg = g.segments[g.segments.length - 1];
+            const last = lastSeg[lastSeg.length - 1];
+            if (Math.abs(last[0] - (xd1 >= xd0 ? xMaxV : xMinV)) <= (xMaxV - xMinV) * 1e-6 && last[1] >= yMinV && last[1] <= yMaxV) {
+                endCandidates.push({ graph: g, point: last });
+            }
+        }
+    }
+    const fmtValue = (v) => (units.y === "°" ? String(Math.round(v)) : fmtY(v)) + units.y;
+    const rightChars = endCandidates.reduce((m, c) => Math.max(m, fmtValue(c.point[1]).length), 0);
+    const right = Math.round(rightChars ? textWidth("0".repeat(rightChars), VALUE_FONT) + 10 : 10);
+
+    const plot = { l: left, r: Math.max(left + 10, width - right), t: top, b: Math.max(top + 10, height - bottom) };
+    const wPlot = plot.r - plot.l;
+    const hPlot = plot.b - plot.t;
+
+    const xs = makeScale(xd0, xd1, plot.l, plot.r);
+    const ys = makeScale(yd0, yd1, plot.b, plot.t);
+
+    // --- Деления ---
+    const xTickInfo = niceTicks(xMinV, xMaxV, Math.max(2, wPlot / PX_PER_X_TICK));
+    const xDecimals = decimalsForStep(xTickInfo.step);
+    const fmtX = (v) => formatNumber(v, xDecimals);
+    const minorX = [];
+    const minorY = [];
+    {
+        const sx = minorStepFor(xTickInfo.step);
+        if (wPlot / ((xMaxV - xMinV) / sx) >= 6) {
+            for (let v = Math.ceil(xMinV / sx) * sx; v <= xMaxV + 1e-9; v += sx) minorX.push(xs(v));
+        }
+        const sy = minorStepFor(yTickInfo.step);
+        if (hPlot / ((yMaxV - yMinV) / sy) >= 5) {
+            for (let v = Math.ceil(yMinV / sy) * sy; v <= yMaxV + 1e-9; v += sy) minorY.push(ys(v));
+        }
+    }
+
+    // --- Кривые в пикселях ---
+    const curvesForLabels = [];
+    const series = graphs.map(g => {
+        const pixelSegments = [];
+        let visibleCount = 0;
+        let minP = null, maxP = null, firstP = null, lastP = null;
+        for (const seg of g.segments) {
+            // Видимая часть по x (с соседними точками для непрерывности линии у края)
+            let a = 0, b = seg.length - 1;
+            while (a < seg.length && (seg[a][0] < xMinV || seg[a][0] > xMaxV)) a++;
+            while (b >= 0 && (seg[b][0] < xMinV || seg[b][0] > xMaxV)) b--;
+            if (a > b) continue;
+            for (let i = a; i <= b; i++) {
+                const p = seg[i];
+                if (p[0] < xMinV || p[0] > xMaxV) continue;
+                visibleCount++;
+                if (!firstP) firstP = p;
+                lastP = p;
+                if (!minP || p[1] < minP[1]) minP = p;
+                if (!maxP || p[1] > maxP[1]) maxP = p;
+            }
+            const from = Math.max(0, a - 1), to = Math.min(seg.length - 1, b + 1);
+            let px = [], py = [];
+            for (let i = from; i <= to; i++) {
+                px.push(xs(seg[i][0]));
+                py.push(ys(seg[i][1]));
+            }
+            if (g.monotone && px.length > wPlot * DECIMATE_POINTS_PER_PX) ({ px, py } = decimateColumns(px, py));
+            pixelSegments.push({ px, py, rawCount: to - from + 1 });
+            curvesForLabels.push({ xs: px, ys: py });
+        }
+        const sparse = visibleCount <= wPlot * SMOOTH_MAX_POINTS_PER_PX;
+        const path = pixelSegments
+            .map(s => (g.monotone && sparse ? monotonePath(s.px, s.py) : polylinePath(s.px, s.py)))
+            .filter(Boolean)
+            .join(" ");
+        let dots = "";
+        if (showPoints && visibleCount <= wPlot * DOTS_MAX_POINTS_PER_PX) {
+            for (const s of pixelSegments) {
+                for (let i = 0; i < s.px.length; i++) {
+                    if (s.px[i] >= plot.l - 0.5 && s.px[i] <= plot.r + 0.5) dots += `M${s.px[i].toFixed(1)} ${s.py[i].toFixed(1)}h0`;
+                }
+            }
+        }
+        return { ...g, path, dots, minP, maxP, firstP, lastP };
     });
-    if (currentSegment.length >= 2) segments.push(currentSegment);
 
-    const renderSegmentPath = (pointsList) => {
-        const points = pointsList.filter(p => p && p[0] >= xAbsoluteMin && p[0] <= xAbsoluteMax);
-        if (points.length < 2) return "";
-        const n = points.length; const px = points.map(p => xs(p[0])); const py = points.map(p => ys(p[1]));
-        const dx = new Array(n).fill(0); const dy = new Array(n).fill(0);
-        for (let i = 0; i < n; i++) {
-            if (i === 0 || i === n - 1) { dx[i] = 0; dy[i] = 0; }
-            else { dx[i] = (px[i + 1] - px[i - 1]) / 2; dy[i] = (py[i + 1] - py[i - 1]) / 2; }
+    // --- Маркеры и подписи значений ---
+    const markers = [];
+    const valueLabels = [];
+    const endKeys = new Set(endCandidates.map(c => c.graph.index));
+    for (const s of series) {
+        if (!s.showMarker || !showPoints || !s.firstP) continue;
+        const pts = [];
+        const add = (p, kind) => {
+            if (!p || p[1] < yMinV || p[1] > yMaxV) return;
+            if (pts.some(q => q.p === p)) return;
+            pts.push({ p, kind });
+        };
+        add(s.maxP, "max");
+        add(s.minP, "min");
+        add(s.firstP, "first");
+        add(s.lastP, "last");
+        for (const { p, kind } of pts) {
+            const x = xs(p[0]), y = ys(p[1]);
+            const fill = kind === "min" ? palette.info.main : kind === "max" ? palette.error.main : s.color;
+            const r = Math.max(2.2, s.lineWidth * 1.2);
+            markers.push({ key: `${s.index}-${kind}`, x, y, r, fill, opacity: s.opacity });
+            if (!showLabels) continue;
+            if (endKeys.has(s.index) && p === s.lastP) continue;
+            const text = fmtValue(p[1]);
+            valueLabels.push({
+                key: `${s.index}-${kind}`,
+                x, y,
+                text,
+                color: s.color,
+                opacity: s.opacity,
+                w: textWidth(text, VALUE_FONT) + 4,
+                h: VALUE_FONT + 3,
+                priority: kind === "max" || kind === "min" ? 3 : 2,
+                prefer: kind === "max" ? { vx: 0, vy: -1 } : kind === "min" ? { vx: 0, vy: 1 } : kind === "first" ? { vx: 0.7, vy: -0.7 } : { vx: -0.7, vy: -0.7 }
+            });
         }
-        let d = `M ${px[0]} ${py[0]}`;
-        for (let i = 0; i < n - 1; i++) {
-            let cp1x = px[i] + dx[i] / 3; let cp1y = py[i] + dy[i] / 3;
-            let cp2x = px[i + 1] - dx[i + 1] / 3; let cp2y = py[i + 1] - dy[i + 1] / 3;
-            const minX = Math.min(px[i], px[i + 1]); const maxX = Math.max(px[i], px[i + 1]);
-            cp1x = Math.max(minX, Math.min(maxX, cp1x)); cp2x = Math.max(minX, Math.min(maxX, cp2x));
-            d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${px[i + 1]},${py[i + 1]}`;
-        }
-        return d;
+    }
+
+    // Подписи концов кривых справа, разведённые по вертикали
+    for (let i = endCandidates.length - 1; i >= 0; i--) {
+        const a = endCandidates[i];
+        if (endCandidates.some((b, j) => j < i && fmtValue(b.point[1]) === fmtValue(a.point[1]) && Math.abs(ys(b.point[1]) - ys(a.point[1])) < 6)) endCandidates.splice(i, 1);
+    }
+    const endYs = spreadAlongAxis(endCandidates.map(c => ys(c.point[1])), VALUE_FONT + 2, plot.t + 4, plot.b - 2);
+    const endLabels = endCandidates.map((c, i) => ({
+        key: `end-${c.graph.index}`,
+        x: plot.r + 5,
+        y: endYs[i],
+        anchorY: ys(c.point[1]),
+        text: fmtValue(c.point[1]),
+        color: c.graph.color,
+        opacity: c.graph.opacity
+    }));
+
+    // --- Пределы и подписи осей ---
+    const yLimitPx = yLimits.map(l => ys(l.value));
+    const yLimitLabelYs = spreadAlongAxis(yLimitPx, AXIS_LABEL_GAP, plot.t, plot.b);
+    const yLimitMarks = yLimits.map((l, i) => ({
+        value: l.value,
+        y: yLimitPx[i],
+        labelY: yLimitLabelYs[i],
+        color: l.color || palette.text.secondary,
+        text: fmtYExact(l.value)
+    }));
+    const yTicks = yTickInfo.ticks.map(v => {
+        const y = ys(v);
+        const hidden = yLimitMarks.some(m => Math.abs(m.labelY - y) < AXIS_LABEL_GAP);
+        return { value: v, y, text: fmtY(v), hidden, isLimit: yLimits.some(l => Math.abs(l.value - v) < 1e-9) };
+    });
+
+    // Единица оси значений — у верхней подписи деления (или в углу, если её там нет)
+    {
+        const topTick = yTicks.filter(t => !t.hidden).sort((a, b) => a.y - b.y)[0];
+        if (topTick && topTick.y - plot.t < 12) topTick.text += units.y.length > 1 ? ` ${units.y}` : units.y;
+    }
+    const yUnitInCorner = !yTicks.some(t => !t.hidden && t.y - plot.t < 12);
+
+    const xLines = (xAxis.lines || [])
+        .filter(l => isNum(l?.value) && l.value >= xMinV - 1e-9 && l.value <= xMaxV + 1e-9)
+        .map(l => ({ ...l, x: xs(l.value) }));
+    const xTickXs = xTickInfo.ticks.map(v => xs(v));
+    // Значение на оси подписываем только у «значимых» линий, не совпадающих с делением
+    const xLimitMarks = xLines
+        .filter(l => Math.abs(l.value - xMinV) > 1e-9 && Math.abs(l.value - xMaxV) > 1e-9)
+        .filter(l => !xTickXs.some(tx => Math.abs(tx - l.x) < 1))
+        .map(l => ({ value: l.value, x: l.x, color: l.color || palette.text.secondary, text: formatExact(l.value, xDecimals, xTickInfo.step) }));
+    const xLimitLabelXs = spreadAlongAxis(
+        xLimitMarks.map(m => m.x),
+        AXIS_LABEL_GAP * 3,
+        plot.l,
+        plot.r
+    );
+    xLimitMarks.forEach((m, i) => { m.labelX = xLimitLabelXs[i]; });
+    const xTicks = xTickInfo.ticks.map((v, i) => {
+        const x = xTickXs[i];
+        const hidden = xLimitMarks.some(m => Math.abs(m.labelX - x) < textWidth(m.text, TICK_FONT) / 2 + textWidth(fmtX(v), TICK_FONT) / 2 + 4);
+        return { value: v, x, text: fmtX(v), hidden };
+    });
+    // Текстовые пометки на вертикальных линиях («Центр», «Гибочная зона…»)
+    const xLineNotes = xLines.filter(l => l.label).map((l, i) => ({
+        key: `xnote-${i}`,
+        x: l.x,
+        text: l.label,
+        color: l.color || palette.text.secondary,
+        anchor: l.x > plot.r - textWidth(l.label, TICK_FONT) - 6 ? "end" : "start"
+    }));
+    const yLineNotes = (yAxis.lines || []).filter(l => l?.label && isNum(l.value) && l.value >= yMinV && l.value <= yMaxV)
+        .map((l, i) => ({ key: `ynote-${i}`, y: ys(l.value), text: l.label, color: l.color || palette.text.secondary }));
+
+    // Пометки линий — препятствия для подписей значений
+    const noteRects = [
+        ...xLineNotes.map(n => {
+            const w = textWidth(n.text, TICK_FONT) + 4;
+            const x0 = n.anchor === "end" ? n.x - 3 - w : n.x + 1;
+            return { l: x0, r: x0 + w, t: plot.t + 1, b: plot.t + 3 + TICK_FONT + 2 };
+        }),
+        ...yLineNotes.map(n => {
+            const w = textWidth(n.text, TICK_FONT) + 4;
+            return { l: plot.r - 3 - w, r: plot.r - 1, t: n.y - 2 - TICK_FONT - 1, b: n.y };
+        })
+    ];
+    // Одинаковые значения в одной точке (несколько кривых сходятся) — одна подпись
+    for (let i = valueLabels.length - 1; i >= 0; i--) {
+        const a = valueLabels[i];
+        if (valueLabels.some((b, j) => j < i && b.text === a.text && Math.hypot(b.x - a.x, b.y - a.y) < 6)) valueLabels.splice(i, 1);
+    }
+    const placement = valueLabels.length
+        ? placeLabels({ labels: valueLabels, curves: curvesForLabels, markers, plot, obstacles: noteRects })
+        : new Map();
+
+    const yRanges = (yAxis.ranges || [])
+        .filter(r => isNum(r?.from) && isNum(r?.to) && r.from !== r.to)
+        .map((r, i) => {
+            const a = ys(Math.max(Math.min(r.from, r.to), yMinV));
+            const b = ys(Math.min(Math.max(r.from, r.to), yMaxV));
+            return { key: `yr-${i}`, y: Math.min(a, b), h: Math.abs(a - b), color: r.color };
+        })
+        .filter(r => r.h > 0);
+    const xRanges = (xAxis.ranges || [])
+        .filter(r => isNum(r?.from) && isNum(r?.to) && r.from !== r.to)
+        .map((r, i) => {
+            const a = xs(Math.max(Math.min(r.from, r.to), xMinV));
+            const b = xs(Math.min(Math.max(r.from, r.to), xMaxV));
+            return { key: `xr-${i}`, x: Math.min(a, b), w: Math.abs(a - b), color: r.color };
+        })
+        .filter(r => r.w > 0);
+
+    // Заливки: points — одно или несколько колец, разделённых null; одна заливка = один path
+    const fillPolygons = (chart.fillPolygons || [])
+        .map((polygon, i) => {
+            let d = "";
+            let ring = "";
+            let ringLen = 0;
+            const closeRing = () => {
+                if (ringLen >= 3) d += ring + "Z";
+                ring = "";
+                ringLen = 0;
+            };
+            for (const p of polygon.points || []) {
+                if (!Array.isArray(p) || !isNum(p[0]) || !isNum(p[1])) {
+                    closeRing();
+                    continue;
+                }
+                ring += `${ringLen ? "L" : "M"}${xs(p[0]).toFixed(1)} ${ys(p[1]).toFixed(1)}`;
+                ringLen++;
+            }
+            closeRing();
+            if (!d) return null;
+            return {
+                key: polygon.key ?? `poly-${i}`,
+                d,
+                color: polygon.color || palette.success.main,
+                opacity: isNum(polygon.opacity) ? polygon.opacity : 0.15
+            };
+        })
+        .filter(Boolean);
+
+    return {
+        width, height, plot, xs, ys, units, fmtX, fmtY, xDecimals, yDecimals,
+        series, markers, valueLabels, placement, endLabels,
+        yTicks, xTicks, minorX, minorY, yLimitMarks, xLimitMarks, xLines, xLineNotes, yLineNotes,
+        yRanges, xRanges, fillPolygons, yUnitInCorner, legend: layoutLegend(legendItems, left, width - 4 - headerReserve),
+        xUnitVisible: !xTicks.some(t => !t.hidden && plot.r - t.x < textWidth(t.text, TICK_FONT) / 2 + textWidth(units.x, TICK_FONT) + 4) &&
+            !xLimitMarks.some(m => plot.r - m.labelX < textWidth(m.text, TICK_FONT) / 2 + textWidth(units.x, TICK_FONT) + 4)
     };
-    return segments.map(seg => renderSegmentPath(seg)).filter(Boolean).join(" ").trim();
-};
+}
 
+// ============================================================================
+// Перекрестие и всплывающие значения
+// ============================================================================
+const HoverLayer = memo(function HoverLayer({ model, hover, palette }) {
+    if (!hover) return null;
+    const { plot, xs, ys, series, xDecimals, yDecimals } = model;
+    const xValue = xs.invert(hover.x);
+    const readable = series.filter(s => s.monotone);
+    const rows = readable
+        .map(s => ({ s, v: valueAtX(s.segments, xValue) }))
+        .filter(r => r.v !== null);
+    return (
+        <g pointerEvents="none">
+            <line x1={hover.x} x2={hover.x} y1={plot.t} y2={plot.b} stroke={palette.text.primary} strokeWidth={0.75} opacity={0.45} />
+            {!readable.length && (
+                <line x1={plot.l} x2={plot.r} y1={hover.y} y2={hover.y} stroke={palette.text.primary} strokeWidth={0.75} opacity={0.45} />
+            )}
+            {rows.map(({ s, v }) => (
+                <circle key={s.index} cx={hover.x} cy={ys(v)} r={2.6} fill={s.color} stroke={palette.background.paper} strokeWidth={1} />
+            ))}
+            <HoverReadout model={model} hover={hover} rows={rows} xValue={xValue} palette={palette} xDecimals={xDecimals} yDecimals={yDecimals} />
+        </g>
+    );
+});
+
+function HoverReadout({ model, hover, rows, xValue, palette, xDecimals, yDecimals }) {
+    const { plot, units, ys } = model;
+    const lines = rows.length
+        ? rows.slice(0, 8).map(({ s, v }) => ({ color: s.color, text: `${formatNumber(v, yDecimals + 1)}${units.y}`, name: s.name }))
+        : [{ color: palette.text.secondary, text: `${formatNumber(ys.invert(hover.y), yDecimals + 1)} ${units.y}`, name: "" }];
+    const header = `${formatNumber(xValue, xDecimals + 1)} ${units.x}`;
+    const fs = 8.5;
+    const lineH = fs + 3;
+    const nameMax = 22;
+    const widthText = Math.max(
+        textWidth(header, fs),
+        ...lines.map(l => textWidth(`${l.text}  ${(l.name || "").slice(0, nameMax)}`, fs) + 10)
+    );
+    const boxW = widthText + 10;
+    const boxH = lineH * (lines.length + 1) + 6;
+    const placeRight = hover.x + 10 + boxW <= plot.r;
+    const bx = placeRight ? hover.x + 10 : hover.x - 10 - boxW;
+    const by = Math.max(plot.t + 2, Math.min(plot.b - boxH - 2, hover.y - boxH / 2));
+    return (
+        <g transform={`translate(${bx.toFixed(1)},${by.toFixed(1)})`} fontSize={fs}>
+            <rect width={boxW} height={boxH} rx={3} fill={palette.background.paper} fillOpacity={0.94} stroke={palette.divider} />
+            <text x={5} y={3 + lineH * 0.8} fill={palette.text.secondary} fontWeight={600}>{header}</text>
+            {lines.map((l, i) => (
+                <g key={i} transform={`translate(5,${3 + lineH * (i + 1.8)})`}>
+                    <rect x={0} y={-fs * 0.72} width={6} height={6} rx={1} fill={l.color} />
+                    <text x={10} y={0} fill={palette.text.primary} fontWeight={700}>
+                        {l.text}
+                        {l.name && <tspan fill={palette.text.secondary} fontWeight={400}>{`  ${l.name.length > nameMax ? l.name.slice(0, nameMax - 1) + "…" : l.name}`}</tspan>}
+                    </text>
+                </g>
+            ))}
+        </g>
+    );
+}
+
+// ============================================================================
+// Переключатель видов (chart.views): сегменты справа в строке заголовка
+// ============================================================================
+const VIEW_FONT = 8;
+const VIEW_PAD = 6;
+const viewSegmentWidths = (views) => views.map(v => textWidth(v.label, VIEW_FONT) + 2 * VIEW_PAD);
+
+function ViewSwitch({ views, active, onSelect, width, palette }) {
+    const widths = viewSegmentWidths(views);
+    const total = widths.reduce((a, b) => a + b, 0);
+    let x = width - 4 - total;
+    return (
+        <g fontSize={VIEW_FONT} role="radiogroup">
+            <rect x={x} y={3} width={total} height={13} rx={3} fill="none" stroke={palette.divider} />
+            {views.map((v, i) => {
+                const x0 = x;
+                x += widths[i];
+                const isActive = v.key === active;
+                const select = () => onSelect(v.key);
+                return (
+                    <g
+                        key={v.key}
+                        role="radio"
+                        aria-checked={isActive}
+                        tabIndex={0}
+                        style={{ cursor: "pointer", outline: "none" }}
+                        onClick={select}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(); } }}
+                    >
+                        <rect
+                            x={x0 + 1} y={4} width={widths[i] - 2} height={11} rx={2.5}
+                            fill={isActive ? alpha(palette.text.primary, palette.mode === "dark" ? 0.18 : 0.1) : "transparent"}
+                        />
+                        <text
+                            x={x0 + widths[i] / 2} y={9.5} textAnchor="middle" dominantBaseline="central"
+                            fill={isActive ? palette.text.primary : palette.text.secondary} fontWeight={isActive ? 700 : 400}
+                        >
+                            {v.label}
+                        </text>
+                    </g>
+                );
+            })}
+        </g>
+    );
+}
+
+// ============================================================================
+// Компонент
+// ============================================================================
 const SvgLineChart = ({ chart, maxHeight }) => {
     const theme = useTheme();
+    const palette = theme.palette;
     const containerRef = useRef(null);
-    const [dimensions, setDimensions] = useState({ width: 300, height: 150 });
-    const [placedMap, setPlacedMap] = useState({});
-    const rafRef = useRef(null);
+    const clipId = `plot-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+    const [size, setSize] = useState({ width: 0, height: 0 });
+    const [hover, setHover] = useState(null);
+    const rafRef = useRef(0);
+    const pendingHover = useRef(null);
 
     useEffect(() => {
-        if (!containerRef.current) return;
-        const observer = new ResizeObserver((entries) => {
-            if (!entries || !entries.length) return;
-            const { width, height } = entries[0].contentRect;
-
-            if (width && height) {
-                if (rafRef.current) cancelAnimationFrame(rafRef.current);
-                rafRef.current = requestAnimationFrame(() => {
-                    setDimensions({ width, height });
-                });
-            }
+        const el = containerRef.current;
+        if (!el) return undefined;
+        let frame = 0;
+        const observer = new ResizeObserver(entries => {
+            const box = entries[0]?.contentRect;
+            if (!box?.width || !box?.height) return;
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(() => {
+                setSize(prev => (Math.abs(prev.width - box.width) < 0.5 && Math.abs(prev.height - box.height) < 0.5
+                    ? prev
+                    : { width: Math.round(box.width), height: Math.round(box.height) }));
+            });
         });
-        observer.observe(containerRef.current);
+        observer.observe(el);
         return () => {
             observer.disconnect();
-            if (rafRef.current) cancelAnimationFrame(rafRef.current);
+            cancelAnimationFrame(frame);
         };
     }, []);
 
-    const staticChartData = useMemo(() => {
-        if (!chart) return null;
-        const xAxis = chart.axes?.x || {};
-        const yAxis = chart.axes?.y || {};
-        const axes = { x: xAxis.unit || "mm", y: yAxis.unit || "°C" };
-        const showPoints = chart.showPoints !== false;
-        const showLabels = chart.showLabels !== false;
+    useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
-        const graphs = chart.graphs
-            .filter(graph => graph && Array.isArray(graph.points) && graph.points.length >= 2)
-            .map((graph, index) => ({
-                ...graph,
-                index,
-                points: graph.points.map(point => point === null ? null : [Number(point[0]), Number(point[1])]),
-                color: graph.color || theme.palette.text.primary,
-                opacity: typeof graph.opacity === "number" ? Math.max(0, Math.min(1, graph.opacity)) : 1,
-                lineWidth: typeof graph.lineWidth === "number" && graph.lineWidth > 0 ? graph.lineWidth : 2,
-                showMarker: graph.showMarker !== false,
-            }));
+    // Виды графика (например, зоны для нагрева и для паузы): вид заменяет поля chart
+    const views = Array.isArray(chart?.views) && chart.views.length > 1 ? chart.views : null;
+    const [viewKey, setViewKey] = useState(null);
+    const activeView = views ? (views.find(v => v.key === viewKey) || views.find(v => v.key === chart.defaultView) || views[0]) : null;
+    const effectiveChart = useMemo(() => {
+        if (!activeView) return chart;
+        const { key, label, ...overrides } = activeView;
+        return { ...chart, ...overrides };
+    }, [chart, activeView]);
+    const headerReserve = views ? viewSegmentWidths(views).reduce((a, b) => a + b, 0) + 12 : 0;
 
-        let xMin = typeof xAxis.min === "number" ? xAxis.min : null;
-        let xMax = typeof xAxis.max === "number" ? xAxis.max : null;
+    const model = useMemo(
+        () => (effectiveChart && size.width > 40 && size.height > 30
+            ? buildChartModel(effectiveChart, size.width, size.height, palette, { headerReserve })
+            : null),
+        [effectiveChart, size.width, size.height, palette, headerReserve]
+    );
 
-        if (xMin === null || xMax === null) {
-            const graphXRanges = graphs.map(graph => {
-                const validPoints = (graph.points || []).filter(p => p && Array.isArray(p));
-                if (validPoints.length === 0) return { start: 0, end: 0 };
-                return { start: Math.min(...validPoints.map(p => p[0])), end: Math.max(...validPoints.map(p => p[0])) };
+    const height = maxHeight || 150;
+    const borderColor = chart?.status?.type === "error"
+        ? palette.error.main
+        : chart?.status?.type === "warning" || chart?.status?.type === "warn"
+            ? palette.warning.main
+            : palette.divider;
+
+    const onPointerMove = (e) => {
+        if (!model) return;
+        const rect = e.currentTarget.ownerSVGElement.getBoundingClientRect();
+        const x = Math.max(model.plot.l, Math.min(model.plot.r, e.clientX - rect.left));
+        const y = Math.max(model.plot.t, Math.min(model.plot.b, e.clientY - rect.top));
+        pendingHover.current = { x, y };
+        if (!rafRef.current) {
+            rafRef.current = requestAnimationFrame(() => {
+                rafRef.current = 0;
+                setHover(pendingHover.current);
             });
-            if (xMin === null) xMin = Math.min(...graphXRanges.map(r => r.start));
-            if (xMax === null) xMax = Math.max(...graphXRanges.map(r => r.end));
         }
-
-        const xAbsoluteMin = Math.min(xMin, xMax);
-        const xAbsoluteMax = Math.max(xMin, xMax);
-
-        let tMin = typeof yAxis.min === "number" ? yAxis.min : null;
-        let tMax = typeof yAxis.max === "number" ? yAxis.max : null;
-
-        if (tMin === null || tMax === null) {
-            const allValues = graphs.flatMap(graph => (graph.points || []).filter(p => p && Array.isArray(p)).map(p => p[1]));
-            const yRanges = Array.isArray(yAxis.ranges) ? yAxis.ranges : [];
-            const rangeValues = [...allValues, ...yRanges.flatMap(r => [r.from, r.to])].filter(Number.isFinite);
-
-            if (rangeValues.length > 0) {
-                tMin = typeof yAxis.min === "number" ? yAxis.min : Math.floor(Math.min(...rangeValues) / GRID_STEP_C) * GRID_STEP_C;
-                tMax = typeof yAxis.max === "number" ? yAxis.max : Math.ceil(Math.max(...rangeValues) / GRID_STEP_C) * GRID_STEP_C;
-            } else {
-                tMin = typeof yAxis.min === "number" ? yAxis.min : 0;
-                tMax = typeof yAxis.max === "number" ? yAxis.max : 100;
-            }
-        }
-
-        const tAbsoluteMin = Math.min(tMin, tMax);
-        const tAbsoluteMax = Math.max(tMin, tMax);
-
-        const isSpecialTemperature = (t) => [...(Array.isArray(yAxis.lines) ? yAxis.lines.map(l => l.value) : []), ...(Array.isArray(yAxis.ranges) ? yAxis.ranges.flatMap(r => [r.from, r.to]) : [])].some(v => Number.isFinite(v) && Math.abs(v - t) < 0.1);
-
-        return {
-            graphs, xAxis, yAxis, axes, showPoints, showLabels,
-            xMin, xMax, tMin, tMax, xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax, isSpecialTemperature
-        };
-    }, [chart, theme]);
-
-    const chartData = useMemo(() => {
-        if (!staticChartData) return null;
-        const { width, height } = dimensions;
-        const {
-            graphs, xAxis, yAxis, axes, showPoints, showLabels,
-            xMin, xMax, tMin, tMax, xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax, isSpecialTemperature
-        } = staticChartData;
-
-        const pad = { left: 32, right: 32, top: 16, bottom: 20 };
-        const wPlot = width - pad.left - pad.right;
-        const hPlot = height - pad.top - pad.bottom;
-
-        const xs = (x) => pad.left + ((x - xMin) / (xMax - xMin || 1)) * wPlot;
-        const ys = (t) => pad.top + ((tMax - t) / (tMax - tMin || 1)) * hPlot;
-
-        const yLimits = buildLimitData({ axis: "y", lines: yAxis.lines, ranges: yAxis.ranges, mapValue: ys, minValue: tAbsoluteMin, maxValue: tAbsoluteMax, plotStart: pad.top, plotEnd: pad.top + hPlot });
-        const xLimits = buildLimitData({ axis: "x", lines: xAxis.lines, ranges: xAxis.ranges, mapValue: xs, minValue: xAbsoluteMin, maxValue: xAbsoluteMax, plotStart: pad.left, plotEnd: pad.left + wPlot });
-
-        const graphData = graphs.map(graph => {
-            let minIdx = -1, maxIdx = -1, minV = Infinity, maxV = -Infinity;
-            const len = graph.points.length;
-            for (let i = 0; i < len; i++) {
-                const p = graph.points[i]; if (!p || !Array.isArray(p)) continue;
-                if (p[0] < xAbsoluteMin || p[0] > xAbsoluteMax) continue;
-                if (p[1] < minV) { minV = p[1]; minIdx = i; }
-                if (p[1] > maxV) { maxV = p[1]; maxIdx = i; }
-            }
-            if (minIdx === -1) minIdx = 0; if (maxIdx === -1) maxIdx = 0;
-            return { ...graph, minIdx, maxIdx, minV: minV === Infinity ? tAbsoluteMin : minV, maxV: maxV === -Infinity ? tAbsoluteMax : maxV, path: makePath(graph, xs, ys, xAbsoluteMin, xAbsoluteMax) };
-        });
-
-        const fillPolygonsData = (Array.isArray(chart.fillPolygons) ? chart.fillPolygons : [])
-            .map((polygon, index) => {
-                if (!Array.isArray(polygon.points)) return null;
-                const validPoints = polygon.points.filter(pt => Array.isArray(pt) && pt.length >= 2 && Number.isFinite(pt[0]) && Number.isFinite(pt[1]));
-                if (validPoints.length < 3) return null;
-                return { id: polygon.key ?? `fill-polygon-${index}`, name: polygon.name, path: validPoints.map((pt, ptIdx) => `${ptIdx === 0 ? "M" : "L"} ${xs(pt[0])} ${ys(pt[1])}`).join(" ") + " Z", color: polygon.color || theme.palette.success.main, opacity: typeof polygon.opacity === "number" ? polygon.opacity : 0.15 };
-            }).filter(Boolean);
-
-        const rightEdgeLabelsRaw = [];
-        const makeLabels = (graph) => {
-            const points = graph.points; if (!points || !points.length) return [];
-            const lastId = points.length - 1; const raw = [];
-            if (graph.maxIdx >= 0 && points[graph.maxIdx]) raw.push({ id: graph.maxIdx, val: graph.maxV, p: 4 });
-            if (graph.minIdx >= 0 && points[graph.minIdx] && graph.minIdx !== graph.maxIdx) raw.push({ id: graph.minIdx, val: graph.minV, p: 4 });
-            if (points[0] && points[0][0] >= xAbsoluteMin && points[0][0] <= xAbsoluteMax) raw.push({ id: 0, val: points[0][1], p: 2 });
-            if (points[lastId] && points[lastId][0] >= xAbsoluteMin && points[lastId][0] <= xAbsoluteMax && lastId !== 0) raw.push({ id: lastId, val: points[lastId][1], p: 2 });
-
-            const result = []; const seen = new Set(); raw.sort((a, b) => b.p - a.p);
-            for (let i = 0; i < raw.length; i++) {
-                const p = raw[i];
-                if (seen.has(p.id)) continue; seen.add(p.id);
-                const pt = points[p.id]; if (!pt) continue;
-                if (p.val < tAbsoluteMin || p.val > tAbsoluteMax) continue;
-                if (Math.abs(xs(pt[0]) - pad.left) < 0.01 && Math.abs(ys(p.val) - (height - pad.bottom)) < 0.01) continue;
-
-                const labelObj = { ...p, type: graph.index === 0 ? "main" : "cooldown", graphIndex: graph.index, order: (p.id === 0 || p.id === lastId) ? 0 : 1, color: graph.color, opacity: graph.opacity, x: xs(pt[0]), y: ys(p.val), rawX: pt[0] };
-                if (p.id === lastId || Math.abs(pt[0] - xMax) < 1e-6) rightEdgeLabelsRaw.push(labelObj);
-                else result.push(labelObj);
-            }
-            return result;
-        };
-
-        const labels = showLabels ? graphData.filter(g => g.showMarker).flatMap(g => makeLabels(g)) : [];
-        const sortedLabels = [...labels].sort((a, b) => {
-            const isAEdge = graphData[a.graphIndex]?.points[a.id] ? Math.abs(graphData[a.graphIndex].points[a.id][0] - xMax) < 1e-6 : false;
-            const isBEdge = graphData[b.graphIndex]?.points[b.id] ? Math.abs(graphData[b.graphIndex].points[b.id][0] - xMax) < 1e-6 : false;
-            const pA = isAEdge ? 0 : (a.id === 0 ? 1 : 2);
-            const pB = isBEdge ? 0 : (b.id === 0 ? 1 : 2);
-            return pA !== pB ? pA - pB : a.y - b.y || a.graphIndex - b.graphIndex;
-        });
-
-        const plotTop = pad.top; const plotBottom = height - pad.bottom; const plotLeft = pad.left; const plotRight = width - pad.right;
-
-        const yAxisLabels = yLimits.lines.map(line => ({ type: "limit", index: line.index, value: line.value, y: line.y, color: line.color || theme.palette.text.secondary }));
-        yAxisLabels.sort((a, b) => a.y - b.y);
-
-        let yLeftChanged = true;
-        for (let iter = 0; iter < 6 && yLeftChanged; iter++) {
-            yLeftChanged = false;
-            for (let i = 1; i < yAxisLabels.length; i++) {
-                if (yAxisLabels[i].y < yAxisLabels[i - 1].y + Y_AXIS_LABEL_MIN_DISTANCE) {
-                    yAxisLabels[i].y = yAxisLabels[i - 1].y + Y_AXIS_LABEL_MIN_DISTANCE;
-                    yLeftChanged = true;
-                }
-            }
-        }
-        for (let i = 0; i < yAxisLabels.length; i++) yAxisLabels[i].y = Math.max(pad.top, Math.min(height - pad.bottom, yAxisLabels[i].y));
-
-        const rightAxisLabels = rightEdgeLabelsRaw.map(label => ({ graphIndex: label.graphIndex, value: label.val, y: label.y, color: label.color, opacity: label.opacity }));
-        rightAxisLabels.sort((a, b) => a.y - b.y);
-
-        let changed = true;
-        for (let iter = 0; iter < 4 && changed; iter++) {
-            changed = false;
-            for (let i = 0; i < rightAxisLabels.length - 1; i++) {
-                const overlap = rightAxisLabels[i].y + Y_AXIS_LABEL_MIN_DISTANCE - rightAxisLabels[i + 1].y;
-                if (overlap > 0) {
-                    rightAxisLabels[i].y -= overlap / 2;
-                    rightAxisLabels[i + 1].y += overlap / 2;
-                    changed = true;
-                }
-            }
-            if (rightAxisLabels.length > 0) {
-                if (rightAxisLabels[0].y < pad.top) { rightAxisLabels[0].y = pad.top; changed = true; }
-                const lastIdx = rightAxisLabels.length - 1;
-                if (rightAxisLabels[lastIdx].y > height - pad.bottom) { rightAxisLabels[lastIdx].y = height - pad.bottom; changed = true; }
-            }
-        }
-
-        const xAxisLabels = xLimits.lines.map(line => ({ type: "limit", index: line.index, value: line.value, x: line.x, color: line.color || theme.palette.text.secondary }));
-        xAxisLabels.sort((a, b) => a.x - b.x);
-
-        let xChanged = true;
-        for (let iter = 0; iter < 6 && xChanged; iter++) {
-            xChanged = false;
-            for (let i = 0; i < xAxisLabels.length - 1; i++) {
-                const overlap = xAxisLabels[i].x + X_AXIS_LABEL_MIN_DISTANCE - xAxisLabels[i + 1].x;
-                if (overlap > 0) {
-                    xAxisLabels[i].x -= overlap / 2;
-                    xAxisLabels[i + 1].x += overlap / 2;
-                    xChanged = true;
-                }
-            }
-            if (xAxisLabels.length > 0) {
-                if (xAxisLabels[0].x < pad.left) { xAxisLabels[0].x = pad.left; xChanged = true; }
-                const lastXIdx = xAxisLabels.length - 1;
-                if (xAxisLabels[lastXIdx].x > width - pad.right) { xAxisLabels[lastXIdx].x = width - pad.right; xChanged = true; }
-            }
-        }
-
-        const linesCount = Math.floor((Math.max(tMin, tMax) - Math.min(tMin, tMax)) / GRID_STEP_C) + 1;
-        const gridLinesY = [];
-        for (let i = 0; i < linesCount; i++) { const t = Math.min(tMin, tMax) + i * GRID_STEP_C; gridLinesY.push({ id: t, y: ys(t), isSpecial: isSpecialTemperature(t) }); }
-
-        const flatPointsToRender = [];
-        for (let g = 0; g < graphData.length; g++) {
-            const graph = graphData[g];
-            const len = graph.points.length;
-            for (let ptIdx = 0; ptIdx < len; ptIdx++) {
-                const pt = graph.points[ptIdx];
-                if (!pt) continue;
-                const isMin = ptIdx === graph.minIdx;
-                const isMax = ptIdx === graph.maxIdx;
-                const isLabelPoint = ptIdx === 0 || ptIdx === len - 1 || isMin || isMax;
-
-                flatPointsToRender.push({
-                    key: `${graph.index}-pt-group-${ptIdx}`,
-                    graph, ptIdx, isMin, isMax, isLabelPoint,
-                    x: xs(pt[0]), y: ys(pt[1]), rawX: pt[0], rawY: pt[1]
-                });
-            }
-        }
-
-        return {
-            width, height, pad, wPlot, hPlot, xMin, xMax, tMin, gridLinesY,
-            xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax, flatPointsToRender,
-            yLimitLineData: yLimits.lines, yLimitRangeData: yLimits.ranges, xLimitLineData: xLimits.lines, xLimitRangeData: xLimits.ranges,
-            graphData, fillPolygonsData, yAxisLabels, rightAxisLabels, xAxisLabels,
-            axes, showPoints, showLabels, xs, ys, sortedLabels, plotLeft, plotRight, plotTop, plotBottom,
-            borderColor: chart.status?.type === "error" ? theme.palette.error.main : chart.status?.type === "warning" ? theme.palette.warning.main : theme.palette.divider,
-        };
-    }, [staticChartData, dimensions, theme, chart.fillPolygons, chart.status]);
-
-    const workerInstanceRef = useRef(null);
-
-    useEffect(() => {
-        workerInstanceRef.current = new Worker(new URL("./labels.worker.js", import.meta.url));
-        workerInstanceRef.current.onmessage = function (e) { setPlacedMap(e.data.placedMap); };
-        return () => { if (workerInstanceRef.current) workerInstanceRef.current.terminate(); };
-    }, []);
-
-    useEffect(() => {
-        setPlacedMap({});
-        if (workerInstanceRef.current) workerInstanceRef.current.postMessage({ type: "STOP" });
-        if (!chartData || !chartData.sortedLabels.length) return;
-
-        const timerId = setTimeout(() => {
-            if (!workerInstanceRef.current) return;
-            const transferableBuffers = [];
-
-            const processedGraphs = chartData.graphData.map(g => {
-                const len = g.points.length;
-                const xsProj = new Float64Array(len);
-                const ysProj = new Float64Array(len);
-
-                for (let i = 0; i < len; i++) {
-                    const pt = g.points[i];
-                    if (pt && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
-                        xsProj[i] = chartData.xs(pt[0]);
-                        ysProj[i] = chartData.ys(pt[1]);
-                    } else {
-                        xsProj[i] = NaN; ysProj[i] = NaN;
-                    }
-                }
-                transferableBuffers.push(xsProj.buffer, ysProj.buffer);
-                return { index: g.index, pointsLength: len, xsProj, ysProj };
-            });
-
-            workerInstanceRef.current.postMessage({
-                sortedLabels: chartData.sortedLabels, graphData: processedGraphs,
-                plotLeft: chartData.plotLeft, plotRight: chartData.plotRight,
-                plotTop: chartData.plotTop, plotBottom: chartData.plotBottom,
-                axes: chartData.axes, xMax: chartData.xMax
-            }, transferableBuffers);
-        }, 100);
-
-        return () => clearTimeout(timerId);
-    }, [chartData]);
-
-    if (!chartData) return null;
-
-    const {
-        width, height, pad, wPlot, hPlot, xMin, tMin, gridLinesY,
-        xAbsoluteMin, xAbsoluteMax, tAbsoluteMin, tAbsoluteMax, flatPointsToRender,
-        yLimitLineData, yLimitRangeData, xLimitLineData, xLimitRangeData,
-        graphData, fillPolygonsData, yAxisLabels, rightAxisLabels, xAxisLabels,
-        axes, showPoints, showLabels, borderColor,
-    } = chartData;
-
-    const formatValue = (value, unit) => {
-        const val = Number(value);
-        if (!Number.isFinite(val)) return "";
-        const formatted = val.toFixed(1);
-        return formatted.endsWith(".0") ? `${formatted.slice(0, -2)}${unit}` : `${formatted}${unit}`;
     };
+    const onPointerLeave = () => {
+        pendingHover.current = null;
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+        setHover(null);
+    };
+
+    const gridColor = palette.divider;
+    const axisColor = palette.text.secondary;
+    const haloColor = palette.background.paper;
 
     return (
         <Paper
             ref={containerRef}
+            variant="outlined"
             sx={{
-                border: "1px solid", borderColor, p: 0.5,
-                fontFamily: '"Roboto Mono","SF Mono",monospace',
-                boxShadow: "none", width: "100%", boxSizing: "border-box",
-                height: maxHeight ? `${maxHeight}px` : "150px", maxHeight: maxHeight || "none", display: "block"
+                borderColor,
+                boxShadow: "none",
+                width: "100%",
+                height: `${height}px`,
+                boxSizing: "border-box",
+                overflow: "hidden",
+                bgcolor: "background.paper",
+                fontFamily: FONT_FAMILY,
+                userSelect: "none",
+                touchAction: "pan-y"
             }}
         >
-            <svg width="100%" height="100%" style={{ display: "block" }} shapeRendering="geometricPrecision">
-                <defs>
-                    <clipPath id="blank-clip-bounds">
-                        <rect x={pad.left} y={pad.top} width={wPlot} height={hPlot} />
-                    </clipPath>
-                </defs>
+            {model && (
+                <svg
+                    width={model.width}
+                    height={model.height}
+                    style={{ display: "block", fontFamily: FONT_FAMILY, fontVariantNumeric: "tabular-nums" }}
+                    shapeRendering="geometricPrecision"
+                    textRendering="optimizeLegibility"
+                >
+                    <defs>
+                        <clipPath id={clipId}>
+                            <rect x={model.plot.l} y={model.plot.t} width={model.plot.r - model.plot.l} height={model.plot.b - model.plot.t} />
+                        </clipPath>
+                    </defs>
 
-                {xLimitRangeData.map(range => (
-                    <rect key={`x-limit-range-${range.index}`} x={range.start} y={pad.top} width={Math.max(0, range.end - range.start)} height={hPlot} fill={range.color} opacity={LIMIT_RANGE_OPACITY} />
-                ))}
+                    {/* Фон области графика */}
+                    <rect
+                        x={model.plot.l} y={model.plot.t}
+                        width={model.plot.r - model.plot.l} height={model.plot.b - model.plot.t}
+                        fill={alpha(palette.text.primary, palette.mode === "dark" ? 0.025 : 0.012)}
+                    />
 
-                {yLimitRangeData.map(range => (
-                    <rect key={`y-limit-range-${range.index}`} x={pad.left} y={range.start} width={wPlot} height={Math.max(0, range.end - range.start)} fill={range.color} opacity={LIMIT_RANGE_OPACITY} />
-                ))}
+                    {/* Диапазоны */}
+                    {model.yRanges.map(r => (
+                        <rect key={r.key} x={model.plot.l} y={r.y} width={model.plot.r - model.plot.l} height={r.h} fill={r.color} opacity={RANGE_OPACITY} />
+                    ))}
+                    {model.xRanges.map(r => (
+                        <rect key={r.key} x={r.x} y={model.plot.t} width={r.w} height={model.plot.b - model.plot.t} fill={r.color} opacity={RANGE_OPACITY} />
+                    ))}
 
-                {gridLinesY.map(({ id, y, isSpecial }) => (
-                    id >= tAbsoluteMin && id <= tAbsoluteMax && !isSpecial && <line key={id} x1={pad.left} y1={y} x2={width - pad.right} y2={y} stroke={theme.palette.divider} strokeWidth={0.5} strokeDasharray="4 2" />
-                ))}
+                    {/* Сетка: мелкая и основная */}
+                    <path
+                        d={model.minorX.map(x => `M${x.toFixed(1)} ${model.plot.t}V${model.plot.b}`).join("") +
+                            model.minorY.map(y => `M${model.plot.l} ${y.toFixed(1)}H${model.plot.r}`).join("")}
+                        stroke={gridColor} strokeWidth={0.5} opacity={0.35} fill="none"
+                    />
+                    <path
+                        d={model.xTicks.map(t => `M${t.x.toFixed(1)} ${model.plot.t}V${model.plot.b}`).join("") +
+                            model.yTicks.filter(t => !t.isLimit).map(t => `M${model.plot.l} ${t.y.toFixed(1)}H${model.plot.r}`).join("")}
+                        stroke={gridColor} strokeWidth={0.75} fill="none"
+                    />
 
-                {xLimitLineData.map(line => (
-                    Math.abs(line.value - xMin) !== 0 && (
-                        <line key={`x-limit-line-${line.index}`} x1={line.x} y1={pad.top} x2={line.x} y2={height - pad.bottom} stroke={line.color || theme.palette.text.secondary} strokeWidth={1} strokeDasharray="4 2" opacity=".5"/>
-                    )
-                ))}
+                    {/* Заливки областей (изотермы) */}
+                    <g clipPath={`url(#${clipId})`} pointerEvents="none">
+                        {model.fillPolygons.map(p => (
+                            <path key={p.key} d={p.d} fill={p.color} fillOpacity={p.opacity} fillRule="nonzero" stroke="none" />
+                        ))}
+                    </g>
 
-                <line x1={pad.left} y1={pad.top} x2={pad.left} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={1} opacity=".55" />
-                <line x1={pad.left} y1={height - pad.bottom} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={1} opacity=".55" />
-                <line x1={width - pad.right} y1={pad.top} x2={width - pad.right} y2={height - pad.bottom} stroke={theme.palette.text.secondary} strokeWidth={1} opacity=".2" />
+                    {/* Линии пределов */}
+                    {model.yLimitMarks.map((m, i) => (
+                        <line key={`yl-${i}`} x1={model.plot.l} x2={model.plot.r} y1={m.y} y2={m.y} stroke={m.color} strokeWidth={1} strokeDasharray="5 3" opacity={0.75} />
+                    ))}
+                    {model.xLines.map((l, i) => (
+                        <line
+                            key={`xl-${i}`} x1={l.x} x2={l.x} y1={model.plot.t} y2={model.plot.b}
+                            stroke={l.color || axisColor} strokeWidth={l.lineWidth || 1}
+                            strokeDasharray={l.dashArray || "5 3"} opacity={0.75}
+                        />
+                    ))}
 
-                {yLimitLineData.map(line => (
-                    Math.abs(line.value - tMin) !== 0 && <line key={`y-limit-line-${line.index}`} x1={pad.left} y1={line.y} x2={width - pad.right} y2={line.y} stroke={line.color || theme.palette.text.secondary} strokeWidth={1} strokeDasharray="4 2" opacity=".5" />
-                ))}
+                    {/* Кривые */}
+                    <g clipPath={`url(#${clipId})`} fill="none" strokeLinecap="round" strokeLinejoin="round">
+                        {model.series.map(s => (
+                            <path key={`s-${s.index}`} d={s.path} stroke={s.color} strokeWidth={s.lineWidth} opacity={s.opacity} strokeDasharray={s.dashArray || undefined} />
+                        ))}
+                        {model.series.map(s => s.dots && (
+                            <path key={`d-${s.index}`} d={s.dots} stroke={s.color} strokeWidth={Math.max(1.6, s.lineWidth * 1.6)} opacity={s.opacity * 0.55} />
+                        ))}
+                    </g>
 
-                {yAxisLabels.map(label => (
-                    <text key={`y-limit-label-${label.index}`} x={pad.left - Y_AXIS_LABEL_OFFSET} y={label.y} textAnchor="end" dominantBaseline="middle" fontSize={8} fontWeight="bold" fill={label.color}>
-                        {formatValue(label.value, axes.y)}
-                    </text>
-                ))}
+                    {/* Рамка */}
+                    <rect
+                        x={model.plot.l} y={model.plot.t}
+                        width={model.plot.r - model.plot.l} height={model.plot.b - model.plot.t}
+                        fill="none" stroke={axisColor} strokeOpacity={0.55} strokeWidth={0.75}
+                    />
 
-                {showLabels && rightAxisLabels.map((label, idx) => (
-                    <text key={`right-axis-label-${label.graphIndex}-${idx}`} x={width - pad.right + Y_AXIS_LABEL_OFFSET} y={label.y} textAnchor="start" dominantBaseline="middle" fontSize={8} fontWeight="bold" fill={label.color} opacity={label.opacity}>
-                        {Math.round(label.value)}{axes.y}
-                    </text>
-                ))}
+                    {/* Деления и подписи осей */}
+                    <g fontSize={TICK_FONT} fill={axisColor}>
+                        {model.yTicks.map(t => !t.hidden && (
+                            <text key={`yt-${t.value}`} x={model.plot.l - 4} y={t.y} textAnchor="end" dominantBaseline="central">{t.text}</text>
+                        ))}
+                        {model.xTicks.map(t => !t.hidden && (
+                            <text key={`xt-${t.value}`} x={t.x} y={model.plot.b + 4} textAnchor="middle" dominantBaseline="hanging">{t.text}</text>
+                        ))}
+                        <text x={model.plot.r} y={model.plot.b + 4} textAnchor="end" dominantBaseline="hanging" opacity={0.8}>
+                            {model.xUnitVisible ? model.units.x : ""}
+                        </text>
+                    </g>
+                    <g fontSize={TICK_FONT} fontWeight={700}>
+                        {model.yLimitMarks.map((m, i) => (
+                            <text key={`ylt-${i}`} x={model.plot.l - 4} y={m.labelY} textAnchor="end" dominantBaseline="central" fill={m.color}>{m.text}</text>
+                        ))}
+                        {model.xLimitMarks.map((m, i) => (
+                            <text key={`xlt-${i}`} x={m.labelX} y={model.plot.b + 4} textAnchor="middle" dominantBaseline="hanging" fill={m.color}>{m.text}</text>
+                        ))}
+                    </g>
+                    {model.yUnitInCorner && (
+                        <text x={model.plot.l - 4} y={model.plot.t + 1} fontSize={TICK_FONT} fill={axisColor} textAnchor="end" dominantBaseline="hanging" opacity={0.8}>{model.units.y}</text>
+                    )}
 
-                {xAxisLabels.map(label => (
-                    <text key={`x-limit-label-${label.index}`} x={label.x} y={height - pad.bottom + X_AXIS_LABEL_OFFSET} textAnchor="middle" dominantBaseline="hanging" fontSize={8} fontWeight="bold" fill={label.color}>
-                        {formatValue(label.value, axes.x)}
-                    </text>
-                ))}
+                    {/* Пометки на линиях */}
+                    <g fontSize={TICK_FONT} fontWeight={600} stroke={haloColor} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+                        {model.xLineNotes.map(n => (
+                            <text key={n.key} x={n.anchor === "end" ? n.x - 3 : n.x + 3} y={model.plot.t + 3} textAnchor={n.anchor} dominantBaseline="hanging" fill={n.color}>{n.text}</text>
+                        ))}
+                        {model.yLineNotes.map(n => (
+                            <text key={n.key} x={model.plot.r - 3} y={n.y - 2} textAnchor="end" fill={n.color}>{n.text}</text>
+                        ))}
+                    </g>
 
-                {fillPolygonsData.map(polygon => (
-                    <path key={polygon.id} d={polygon.path} fill={polygon.color} fillOpacity={polygon.opacity} fillRule="evenodd" clipPath="url(#blank-clip-bounds)" stroke="none" style={{ pointerEvents: "none" }} />
-                ))}
+                    {/* Маркеры экстремумов и концов */}
+                    {model.markers.map(m => (
+                        <circle key={m.key} cx={m.x} cy={m.y} r={m.r} fill={m.fill} stroke={haloColor} strokeWidth={1} opacity={m.opacity} />
+                    ))}
 
-                {graphData.map(graph => (
-                    <path key={`path-${graph.index}`} d={graph.path} fill="none" stroke={graph.color} strokeWidth={graph.lineWidth} opacity={graph.opacity} strokeLinecap="round" strokeLinejoin="round" />
-                ))}
+                    {/* Подписи значений с выносками */}
+                    <g fontSize={VALUE_FONT} fontWeight={700}>
+                        {model.valueLabels.map(l => {
+                            const p = model.placement.get(l.key);
+                            if (!p) return null;
+                            const ex = Math.max(p.l, Math.min(p.r, l.x));
+                            const ey = Math.max(p.t, Math.min(p.b, l.y));
+                            return (
+                                <g key={l.key} opacity={l.opacity}>
+                                    {p.leader && <line x1={l.x} y1={l.y} x2={ex} y2={ey} stroke={l.color} strokeWidth={0.6} opacity={0.7} />}
+                                    <text
+                                        x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" fill={l.color}
+                                        stroke={haloColor} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round"
+                                    >
+                                        {l.text}
+                                    </text>
+                                </g>
+                            );
+                        })}
+                    </g>
 
-                {flatPointsToRender.map(({ key, graph, ptIdx, isMin, isMax, isLabelPoint, x, y, rawX, rawY }) => {
-                    const renderPoints = showPoints && isLabelPoint && rawX >= xAbsoluteMin && rawX <= xAbsoluteMax && rawY >= tAbsoluteMin && rawY <= tAbsoluteMax;
-                    if (!SHOW_ALL_POINTS && !renderPoints) return null;
+                    {/* Значения на концах кривых (справа от рамки) */}
+                    <g fontSize={VALUE_FONT} fontWeight={700}>
+                        {model.endLabels.map(l => (
+                            <g key={l.key} opacity={l.opacity}>
+                                {Math.abs(l.y - l.anchorY) > 1.5 && (
+                                    <path d={`M${model.plot.r} ${l.anchorY.toFixed(1)}L${(l.x - 1).toFixed(1)} ${l.y.toFixed(1)}`} stroke={l.color} strokeWidth={0.6} fill="none" opacity={0.7} />
+                                )}
+                                <text x={l.x} y={l.y} dominantBaseline="central" fill={l.color}>{l.text}</text>
+                            </g>
+                        ))}
+                    </g>
 
-                    return (
-                        <g key={key}>
-                            {SHOW_ALL_POINTS && (
-                                <circle cx={x} cy={y} r={graph.lineWidth * 0.4} fill={theme.palette.text.primary} stroke={theme.palette.background.paper} strokeWidth={graph.lineWidth * 0.2} opacity={graph.opacity * 0.4} />
-                            )}
+                    {views && (
+                        <ViewSwitch views={views} active={activeView.key} onSelect={setViewKey} width={model.width} palette={palette} />
+                    )}
 
-                            {renderPoints && (
-                                <>
-                                    {graph.showMarker && (
-                                        <circle cx={x} cy={y} r={Math.max(2.5, graph.lineWidth * 1.3)} fill={isMin ? theme.palette.info.main : isMax ? theme.palette.error.main : graph.color} stroke={theme.palette.background.paper} strokeWidth={1} opacity={graph.opacity} />
-                                    )}
-                                    {showLabels && (() => {
-                                        const labelPlaced = placedMap[`${graph.index}-${ptIdx}`];
-                                        return (
-                                            <text
-                                                x={x} y={y}
-                                                textAnchor={labelPlaced ? labelPlaced.textAnchor : "middle"}
-                                                dominantBaseline="middle" fontSize={9} fontWeight="bold" fill={graph.color}
-                                                style={{
-                                                    transition: "opacity 150ms ease-out, transform 200ms cubic-bezier(0.05, 0.7, 0.1, 1)",
-                                                    transformOrigin: `${x}px ${y}px`,
-
-                                                    opacity: labelPlaced ? graph.opacity : 0,
-
-                                                    // Добавили проверку: если labelPlaced еще нет, плавно выплываем из (0, 1.5)
-                                                    transform: labelPlaced
-                                                        ? `translate(${labelPlaced.dx}px, ${labelPlaced.dy}px) scale(1)`
-                                                        : `translate(0px, 1.5px) scale(0.95)`,
-                                                    pointerEvents: labelPlaced ? "auto" : "none"
-                                                }}
-
-                                            >
-                                                {Math.round(rawY ?? ptIdx)}{axes.y}
-                                            </text>
-                                        );
-                                    })()}
-                                </>
-                            )}
+                    {model.legend.length > 0 && (
+                        <g fontSize={TICK_FONT} fill={axisColor}>
+                            {model.legend.map((it, i) => (
+                                <g key={`lg-${i}`} transform={`translate(${it.x},4)`}>
+                                    <rect width={8} height={8} rx={1.5} fill={it.color} fillOpacity={isNum(it.opacity) ? it.opacity : 1}
+                                        stroke={it.stroke || it.color} strokeOpacity={0.9} strokeWidth={0.75} />
+                                    <text x={11} y={4} dominantBaseline="central">{it.label}</text>
+                                </g>
+                            ))}
                         </g>
-                    );
-                })}
-            </svg>
+                    )}
+
+                    <HoverLayer model={model} hover={hover} palette={palette} />
+
+                    {/* Область захвата указателя */}
+                    <rect
+                        x={model.plot.l} y={model.plot.t}
+                        width={model.plot.r - model.plot.l} height={model.plot.b - model.plot.t}
+                        fill="transparent"
+                        style={{ cursor: "crosshair" }}
+                        onPointerMove={onPointerMove}
+                        onPointerDown={onPointerMove}
+                        onPointerLeave={onPointerLeave}
+                    />
+                </svg>
+            )}
         </Paper>
     );
 };
 
 SvgLineChart.displayName = "SvgLineChart";
-export default SvgLineChart;
+export default memo(SvgLineChart);

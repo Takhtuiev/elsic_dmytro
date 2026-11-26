@@ -1,562 +1,318 @@
 // IsothermsModel.js
+// Изотермы и зоны нагрева на сечении листа.
+//
+// Поле температур модели — половина сечения (y ≥ 0, симметрия по центру). Здесь оно
+// зеркалится на полную ширину, сгущается монотонной кубической интерполяцией (гладкие
+// контуры даже на грубой сетке, без ложных экстремумов) и разбивается на треугольники. На треугольнике
+// температура линейна, поэтому изотерма в нём — отрезок, а зона [lo, hi) — выпуклый
+// многоугольник. Это даёт точные, замкнутые и согласованные между собой линии и заливки
+// при любой форме поля (карманы, горизонтальные изотермы, несколько пересечений).
 
-const EPS = 0.001;
+// Сгущение: не больше стольких ячеек по ширине и толщине и не больше ×4 к исходной сетке
+const TARGET_COLUMNS = 200;
+const TARGET_ROWS = 60;
+const MAX_REFINE = 8;
 
-// Добавлена отсечка машинного нуля для предотвращения бесконечных координат графиков
-const interpolateCoordinate = (t1, t2, c1, c2, target) => {
-    const dt = t2 - t1;
-    if (Math.abs(dt) < 1e-6) return c1;
-    return c1 + (target - t1) * (c2 - c1) / dt;
-};
-
-// Быстрая проверка знака разности без использования Number.isFinite
-// Подразумевается, что на вход идут валидные числа из симуляции
-const crossesTarget = (t1, t2, targetTemp) => (t1 - targetTemp) * (t2 - targetTemp) <= 0;
+// Монотонный кубический эрмитов сплайн (PCHIP) на неравномерной сетке:
+// гладкий (C¹) и без выбросов — между узлами не появляется температур, которых нет в данных
+function pchipTangents(x, y, n, out) {
+    if (n < 2) { out[0] = 0; return; }
+    const h0 = x[1] - x[0];
+    if (n === 2) { out[0] = out[1] = (y[1] - y[0]) / h0; return; }
+    for (let k = 1; k < n - 1; k++) {
+        const h1 = x[k] - x[k - 1], h2 = x[k + 1] - x[k];
+        const d1 = (y[k] - y[k - 1]) / h1, d2 = (y[k + 1] - y[k]) / h2;
+        if (d1 * d2 <= 0) {
+            out[k] = 0;
+        } else {
+            const w1 = 2 * h2 + h1, w2 = h2 + 2 * h1;
+            out[k] = (w1 + w2) / (w1 / d1 + w2 / d2);
+        }
+    }
+    // Концы: трёхточечная оценка с ограничением (как в PCHIP)
+    const endSlope = (hA, hB, dA, dB) => {
+        let m = ((2 * hA + hB) * dA - hA * dB) / (hA + hB);
+        if (m * dA <= 0) m = 0;
+        else if (dA * dB <= 0 && Math.abs(m) > Math.abs(3 * dA)) m = 3 * dA;
+        return m;
+    };
+    out[0] = endSlope(x[1] - x[0], x[2] - x[1], (y[1] - y[0]) / (x[1] - x[0]), (y[2] - y[1]) / (x[2] - x[1]));
+    out[n - 1] = endSlope(x[n - 1] - x[n - 2], x[n - 2] - x[n - 3], (y[n - 1] - y[n - 2]) / (x[n - 1] - x[n - 2]), (y[n - 2] - y[n - 3]) / (x[n - 2] - x[n - 3]));
+}
+function hermite(y0, y1, m0, m1, h, s) {
+    const s2 = s * s, s3 = s2 * s;
+    return (2 * s3 - 3 * s2 + 1) * y0 + (s3 - 2 * s2 + s) * h * m0 + (-2 * s3 + 3 * s2) * y1 + (s3 - s2) * h * m1;
+}
 
 /**
- * Пакетный расчет нескольких изотерм за ОДИН проход по массиву температур T_flat
+ * Поле на полном сечении.
+ * @param {ArrayLike<number>} T  температуры половины сечения, индекс i·Ny + j
+ * @param {number} Nx  узлов по толщине
+ * @param {number} Ny  узлов по полуширине
+ * @param {ArrayLike<number>} depthMm  координаты по толщине (Nx)
+ * @param {ArrayLike<number>} halfWidthMm  координаты по полуширине (Ny), от центра
+ * @returns {{X: Float64Array, Y: Float64Array, V: Float64Array, nc: number, nr: number}}
+ *   X — ширина (−W…W), Y — глубина, V[r·nc + c]
  */
-export const findMultipleIsothermsBatch = (targets, T_flat, gridConfig) => {
-    const result = {};
-    if (!targets?.length || !T_flat?.length || !gridConfig) return result;
+export function buildSectionField(T, Nx, Ny, depthMm, halfWidthMm) {
+    if (!T || Nx < 2 || Ny < 2 || T.length < Nx * Ny) return null;
 
-    const { Nx, Ny, xCoordinatesMm, yCoordinatesMm } = gridConfig;
-    if (Nx < 1 || Ny < 2 || T_flat.length < Nx * Ny) return result;
-
-    const maxSemiWidth = yCoordinatesMm[Ny - 1];
-    const lenTargets = targets.length;
-
-    const states = new Array(lenTargets);
-    for (let t = 0; t < lenTargets; t++) {
-        const target = targets[t];
-        result[target.key] = [];
-        result[target.key].targetTemp = target.targetTemp;
-
-        states[t] = {
-            targetTemp: target.targetTemp,
-            segmentsRight: result[target.key],
-            currentSegment: [],
-            lastValidI: -1
-        };
+    // Зеркальная полная ширина: −y[Ny−1] … −y[1], y[0] … y[Ny−1]
+    const nc0 = 2 * Ny - 1;
+    const X0 = new Float64Array(nc0);
+    const colSrc = new Int32Array(nc0);
+    for (let k = 0; k < nc0; k++) {
+        const j = Math.abs(k - (Ny - 1));
+        colSrc[k] = j;
+        X0[k] = k < Ny - 1 ? -halfWidthMm[j] : halfWidthMm[j];
     }
 
-    const addPoint = (segment, point) => {
-        if (!point) return;
-        const len = segment.length;
-        if (len > 0) {
-            const last = segment[len - 1];
-            if (Math.abs(last[0] - point[0]) < EPS && Math.abs(last[1] - point[1]) < EPS) return;
-        }
-        segment.push(point);
-    };
+    const fc = Math.max(1, Math.min(MAX_REFINE, Math.floor(TARGET_COLUMNS / (nc0 - 1))));
+    const fr = Math.max(1, Math.min(MAX_REFINE, Math.floor(TARGET_ROWS / (Nx - 1))));
+    const nc = (nc0 - 1) * fc + 1;
+    const nr = (Nx - 1) * fr + 1;
+    const X = new Float64Array(nc);
+    const Y = new Float64Array(nr);
+    for (let c = 0; c < nc; c++) {
+        const k = Math.min(nc0 - 2, Math.floor(c / fc));
+        const s = c / fc - k;
+        X[c] = X0[k] + s * (X0[k + 1] - X0[k]);
+    }
+    for (let r = 0; r < nr; r++) {
+        const i = Math.min(Nx - 2, Math.floor(r / fr));
+        const s = r / fr - i;
+        Y[r] = depthMm[i] + s * (depthMm[i + 1] - depthMm[i]);
+    }
 
-    const getEdgePoint = (i1, i2, targetTemp) => {
-        if (i1 < 0 || i2 >= Nx) return null;
-        const idx1_base = i1 * Ny;
-        const idx2_base = i2 * Ny;
-        const x1 = xCoordinatesMm[i1];
-        const x2 = xCoordinatesMm[i2];
-
-        const t1_side = T_flat[idx1_base + Ny - 1];
-        const t2_side = T_flat[idx2_base + Ny - 1];
-        if (crossesTarget(t1_side, t2_side, targetTemp)) {
-            const sideY = interpolateCoordinate(t1_side, t2_side, x1, x2, targetTemp);
-            return [maxSemiWidth, sideY];
-        }
-
-        const t1_cent = T_flat[idx1_base];
-        const t2_cent = T_flat[idx2_base];
-        if (crossesTarget(t1_cent, t2_cent, targetTemp)) {
-            const centerY = interpolateCoordinate(t1_cent, t2_cent, x1, x2, targetTemp);
-            return [0, centerY];
-        }
-        return null;
-    };
-
-    // Оптимизация: выделили буферный массив ДО цикла i, чтобы не забивать Heap мусором
-    const widthsAtRow = new Array(lenTargets);
-
+    // Сначала вдоль ширины в каждом исходном слое, затем вдоль толщины в каждом новом столбце
+    const rowsRefined = new Float64Array(Nx * nc);
+    const lineY = new Float64Array(nc0);
+    const tangents = new Float64Array(Math.max(nc0, Nx));
     for (let i = 0; i < Nx; i++) {
-        const offset = i * Ny;
-        const xCoord = xCoordinatesMm[i];
-
-        // Быстрый сброс значений буфера в цикле i
-        for (let t = 0; t < lenTargets; t++) widthsAtRow[t] = null;
-
-        let t1 = T_flat[offset];
-        for (let j = 0; j < Ny - 1; j++) {
-            const t2 = T_flat[offset + j + 1];
-
-            for (let t = 0; t < lenTargets; t++) {
-                if (widthsAtRow[t] !== null) continue;
-
-                const targetTemp = states[t].targetTemp;
-                if (crossesTarget(t1, t2, targetTemp)) {
-                    const width = interpolateCoordinate(t1, t2, yCoordinatesMm[j], yCoordinatesMm[j + 1], targetTemp);
-                    if (width >= 0) {
-                        widthsAtRow[t] = width;
-                    }
-                }
-            }
-            t1 = t2;
-        }
-
-        for (let t = 0; t < lenTargets; t++) {
-            const state = states[t];
-            const width = widthsAtRow[t];
-
-            if (width === null) {
-                if (state.currentSegment.length > 0) {
-                    if (state.lastValidI >= 0 && state.lastValidI < Nx - 1) {
-                        addPoint(state.currentSegment, getEdgePoint(state.lastValidI, state.lastValidI + 1, state.targetTemp));
-                    }
-                    state.segmentsRight.push(state.currentSegment);
-                    state.currentSegment = [];
-                }
-                state.lastValidI = -1;
-                continue;
-            }
-
-            if (state.lastValidI !== i - 1 && state.currentSegment.length > 0) {
-                state.segmentsRight.push(state.currentSegment);
-                state.currentSegment = [];
-            }
-
-            if (state.currentSegment.length === 0 && i > 0) {
-                addPoint(state.currentSegment, getEdgePoint(i - 1, i, state.targetTemp));
-            }
-
-            addPoint(state.currentSegment, [width, xCoord]);
-            state.lastValidI = i;
+        for (let k = 0; k < nc0; k++) lineY[k] = T[i * Ny + colSrc[k]];
+        pchipTangents(X0, lineY, nc0, tangents);
+        for (let c = 0; c < nc; c++) {
+            const k = Math.min(nc0 - 2, Math.floor(c / fc));
+            const sc = c / fc - k;
+            rowsRefined[i * nc + c] = hermite(lineY[k], lineY[k + 1], tangents[k], tangents[k + 1], X0[k + 1] - X0[k], sc);
         }
     }
-
-    for (let t = 0; t < lenTargets; t++) {
-        const state = states[t];
-        if (state.currentSegment.length > 0) {
-            if (state.lastValidI >= 0 && state.lastValidI < Nx - 1) {
-                addPoint(state.currentSegment, getEdgePoint(state.lastValidI, state.lastValidI + 1, state.targetTemp));
-            }
-            state.segmentsRight.push(state.currentSegment);
+    const V = new Float64Array(nr * nc);
+    const colY = new Float64Array(Nx);
+    for (let c = 0; c < nc; c++) {
+        for (let i = 0; i < Nx; i++) colY[i] = rowsRefined[i * nc + c];
+        pchipTangents(depthMm, colY, Nx, tangents);
+        for (let r = 0; r < nr; r++) {
+            const i = Math.min(Nx - 2, Math.floor(r / fr));
+            const sr = r / fr - i;
+            V[r * nc + c] = hermite(colY[i], colY[i + 1], tangents[i], tangents[i + 1], depthMm[i + 1] - depthMm[i], sr);
         }
     }
+    return { X, Y, V, nc, nr };
+}
 
-    return result;
-};
+// Точка уровня level на ребре между узлами p и q. Узлы упорядочиваются, поэтому соседние
+// треугольники получают побитово одинаковую точку — заливки стыкуются без щелей.
+function edgePoint(field, p, q, level) {
+    const a = Math.min(p, q), b = Math.max(p, q);
+    const { X, Y, V, nc } = field;
+    const va = V[a], vb = V[b];
+    const t = vb === va ? 0.5 : (level - va) / (vb - va);
+    const xa = X[a % nc], ya = Y[(a / nc) | 0];
+    const xb = X[b % nc], yb = Y[(b / nc) | 0];
+    return [xa + t * (xb - xa), ya + t * (yb - ya)];
+}
 
-export const buildSymmetricIsothermGraph = (segmentsRight, name, phase, lineStyle = {}, gridConfig) => {
-    if (!segmentsRight?.length || !gridConfig) return [];
+// Разбиение ячейки (a b / d e) на два треугольника по диагонали с меньшим перепадом:
+// так контуры не «пилят» вдоль одного направления. Изолинии и зоны используют одно правило.
+function cellTriangles(V, a, b, d, e) {
+    return Math.abs(V[a] - V[e]) <= Math.abs(V[b] - V[d])
+        ? [[a, b, e], [a, e, d]]
+        : [[a, b, d], [b, e, d]];
+}
 
-    const combinedIsothermPoints = [];
-
-    for (let s = 0; s < segmentsRight.length; s++) {
-        const segRight = segmentsRight[s];
-        const n = segRight.length;
-        if (n === 0) continue;
-
-        const startsAtCenter = Math.abs(segRight[0][0]) < EPS;
-        const endsAtCenter = Math.abs(segRight[n - 1][0]) < EPS;
-
-        if (combinedIsothermPoints.length > 0) {
-            combinedIsothermPoints.push(null);
-        }
-
-        if (startsAtCenter) {
-            for (let i = n - 1; i >= 0; i--) {
-                combinedIsothermPoints.push([-segRight[i][0], segRight[i][1]]);
-            }
-            for (let i = 1; i < n; i++) {
-                combinedIsothermPoints.push(segRight[i]);
-            }
-        } else if (endsAtCenter) {
-            for (let i = 0; i < n; i++) {
-                combinedIsothermPoints.push(segRight[i]);
-            }
-            for (let i = n - 2; i >= 0; i--) {
-                combinedIsothermPoints.push([-segRight[i][0], segRight[i][1]]);
-            }
-        } else {
-            for (let i = 0; i < n; i++) {
-                combinedIsothermPoints.push([-segRight[i][0], segRight[i][1]]);
-            }
-            combinedIsothermPoints.push(null);
-            for (let i = 0; i < n; i++) {
-                combinedIsothermPoints.push(segRight[i]);
-            }
+function forEachTriangle(field, visit) {
+    const { nc, nr, V } = field;
+    for (let r = 0; r < nr - 1; r++) {
+        for (let c = 0; c < nc - 1; c++) {
+            const a = r * nc + c, b = a + 1, d = a + nc, e = d + 1;
+            for (const [p, q, w] of cellTriangles(V, a, b, d, e)) visit(p, q, w);
         }
     }
+}
 
-    if (combinedIsothermPoints.length === 0) return [];
-    return [{ name, phase, points: combinedIsothermPoints }];
-};
+/**
+ * Изотерма уровня level: ломаные (точки [ширина, глубина]) — отрезки треугольников,
+ * склеенные по общим рёбрам в непрерывные линии.
+ * @returns {Array<Array<[number, number]>>}
+ */
+export function buildIsolines(field, level) {
+    if (!field || !Number.isFinite(level)) return [];
+    const { V } = field;
+    const segments = [];
+    const above = (i) => V[i] >= level;
+    const total = V.length;
+    const edgeKey = (p, q) => (p < q ? p * total + q : q * total + p);
 
-export const buildIsothermFillPolygons = (fills, boundaryPoints = [], isotherms = [], heating, pause) => {
-    if (!Array.isArray(boundaryPoints) || boundaryPoints.length < 4) return [];
-
-    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
-    for (let i = 0; i < boundaryPoints.length; i++) {
-        const p = boundaryPoints[i];
-        if (p.x < xMin) xMin = p.x;
-        if (p.x > xMax) xMax = p.x;
-        if (p.y < yMin) yMin = p.y;
-        if (p.y > yMax) yMax = p.y;
-    }
-
-    const width = xMax - xMin;
-    const height = yMax - yMin;
-    const perimeter = 2 * (width + height);
-    if (!(perimeter > 0)) return [];
-
-    const toPerimeterPosition = point => {
-        if (!point) return null;
-        const x = point[0];
-        const y = point[1];
-        if (Math.abs(y - yMin) < EPS) return x - xMin;
-        if (Math.abs(x - xMax) < EPS) return width + y - yMin;
-        if (Math.abs(y - yMax) < EPS) return width + height + xMax - x;
-        if (Math.abs(x - xMin) < EPS) return 2 * width + height + yMax - y;
-        return null;
-    };
-
-    const samePoint = (a, b) => !!a && !!b && Math.abs(a[0] - b[0]) < EPS && Math.abs(a[1] - b[1]) < EPS;
-
-    const splitSegments = segments => {
-        if (!Array.isArray(segments) || !segments.length) return [];
-        if (Number.isFinite(segments[0])) segments = [segments];
-
-        const result = [];
-        for (let i = 0; i < segments.length; i++) {
-            const item = segments[i];
-            let segment = [];
-            for (let j = 0; j < item.length; j++) {
-                const pt = item[j];
-                if (!pt || !Number.isFinite(pt[0]) || !Number.isFinite(pt[1])) {
-                    if (segment.length >= 2) result.push(segment);
-                    segment = [];
-                } else {
-                    segment.push(pt);
-                }
-            }
-            if (segment.length >= 2) result.push(segment);
-        }
-        return result;
-    };
-
-    const closePolygon = points => {
-        const result = [];
-        for (let i = 0; i < points.length; i++) {
-            const pt = points[i];
-            if (pt && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
-                if (!result.length || !samePoint(result[result.length - 1], pt)) {
-                    result.push([pt[0], pt[1]]);
-                }
-            }
-        }
-        if (result.length < 3) return null;
-        if (!samePoint(result[0], result[result.length - 1])) {
-            result.push([result[0][0], result[0][1]]);
-        }
-        return result.length >= 4 ? result : null;
-    };
-
-    const walkPerimeter = (start, direction, candidates, closurePoint) => {
-        const startPos = toPerimeterPosition(start);
-        if (startPos == null) return null;
-
-        let selected = null;
-        let minOffset = Infinity;
-
-        for (let i = 0; i < candidates.length; i++) {
-            const cand = candidates[i];
-            if (!cand?.point) continue;
-            const pos = cand.position ?? toPerimeterPosition(cand.point);
-            if (pos == null) continue;
-
-            const offset = direction > 0
-                ? (pos - startPos + perimeter) % perimeter
-                : (startPos - pos + perimeter) % perimeter;
-
-            if (offset > EPS && offset < minOffset) {
-                minOffset = offset;
-                selected = { ...cand, position: pos, offset };
-            }
-        }
-
-        if (closurePoint) {
-            const closPos = toPerimeterPosition(closurePoint);
-            if (closPos != null) {
-                const offset = direction > 0
-                    ? (closPos - startPos + perimeter) % perimeter
-                    : (startPos - closPos + perimeter) % perimeter;
-                if (offset > EPS && offset < minOffset) {
-                    selected = { point: closurePoint, position: closPos, isClosure: true, offset };
-                }
-            }
-        }
-
-        if (!selected) return null;
-
-        const intermediate = [];
-        const cornerPositions = [0, width, width + height, 2 * width + height];
-        const cornerCoords = [[xMin, yMin], [xMax, yMin], [xMax, yMax], [xMin, yMax]];
-
-        for (let i = 0; i < 4; i++) {
-            const offset = direction > 0
-                ? (cornerPositions[i] - startPos + perimeter) % perimeter
-                : (startPos - cornerPositions[i] + perimeter) % perimeter;
-            if (offset > EPS && offset < selected.offset - EPS) {
-                intermediate.push({ coords: cornerCoords[i], offset });
-            }
-        }
-        intermediate.sort((a, b) => a.offset - b.offset);
-
-        const path = [start];
-        for (let i = 0; i < intermediate.length; i++) path.push(intermediate[i].coords);
-        path.push(selected.point);
-
-        return { ...selected, path };
-    };
-
-    const getBoundaryDirection = (point, minTemp, maxTemp, phase) => {
-        const startPos = toPerimeterPosition(point);
-        if (startPos == null || minTemp > maxTemp) return null;
-
-        const temperatures = phase === "Heating" ? heating : pause;
-
-        let bestDistanceForward = Infinity;
-        let bestDistanceBackward = Infinity;
-        let forwardSampleTemp = null;
-        let backwardSampleTemp = null;
-
-        for (let i = 0; i < boundaryPoints.length; i++) {
-            const p = boundaryPoints[i];
-            if (!Number.isFinite(p.position) || !Number.isInteger(p.index)) continue;
-            const t = temperatures[p.index];
-            if (!Number.isFinite(t) || Math.abs(t - maxTemp) <= EPS) continue;
-
-            const distF = (p.position - startPos + perimeter) % perimeter;
-            if (distF > EPS && distF < bestDistanceForward) {
-                bestDistanceForward = distF;
-                forwardSampleTemp = t;
-            }
-
-            const distB = (startPos - p.position + perimeter) % perimeter;
-            if (distB > EPS && distB < bestDistanceBackward) {
-                bestDistanceBackward = distB;
-                backwardSampleTemp = t;
-            }
-        }
-
-        const isOk = temp => temp !== null && temp < maxTemp && temp >= minTemp - EPS;
-        const fOk = isOk(forwardSampleTemp);
-        const bOk = isOk(backwardSampleTemp);
-
-        if (fOk && !bOk) return 1;
-        if (bOk && !fOk) return -1;
-        return null;
-    };
-
-    const getIsothermSegments = (name, phase) => {
-        if (!name) return [];
-        for (let i = 0; i < isotherms.length; i++) {
-            if (isotherms[i].name === name && isotherms[i].phase === phase) return isotherms[i].segments || [];
-        }
-        return [];
-    };
-
-    const result = [];
-
-    fills.forEach(fill => {
-        const phase = fill.phase ?? "Pause";
-        const fromSegments = splitSegments(getIsothermSegments(fill.fromIsotherm, phase));
-        const toSegments = splitSegments(getIsothermSegments(fill.toIsotherm, phase));
-        if (!fromSegments.length && !toSegments.length) return;
-
-        const allSegments = [];
-        for (let i = 0; i < fromSegments.length; i++) allSegments.push({ graphName: "from", segment: fromSegments[i], used: false });
-        for (let i = 0; i < toSegments.length; i++) allSegments.push({ graphName: "to", segment: toSegments[i], used: false });
-
-        const addPolygon = points => {
-            const polygon = closePolygon(points);
-            if (!polygon) return;
-            result.push({ name: fill.name, points: polygon });
-        };
-
-        const getEndpoints = () => {
-            const endpoints = [];
-            for (let i = 0; i < allSegments.length; i++) {
-                const item = allSegments[i];
-                if (item.used) continue;
-                endpoints.push({ item, endpointIndex: 0, point: item.segment[0] });
-                endpoints.push({ item, endpointIndex: item.segment.length - 1, point: item.segment[item.segment.length - 1] });
-            }
-            return endpoints;
-        };
-
-        const findConnectedEndpoint = (point, excludedItems) => {
-            const endpoints = getEndpoints();
-            for (let i = 0; i < endpoints.length; i++) {
-                const cand = endpoints[i];
-                if (!excludedItems.has(cand.item) && samePoint(cand.point, point)) return cand;
-            }
-            return null;
-        };
-
-        allSegments.forEach(initialSegment => {
-            if (initialSegment.used) return;
-
-            const startPoint = initialSegment.segment[0];
-            const chain = [...initialSegment.segment];
-            const chainSegments = new Set([initialSegment]);
-
-            let currentEndpoint = initialSegment.segment[initialSegment.segment.length - 1];
-            let closed = false;
-
-            while (chainSegments.size <= allSegments.length) {
-                const connected = findConnectedEndpoint(currentEndpoint, chainSegments);
-                if (connected) {
-                    const nextItem = connected.item;
-                    const nextSeg = nextItem.segment;
-                    if (connected.endpointIndex === 0) {
-                        for (let i = 1; i < nextSeg.length; i++) chain.push(nextSeg[i]);
-                    } else {
-                        for (let i = nextSeg.length - 2; i >= 0; i--) chain.push(nextSeg[i]);
-                    }
-                    chainSegments.add(nextItem);
-                    currentEndpoint = chain[chain.length - 1];
-
-                    if (samePoint(currentEndpoint, startPoint)) { closed = true; break; }
-                    continue;
-                }
-
-                if (toPerimeterPosition(currentEndpoint) == null) break;
-
-                const direction = getBoundaryDirection(currentEndpoint, fill.minTemp, fill.maxTemp, phase);
-                if (direction == null) break;
-
-                const endpoints = getEndpoints();
-                const candidates = [];
-                for (let i = 0; i < endpoints.length; i++) {
-                    const c = endpoints[i];
-                    if (!chainSegments.has(c.item) && !samePoint(c.point, currentEndpoint)) {
-                        const pos = toPerimeterPosition(c.point);
-                        if (pos !== null) candidates.push({ ...c, position: pos });
-                    }
-                }
-
-                const next = walkPerimeter(currentEndpoint, direction, candidates, startPoint);
-                if (!next) break;
-
-                for (let i = 1; i < next.path.length; i++) chain.push(next.path[i]);
-
-                if (next.isClosure) {
-                    closed = samePoint(chain[chain.length - 1], startPoint);
-                    break;
-                }
-
-                const nextItem = next.item;
-                if (!nextItem || chainSegments.has(nextItem)) break;
-
-                const nextSeg = nextItem.segment;
-                if (next.endpointIndex === 0) {
-                    for (let i = 1; i < nextSeg.length; i++) chain.push(nextSeg[i]);
-                } else {
-                    for (let i = nextSeg.length - 2; i >= 0; i--) chain.push(nextSeg[i]);
-                }
-                chainSegments.add(nextItem);
-                currentEndpoint = chain[chain.length - 1];
-
-                if (samePoint(currentEndpoint, startPoint)) { closed = true; break; }
-            }
-
-            if (closed) {
-                addPolygon(chain);
-                chainSegments.forEach(item => { item.used = true; });
-            }
+    forEachTriangle(field, (a, b, c) => {
+        const ua = above(a), ub = above(b), uc = above(c);
+        if (ua === ub && ub === uc) return;
+        const cut = [];
+        if (ua !== ub) cut.push([a, b]);
+        if (ub !== uc) cut.push([b, c]);
+        if (uc !== ua) cut.push([c, a]);
+        if (cut.length !== 2) return;
+        segments.push({
+            k0: edgeKey(cut[0][0], cut[0][1]),
+            k1: edgeKey(cut[1][0], cut[1][1]),
+            p0: edgePoint(field, cut[0][0], cut[0][1], level),
+            p1: edgePoint(field, cut[1][0], cut[1][1], level),
+            used: false
         });
     });
+    if (!segments.length) return [];
 
-    return result;
-};
-
-export const buildSymmetricFillPolygons = polygons => {
-    if (!Array.isArray(polygons)) return [];
-    const result = [];
-
-    for (let i = 0; i < polygons.length; i++) {
-        const poly = polygons[i];
-        if (!poly.points || poly.points.length === 0) {
-            result.push(poly);
-            continue;
+    // Склейка: каждое ребро-пересечение принадлежит максимум двум отрезкам
+    const byKey = new Map();
+    segments.forEach((s, idx) => {
+        for (const k of [s.k0, s.k1]) {
+            const list = byKey.get(k);
+            if (list) list.push(idx);
+            else byKey.set(k, [idx]);
         }
+    });
+    const next = (key, fromIdx) => {
+        const list = byKey.get(key);
+        if (!list) return -1;
+        for (const idx of list) if (idx !== fromIdx && !segments[idx].used) return idx;
+        return -1;
+    };
 
-        const pts = poly.points;
-        const n = pts.length;
-
-        const isClosed = n >= 2 &&
-            Math.abs(pts[0][0] - pts[n - 1][0]) < 0.001 &&
-            Math.abs(pts[0][1] - pts[n - 1][1]) < 0.001;
-
-        const coreLen = isClosed ? n - 1 : n;
-
-        let touchesCenter = false;
-        for (let j = 0; j < coreLen; j++) {
-            if (pts[j] !== null && Math.abs(pts[j][0]) < 0.001) {
-                touchesCenter = true;
-                break;
+    const lines = [];
+    const extend = (line, key, idx) => {
+        let curKey = key, curIdx = idx;
+        for (;;) {
+            const n = next(curKey, curIdx);
+            if (n < 0) return;
+            const s = segments[n];
+            s.used = true;
+            if (s.k0 === curKey) {
+                line.push(s.p1);
+                curKey = s.k1;
+            } else {
+                line.push(s.p0);
+                curKey = s.k0;
             }
+            curIdx = n;
         }
+    };
+    for (let idx = 0; idx < segments.length; idx++) {
+        const s = segments[idx];
+        if (s.used) continue;
+        s.used = true;
+        const forward = [s.p0, s.p1];
+        extend(forward, s.k1, idx);
+        const backward = [];
+        extend(backward, s.k0, idx);
+        lines.push([...backward.reverse(), ...forward]);
+    }
+    return lines;
+}
 
-        if (touchesCenter) {
-            const combinedPoints = [];
-            for (let j = coreLen - 1; j >= 0; j--) {
-                const pt = pts[j];
-                combinedPoints.push(pt === null ? null : [-pt[0], pt[1]]);
-            }
-            for (let j = 0; j < coreLen; j++) {
-                combinedPoints.push(pts[j]);
-            }
-
-            const uniquePoints = [];
-            for (let j = 0; j < combinedPoints.length; j++) {
-                const pt = combinedPoints[j];
-                if (pt === null) {
-                    uniquePoints.push(null);
-                    continue;
-                }
-
-                const uLen = uniquePoints.length;
-                if (uLen > 0) {
-                    const last = uniquePoints[uLen - 1];
-                    if (last !== null &&
-                        Math.abs(last[0] - pt[0]) < 0.001 &&
-                        Math.abs(last[1] - pt[1]) < 0.001) {
-                        continue;
-                    }
-                }
-                uniquePoints.push(pt);
-            }
-
-            if (isClosed && uniquePoints.length >= 3) {
-                const first = uniquePoints[0];
-                const last = uniquePoints[uniquePoints.length - 1];
-                if (Math.abs(first[0] - last[0]) > 0.001 || Math.abs(first[1] - last[1]) > 0.001) {
-                    uniquePoints.push([first[0], first[1]]);
-                }
-            }
-
-            result.push({ ...poly, points: uniquePoints });
-        } else {
-            const leftPoints = new Array(n);
-            for (let j = 0; j < n; j++) {
-                const pt = pts[j];
-                leftPoints[j] = pt === null ? null : [-pt[0], pt[1]];
-            }
-
-            result.push({ ...poly, points: leftPoints });
-            result.push(poly);
+// Отсечение многоугольника по уровню: keepAbove — оставить v ≥ level, иначе v < level.
+// Вершины: { p: [x, y], v, a, b } — точка лежит на исходном ребре (a, b) (для узла a = b).
+function clipByLevel(field, poly, level, keepAbove) {
+    const out = [];
+    const inside = (vx) => (keepAbove ? vx.v >= level : vx.v < level);
+    for (let k = 0; k < poly.length; k++) {
+        const P = poly[k];
+        const Q = poly[(k + 1) % poly.length];
+        const pin = inside(P), qin = inside(Q);
+        if (pin) out.push(P);
+        if (pin !== qin) {
+            // Пересечение лежит на исходном ребре, содержащем обе вершины
+            const ids = [...new Set([P.a, P.b, Q.a, Q.b])];
+            if (ids.length !== 2) continue;
+            const [i, j] = ids;
+            out.push({ p: edgePoint(field, i, j, level), v: level, a: Math.min(i, j), b: Math.max(i, j) });
         }
     }
+    return out;
+}
 
+/**
+ * Зоны (полосы температур). bands — [{ key, lo, hi }] с lo < hi (±Infinity допустимы),
+ * упорядоченные по возрастанию и без перекрытий; точка относится к зоне при lo ≤ T < hi.
+ * Возвращает Map key → массив колец [[x, y], …] (одинаковая ориентация, без щелей).
+ * Целые ячейки одной зоны в строке объединяются в один прямоугольник.
+ */
+export function buildIsobands(field, bands) {
+    const result = new Map(bands.map(b => [b.key, []]));
+    if (!field || !bands.length) return result;
+    const { X, Y, V, nc, nr } = field;
+
+    const bandOf = (v) => {
+        for (let k = 0; k < bands.length; k++) if (v >= bands[k].lo && v < bands[k].hi) return k;
+        return -1;
+    };
+    const node = (i) => ({ p: [X[i % nc], Y[(i / nc) | 0]], v: V[i], a: i, b: i });
+
+    for (let r = 0; r < nr - 1; r++) {
+        let runBand = -1, runStart = 0;
+        const flushRun = (endCol) => {
+            if (runBand < 0) return;
+            const x0 = X[runStart], x1 = X[endCol];
+            result.get(bands[runBand].key).push([[x0, Y[r]], [x1, Y[r]], [x1, Y[r + 1]], [x0, Y[r + 1]]]);
+            runBand = -1;
+        };
+        for (let c = 0; c < nc - 1; c++) {
+            const a = r * nc + c, b = a + 1, d = a + nc, e = d + 1;
+            const ka = bandOf(V[a]), kb = bandOf(V[b]), kd = bandOf(V[d]), ke = bandOf(V[e]);
+            if (ka === kb && kb === kd && kd === ke && ka >= 0) {
+                if (runBand !== ka) {
+                    flushRun(c);
+                    runBand = ka;
+                    runStart = c;
+                }
+                continue;
+            }
+            flushRun(c);
+            const kMin = Math.max(0, Math.min(ka, kb, kd, ke));
+            const kMax = Math.max(ka, kb, kd, ke);
+            for (const tri of cellTriangles(V, a, b, d, e)) {
+                const base = tri.map(node);
+                for (let k = kMin; k <= kMax; k++) {
+                    let poly = base;
+                    if (Number.isFinite(bands[k].lo)) poly = clipByLevel(field, poly, bands[k].lo, true);
+                    if (poly.length >= 3 && Number.isFinite(bands[k].hi)) poly = clipByLevel(field, poly, bands[k].hi, false);
+                    if (poly.length >= 3) result.get(bands[k].key).push(poly.map(vx => vx.p));
+                }
+            }
+        }
+        flushRun(nc - 1);
+    }
     return result;
-};
+}
+
+/**
+ * Значение температуры на глубине depth (линейно между слоями) по полуширине
+ * и полуширина, на которой она опускается ниже level при движении от центра.
+ * @returns {number|null}  null — уже в центре ниже level; halfWidth — выше level по всей ширине
+ */
+export function findHalfWidthAboveLevel(T, Nx, Ny, depthMm, halfWidthMm, depth, level) {
+    if (!T || Nx < 1 || Ny < 2 || !Number.isFinite(depth) || !Number.isFinite(level)) return null;
+    let i = 0;
+    while (i < Nx - 2 && depthMm[i + 1] < depth) i++;
+    const span = Nx > 1 ? depthMm[i + 1] - depthMm[i] : 0;
+    const s = Nx > 1 && span > 0 ? Math.max(0, Math.min(1, (depth - depthMm[i]) / span)) : 0;
+    const at = (j) => (Nx > 1 ? T[i * Ny + j] + s * (T[(i + 1) * Ny + j] - T[i * Ny + j]) : T[j]);
+
+    if (at(0) < level) return null;
+    for (let j = 0; j < Ny - 1; j++) {
+        const t1 = at(j), t2 = at(j + 1);
+        if (t1 >= level && t2 < level) {
+            return halfWidthMm[j] + ((t1 - level) / (t1 - t2)) * (halfWidthMm[j + 1] - halfWidthMm[j]);
+        }
+    }
+    return halfWidthMm[Ny - 1];
+}
