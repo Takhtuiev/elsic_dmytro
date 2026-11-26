@@ -36,6 +36,10 @@ const POOL_BASE_SIZE = 250;
 const POOL_PER_PARAM = 60;
 const GLOBAL_POOL_SHARE = 0.12;
 const LOCAL_OPT_STARTS_MAX = 8;
+// Логарифмическая шкала оси параметра: положительный диапазон шире этого (max/min).
+// Для «масштабных» параметров (плотность сетки, шаг, мощность) поиск и модель работают
+// в долях-множителях, а не в абсолютных приращениях
+const LOG_AXIS_MIN_RATIO = 4;
 
 // Ранние остановки и прерывания
 // Максимальная по пулу вероятность допустимости, ниже которой задача считается недопустимой
@@ -45,6 +49,15 @@ const CERTAIN_ABORT_MARGIN = 1.0;
 // Обученные по оборванным прогонам наблюдения: допустимый диапазон прогресса обрыва (%)
 const MIN_ABORT_TRAINING_PROGRESS = 5;
 const MAX_ABORT_PROGRESS_PERCENT = 50;
+// Прогон, досчитанный до этого процента, не обрываем, даже если он заведомо недопустим:
+// дочёт стоит мало, а модель получает точные данные вместо экстраполяции.
+const FINISH_RUN_PROGRESS_PERCENT = 70;
+// ...если только метрика не превысила потолок прерывания вдвое (защита от очень долгих прогонов)
+const FINISH_RUN_MAX_CEILING_FACTOR = 2;
+// Дисперсия шума (лог-ед.) для цели оборванного прогона, если цель — не метрика обрыва:
+// частичное значение (например, ошибка недосчитанного нагрева) не говорит о полном прогоне,
+// поэтому модель цели его фактически не учитывает. Точка остаётся в модели ограничений.
+const UNRELIABLE_ABORT_OBJECTIVE_NOISE = 100;
 // Калибровка неопределённости: сколько последних «прогноз → факт» хранить
 const MAX_RESIDUAL_PAIRS = 45;
 
@@ -1588,8 +1601,13 @@ function createParameterSpace(config, paramKeys) {
         isCoarseAxis[d] = normStep > 0.015 ? 1 : 0;
         minAxisScales[d] = span <= 0 ? 0.25 : (normStep > 0 ? Math.min(0.65, normStep * 2.2) : 0.08);
 
-        return { key, min: range.min, max: range.max, span, step, precision, levels };
+        const logScale = range.min > 0 && range.max / range.min >= LOG_AXIS_MIN_RATIO;
+        const logRatio = logScale ? Math.log(range.max / range.min) : 0;
+        return { key, min: range.min, max: range.max, span, step, precision, levels, logScale, logRatio };
     });
+    // Нормированная координата u ∈ [0, 1] ↔ физическое значение (линейно или в лог-шкале)
+    const axisToPhysical = (ax, u) => (ax.logScale ? ax.min * Math.exp(u * ax.logRatio) : ax.min + u * ax.span);
+    const axisToNormalized = (ax, v) => (ax.logScale ? Math.log(v / ax.min) / ax.logRatio : (v - ax.min) / ax.span);
 
     const toPhysical = (xNorm) => {
         if (!xNorm || xNorm.length !== numParams) {
@@ -1603,7 +1621,7 @@ function createParameterSpace(config, paramKeys) {
                 physical[ax.key] = ax.min;
                 continue;
             }
-            const rawPhys = ax.min + u * ax.span;
+            const rawPhys = axisToPhysical(ax, u);
             if (ax.levels) {
                 physical[ax.key] = ax.levels[findNearestLevelIndex(ax.levels, rawPhys)];
             } else if (Number.isFinite(ax.step) && ax.step > 0) {
@@ -1623,7 +1641,7 @@ function createParameterSpace(config, paramKeys) {
             const ax = axes[d];
             const val = physical[ax.key];
             if (!Number.isFinite(val) || val < ax.min - 1e-12 || val > ax.max + 1e-12) return null;
-            normX[d] = ax.span > 0 ? Math.max(0, Math.min(1, (val - ax.min) / ax.span)) : 0;
+            normX[d] = ax.span > 0 ? Math.max(0, Math.min(1, axisToNormalized(ax, val))) : 0;
         }
         return normX;
     };
@@ -1637,17 +1655,27 @@ function createParameterSpace(config, paramKeys) {
         return { x, physical, key: getKey(physical) };
     };
 
+    // Глобальные точки Соболя: по лог-осям — равномерно в нормированной координате
     const sobolBounds = axes.map(ax => {
+        if (ax.logScale) return { min: 0, max: 1 };
         if (ax.levels) return { levels: ax.levels, min: ax.min, max: ax.max };
         if (Number.isFinite(ax.step) && ax.step > 0) return { min: ax.min, max: ax.max, step: ax.step };
         return { min: ax.min, max: ax.max };
     });
 
     const fromSobolPoint = (pt) => {
-        const physical = {};
-        for (let d = 0; d < numParams; d++) physical[paramKeys[d]] = pt.values[d];
-        const normX = toNormalized(physical);
-        return normX ? quantize(normX) : null;
+        const normX = new Float64Array(numParams);
+        for (let d = 0; d < numParams; d++) {
+            const ax = axes[d];
+            const v = pt.values[d];
+            if (ax.logScale) {
+                normX[d] = v;
+                continue;
+            }
+            if (!Number.isFinite(v) || v < ax.min - 1e-12 || v > ax.max + 1e-12) return null;
+            normX[d] = ax.span > 0 ? Math.max(0, Math.min(1, axisToNormalized(ax, v))) : 0;
+        }
+        return quantize(normX);
     };
 
     const stepGrid = (xNorm, moves) => {
@@ -1660,7 +1688,7 @@ function createParameterSpace(config, paramKeys) {
             const ax = axes[dim];
             if (!ax || ax.span <= 0) continue;
             const baseVal = baseQ.physical[ax.key];
-            let nextVal = baseVal;
+            let nextVal;
 
             if (ax.levels) {
                 const idx = findNearestLevelIndex(ax.levels, baseVal);
@@ -1671,7 +1699,7 @@ function createParameterSpace(config, paramKeys) {
                 nextVal = baseVal + dir * (ax.span * 0.005);
             }
 
-            trial[dim] = Math.max(0, Math.min(1, (nextVal - ax.min) / ax.span));
+            trial[dim] = Math.max(0, Math.min(1, axisToNormalized(ax, nextVal)));
             moved = true;
         }
 
@@ -1747,36 +1775,25 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
     }
 
 
-    const budgetCap = Number.isFinite(taskSettings.totalBudgetIterations)
-        ? Math.max(6, Math.floor(taskSettings.totalBudgetIterations * 0.25))
-        : 16;
-    const requestedInitialPoints = Number.isFinite(taskSettings.randomInitPoints)
-        ? taskSettings.randomInitPoints
-        : Math.min(budgetCap, Math.max(6, numParams * 4));
-
-    const requestedIterations = Number.isFinite(taskSettings.totalBudgetIterations)
-        ? taskSettings.totalBudgetIterations
-        : Math.max(80, numParams * 35 + 20);
-
+    // Бюджет запуска задаёт вызывающая сторона (конфиг задач): task.budget = { iterations, initPoints }
+    const budget = task.budget;
     if (
-        !Number.isFinite(requestedIterations) ||
-        requestedIterations < 1 ||
-        !Number.isFinite(requestedInitialPoints) ||
-        requestedInitialPoints < 0
+        !budget ||
+        !Number.isFinite(budget.iterations) ||
+        budget.iterations < 1 ||
+        !Number.isFinite(budget.initPoints) ||
+        budget.initPoints < 1
     ) {
         throw new Error(
-            "Некорректный бюджет оптимизации."
+            "Некорректный бюджет оптимизации (task.budget)."
         );
     }
-
-    const extraIterations = Math.floor(requestedIterations);
-
-    const totalIterations = currentExecutionCount + extraIterations;
-
-    const initPointsCount = Math.min(
-        totalIterations,
-        Math.max(1, Math.floor(requestedInitialPoints))
-    );
+    // «Зрелость» поиска для адаптивных порогов: число шагов относительно стандартного
+    // бюджета для этой размерности, а не относительно бюджета, выбранного пользователем.
+    // С большим бюджетом пороги не «застывают» в осторожном режиме, с маленьким — не ускоряются
+    const REFERENCE_BUDGET = Math.max(80, numParams * 35 + 20);
+    const totalIterations = currentExecutionCount + Math.floor(budget.iterations);
+    const initPointsCount = Math.min(totalIterations, Math.floor(budget.initPoints));
 
     for (const key of paramKeys) {
         const range = config[key];
@@ -2712,6 +2729,10 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
                     notifyProgress(percent, technicalMetrics, abortInfo.reason);
                     return true;
                 };
+                if (percent >= FINISH_RUN_PROGRESS_PERCENT && currentLoad < absoluteCeiling * FINISH_RUN_MAX_CEILING_FACTOR) {
+                    notifyProgress(percent, technicalMetrics);
+                    return false;
+                }
                 if (currentLoad > certainInfeasibleLimit) {
                     return requestAbort({
                         reason: "CONSTRAINT_LIMIT_EXCEEDED",
@@ -2916,11 +2937,9 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             const objTrainingVal = isObjectiveExtrapolated
                 ? abortExtrapolated
                 : (Number.isFinite(load) ? load : abortExtrapolated);
-            // Частичное значение цели у заведомо недопустимой точки — лишь грубая оценка;
-            // почти не доверяем ему, чтобы не искажать модель цели возле границы.
-            const loadNoise = isObjectiveExtrapolated
-                ? extrapNoise
-                : (recordedAbortProgress.certain ? 0.5 : unextrapolatedNoise);
+            // Цель — сама метрика обрыва: экстраполяция информативна. Иначе частичное значение
+            // цели недостоверно и в модель цели фактически не попадает.
+            const loadNoise = isObjectiveExtrapolated ? extrapNoise : UNRELIABLE_ABORT_OBJECTIVE_NOISE;
 
             ensurePositiveObjective(objTrainingVal);
             observedX.push(new Float64Array(normX));
@@ -3314,7 +3333,7 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
             });
         }
 // 7.10.1. АДАПТАЦИЯ ПРОГРЕССА И ПЕРИОДИЧНОСТИ ПЕРЕОБУЧЕНИЯ
-        const progressFactor = Math.min(1.0, currentExecutionCount / Math.max(1, totalIterations));
+        const progressFactor = Math.min(1.0, currentExecutionCount / REFERENCE_BUDGET);
         // Масштабы GP переобучаются чаще, когда регион-лидер мал (идёт тонкая доводка)
         const leaderForSchedule = getLeaderRegion();
         const reoptimizeInterval = leaderForSchedule && isRegionAtMinimumSize(leaderForSchedule) ? 3 : 5;
@@ -4249,7 +4268,9 @@ export async function optimizeForMaxSpeed(baseParams, simulateFn, options = {}) 
         const baseEIThreshold = relObjTol !== null
             ? Math.max(0.0005, Math.min(0.005, relObjTol * 1.2))
             : 0.0015;
-        const EI_EXHAUSTION_THRESHOLD = baseEIThreshold + 0.002 * progressFactor;
+        // Не ниже порога «улучшать нечего»: иначе при крупном допуске цели оптимизатор уходит
+        // в разведку (EI < EI_NEGLIGIBLE), но и не останавливается (EI > порога исчерпания)
+        const EI_EXHAUSTION_THRESHOLD = Math.max(EI_NEGLIGIBLE, baseEIThreshold + 0.002 * progressFactor);
         if (Number.isFinite(bestPoolAcquisition) && bestPoolAcquisition < EI_EXHAUSTION_THRESHOLD) {
             lowEIConsecutiveCount++;
         } else {

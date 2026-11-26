@@ -3,164 +3,47 @@ import {
     snapGridDensityY
 } from "./heating2DModel";
 
-// Автоматически извлекает шаг (1 ячейка) и минимум модели из её функции snap
-function getModelGridBounds(snapFn, dimensionMm, userMin) {
-    if (!Number.isFinite(dimensionMm) || dimensionMm <= 0) {
-        return { min: userMin, step: NaN };
-    }
+// ============================================================================
+// ЗАДАЧИ ОПТИМИЗАЦИИ
+//
+// Каждая задача описывается целиком в одном месте:
+//   params   — что подбираем: путь в параметрах симуляции, единица и диапазон
+//              (min / max / step или range(baseParams) → { min, max, step });
+//   metrics  — что измеряем: read(res, ctx) → число, единица, resolution
+//              (разница меньше неё несущественна: это и допуск предела, и порог
+//              значимого улучшения), предел max / min, growsOnly (метрика только
+//              накапливается — прогон, ушедший далеко за предел, можно оборвать);
+//   minimize / maximize — какая метрика цель; остальные метрики с пределом — ограничения;
+//   simulation — что подставить в параметры симуляции на время оптимизации;
+//   when(baseParams) — задача доступна только при этом условии;
+//   extends — взять другую задачу за основу и изменить только указанное.
+// ============================================================================
 
-    const modelMin = snapFn(1e-9, dimensionMm);
-    if (!Number.isFinite(modelMin) || modelMin <= 0) {
-        return { min: userMin, step: NaN };
-    }
+// Потолок обрыва прогона = предел накапливаемой метрики × этот множитель
+const ABORT_CEILING_FACTOR = 3;
+
+// ----------------------------------------------------------------------------
+// Диапазоны, которые зависят от модели и машины
+// ----------------------------------------------------------------------------
+
+// Минимум и шаг (1 ячейка) параметра плотности сетки — из функции snap модели
+function modelGridRange(snapFn, dimensionMm, userMin, max) {
+    const modelMin = Number.isFinite(dimensionMm) && dimensionMm > 0 ? snapFn(1e-9, dimensionMm) : NaN;
+    if (!Number.isFinite(modelMin) || modelMin <= 0) return { min: userMin, max };
 
     let step = NaN;
-    let probe = modelMin * 1e-4;
-    while (probe <= modelMin * 10) {
+    for (let probe = modelMin * 1e-4; probe <= modelMin * 10; probe *= 1.2) {
         const nextVal = snapFn(modelMin + probe, dimensionMm);
         if (nextVal > modelMin + 1e-12) {
             step = nextVal - modelMin;
             break;
         }
-        probe *= 1.2;
     }
-
     const baseMin = Math.max(userMin, modelMin);
-    const alignedMin = Number.isFinite(step) && step > 0
-        ? Math.ceil((baseMin - 1e-12) / step) * step
-        : baseMin;
-
-    return { min: alignedMin, step };
+    const min = Number.isFinite(step) && step > 0 ? Math.ceil((baseMin - 1e-12) / step) * step : baseMin;
+    return Number.isFinite(step) && step > 0 ? { min, max, step } : { min, max };
 }
 
-const extractGridMetrics = (res) => {
-    const acc = res?.technicalMetrics?.accuracy;
-    const load = res?.technicalMetrics?.iterations?.totalGridPointsProcessed;
-
-    const timeErr = acc?.timeIntegrationErrorC;
-    const gridErr = acc?.spatialGridErrorC;
-    const picardErr = Number.isFinite(acc?.picardConvergenceErrorC)
-        ? Math.abs(acc.picardConvergenceErrorC)
-        : NaN;
-
-    const errorScore = (
-        Number.isFinite(timeErr) && timeErr >= 0 &&
-        Number.isFinite(gridErr) && gridErr >= 0 &&
-        Number.isFinite(picardErr) && picardErr >= 0
-    )
-        ? Math.hypot(timeErr, gridErr, picardErr)
-        : NaN;
-
-    return { load, errorScore };
-};
-
-// ============================================================================
-// ЗАДАЧА 1: Оптимизация сетки (минимизация нагрузки)
-// ============================================================================
-export const GRID_LOAD_TASK = {
-    id: "grid_load",
-    label: "Оптимизация сетки (мин. нагрузка)",
-    goal: "min",
-    unit: "ops",
-
-    settings: {
-        randomInitPoints: null,
-        totalBudgetIterations: null,
-        // Преобразование цели для модели: "auto" (выбор по данным), "log" или "linear"
-        objectiveTransform: "auto"
-    },
-
-    simOverrides: {
-        calculateAccuracyError: true
-    },
-
-    parameters: {
-        gridDensityX: {
-            label: "gridDensityX",
-            path: "simulation.accuracyMode.gridDensityX",
-            unit: "/mm⁰·⁶⁴",
-            min: 3.50,
-            max: 25.00,
-            step: (baseParams) => getModelGridBounds(snapGridDensityX, Number(baseParams.thicknessMm), 3.50).step
-        },
-        gridDensityY: {
-            label: "gridDensityY",
-            path: "simulation.accuracyMode.gridDensityY",
-            unit: "/mm⁰·³⁴",
-            min: 5.00,
-            max: 25.00,
-            step: (baseParams) => getModelGridBounds(snapGridDensityY, Number(baseParams.simulation?.widthHalfMm), 5.00).step
-        },
-        tempStepK: {
-            label: "tempStepK",
-            path: "simulation.accuracyMode.tempStepK",
-            unit: "K",
-            min: 0.30,
-            // С BDF2 ошибка по времени мала даже при крупном шаге — оптимизатору нужен широкий диапазон
-            max: 8.00,
-            step: 0.01
-        }
-    },
-
-    earlyAbort: {
-        metric: (_percent, techMetrics) => techMetrics?.iterations?.totalGridPointsProcessed ?? 0,
-        ceiling: 27000000 * 3,
-        // Нагрузка только накапливается: как только она превысила лимит ограничения,
-        // точка гарантированно недопустима и симуляцию можно прервать сразу.
-        monotonic: true
-    },
-
-    evaluateResult: (res) => {
-        const { load, errorScore } = extractGridMetrics(res);
-
-        return {
-            objective: {
-                name: "cpuLoad",
-                value: load,
-                goal: "min",
-                max: 25000000,
-                unit: "ops",
-                tolerance: 1
-            },
-            constraints: [
-                { name: "errorScore", value: errorScore, max: 0.5, tolerance: 0.0005 }
-            ]
-        };
-    }
-};
-
-// ============================================================================
-// ЗАДАЧА 2: Оптимизация сетки (минимизация ошибки)
-// ============================================================================
-export const GRID_ERROR_TASK = {
-    ...GRID_LOAD_TASK,
-    id: "grid_error",
-    label: "Оптимизация сетки (мин. ошибка)",
-    goal: "min",
-    unit: "K",
-
-    evaluateResult: (res) => {
-        const { load, errorScore } = extractGridMetrics(res);
-
-        return {
-            objective: {
-                name: "errorScore",
-                value: errorScore,
-                goal: "min",
-                max: 0.5,
-                unit: "K",
-                tolerance: 0.0005
-            },
-            constraints: [
-                { name: "cpuLoad", value: load, max: 25000000, tolerance: 1 }
-            ]
-        };
-    }
-};
-
-// ============================================================================
-// ПИД: период совместного цикла и применимость задач
-// ============================================================================
 // Нижний ТЭН наследует поля ПИД верхнего (как в normalizeMachine модели)
 function getHeaterPids(baseParams) {
     const heaters = baseParams?.machine?.heaters;
@@ -188,112 +71,111 @@ export function getPidPhaseRangeSeconds(baseParams, fallback = 245.0, maxCycles 
 }
 
 // ============================================================================
-// ЗАДАЧА 3: Подбор pidPhaseOffsetSeconds (МАКСИМУМ температуры поверхности)
+// ЗАДАЧА: сетка — минимум нагрузки при допустимой ошибке
 // ============================================================================
-export const PID_MAX_TEMP_TASK = {
+export const GRID_LOAD_TASK = defineTask({
+    id: "grid_load",
+    label: "Сетка: минимум нагрузки",
+
+    params: {
+        gridDensityX: {
+            path: "simulation.accuracyMode.gridDensityX",
+            unit: "/mm⁰·⁶⁴",
+            // Ниже минимума модели (5 интервалов) все значения дают одну и ту же сетку
+            range: (bp) => modelGridRange(snapGridDensityX, Number(bp.thicknessMm), 3.5, 25)
+        },
+        gridDensityY: {
+            path: "simulation.accuracyMode.gridDensityY",
+            unit: "/mm⁰·³⁴",
+            range: (bp) => modelGridRange(snapGridDensityY, Number(bp.simulation?.widthHalfMm), 5, 25)
+        },
+        tempStepK: {
+            path: "simulation.accuracyMode.tempStepK",
+            unit: "K",
+            // С BDF2 ошибка по времени мала даже при крупном шаге — нужен широкий диапазон
+            min: 0.3,
+            max: 7,
+            step: 0.01
+        }
+    },
+
+    metrics: {
+        cpuLoad: {
+            // «Операции решателя»: 1 млн ≈ 1,6 мс расчёта (80 млн ≈ 0,13 с)
+            read: (res) => res?.technicalMetrics?.iterations?.totalGridPointsProcessed,
+            unit: "ops",
+            resolution: 1,
+            max: 80e6,
+            growsOnly: true
+        },
+        errorScore: {
+            // √(время² + сетка² + Пикар²), как в модели
+            read: (res) => res?.technicalMetrics?.accuracy?.totalErrorScore,
+            unit: "K",
+            resolution: 0.005,
+            max: 0.5
+        }
+    },
+
+    minimize: "cpuLoad",
+    simulation: { calculateAccuracyError: true }
+});
+
+// ============================================================================
+// ЗАДАЧА: сетка — минимум ошибки при допустимой нагрузке
+// ============================================================================
+export const GRID_ERROR_TASK = defineTask({
+    extends: GRID_LOAD_TASK,
+    id: "grid_error",
+    label: "Сетка: минимум ошибки",
+    minimize: "errorScore"
+});
+
+// ============================================================================
+// ЗАДАЧА: сдвиг фазы ПИД — максимум температуры поверхности
+// ============================================================================
+export const PID_MAX_TEMP_TASK = defineTask({
     id: "pid_max_temp",
-    // Задача имеет смысл только для машины с ПИД-колебаниями ТЭНов
-    isApplicable: (baseParams) => machineHasPid(baseParams),
-    label: "Сдвиг фазы ПИД (макс. T поверхности)",
-    goal: "max",
-    unit: "°C",
+    label: "ПИД: максимум T поверхности",
+    when: machineHasPid,
 
-    settings: {
-        randomInitPoints: null,
-        totalBudgetIterations: null,
-        // Преобразование цели для модели: "auto" (выбор по данным), "log" или "linear"
-        objectiveTransform: "auto"
-    },
-
-    simOverrides: {
-        calculateAccuracyError: false
-    },
-
-    parameters: {
+    params: {
         pidPhaseOffsetSeconds: {
-            label: "pidPhaseOffsetSeconds",
             path: "machine.pidPhaseOffsetSeconds",
             unit: "s",
-            min: 0.0,
-            max: (baseParams) => getPidPhaseRangeSeconds(baseParams),
-            step: 0.1
+            range: (bp) => ({ min: 0, max: getPidPhaseRangeSeconds(bp), step: 0.1 })
         }
     },
 
-    evaluateResult: (_res, _baseParams, ctx) => {
-        const maxSurfaceT = Math.max(ctx.surfaceTop(0), ctx.surfaceBottom(0));
+    metrics: {
+        peakSurfaceTemp: {
+            // Большая из температур верхней и нижней поверхности в центре листа
+            read: (_res, ctx) => Math.max(ctx.surfaceTop(0), ctx.surfaceBottom(0)),
+            unit: "°C",
+            resolution: 0.0005
+        }
+    },
 
-        return {
-            objective: {
-                name: "maxSurfaceTemp",
-                value: maxSurfaceT,
-                goal: "max",
-                unit: "°C",
-                tolerance: 0.0005
-            },
-            constraints: []
-        };
-    }
-};
+    maximize: "peakSurfaceTemp",
+    simulation: { calculateAccuracyError: false }
+});
 
 // ============================================================================
-// ЗАДАЧА 4: Подбор pidPhaseOffsetSeconds (МИНИМУМ температуры поверхности)
+// ЗАДАЧА: сдвиг фазы ПИД — минимум пиковой температуры поверхности
 // ============================================================================
-export const PID_MIN_TEMP_TASK = {
+export const PID_MIN_TEMP_TASK = defineTask({
+    extends: PID_MAX_TEMP_TASK,
     id: "pid_min_temp",
-    // Задача имеет смысл только для машины с ПИД-колебаниями ТЭНов
-    isApplicable: (baseParams) => machineHasPid(baseParams),
-    label: "Сдвиг фазы ПИД (мин. T поверхности)",
-    goal: "min",
-    unit: "°C",
-
-    settings: {
-        randomInitPoints: null,
-        totalBudgetIterations: null,
-        // Преобразование цели для модели: "auto" (выбор по данным), "log" или "linear"
-        objectiveTransform: "auto"
-    },
-
-    simOverrides: {
-        calculateAccuracyError: false
-    },
-
-    parameters: {
-        pidPhaseOffsetSeconds: {
-            label: "pidPhaseOffsetSeconds",
-            path: "machine.pidPhaseOffsetSeconds",
-            unit: "s",
-            min: 0.0,
-            max: (baseParams) => getPidPhaseRangeSeconds(baseParams),
-            step: 0.1
-        }
-    },
-
-    evaluateResult: (_res, _baseParams, ctx) => {
-        const maxSurfaceT = Math.max(ctx.surfaceTop(0), ctx.surfaceBottom(0));
-
-        return {
-            objective: {
-                name: "minSurfaceTemp",
-                value: maxSurfaceT,
-                goal: "min",
-                unit: "°C",
-                tolerance: 0.0005
-            },
-            constraints: []
-        };
-    }
-};
+    label: "ПИД: минимум пиковой T поверхности",
+    minimize: "peakSurfaceTemp"
+});
 
 // ============================================================================
-// РЕЕСТР ЗАДАЧ И УТИЛИТЫ ИНИЦИАЛИЗАЦИИ
+// РЕЕСТР ЗАДАЧ
 // ============================================================================
-export const OPTIMIZER_TASKS = {
-    [GRID_LOAD_TASK.id]: GRID_LOAD_TASK,
-    [GRID_ERROR_TASK.id]: GRID_ERROR_TASK,
-    [PID_MAX_TEMP_TASK.id]: PID_MAX_TEMP_TASK,
-    [PID_MIN_TEMP_TASK.id]: PID_MIN_TEMP_TASK
-};
+export const OPTIMIZER_TASKS = Object.fromEntries(
+    [GRID_LOAD_TASK, GRID_ERROR_TASK, PID_MAX_TEMP_TASK, PID_MIN_TEMP_TASK].map(t => [t.id, t])
+);
 
 export const DEFAULT_TASK_ID = GRID_LOAD_TASK.id;
 
@@ -302,6 +184,7 @@ export function getApplicableTasks(baseParams) {
     return Object.values(OPTIMIZER_TASKS).filter(t => typeof t.isApplicable !== "function" || t.isApplicable(baseParams));
 }
 
+// Задача с вычисленными для текущих параметров диапазонами (min выровнен по шагу)
 export function resolveOptimizerTask(
     taskId = DEFAULT_TASK_ID,
     baseParams = {},
@@ -313,56 +196,151 @@ export function resolveOptimizerTask(
         throw new Error(`Неизвестная задача оптимизации: ${taskId}`);
     }
 
-    const rawParams = paramOverrides || task.parameters;
     const resolvedParameters = {};
-
-    for (const [key, range] of Object.entries(rawParams)) {
-        const template = task.parameters[key];
-        const rawMin = range.min ?? template?.min;
-        const rawMax = range.max ?? template?.max;
-        const rawStep = range.step ?? template?.step;
-
-        let min = typeof rawMin === "function" ? rawMin(baseParams) : rawMin;
-        const max = typeof rawMax === "function" ? rawMax(baseParams) : rawMax;
-        const step = typeof rawStep === "function" ? rawStep(baseParams) : rawStep;
-
-        if (Number.isFinite(step) && step > 0 && Number.isFinite(min)) {
-            const str = step.toString();
-            const prec = str.includes("e-")
-                ? Math.min(8, Number(str.split("e-")[1]))
-                : (str.includes(".") ? Math.min(6, str.length - str.indexOf(".") - 1) : 0);
-            const aligned = Math.ceil((min - 1e-12) / step) * step || 0;
-            min = Number(aligned.toFixed(prec));
-        }
-
+    for (const [key, override] of Object.entries(paramOverrides || task.parameters)) {
+        const template = task.parameters[key] || {};
+        const base = typeof template.range === "function" ? template.range(baseParams) : template;
+        const min = override.min ?? base.min;
+        const max = override.max ?? base.max;
+        const step = override.step ?? base.step;
+        const hasStep = Number.isFinite(step) && step > 0;
         resolvedParameters[key] = {
-            ...range,
-            path: template?.path || range.path,
-            min,
+            label: template.label || key,
+            unit: template.unit,
+            path: template.path || override.path,
+            min: hasStep && Number.isFinite(min) ? alignToStep(min, step) : min,
             max,
-            ...(Number.isFinite(step) && step > 0 ? { step } : {})
+            ...(hasStep ? { step } : {})
         };
     }
 
-    return {
+    const resolved = {
         ...task,
         parameters: resolvedParameters,
-        settings: {
-            ...task.settings,
-            ...(settingsOverrides || {})
-        }
+        settings: { ...task.settings, ...(settingsOverrides || {}) }
     };
+    const { initPoints, totalIterations } = getAdaptiveOptimizerBudget(resolved);
+    resolved.budget = { initPoints, iterations: totalIterations };
+    return resolved;
 }
 
+/**
+ * @typedef {Object} OptimizerSettings
+ * @property {number|null} [totalBudgetIterations] Шагов на один запуск (по умолчанию — по размерности задачи)
+ * @property {number|null} [randomInitPoints] Стартовых точек (по умолчанию — по размерности задачи)
+ */
+
+/**
+ * Бюджет запуска: всего шагов и сколько из них стартовых. Его получает оптимизатор
+ * (task.budget) и показывает интерфейс — считается только здесь.
+ * Стартовых точек — по размерности задачи; маленький бюджет может их только уменьшить.
+ * @param {{ parameters?: Object, settings?: OptimizerSettings }} task
+ * @returns {{ initPoints: number, totalIterations: number }}
+ */
 export function getAdaptiveOptimizerBudget(task) {
-    const paramsObj = task?.parameters || {};
+    const numParams = Math.max(1, Object.keys(task?.parameters || {}).length);
+    /** @type {OptimizerSettings} */
     const settings = task?.settings || {};
-    const numParams = Math.max(1, Object.keys(paramsObj).length);
-    const initPoints = Number.isFinite(settings.randomInitPoints)
-        ? Math.max(1, Math.floor(settings.randomInitPoints))
-        : Math.max(6, numParams * 4);
-    const totalIterations = Number.isFinite(settings.totalBudgetIterations)
+    const hasBudget = Number.isFinite(settings.totalBudgetIterations);
+    const totalIterations = hasBudget
         ? Math.max(1, Math.floor(settings.totalBudgetIterations))
         : Math.max(80, numParams * 35 + 20);
+    const initCap = hasBudget
+        ? Math.max(6, Math.min(16, Math.floor(settings.totalBudgetIterations * 0.25)))
+        : 16;
+    const initPoints = Math.min(totalIterations, Number.isFinite(settings.randomInitPoints)
+        ? Math.max(1, Math.floor(settings.randomInitPoints))
+        : Math.min(initCap, Math.max(6, numParams * 4)));
     return { initPoints, totalIterations };
+}
+
+// ============================================================================
+// СБОРКА ЗАДАЧИ ИЗ ОПИСАНИЯ
+// ============================================================================
+function alignToStep(value, step) {
+    const str = step.toString();
+    const prec = str.includes("e-")
+        ? Math.min(8, Number(str.split("e-")[1]))
+        : (str.includes(".") ? Math.min(6, str.length - str.indexOf(".") - 1) : 0);
+    return Number((Math.ceil((value - 1e-12) / step) * step || 0).toFixed(prec));
+}
+
+function defineTask(input) {
+    const parent = { ...(input.extends?.definition || {}) };
+    // Новая цель заменяет унаследованную целиком (minimize ↔ maximize)
+    if ("minimize" in input || "maximize" in input) {
+        delete parent.minimize;
+        delete parent.maximize;
+    }
+    const def = { ...parent, ...input };
+    delete def.extends;
+
+    const goal = def.maximize ? "max" : "min";
+    const goalMetric = def.maximize || def.minimize;
+    const metrics = def.metrics || {};
+    if (!metrics[goalMetric]) {
+        throw new Error(`Задача ${def.id}: цель «${goalMetric}» не описана в metrics`);
+    }
+    const hasLimit = (m) => Number.isFinite(m.max) || Number.isFinite(m.min);
+    const limitOf = (name) => ({ name, min: metrics[name].min, max: metrics[name].max });
+    const constraintNames = Object.keys(metrics).filter(name => name !== goalMetric && hasLimit(metrics[name]));
+
+    const readMetric = (name, res, ctx) => {
+        const v = metrics[name].read(res, ctx);
+        return Number.isFinite(v) ? v : NaN;
+    };
+
+    // Прерывание: накапливаемая метрика с верхним пределом
+    const abortName = Object.keys(metrics).find(name => metrics[name].growsOnly && Number.isFinite(metrics[name].max));
+    const earlyAbort = abortName
+        ? {
+            metric: (_percent, technicalMetrics) => {
+                const v = metrics[abortName].read({ technicalMetrics }, null);
+                return Number.isFinite(v) ? v : 0;
+            },
+            ceiling: metrics[abortName].max * ABORT_CEILING_FACTOR,
+            monotonic: true
+        }
+        : undefined;
+
+    return {
+        definition: def,
+        id: def.id,
+        label: def.label,
+        goal,
+        unit: metrics[goalMetric].unit || "",
+        isApplicable: typeof def.when === "function" ? def.when : undefined,
+        settings: { objectiveTransform: "auto", ...(def.settings || {}) },
+        simOverrides: { ...(def.simulation || {}) },
+        parameters: Object.fromEntries(
+            Object.entries(def.params || {}).map(([key, p]) => [key, { label: key, ...p }])
+        ),
+        // Описание цели и пределов для интерфейса (до первого результата)
+        spec: {
+            objective: { name: goalMetric, unit: metrics[goalMetric].unit },
+            constraints: [goalMetric, ...constraintNames].filter(n => hasLimit(metrics[n])).map(limitOf)
+        },
+        earlyAbort,
+        evaluateResult: (res, _baseParams, ctx) => {
+            const g = metrics[goalMetric];
+            return {
+                objective: {
+                    name: goalMetric,
+                    value: readMetric(goalMetric, res, ctx),
+                    goal,
+                    unit: g.unit,
+                    min: g.min,
+                    max: g.max,
+                    tolerance: g.resolution
+                },
+                constraints: constraintNames.map(name => ({
+                    name,
+                    value: readMetric(name, res, ctx),
+                    min: metrics[name].min,
+                    max: metrics[name].max,
+                    tolerance: metrics[name].resolution
+                }))
+            };
+        }
+    };
 }

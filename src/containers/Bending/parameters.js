@@ -11,7 +11,7 @@ export const MACHINES = {
             {
                 // top
                 regulatorTemperatureC: 190,
-                heaterTemperatureFactor: 1.45,
+                heaterTemperatureFactor: 1.45, // для модели короба; со старой моделью "point" было 1.45
                 heaterEmissivity: 0.90,
                 viewFactor: 1,
                 radiationGain: 0.9,
@@ -26,7 +26,7 @@ export const MACHINES = {
             {
                 // bottom
                 regulatorTemperatureC: 200,
-                heaterTemperatureFactor: 1.6,
+                heaterTemperatureFactor: 1.6, // для модели короба; со старой моделью "point" было 1.6
                 convectiveHeatTransferCoefficient: 16,
                 pid: {
                     amplitudeC: 36, //36
@@ -50,7 +50,7 @@ export const MACHINES = {
             {
                 // top
                 regulatorTemperatureC: 270,
-                heaterTemperatureFactor: 1.0,
+                heaterTemperatureFactor: 1, // для модели короба; со старой моделью "point" было 1.0
                 heaterEmissivity: 0.90,
                 viewFactor: 1,
                 radiationGain: 0.90,
@@ -65,7 +65,7 @@ export const MACHINES = {
             {
                 // bottom
                 regulatorTemperatureC: 280,
-                heaterTemperatureFactor: 1.0,
+                heaterTemperatureFactor: 1, // для модели короба; со старой моделью "point" было 1.0
                 convectiveHeatTransferCoefficient: 16,
                 pid: {
                     amplitudeC: 6.2,
@@ -87,7 +87,7 @@ export const MACHINES = {
             {
                 // top
                 regulatorTemperatureC: 190,
-                heaterTemperatureFactor: 1.45,
+                heaterTemperatureFactor: 1.45, // для модели короба; со старой моделью "point" было 1.45
                 heaterEmissivity: 0.90,
                 viewFactor: 1,
                 radiationGain: 0.9,
@@ -96,7 +96,7 @@ export const MACHINES = {
             {
                 // bottom
                 regulatorTemperatureC: 200,
-                heaterTemperatureFactor: 1.6,
+                heaterTemperatureFactor: 1.6, // для модели короба; со старой моделью "point" было 1.6
                 convectiveHeatTransferCoefficient: 16,
             }
         ]

@@ -42,8 +42,11 @@ const EFFECTIVE_H_MM = DISTANCE_TO_SHEET_MM + HEATER_RADIUS_MM;
 export const DEFAULT_VIEW_FACTOR_MODEL = "box";
 export const DEFAULT_BOX_OPENING_WIDTH_MM = 2 * DEFAULT_SLOT_HALF_WIDTH_MM;
 export const DEFAULT_BOX_OPENING_DISTANCE_MM = DISTANCE_TO_SHEET_MM;
+// Конвекция вне зоны ТЭНа (по умолчанию; можно задать у ТЭНа ambientConvectionCoefficient)
 const AMBIENT_CONVECTION_H_TOP = 8.0;
 const AMBIENT_CONVECTION_H_BOT = 7.0;
+// Ширина перехода от горячего воздуха проёма к цеховому, мм
+const CONVECTION_TRANSITION_MM = DEFAULT_CONVECTION_TRANSITION_END_MM - DEFAULT_SLOT_HALF_WIDTH_MM;
 
 // Ограничения сетки и памяти
 export const GRID_DENSITY_EXP_X = 0.635; // Показатель масштабирования по толщине (калибровано по 4-8 мм)
@@ -57,11 +60,18 @@ const MIN_GRID_NODES_X = 5;
 const MIN_GRID_NODES_Y = 12;
 
 // Ограничения солвера и времени расчета
-const UI_PROGRESS_THROTTLE_MS = 40;
+// Прогресс сообщается при росте на этот шаг (%). Раньше был таймер 40 мс — из-за него
+// решения оптимизатора (ранние обрывы) зависели от скорости ПК и прогоны не повторялись
+const PROGRESS_REPORT_STEP_PERCENT = 2;
 const MAX_TOTAL_TIME_STEPS = 100000;
 const MAX_CONSECUTIVE_REJECTIONS = 12;
 const MAX_PICARD_ITERATIONS = 40;
-const MAX_TOTAL_CPU_UNITS = 3000000000;
+// Потолок порога остановки итераций Пикара, K. При 0,25 остаток итераций (входит в оценку
+// ошибки) скачет от точки к точке; 0,1 даёт гладкую оценку ценой ~1–2 % нагрузки.
+const MAX_PICARD_TOLERANCE_K = 0.1;
+// Нагрузка (cpuWorkloadUnits) считается в «операциях умножения-сложения» решателя:
+// 1 единица ≈ 1,6 нс на типичном ПК, т.е. 1 млн единиц ≈ 1,6 мс расчёта
+const MAX_TOTAL_CPU_UNITS = 40000000000;
 
 // Параметры автоматического регулятора шага времени (PI-контроллер)
 const DT_SAFETY_FACTOR = 0.85;
@@ -124,7 +134,16 @@ export function validateSimulationParams({ thicknessMm, material, machine, simul
     } else if (!Array.isArray(machine.heaters) || machine.heaters.length !== 2) {
         errors.push("Exactly two heaters are required.");
     }
-    if (!simulation || typeof simulation !== "object") errors.push("Simulation parameters are missing.");
+    if (!simulation || typeof simulation !== "object") {
+        errors.push("Simulation parameters are missing.");
+    } else {
+        if (!(Number.isFinite(simulation.widthHalfMm) && simulation.widthHalfMm >= 0)) errors.push("widthHalfMm must be ≥ 0 (0 = 1D mode).");
+        if (!Number.isFinite(simulation.temperatures?.initialC) || !Number.isFinite(simulation.temperatures?.ambientC)) errors.push("temperatures.initialC and temperatures.ambientC are required.");
+        if (!validPositive(simulation.maxTimeSeconds)) errors.push("maxTimeSeconds must be a positive number.");
+        if (!simulation.target || !["time", "minTemperature", "surfaceTemperature"].includes(simulation.target.type) || !Number.isFinite(simulation.target.value)) {
+            errors.push("target must be { type: 'time' | 'minTemperature' | 'surfaceTemperature', value }.");
+        }
+    }
 
     if (errors.length > 0) {
         return { isValid: false, errors };
@@ -430,6 +449,13 @@ export function getNonlinearViewFactors(yCoordinatesMm, geometry = getHeaterGeom
     for (let j = 0; j < Ny; j++) viewFactors[j] = profile(yCoordinatesMm[j]);
     return viewFactors;
 }
+// Зона горячего воздуха у проёма: для модели короба — половина ширины проёма,
+// для старой точечной модели — прежние константы
+function getConvectionZone(heater = {}) {
+    const g = getHeaterGeometry(heater);
+    const halfWidthMm = g.model === "point" ? DEFAULT_SLOT_HALF_WIDTH_MM : g.widthMm / 2;
+    return { halfWidthMm, transitionEndMm: halfWidthMm + CONVECTION_TRANSITION_MM };
+}
 function smoothStepCosine(value, start, end) {
     if (value <= start) return 1;
     if (value >= end) return 0;
@@ -540,7 +566,7 @@ function substituteBandMatrix(A, N, bandWidth, r, x, precalc) {
     return true;
 }
 // Относительная невязка ||b − A·x|| / (||A||·||x|| + ||b||) по исходной 5-точечной матрице
-function computeBandResidual(N, bandWidth, r, x, origDiag, residualOut) {
+function computeBandResidual(N, strideX, strideY, r, x, origDiag, residualOut) {
     if (origDiag && residualOut) {
         let maxRes = 0.0;
         let maxNormA = 0.0;
@@ -561,10 +587,10 @@ function computeBandResidual(N, bandWidth, r, x, origDiag, residualOut) {
             const rowNormA = Math.abs(c) + Math.abs(w) + Math.abs(e) + Math.abs(n) + Math.abs(s);
             if (rowNormA > maxNormA) maxNormA = rowNormA;
             let ax = c * xVal;
-            if (w !== 0) ax += w * x[idx - 1];
-            if (e !== 0) ax += e * x[idx + 1];
-            if (n !== 0) ax += n * x[idx - bandWidth];
-            if (s !== 0) ax += s * x[idx + bandWidth];
+            if (w !== 0) ax += w * x[idx - strideY];
+            if (e !== 0) ax += e * x[idx + strideY];
+            if (n !== 0) ax += n * x[idx - strideX];
+            if (s !== 0) ax += s * x[idx + strideX];
             const res = Math.abs(bVal - ax);
             if (res > maxRes) maxRes = res;
         }
@@ -606,7 +632,7 @@ function resolveSimulationConfig(simulation, thicknessMm) {
         stepXMm,
         stepYMm,
         targetDeltaT,
-        nonlinearToleranceK: clamp(0.02 * targetDeltaT * targetDeltaT, 0.001, 0.25),
+        nonlinearToleranceK: clamp(0.02 * targetDeltaT * targetDeltaT, 0.001, MAX_PICARD_TOLERANCE_K),
         shouldCalculateAccuracyError: simulation?.calculateAccuracyError !== false,
         is1D: simulation.widthHalfMm === 0
     };
@@ -648,15 +674,20 @@ function createBoundaryContext(mach, material, gridY, ambT) {
     const convWeightsTop = new Float64Array(Ny);
     const convWeightsBot = new Float64Array(Ny);
 
+    // Горячий воздух — над проёмом своего короба; ширина берётся из геометрии каждого ТЭНа
+    const slotTop = getConvectionZone(mach.heaters[0]);
+    const slotBot = getConvectionZone(mach.heaters[1]);
+    const hAmbTop = validPositive(mach.heaters[0].ambientConvectionCoefficient) ? mach.heaters[0].ambientConvectionCoefficient : AMBIENT_CONVECTION_H_TOP;
+    const hAmbBot = validPositive(mach.heaters[1].ambientConvectionCoefficient) ? mach.heaters[1].ambientConvectionCoefficient : AMBIENT_CONVECTION_H_BOT;
     for (let j = 0; j < Ny; j++) {
         const yMm = gridY.y[j];
-        const wTop = smoothStepCosine(yMm, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM);
+        const wTop = smoothStepCosine(yMm, slotTop.halfWidthMm, slotTop.transitionEndMm);
         convWeightsTop[j] = wTop;
-        precalcConvTopH[j] = wTop * hTop + (1 - wTop) * AMBIENT_CONVECTION_H_TOP;
+        precalcConvTopH[j] = wTop * hTop + (1 - wTop) * hAmbTop;
 
-        const wBot = smoothStepCosine(yMm, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM);
+        const wBot = smoothStepCosine(yMm, slotBot.halfWidthMm, slotBot.transitionEndMm);
         convWeightsBot[j] = wBot;
-        precalcConvBotH[j] = wBot * hBot + (1 - wBot) * AMBIENT_CONVECTION_H_BOT;
+        precalcConvBotH[j] = wBot * hBot + (1 - wBot) * hAmbBot;
     }
 
     const viewFactorsTop = getNonlinearViewFactors(gridY.y, getHeaterGeometry(mach.heaters[0]));
@@ -727,12 +758,12 @@ function buildAccuracyMetrics(mode, maxLinearResidual, maxPicardError, maxTimeEr
     };
 }
 
-function isTargetReached2D(T, Nx, Ny, target, targetK, outCurrentValue) {
+function isTargetReached2D(T, Nx, strideX, target, targetK, outCurrentValue) {
     if (!target || target.type === "time") return false;
     if (target.type === "minTemperature") {
         let minValK = Infinity;
         for (let i = 0; i < Nx; i++) {
-            const nodeTempK = T[i * Ny];
+            const nodeTempK = T[i * strideX];
             if (nodeTempK < minValK) minValK = nodeTempK;
         }
         if (outCurrentValue) outCurrentValue.v = minValK;
@@ -740,7 +771,7 @@ function isTargetReached2D(T, Nx, Ny, target, targetK, outCurrentValue) {
     }
     if (target.type === "surfaceTemperature") {
         const topK = T[0];
-        const botK = T[(Nx - 1) * Ny];
+        const botK = T[(Nx - 1) * strideX];
         const maxSurfaceK = topK > botK ? topK : botK;
         if (outCurrentValue) outCurrentValue.v = maxSurfaceK;
         return maxSurfaceK >= targetK;
@@ -759,7 +790,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     if (!mach) return makeError("Invalid machine.");
 
     const validation = validateSimulationParams({ thicknessMm, material, machine: mach, simulation });
-    if (!validation.isValid) return makeError(validation.errors);
+    if (!validation.isValid) return makeError(validation.errors.join(" "));
 
     const matModel = createMaterialModel(material);
     if (!matModel) return makeError("Invalid material model.");
@@ -774,7 +805,14 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     }
 
     const size2D = Nx * Ny;
-    const bandWidth = Ny;
+    // Нумерация узлов внутри решателя: idx = i·strideX + j·strideY.
+    // Ширина ленты = больший из шагов, а LU стоит ≈ N·ширина², поэтому лента идёт по
+    // измерению с меньшим числом узлов: тонкий широкий лист — по толщине (X), толстый — по ширине (Y).
+    // Наружу поля отдаются в прежнем порядке i·Ny + j.
+    const bandAlongX = Nx < Ny;
+    const strideX = bandAlongX ? 1 : Ny;
+    const strideY = bandAlongX ? Nx : 1;
+    const bandWidth = bandAlongX ? Nx : Ny;
     const abRowStride = bandWidth * 2 + 1;
     const lead = bandWidth;
 
@@ -787,7 +825,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const gridX = createNonlinearGridX(thicknessMm, Nx);
     const gridY = cfg.is1D
         ? create1DStubGridY()
-        : createParametricGridY(simulation.widthHalfMm, Ny, DEFAULT_SLOT_HALF_WIDTH_MM, DEFAULT_CONVECTION_TRANSITION_END_MM, getHeaterGeometry(mach.heaters[0]));
+        : createParametricGridY(simulation.widthHalfMm, Ny, getConvectionZone(mach.heaters[0]).halfWidthMm, getConvectionZone(mach.heaters[0]).transitionEndMm, getHeaterGeometry(mach.heaters[0]));
 // --- 7.3. Инициализация буферов СЛАУ и предвычислений ---
     const initT = simulation.temperatures.initialC;
     const ambT = simulation.temperatures.ambientC;
@@ -850,8 +888,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const stopAtMaxTemperature = simulation.stopAtMaxTemperature === true;
     const totalCoolingTime = simulation.cooling?.timeSeconds || 0;
     const hCooling = simulation.cooling?.convectiveHeatTransferCoefficient || 8.0;
-    const PICARD_PASS_CPU_COST = size2D * (Ny + 2) + (size2D * 150);
-    const CHORD_PASS_CPU_COST = size2D * 160;
+    // Стоимость проходов по реальной работе (откалибровано по времени расчёта, точность ±20%):
+    //  LU-разложение ленты шириной bw: ≈ N·bw² умножений; прямая+обратная подстановка: ≈ 2·N·bw;
+    //  сборка матрицы, свойства материала, граничные условия, проверки — ≈ 128 операций на узел
+    const ASSEMBLY_COST_PER_NODE = 128;
+    const CHORD_PASS_CPU_COST = size2D * (2 * bandWidth + ASSEMBLY_COST_PER_NODE);
+    const PICARD_PASS_CPU_COST = size2D * bandWidth * bandWidth + CHORD_PASS_CPU_COST;
     const MAX_ALLOWED_STEP_CPU_UNITS = PICARD_PASS_CPU_COST * 40;
     let dt = simulation.dtSeconds !== undefined ? simulation.dtSeconds : Math.min(0.5, cfg.targetDeltaT * 0.15);
     let step = 1;
@@ -861,8 +903,16 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     let currentPhase = "heating";
 // Регистры трехслойной схемы времени для оценки локальной ошибки усечения
     const idxTop = 0;
-    const idxMid = ((Nx - 1) >> 1) * Ny;
-    const idxBot = lastX * Ny;
+    const idxMid = ((Nx - 1) >> 1) * strideX;
+    const idxBot = lastX * strideX;
+    // Перевод поля из внутренней нумерации в наружную (i·Ny + j), в °C
+    const exportFieldC = (src) => {
+        const out = new Float64Array(size2D);
+        for (let i = 0; i < Nx; i++) {
+            for (let j = 0; j < Ny; j++) out[i * Ny + j] = src[i * strideX + j * strideY] - 273.15;
+        }
+        return out;
+    };
     let t_nm2 = 0, t_nm1 = 0, t_n = 0;
     let T_nm2_top = initTK, T_nm2_mid = initTK, T_nm2_bot = initTK;
     let T_nm1_top = initTK, T_nm1_mid = initTK, T_nm1_bot = initTK;
@@ -939,13 +989,11 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const invTargetValueTime = targetValue > 0 ? (1.0 / targetValue) : 0.0;
     const invMaxTimeSeconds = maxTimeSeconds > 0 ? (1.0 / maxTimeSeconds) : 0.0;
     const invTotalCoolingTime = totalCoolingTime > 0 ? (1.0 / totalCoolingTime) : 0.0;
-    let lastReportedPercent = -1;
-    let lastReportTimeMs = performance.now();
+    let lastReportedPercent = -PROGRESS_REPORT_STEP_PERCENT;
     const switchToCoolingPhase = () => {
         currentPhase = "cooling";
         const currentBuffer = buffers[step % 3];
-        heatingProfileC = new Float64Array(size2D);
-        for (let i = 0; i < size2D; i++) heatingProfileC[i] = currentBuffer[i] - 273.15;
+        heatingProfileC = exportFieldC(currentBuffer);
         stepCountInPhase = 0;
         t_nm2 = 0;
         t_nm1 = 0;
@@ -992,7 +1040,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 const T = buffers[step % 3];
                 let criticalK = Infinity;
                 if (targetType === "surfaceTemperature") criticalK = Math.max(T[idxTop], T[idxBot]);
-                else for (let i = 0; i < Nx; i++) if (T[i * Ny] < criticalK) criticalK = T[i * Ny];
+                else for (let i = 0; i < Nx; i++) if (T[i * strideX] < criticalK) criticalK = T[i * strideX];
                 const what = targetType === "surfaceTemperature" ? "max surface temperature" : "min temperature through thickness";
                 status = {
                     type: "error",
@@ -1040,6 +1088,9 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 // --- Итерации Пикара (нелинейная сходимость на текущем шаге dt) ---
         let nonlinearConverged = false;
         let lastIterMaxSignedDiff = 0.0;
+        // Оценка оставшейся ошибки итераций: при линейной сходимости с коэффициентом ρ
+        // после последней поправки δ остаётся ≈ δ·ρ/(1−ρ); при одной итерации — сама δ
+        let picardRemainingErrK = 0.0;
         let prevDeltaK = Infinity;
         let consecutiveBadSteps = 0;
         let luValidForStep = false;
@@ -1053,10 +1104,10 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             origDiag.s.fill(0);
 // Сборка ленточной матрицы A и правой части rhsVec
             for (let i = 0; i <= lastX; i++) {
-                const iNy = i * Ny;
+                const iBase = i * strideX;
                 const idxInvDxH = invDxH[i];
                 for (let j = 0; j <= lastY; j++) {
-                    const idxRow = iNy + j;
+                    const idxRow = iBase + j * strideY;
                     const currentTempK = buffers[newIdx][idxRow];
                     const oldTempC = buffers[curIdx][idxRow] - 273.15;
                     const props = matModel.get(currentTempK - 273.15, oldTempC);
@@ -1069,13 +1120,13 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     if (i > 0 && i < lastX) {
                         const coeffLeft = dtkEff * idxInvDxH * invDxL[i];
                         const coeffRight = dtkEff * idxInvDxH * invDxR[i];
-                        matrixA[matRowOffset - Ny] = -coeffLeft;
-                        matrixA[matRowOffset + Ny] = -coeffRight;
+                        matrixA[matRowOffset - strideX] = -coeffLeft;
+                        matrixA[matRowOffset + strideX] = -coeffRight;
                         centerCoeff += (coeffLeft + coeffRight);
                     } else {
                         const isTopBound = (i === 0);
                         const coeffNext = isTopBound ? (dtkEff * idxInvDxH * invDxR[i]) : (dtkEff * idxInvDxH * invDxL[i]);
-                        matrixA[matRowOffset + (isTopBound ? Ny : -Ny)] = -coeffNext;
+                        matrixA[matRowOffset + (isTopBound ? strideX : -strideX)] = -coeffNext;
                         centerCoeff += coeffNext;
                         const currentTempK_2 = currentTempK * currentTempK;
                         const currentTempK_3 = currentTempK_2 * currentTempK;
@@ -1111,22 +1162,22 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                         if (j > 0 && j < lastY) {
                             const coeffLeftY = dtkEff * idxInvDyH * invDyL[j];
                             const coeffRightY = dtkEff * idxInvDyH * invDyR[j];
-                            matrixA[matRowOffset - 1] = -coeffLeftY;
-                            matrixA[matRowOffset + 1] = -coeffRightY;
+                            matrixA[matRowOffset - strideY] = -coeffLeftY;
+                            matrixA[matRowOffset + strideY] = -coeffRightY;
                             centerCoeff += (coeffLeftY + coeffRightY);
                         } else if (j === 0) {
                             // Ось симметрии: половинная ячейка (dyHat[0] = dy[0]/2) уже учтена в invDyH,
                             // поток к соседу считается один раз — иначе энергия не сохраняется
                             const coeffRightY = dtkEff * idxInvDyH * invDyR[j];
-                            matrixA[matRowOffset + 1] = -coeffRightY;
+                            matrixA[matRowOffset + strideY] = -coeffRightY;
                             centerCoeff += coeffRightY;
                         } else if (j === lastY) {
                             const coeffLeftY = dtkEff * idxInvDyH * invDyL[j];
                             const coeffRightY = dtkEff * idxInvDyH * invDyL[j];
-                            matrixA[matRowOffset - 1] = -coeffLeftY;
+                            matrixA[matRowOffset - strideY] = -coeffLeftY;
                             centerCoeff += coeffLeftY;
                             const T_edge_old = buffers[curIdx][idxRow];
-                            const T_virtual_extrapolated = T_edge_old - (buffers[curIdx][idxRow - 1] - T_edge_old);
+                            const T_virtual_extrapolated = T_edge_old - (buffers[curIdx][idxRow - strideY] - T_edge_old);
                             const T_target = T_virtual_extrapolated < bc.ambientTemperatureK ? bc.ambientTemperatureK : T_virtual_extrapolated;
                             rhsVec[idxRow] += coeffRightY * (T_target - T_edge_old);
                         }
@@ -1134,11 +1185,11 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     matrixA[matRowOffset] = centerCoeff;
                     origDiag.c[idxRow] = centerCoeff;
                     if (!cfg.is1D) {
-                        if (j > 0) origDiag.w[idxRow] = matrixA[matRowOffset - 1];
-                        if (j < lastY) origDiag.e[idxRow] = matrixA[matRowOffset + 1];
+                        if (j > 0) origDiag.w[idxRow] = matrixA[matRowOffset - strideY];
+                        if (j < lastY) origDiag.e[idxRow] = matrixA[matRowOffset + strideY];
                     }
-                    if (i > 0) origDiag.n[idxRow] = matrixA[matRowOffset - Ny];
-                    if (i < lastX) origDiag.s[idxRow] = matrixA[matRowOffset + Ny];
+                    if (i > 0) origDiag.n[idxRow] = matrixA[matRowOffset - strideX];
+                    if (i < lastX) origDiag.s[idxRow] = matrixA[matRowOffset + strideX];
                 }
             }
 // Решение СЛАУ
@@ -1150,10 +1201,10 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 for (let idx = 0; idx < size2D; idx++) {
                     let ax = origDiag.c[idx] * Tcur[idx];
                     const w = origDiag.w[idx], e = origDiag.e[idx], n = origDiag.n[idx], so = origDiag.s[idx];
-                    if (w !== 0) ax += w * Tcur[idx - 1];
-                    if (e !== 0) ax += e * Tcur[idx + 1];
-                    if (n !== 0) ax += n * Tcur[idx - bandWidth];
-                    if (so !== 0) ax += so * Tcur[idx + bandWidth];
+                    if (w !== 0) ax += w * Tcur[idx - strideY];
+                    if (e !== 0) ax += e * Tcur[idx + strideY];
+                    if (n !== 0) ax += n * Tcur[idx - strideX];
+                    if (so !== 0) ax += so * Tcur[idx + strideX];
                     chordResidual[idx] = rhsVec[idx] - ax;
                 }
                 solverSuccess = substituteBandMatrix(matrixLU, size2D, bandWidth, chordResidual, solverX, precalc);
@@ -1165,7 +1216,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 matrixLU.set(matrixA);
                 solverSuccess = factorBandMatrix(matrixLU, size2D, bandWidth, precalc) &&
                     substituteBandMatrix(matrixLU, size2D, bandWidth, rhsVec, solverX, precalc);
-                if (solverSuccess) computeBandResidual(size2D, bandWidth, rhsVec, solverX, origDiag, residualOut);
+                if (solverSuccess) computeBandResidual(size2D, strideX, strideY, rhsVec, solverX, origDiag, residualOut);
                 luValidForStep = solverSuccess;
                 totalCpuUnits += PICARD_PASS_CPU_COST;
                 currentStepCpuUnits += PICARD_PASS_CPU_COST;
@@ -1231,6 +1282,10 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
 
             buffers[newIdx].set(solverX);
             lastIterMaxSignedDiff = localMaxSignedDiff;
+            {
+                const rho = Number.isFinite(prevDeltaK) && prevDeltaK > 0 ? Math.min(0.9, maxDeltaK / prevDeltaK) : 1;
+                picardRemainingErrK = rho < 1 ? maxDeltaK * Math.min(1, rho / (1 - rho)) : maxDeltaK;
+            }
             if (maxDeltaK < cfg.nonlinearToleranceK) {
                 nonlinearConverged = true;
                 break;
@@ -1326,10 +1381,10 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
             if (targetType === "minTemperature") {
                 let minValK = Infinity;
                 for (let i = 0; i < Nx; i++) {
-                    const nodeTempK = buffers[newIdx][i * Ny];
+                    const nodeTempK = buffers[newIdx][i * strideX];
                     if (nodeTempK < minValK) {
                         minValK = nodeTempK;
-                        criticalNodeIdx = i * Ny;
+                        criticalNodeIdx = i * strideX;
                     }
                 }
                 currentStepCriticalValue = minValK;
@@ -1403,20 +1458,19 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
         }
 
         if (cfg.shouldCalculateAccuracyError && nonlinearConverged) {
-            const lastPicardDeltaK = Math.abs(lastIterMaxSignedDiff);
-            if (lastPicardDeltaK > maxPicardConvergenceErrorC) maxPicardConvergenceErrorC = lastPicardDeltaK;
+            if (picardRemainingErrK > maxPicardConvergenceErrorC) maxPicardConvergenceErrorC = picardRemainingErrK;
             if (residualOut.value > maxLinearResidual) maxLinearResidual = residualOut.value;
             const convergedT = buffers[newIdx];
             const prevT = buffers[curIdx];
             let stepMaxGridErrorSq = 0.0;
             for (let i = 0; i <= lastX; i++) {
-                const iNy = i * Ny;
+                const iBase = i * strideX;
                 const isTopBound = (i === 0);
                 const isBotBound = (i === lastX);
                 const invDxSum = invDxSumArr[i];
                 const dxProdEighth = dxProdEighthArr[i];
                 for (let j = 0; j <= maxActiveJ; j++) {
-                    const idxRow = iNy + j;
+                    const idxRow = iBase + j * strideY;
                     const currentTempK = convergedT[idxRow];
                     const weightY = yErrorWeights[j];
                     let errX;
@@ -1441,25 +1495,25 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                             qSurf = hCooling * (bc.ambientTemperatureK - currentTempK) +
                                 bc.radFactorAmbient * (bc.ambientTemperatureK_4 - currentTempK_4);
                         }
-                        const neighborT = isTopBound ? convergedT[idxRow + Ny] : convergedT[idxRow - Ny];
+                        const neighborT = isTopBound ? convergedT[idxRow + strideX] : convergedT[idxRow - strideX];
                         const dxMeters = isTopBound ? dxTopMeters : dxBotMeters;
                         errX = 0.25 * Math.abs((neighborT - currentTempK) + (dxMeters * qSurf) / kEff) * weightY;
                     } else {
                         const d2Tdx2 = invDxSum * (
-                            (convergedT[idxRow + Ny] - currentTempK) * invDxR[i] * 0.001 -
-                            (currentTempK - convergedT[idxRow - Ny]) * invDxL[i] * 0.001
+                            (convergedT[idxRow + strideX] - currentTempK) * invDxR[i] * 0.001 -
+                            (currentTempK - convergedT[idxRow - strideX]) * invDxL[i] * 0.001
                         );
                         errX = dxProdEighth * Math.abs(d2Tdx2) * weightY;
                     }
                     let errY = 0.0;
                     if (!cfg.is1D && Ny >= 3) {
                         if (j === 0) {
-                            errY = 0.25 * Math.abs(convergedT[idxRow + 1] - currentTempK);
+                            errY = 0.25 * Math.abs(convergedT[idxRow + strideY] - currentTempK);
                         } else {
                             const dy1 = gridY.dy[j - 1];
                             const dy2 = gridY.dy[j];
-                            const slope1 = (currentTempK - convergedT[idxRow - 1]) / dy1;
-                            const slope2 = (convergedT[idxRow + 1] - currentTempK) / dy2;
+                            const slope1 = (currentTempK - convergedT[idxRow - strideY]) / dy1;
+                            const slope2 = (convergedT[idxRow + strideY] - currentTempK) / dy2;
                             const d2Tdy2 = 2.0 * (slope2 - slope1) / (dy1 + dy2);
                             errY = (dy1 * dy2 * 0.125) * Math.abs(d2Tdy2) * weightY;
                         }
@@ -1519,7 +1573,7 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                 currentPercent = Math.floor(maxHeatingPercent + (coolingProgressFraction * coolingWeightRange));
             }
             const nowMs = performance.now();
-            if ((currentPercent > lastReportedPercent && (nowMs - lastReportTimeMs >= UI_PROGRESS_THROTTLE_MS)) || currentPercent === 100) {
+            if (currentPercent >= lastReportedPercent + PROGRESS_REPORT_STEP_PERCENT || (currentPercent === 100 && lastReportedPercent < 100)) {
                 const accuracyMetrics = cfg.shouldCalculateAccuracyError
                     ? buildAccuracyMetrics(cfg.mode, maxLinearResidual, maxPicardConvergenceErrorC, maxTimeErrorC, maxGridErrorC)
                     : null;
@@ -1543,7 +1597,6 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
                     break;
                 }
                 lastReportedPercent = currentPercent;
-                lastReportTimeMs = nowMs;
             }
         }
 // --- Переключение фазы или завершение ---
@@ -1603,20 +1656,12 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     }
 // --- 7.6. Формирование итоговых температурных профилей и отчета ---
     const finalCurIdx = step % 3;
-    if (!heatingProfileC) {
-        heatingProfileC = new Float64Array(size2D);
-        for (let i = 0; i < size2D; i++) {
-            heatingProfileC[i] = buffers[finalCurIdx][i] - 273.15;
-        }
-    }
-    const pauseProfileC = new Float64Array(size2D);
-    for (let i = 0; i < size2D; i++) {
-        pauseProfileC[i] = buffers[finalCurIdx][i] - 273.15;
-    }
+    if (!heatingProfileC) heatingProfileC = exportFieldC(buffers[finalCurIdx]);
+    const pauseProfileC = exportFieldC(buffers[finalCurIdx]);
     if (currentPhase === "heating") {
         reachedTarget = targetType === "time"
             ? time >= targetValue
-            : (targetK == null ? false : isTargetReached2D(buffers[finalCurIdx], Nx, Ny, target, targetK));
+            : (targetK == null ? false : isTargetReached2D(buffers[finalCurIdx], Nx, strideX, target, targetK));
     }
     if (status && status.type === "error") {
         return makeError(status.message || "Simulation broke prematurely.", {
@@ -1628,11 +1673,18 @@ export function simulate2DHeating({ thicknessMm, material, machine, simulation, 
     const accuracyMetrics = cfg.shouldCalculateAccuracyError
         ? buildAccuracyMetrics(cfg.mode, maxLinearResidual, maxPicardConvergenceErrorC, maxTimeErrorC, maxGridErrorC)
         : null;
+    // Боковое тепло распространяется примерно на 2 толщины: при более узкой области край
+    // искусственно влияет на результат (проверено: 20 мм при полуширине 20 → ошибка времени ~6 с)
+    const warnings = [];
+    if (!cfg.is1D && simulation.widthHalfMm < 2 * thicknessMm) {
+        warnings.push(`widthHalfMm = ${simulation.widthHalfMm} mm is narrow for ${thicknessMm} mm sheet; use ≥ ${Math.ceil(2 * thicknessMm)} mm.`);
+    }
     return {
         heatingTimeSeconds: time,
         coolingTimeSeconds: coolingTimeElapsed,
         reachedTarget,
         status: status || { type: "ok" },
+        warnings,
         ...(storeHistory && { history }),
         temperatureProfile: {
             xCoordinatesMm: Array.from(gridX.x),

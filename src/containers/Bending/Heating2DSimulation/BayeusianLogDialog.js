@@ -1,1539 +1,1105 @@
-import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     Box,
     Button,
+    Chip,
     Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    Typography,
     IconButton,
     LinearProgress,
-    Divider,
-    Card,
-    Collapse,
+    MenuItem,
+    TextField,
+    Tooltip,
+    Typography,
     useMediaQuery,
     useTheme
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import TerminalIcon from "@mui/icons-material/Terminal";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopIcon from "@mui/icons-material/Stop";
-import TimerIcon from "@mui/icons-material/Timer";
-import LeaderboardIcon from "@mui/icons-material/Leaderboard";
+import ReplayIcon from "@mui/icons-material/Replay";
+import CheckIcon from "@mui/icons-material/Check";
+import BlockIcon from "@mui/icons-material/Block";
+import TimerOutlinedIcon from "@mui/icons-material/TimerOutlined";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
+import TuneIcon from "@mui/icons-material/Tune";
 
 import {
-    getAdaptiveOptimizerBudget,
-    OPTIMIZER_TASKS,
     DEFAULT_TASK_ID,
+    getAdaptiveOptimizerBudget,
+    getApplicableTasks,
     resolveOptimizerTask
 } from "./optimizer.config";
-
 import { downloadDiagnosticLog } from "./optimizerDiagnostics";
 
 // ============================================================================
-// 1. КОНСТАНТЫ И СТИЛИ UI
+// 1. ОФОРМЛЕНИЕ
+// Тёмная «инженерная» палитра: нейтральный фон, один акцентный цвет,
+// семантические цвета только для статусов. Все числа — моноширинные и табличные.
 // ============================================================================
 
-const LOG_TYPE_STYLES = {
-    info: { color: "#cbd5e1", label: "" },
-    success: { color: "#4ec9b0", label: "" },
-    warning: { color: "#cbd5e1", label: "" },
-    abort: { color: "#f97316", label: "[ABORT]" },
-    error: { color: "#ef4444", label: "[CRIT]" },
-    progress: { color: "#6a9955", label: "" },
-
-    // Цвета режимов выполнения задачи (TASK MODE)
-    final_report: { color: "#eab308" },
-    bayes: { color: "#34d399" },
-    random: { color: "#c586c0" },
-    rand: { color: "#c586c0" },
-    preset: { color: "#4ec9b0" },
-    system: { color: "#38bdf8" }
+const C = {
+    bg: "#0d1015",
+    panel: "#141820",
+    panelAlt: "#181d26",
+    border: "#252b36",
+    borderStrong: "#323a48",
+    text: "#dfe4ec",
+    textDim: "#9aa4b4",
+    textMute: "#6b7585",
+    accent: "#4f8ff7",
+    ok: "#2fbf71",
+    warn: "#f0a531",
+    err: "#ef5350",
+    abort: "#f97316"
 };
 
-const SYS_BOX_SX = {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "baseline",
-    gap: "8px 24px",
-    pb: 1.25,
-    borderBottom: "1px solid rgba(255,255,255,0.05)",
-    width: "100%",
-    fontFamily: "monospace",
-    fontSize: "0.8rem"
+const MONO = "'JetBrains Mono', 'SFMono-Regular', Consolas, Menlo, monospace";
+const NUM_SX = { fontFamily: MONO, fontVariantNumeric: "tabular-nums" };
+
+const MODE_COLORS = {
+    final: "#eab308",
+    bayes: "#34d399",
+    random: "#c586c0",
+    preset: "#4ec9b0",
+    system: "#38bdf8",
+    fallback: "#c586c0",
+    init: "#c586c0"
 };
 
-const EMPTY_SNAPSHOT_STATE = {
-    step: "—",
-    solverRejected: "0",
-    optimizerStep: "—",
-    calcTime: "—",
-    timeError: "—",
-    gridError: "—",
-    picardError: "—",
-    linearResidual: null,
-    picardIters: "—",
-    params: null
+const STATUS_META = {
+    idle: { label: "Ready", color: C.textMute },
+    running: { label: "Running", color: C.accent },
+    stopping: { label: "Finishing", color: C.warn },
+    done: { label: "Completed", color: C.ok },
+    aborted: { label: "Aborted", color: C.err },
+    error: { label: "Error", color: C.err }
+};
+
+const panelSx = {
+    bgcolor: C.panel,
+    border: `1px solid ${C.border}`,
+    borderRadius: "8px",
+    minWidth: 0
+};
+
+const sectionTitleSx = {
+    color: C.textMute,
+    fontSize: "0.68rem",
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase"
 };
 
 // ============================================================================
-// 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ФОРМАТИРОВАНИЯ И ДАННЫХ
+// 2. ФОРМАТИРОВАНИЕ
 // ============================================================================
 
 export const formatTime = (seconds) => {
-    if (!seconds || seconds < 0) return "0s";
-
-    const totalSeconds = Math.floor(seconds);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const secs = totalSeconds % 60;
-
-    return [
-        hours > 0 ? `${hours}h` : null,
-        minutes > 0 ? `${minutes}m` : null,
-        hours > 0 || minutes > 0 ? `${String(secs).padStart(2, "0")}s` : `${secs}s`
-    ].filter(Boolean).join(" ");
+    if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
+    const total = Math.floor(seconds);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${h}h ${m}m ${String(s).padStart(2, "0")}s`;
+    if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
+    return `${s}s`;
 };
 
-function formatNumberWithNBSP(num) {
-    if (num === null || num === undefined || !Number.isFinite(Number(num))) return "—";
-    return new Intl.NumberFormat("fr-FR").format(num).replace(/\s/g, "\u00A0");
-}
+const groupDigits = (num) => new Intl.NumberFormat("fr-FR").format(num).replace(/\s/g, "\u00A0");
 
-function formatParamValue(name, value, taskParameters = {}) {
-    if (value === null || value === undefined) return "—";
-    if (typeof value !== "number") return String(value);
-
-    const config = taskParameters[name];
-    if (config) {
-        const digits = config.digits ?? 5;
-        const formattedValue = value.toFixed(digits);
-        const unit = config.unit ? ` ${config.unit}` : "";
-        return `${formattedValue}${unit}`;
+// Число знаков после запятой по шагу параметра (0.1 → 1, 0.01 → 2, 0.4151 → 4)
+function digitsForStep(step) {
+    if (!Number.isFinite(step) || step <= 0) return 3;
+    for (let d = 0; d <= 6; d++) {
+        if (Math.abs(Math.round(step * 10 ** d) - step * 10 ** d) < 1e-6) return d;
     }
-
-    return value.toFixed(5);
+    return 4;
 }
 
-function formatResidual(val) {
-    if (!Number.isFinite(val)) return null;
-    if (val === 0 || val < 1e-16) return "<1e-16";
-    return val.toExponential(1);
-}
-
-function getCurrentTimestamp() {
-    return new Date().toLocaleTimeString("uk-UA", { hour12: false });
-}
-
-function getStepModeColor(stepMode) {
-    if (!stepMode) return LOG_TYPE_STYLES.system.color;
-    const fullMode = String(stepMode).toLowerCase();
-    const rootMode = fullMode.includes("_") ? fullMode.split("_")[0] : fullMode;
-    return LOG_TYPE_STYLES[rootMode]?.color || LOG_TYPE_STYLES.system.color;
-}
-
-function formatMetricNumber(val, unit = "") {
+function formatNumber(val, unit = "") {
     if (val === null || val === undefined || !Number.isFinite(Number(val))) return "—";
     const num = Number(val);
-    const formatted = Math.abs(num) >= 10000
-        ? formatNumberWithNBSP(Math.round(num))
-        : (Number.isInteger(num) ? String(num) : num.toFixed(3));
-    return unit ? `${formatted} ${unit}` : formatted;
+    const abs = Math.abs(num);
+    let text;
+    if (abs >= 10000) text = groupDigits(Math.round(num));
+    else if (Number.isInteger(num)) text = String(num);
+    else if (abs >= 100) text = num.toFixed(2);
+    else if (abs >= 1) text = num.toFixed(3);
+    else text = num.toFixed(4);
+    return unit ? `${text}\u00A0${unit}` : text;
 }
 
-function formatConstraintBound(c) {
+function formatParamValue(name, value, taskParameters) {
+    if (value === null || value === undefined) return "—";
+    if (typeof value !== "number") return String(value);
+    const cfg = taskParameters?.[name];
+    const digits = cfg?.digits ?? digitsForStep(cfg?.step);
+    const text = value.toFixed(digits);
+    return cfg?.unit ? `${text}\u00A0${cfg.unit}` : text;
+}
+
+function formatBound(c) {
     if (!c) return "";
-    const fmt = (v) => (Math.abs(v) >= 10000 ? formatNumberWithNBSP(Math.round(v)) : String(v));
+    const fmt = (v) => (Math.abs(v) >= 10000 ? groupDigits(Math.round(v)) : String(v));
     const hasMin = Number.isFinite(c.min);
     const hasMax = Number.isFinite(c.max);
-    if (hasMin && hasMax) return `[${fmt(c.min)}..${fmt(c.max)}]`;
+    if (hasMin && hasMax) return `[${fmt(c.min)}…${fmt(c.max)}]`;
     if (hasMax) return `≤ ${fmt(c.max)}`;
     if (hasMin) return `≥ ${fmt(c.min)}`;
     return "";
 }
 
-function extractTechnicalDetails(technicalMetrics) {
-    if (!technicalMetrics) {
-        return {
-            loadVal: "—",
-            calcTime: "—",
-            hasAccuracy: false,
-            tErr: "—",
-            gErr: "—",
-            pErr: "—",
-            resVal: null,
-            stepsSolver: "—",
-            rejectedSolverSteps: "0",
-            picard: "—"
-        };
-    }
+function formatResidual(val) {
+    if (!Number.isFinite(val)) return null;
+    if (val < 1e-16) return "<1e-16";
+    return val.toExponential(1);
+}
 
-    const { accuracy, iterations, calculationTimeMs } = technicalMetrics;
+const formatErr = (v) => (Number.isFinite(v) ? `${Math.abs(v).toFixed(3)}\u00A0°C` : "—");
 
+function extractSolverDetails(tm) {
+    const acc = tm?.accuracy;
+    const it = tm?.iterations;
     return {
-        loadVal: iterations?.totalGridPointsProcessed !== undefined
-            ? formatNumberWithNBSP(iterations.totalGridPointsProcessed)
-            : "—",
-        calcTime: calculationTimeMs !== undefined ? `${calculationTimeMs.toFixed(1)} ms` : "—",
-        hasAccuracy: accuracy?.totalErrorScore !== undefined,
-        tErr: accuracy?.timeIntegrationErrorC !== undefined ? `${accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
-        gErr: accuracy?.spatialGridErrorC !== undefined ? `${accuracy.spatialGridErrorC.toFixed(3)}°C` : "—",
-        pErr: accuracy?.picardConvergenceErrorC !== undefined
-            ? `${Math.abs(accuracy.picardConvergenceErrorC).toFixed(3)}°C`
-            : "—",
-        resVal: formatResidual(accuracy?.linearResidual),
-        stepsSolver: iterations?.totalTimeSteps || "—",
-        rejectedSolverSteps: iterations?.rejectedTimeSteps !== undefined ? String(iterations.rejectedTimeSteps) : "0",
-        picard: iterations?.totalPicardIterations || "—"
+        calcTime: Number.isFinite(tm?.calculationTimeMs) ? `${tm.calculationTimeMs.toFixed(1)}\u00A0ms` : "—",
+        hasAccuracy: Number.isFinite(acc?.totalErrorScore),
+        timeErr: formatErr(acc?.timeIntegrationErrorC),
+        gridErr: formatErr(acc?.spatialGridErrorC),
+        picardErr: formatErr(acc?.picardConvergenceErrorC),
+        residual: formatResidual(acc?.linearResidual),
+        steps: it?.totalTimeSteps ?? "—",
+        rejected: it?.rejectedTimeSteps ?? 0,
+        picardIters: it?.totalPicardIterations ?? "—",
+        load: Number.isFinite(it?.totalGridPointsProcessed) ? groupDigits(it.totalGridPointsProcessed) : "—"
     };
 }
 
+const timestamp = () => new Date().toLocaleTimeString("uk-UA", { hour12: false });
+let logIdCounter = 0;
+const nextLogId = () => `log-${Date.now()}-${++logIdCounter}`;
+
+const modeColor = (stepMode) => {
+    const root = String(stepMode || "system").toLowerCase().split("_")[0];
+    return MODE_COLORS[root] || MODE_COLORS.system;
+};
+
 // ============================================================================
-// 3. ВНУТРЕННИЕ UI-ПОДКОМПОНЕНТЫ (ДЛЯ ЧИТАЕМОСТИ RENDER-ДЕРЕВА)
+// 3. МЕЛКИЕ КОМПОНЕНТЫ
 // ============================================================================
 
-function LogItemRow({ log, idx, isExpanded, onToggleExpand, taskParameters = {} }) {
-    if (!log || !log.text) return null;
+// Таймер обновляет только сам себя, а не весь диалог
+const ElapsedTimer = memo(function ElapsedTimer({ startedAt, baseSeconds, running }) {
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        if (!running) return undefined;
+        const id = setInterval(() => setTick((t) => t + 1), 250);
+        return () => clearInterval(id);
+    }, [running]);
+    const seconds = baseSeconds + (running && startedAt !== null ? (performance.now() - startedAt) / 1000 : 0);
+    return (
+        <Box component="span" sx={{ ...NUM_SX, display: "inline-flex", alignItems: "center", gap: 0.5, color: running ? C.accent : C.textDim }}>
+            <TimerOutlinedIcon sx={{ fontSize: "0.95rem" }} />
+            {formatTime(seconds)}
+        </Box>
+    );
+});
 
-    if (typeof log.text === "string" && log.text.includes("=====")) {
-        return <Divider sx={{ borderColor: "rgba(255,255,255,0.05)", my: 1 }} />;
-    }
+function KeyValue({ label, value, color = C.text }) {
+    return (
+        <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1.5, py: 0.35, minWidth: 0 }}>
+            <Typography component="span" sx={{ color: C.textDim, fontSize: "0.78rem", whiteSpace: "nowrap" }}>{label}</Typography>
+            <Typography component="span" sx={{ ...NUM_SX, color, fontSize: "0.78rem", fontWeight: 600, textAlign: "right", overflowWrap: "anywhere" }}>
+                {value}
+            </Typography>
+        </Box>
+    );
+}
 
-    const hasParams = Boolean(log.candidateParams);
-    const statusColor = LOG_TYPE_STYLES[log.type]?.color || LOG_TYPE_STYLES.success.color;
-    const modeColor = getStepModeColor(log.stepMode);
-    const details = extractTechnicalDetails(log.technicalMetrics);
+// Ширина контейнера — чтобы график рисовался в настоящих пикселях
+function useElementWidth() {
+    const ref = useRef(null);
+    const [width, setWidth] = useState(0);
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return undefined;
+        setWidth(el.clientWidth);
+        if (typeof ResizeObserver === "undefined") return undefined;
+        const ro = new ResizeObserver((entries) => setWidth(entries[0].contentRect.width));
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+    return [ref, width];
+}
 
-    const summary = log.evaluationSummary || (log.finalMetricsCache ? {
-        objective: {
-            value: log.finalMetricsCache.achievedValue,
-            goal: log.finalMetricsCache.appliedObjective,
-            unit: ""
-        },
-        constraints: log.finalMetricsCache.constraints || []
-    } : null);
+// ============================================================================
+// 4. ГРАФИК СХОДИМОСТИ
+// Точки — значения цели по шагам (закрашенные — допустимые, контурные — нарушают
+// ограничения), ступенчатая линия — лучшее найденное значение.
+// ============================================================================
 
-    const renderLogMessage = () => {
-        if (!log.candidateParams || !summary?.objective) return log.text;
+const ConvergenceChart = memo(function ConvergenceChart({ points, goal, unit, bestStep, height = 200 }) {
+    const [ref, width] = useElementWidth();
+    const [hover, setHover] = useState(null);
 
-        const objText = formatMetricNumber(summary.objective.value, summary.objective.unit);
-        const constraintsList = Array.isArray(summary.constraints) ? summary.constraints : [];
+    const model = useMemo(() => {
+        const valid = points.filter((p) => Number.isFinite(p.value));
+        if (valid.length === 0 || width < 60) return null;
+        const values = valid.map((p) => p.value);
+        let yMin = Math.min(...values);
+        let yMax = Math.max(...values);
+        // Логарифмическая шкала, если значения различаются больше чем в 30 раз
+        const useLog = yMin > 0 && yMax / yMin > 30;
+        const tf = useLog ? Math.log10 : (v) => v;
+        let lo = tf(yMin);
+        let hi = tf(yMax);
+        if (hi - lo < 1e-12) {
+            const pad = Math.abs(hi) * 0.01 || 1;
+            lo -= pad;
+            hi += pad;
+        }
+        const padY = (hi - lo) * 0.08;
+        lo -= padY;
+        hi += padY;
+        const maxStep = Math.max(...valid.map((p) => p.step), 2);
+        const minStep = Math.min(...valid.map((p) => p.step), 1);
+        const m = { l: 62, r: 12, t: 12, b: 24 };
+        const plotW = Math.max(10, width - m.l - m.r);
+        const plotH = height - m.t - m.b;
+        const x = (s) => m.l + ((s - minStep) / Math.max(1, maxStep - minStep)) * plotW;
+        const y = (v) => m.t + (1 - (tf(v) - lo) / (hi - lo)) * plotH;
 
-        return (
-            <>
-                {log.text}{" "}
-                <Box component="span" sx={{ fontWeight: 500 }}>
-                    <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>(obj=</Box>
-                    {objText}
-                    {constraintsList.map((c, i) => (
-                        <React.Fragment key={i}>
-                            <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>, {c.name}=</Box>
-                            <Box component="span" sx={{ color: c.feasible ? "inherit" : "#f97316" }}>
-                                {formatMetricNumber(c.value)}
-                            </Box>
-                        </React.Fragment>
-                    ))}
-                    <Box component="span" sx={{ color: "#64748b", fontWeight: 400 }}>)</Box>
+        // Лучшее значение по ходу поиска (только допустимые точки)
+        const better = (a, b) => (goal === "max" ? a > b : a < b);
+        let best = null;
+        const bestPath = [];
+        for (const p of [...valid].sort((a, b) => a.step - b.step)) {
+            if (p.feasible && (best === null || better(p.value, best))) best = p.value;
+            if (best !== null) bestPath.push([x(p.step), y(best)]);
+        }
+        const pathD = bestPath.map(([px, py], i) => {
+            if (i === 0) return `M${px},${py}`;
+            return `H${px}V${py}`;
+        }).join("");
+
+        const ticks = [0, 0.5, 1].map((f) => {
+            const tv = lo + padY + f * (hi - lo - 2 * padY);
+            const v = useLog ? 10 ** tv : tv;
+            return { v, py: y(v) };
+        });
+        return { valid, x, y, m, plotW, plotH, pathD, ticks, maxStep, minStep, useLog };
+    }, [points, width, height, goal]);
+
+    const onMove = useCallback((e) => {
+        if (!model) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        let nearest = null;
+        let dist = Infinity;
+        for (const p of model.valid) {
+            const d = Math.abs(model.x(p.step) - mx);
+            if (d < dist) {
+                dist = d;
+                nearest = p;
+            }
+        }
+        setHover(dist < 24 ? nearest : null);
+    }, [model]);
+
+    return (
+        <Box ref={ref} sx={{ position: "relative", width: "100%", height }}>
+            {!model ? (
+                <Box sx={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: C.textMute, fontSize: "0.8rem" }}>
+                    The convergence plot appears after the first evaluations
                 </Box>
-            </>
-        );
+            ) : (
+                <svg width={width} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)} style={{ display: "block" }}>
+                    {model.ticks.map((t, i) => (
+                        <g key={i}>
+                            <line x1={model.m.l} x2={model.m.l + model.plotW} y1={t.py} y2={t.py} stroke={C.border} strokeDasharray="3 4" />
+                            <text x={model.m.l - 8} y={t.py + 4} textAnchor="end" fill={C.textMute} fontSize="10" fontFamily={MONO}>
+                                {formatNumber(t.v)}
+                            </text>
+                        </g>
+                    ))}
+                    <text x={model.m.l} y={height - 6} fill={C.textMute} fontSize="10" fontFamily={MONO}>#{model.minStep}</text>
+                    <text x={model.m.l + model.plotW} y={height - 6} textAnchor="end" fill={C.textMute} fontSize="10" fontFamily={MONO}>
+                        #{model.maxStep}{model.useLog ? " · log" : ""}
+                    </text>
+                    <path d={model.pathD} fill="none" stroke={C.ok} strokeWidth="2" />
+                    {model.valid.map((p) => (
+                        <circle
+                            key={p.step}
+                            cx={model.x(p.step)}
+                            cy={model.y(p.value)}
+                            r={p.step === bestStep ? 5 : 3}
+                            fill={p.feasible ? C.accent : "transparent"}
+                            stroke={p.step === bestStep ? C.ok : (p.feasible ? C.accent : C.warn)}
+                            strokeWidth={p.step === bestStep ? 2 : 1.25}
+                        />
+                    ))}
+                    {hover && (
+                        <line x1={model.x(hover.step)} x2={model.x(hover.step)} y1={model.m.t} y2={model.m.t + model.plotH} stroke={C.borderStrong} />
+                    )}
+                </svg>
+            )}
+            {hover && model && (
+                <Box
+                    sx={{
+                        position: "absolute",
+                        top: 6,
+                        left: Math.min(Math.max(model.m.l, model.x(hover.step) + 8), width - 150),
+                        px: 1,
+                        py: 0.5,
+                        bgcolor: C.panelAlt,
+                        border: `1px solid ${C.borderStrong}`,
+                        borderRadius: "6px",
+                        pointerEvents: "none",
+                        ...NUM_SX,
+                        fontSize: "0.72rem",
+                        color: C.text
+                    }}
+                >
+                    #{hover.step} · {formatNumber(hover.value, unit)}
+                    {!hover.feasible && <Box component="span" sx={{ color: C.warn }}> · infeasible</Box>}
+                </Box>
+            )}
+        </Box>
+    );
+});
+
+// ============================================================================
+// 5. СТРОКА ЖУРНАЛА
+// ============================================================================
+
+const LogRow = memo(function LogRow({ log, expanded, onToggle, taskParameters, isBest }) {
+    const hasDetails = Boolean(log.candidateParams);
+    const statusColor = log.type === "error" ? C.err : log.type === "abort" ? C.abort : C.text;
+    const summary = log.evaluationSummary;
+    const details = hasDetails ? extractSolverDetails(log.technicalMetrics) : null;
+
+    const toggle = () => hasDetails && onToggle(log.id);
+    const onKeyDown = (e) => {
+        if (hasDetails && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            onToggle(log.id);
+        }
     };
 
     return (
-        <Box
-            sx={{
-                display: "flex",
-                flexDirection: "column",
-                borderBottom: isExpanded ? "1px dashed rgba(255,255,255,0.1)" : "none",
-                pb: isExpanded ? 1 : 0,
-                willChange: "transform, opacity",
-                "@keyframes logFadeSlide": {
-                    "0%": { opacity: 0, transform: "translateY(4px)" },
-                    "100%": { opacity: 1, transform: "translateY(0)" }
-                },
-                animation: "logFadeSlide 0.2s ease-out forwards"
-            }}
-        >
-            {/* Основная строка лога */}
+        <Box sx={{ borderBottom: `1px solid ${expanded ? C.border : "transparent"}` }}>
             <Box
-                onClick={hasParams ? () => onToggleExpand(idx) : undefined}
+                role={hasDetails ? "button" : undefined}
+                tabIndex={hasDetails ? 0 : undefined}
+                aria-expanded={hasDetails ? expanded : undefined}
+                onClick={toggle}
+                onKeyDown={onKeyDown}
                 sx={{
-                    display: "flex",
-                    flexDirection: { xs: "column", sm: "row" },
-                    alignItems: { xs: "flex-start", sm: "center" },
-                    gap: { xs: 0.25, sm: 1 },
-                    py: 0.5,
-                    cursor: hasParams ? "pointer" : "default",
-                    borderRadius: "4px",
+                    display: "grid",
+                    gridTemplateColumns: { xs: "16px auto 1fr", sm: "16px 52px auto 1fr auto" },
+                    alignItems: "baseline",
+                    columnGap: 1,
+                    rowGap: 0.25,
                     px: 1,
-                    mx: -0.5,
-                    fontFamily: "Consolas, Monaco, 'Courier New', monospace",
-                    bgcolor: isExpanded ? "rgba(37, 99, 235, 0.04)" : "transparent",
-                    "&:hover": { bgcolor: hasParams ? "rgba(255, 255, 255, 0.04)" : "transparent" }
+                    py: 0.5,
+                    borderRadius: "4px",
+                    cursor: hasDetails ? "pointer" : "default",
+                    bgcolor: isBest ? "rgba(47,191,113,0.07)" : (expanded ? "rgba(79,143,247,0.06)" : "transparent"),
+                    "&:hover": { bgcolor: hasDetails ? "rgba(255,255,255,0.04)" : undefined },
+                    "&:focus-visible": { outline: `1px solid ${C.accent}` }
                 }}
             >
-                {/* Шапка строки: стрелка + шаг + режим */}
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexShrink: 0 }}>
-                    {hasParams && (
-                        isExpanded
-                            ? <KeyboardArrowDownIcon sx={{ fontSize: "1rem", color: "#64748b" }} />
-                            : <KeyboardArrowRightIcon sx={{ fontSize: "1rem", color: "#64748b" }} />
-                    )}
-
-                    {hasParams && !log.isFinalReportMarker && (
-                        <Typography
-                            component="span"
-                            sx={{ color: statusColor, fontSize: "inherit", fontFamily: "inherit", fontWeight: 500 }}
-                        >
-                            {`step:${String(log.currentStepVisual !== undefined ? log.currentStepVisual : idx).padStart(2, "0")}`}
-                        </Typography>
-                    )}
-
-                    <Box component="span" sx={{ color: modeColor, fontWeight: 600 }}>
-                        {log.stepMode ? `[${String(log.stepMode).toUpperCase()}]` : "[SYSTEM]"}
+                <Box sx={{ color: C.textMute, display: "flex", alignSelf: "center" }}>
+                    {hasDetails && (expanded ? <KeyboardArrowDownIcon sx={{ fontSize: 16 }} /> : <KeyboardArrowRightIcon sx={{ fontSize: 16 }} />)}
+                </Box>
+                <Box sx={{ ...NUM_SX, color: C.textMute, display: { xs: "none", sm: "block" } }}>
+                    {hasDetails && !log.isFinalReportMarker ? `#${String(log.currentStepVisual ?? "").padStart(3, "0")}` : log.timestamp?.slice(0, 5)}
+                </Box>
+                <Box component="span" sx={{ color: modeColor(log.stepMode), fontWeight: 700, fontSize: "0.7rem", letterSpacing: "0.04em" }}>
+                    {log.stepMode ? String(log.stepMode).toUpperCase() : "SYSTEM"}
+                    <Box component="span" sx={{ ...NUM_SX, color: C.textMute, fontWeight: 400, ml: 1, display: { sm: "none" } }}>
+                        {hasDetails && !log.isFinalReportMarker ? `#${log.currentStepVisual}` : ""}
                     </Box>
                 </Box>
-
-                {/* Текст лога на всю ширину */}
-                <Typography
-                    component="span"
-                    sx={{
-                        color: statusColor,
-                        fontSize: "inherit",
-                        fontFamily: "inherit",
-                        minWidth: 0,
-                        pl: { xs: hasParams ? 2.5 : 0, sm: 0 }
-                    }}
-                >
-                    {renderLogMessage()}
-                </Typography>
+                <Box sx={{ color: statusColor, minWidth: 0, gridColumn: { xs: "2 / -1", sm: "auto" }, overflowWrap: "anywhere" }}>
+                    {log.text}
+                    {isBest && <Box component="span" sx={{ color: C.ok, ml: 1, fontWeight: 700 }}>★ best</Box>}
+                </Box>
+                {summary?.objective && hasDetails && (
+                    <Box sx={{ ...NUM_SX, gridColumn: { xs: "2 / -1", sm: "auto" }, color: C.textDim, whiteSpace: "nowrap", textAlign: { sm: "right" } }}>
+                        <Box component="span" sx={{ color: log.type === "error" || log.type === "abort" ? C.err : C.accent, fontWeight: 700 }}>
+                            {formatNumber(summary.objective.value, summary.objective.unit)}
+                        </Box>
+                        {(summary.constraints || []).map((c, i) => (
+                            <Box component="span" key={i} sx={{ ml: 1.25, color: c.feasible ? C.textDim : C.warn }}>
+                                {c.name}={formatNumber(c.value)}
+                            </Box>
+                        ))}
+                    </Box>
+                )}
             </Box>
 
-            {/* Раскрывающаяся панель деталей кандидата */}
-            {hasParams && isExpanded && (
-                <Box
-                    sx={{
-                        ml: { xs: 1, sm: 3 },
-                        pl: { xs: 1, sm: 2 },
-                        pr: 1,
-                        py: 1.5,
-                        bgcolor: "#14171c",
-                        borderRadius: "4px",
-                        mt: 0.5,
-                        mb: 0.5,
-                        borderLeft: "3px solid #2563eb",
-                        minWidth: 0,
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 1.5
-                    }}
-                >
-                    <Box
-                        sx={{
-                            width: "100%",
-                            fontFamily: "monospace",
-                            fontSize: "0.75rem",
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: "4px",
-                            color: "#94a3b8",
-                            pb: 1,
-                            borderBottom: "1px dashed rgba(255,255,255,0.05)",
-                            mb: 1
-                        }}
-                    >
-                        {(log.type === "abort" || log.type === "error") && (
-                            <Box sx={{ color: "#ef4444", fontWeight: "bold", mb: 0.5 }}>
-                                🚨 CRITICAL EXCEPTION / VIOLATION: {log.message || "Simulation problem encountered. Candidate discarded."}
-                            </Box>
-                        )}
-
+            {hasDetails && expanded && (
+                <Box sx={{ ml: { xs: 1, sm: 4 }, mr: 1, mb: 1, mt: 0.5, p: 1.25, bgcolor: C.panelAlt, borderLeft: `2px solid ${C.accent}`, borderRadius: "4px" }}>
+                    {(log.type === "abort" || log.type === "error") && (
+                        <Typography sx={{ color: C.err, fontSize: "0.78rem", fontWeight: 600, mb: 0.75 }}>
+                            {log.message || "Simulation problem encountered. Candidate discarded."}
+                        </Typography>
+                    )}
+                    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, columnGap: 3 }}>
                         <Box>
-                            Simulation calculation time: <strong style={{ color: "#ffffff" }}>{details.calcTime}</strong>
+                            {Object.entries(log.candidateParams).map(([name, value]) => (
+                                <KeyValue key={name} label={taskParameters?.[name]?.label || name} value={formatParamValue(name, value, taskParameters)} color={C.ok} />
+                            ))}
                         </Box>
-
-                        {summary?.objective && (
-                            <Box sx={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
-                                <span>
-                                    Objective ({summary.objective.goal || "opt"}):{" "}
-                                    <strong style={{ color: (log.type === "abort" || log.type === "error") ? "#ef4444" : "#38bdf8" }}>
-                                        {formatMetricNumber(summary.objective.value, summary.objective.unit)}
-                                    </strong>
-                                </span>
-                                {Array.isArray(summary.constraints) && summary.constraints.map((c, i) => (
-                                    <span key={i}>
-                                        {c.name}:{" "}
-                                        <strong style={{ color: c.feasible ? "#10b981" : "#ef4444" }}>
-                                            {formatMetricNumber(c.value)}
-                                        </strong>
-                                    </span>
-                                ))}
-                            </Box>
-                        )}
-
-                        {details.hasAccuracy && (
-                            <Box sx={{ color: "#64748b" }}>
-                                Solver accuracy: Time: {details.tErr}, Grid: {details.gErr}, Picard: {details.pErr}
-                                {details.resVal !== null ? `, Residual: ${details.resVal}` : ""}
-                            </Box>
-                        )}
-
                         <Box>
-                            Solver steps: <strong style={{ color: "#ffffff" }}>{details.stepsSolver}</strong>
-                            <span style={{ color: Number(details.rejectedSolverSteps) > 0 ? "#ce9178" : "#64748b", marginLeft: 4 }}>
-                                ({details.rejectedSolverSteps} rejected)
-                            </span>
-                            {" "}| Picard iterations: <strong style={{ color: "#ffffff" }}>{details.picard}</strong> | Computational load: <strong style={{ color: "#4ec9b0" }}>{details.loadVal} pts</strong>
-                        </Box>
-                    </Box>
-
-                    <Box sx={{ width: "100%" }}>
-                        <Box sx={{ ...SYS_BOX_SX, borderBottom: "none", pb: 0 }}>
-                            {Object.entries(log.candidateParams).map(([name, value]) => {
-                                const displayLabel = taskParameters[name]?.label || name;
-                                return (
-                                    <Typography key={name} variant="body2" color="#94a3b8" fontSize="0.75rem" sx={{ fontFamily: "inherit" }}>
-                                        {displayLabel}: <strong style={{ color: "#10b981", fontWeight: 600 }}>{formatParamValue(name, value, taskParameters)}</strong>
-                                    </Typography>
-                                );
-                            })}
+                            <KeyValue label="Calculation time" value={details.calcTime} />
+                            <KeyValue label="Solver steps" value={`${details.steps} (${details.rejected} rejected)`} color={Number(details.rejected) > 0 ? C.warn : C.text} />
+                            <KeyValue label="Picard iterations" value={details.picardIters} />
+                            <KeyValue label="Computational load" value={details.load} />
+                            {details.hasAccuracy && (
+                                <>
+                                    <KeyValue label="Error: time / grid / Picard" value={`${details.timeErr} / ${details.gridErr} / ${details.picardErr}`} />
+                                    {details.residual && <KeyValue label="Linear residual" value={details.residual} />}
+                                </>
+                            )}
                         </Box>
                     </Box>
                 </Box>
             )}
         </Box>
     );
-}
-
-function BestSnapshotCard({ bestSnapshotState, finalResultReceived, expanded, onToggleExpand, taskParameters = {} }) {
-    const hasParams = Boolean(bestSnapshotState.params);
-
-    return (
-        <Card sx={{ bgcolor: "transparent", border: "none", boxShadow: "none", width: "100%", flexShrink: 0, overflow: "visible" }}>
-            <Box
-                onClick={hasParams ? onToggleExpand : undefined}
-                sx={{
-                    p: 1.5,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    flexWrap: "wrap",
-                    gap: 1,
-                    cursor: hasParams ? "pointer" : "default",
-                    bgcolor: "#14171c",
-                    border: "1px solid #2563eb",
-                    borderRadius: expanded ? "6px 6px 0 0" : "6px",
-                    transition: "background-color 0.2s, border-radius 0.2s",
-                    "&:hover": { bgcolor: hasParams ? "rgba(37, 99, 235, 0.04)" : "transparent" }
-                }}
-            >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <LeaderboardIcon sx={{ color: "#10b981", fontSize: "1.1rem" }} />
-                    <Typography variant="caption" sx={{ color: "#cbd5e1", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                        {finalResultReceived ? "Final optimal configuration" : "Best step evaluation"}{" "}
-                        <span style={{ color: "#38bdf8", fontWeight: 700 }}>{bestSnapshotState.optimizerStep}</span>
-                    </Typography>
-                </Box>
-
-                <Box sx={{ display: "flex", alignItems: "center", gap: { xs: 1, sm: 3 }, flexWrap: "wrap" }}>
-                    <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-                        <Typography variant="caption" sx={{ color: "#94a3b8", fontFamily: "monospace" }}>
-                            Objective ({bestSnapshotState.goalLabel || "MIN"}):{" "}
-                            <Box component="span" sx={{ color: "#38bdf8", fontWeight: "bold" }}>{bestSnapshotState.objectiveText || "—"}</Box>
-                        </Typography>
-                        {Array.isArray(bestSnapshotState.constraints) && bestSnapshotState.constraints.map((c, idx) => (
-                            <Typography key={idx} variant="caption" sx={{ color: "#94a3b8", fontFamily: "monospace" }}>
-                                {c.name}:{" "}
-                                <Box component="span" sx={{ color: c.feasible ? "#10b981" : "#ef4444", fontWeight: "bold" }}>
-                                    {formatMetricNumber(c.value)}
-                                </Box>
-                            </Typography>
-                        ))}
-                    </Box>
-
-                    <Typography variant="caption" color="#64748b" sx={{ fontFamily: "inherit" }}>
-                        Calculation time: <strong style={{ color: "#94a3b8" }}>{bestSnapshotState.calcTime}</strong>
-                    </Typography>
-
-                    {hasParams && (
-                        <IconButton size="small" sx={{ color: "#64748b", p: 0 }}>
-                            {expanded ? <KeyboardArrowUpIcon fontSize="small" /> : <KeyboardArrowDownIcon fontSize="small" />}
-                        </IconButton>
-                    )}
-                </Box>
-            </Box>
-
-            <Collapse in={expanded} timeout="auto" unmountOnExit>
-                {hasParams && (
-                    <Box
-                        sx={{
-                            width: "100%",
-                            bgcolor: "#14171c",
-                            borderRadius: "0 0 6px 6px",
-                            border: "1px solid #2563eb",
-                            borderTop: "none",
-                            p: 2,
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 1.5,
-                            boxSizing: "border-box"
-                        }}
-                    >
-                        {bestSnapshotState.hasAccuracy && (
-                            <Box sx={SYS_BOX_SX}>
-                                <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                                    Solver accuracy: Time: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.timeError}</strong>,
-                                    Grid: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.gridError}</strong>,
-                                    Picard: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.picardError}</strong>
-                                    {bestSnapshotState.linearResidual !== null && (
-                                        <>, Residual: <strong style={{ color: "#cbd5e1", fontWeight: 500 }}>{bestSnapshotState.linearResidual}</strong></>
-                                    )}
-                                </Typography>
-                            </Box>
-                        )}
-
-                        <Box sx={SYS_BOX_SX}>
-                            <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                                Solver steps: <strong style={{ color: "#f8fafc" }}>{bestSnapshotState.step}</strong>
-                                <span style={{ color: Number(bestSnapshotState.solverRejected) > 0 ? "#ce9178" : "#64748b", marginLeft: 6, fontWeight: 600 }}>
-                                    ({bestSnapshotState.solverRejected} rejected)
-                                </span>
-                            </Typography>
-
-                            <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                                Picard iterations:{" "}
-                                <strong style={{ color: (Number(bestSnapshotState.picardIters) / (Number(bestSnapshotState.step) || 1)) > 5 ? "#f59e0b" : "#e2e8f0" }}>
-                                    {bestSnapshotState.picardIters}
-                                </strong>
-                            </Typography>
-
-                            <Typography variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                                Computational load:{" "}
-                                <strong style={{ color: "#10b981", fontWeight: 700 }}>
-                                    {String(bestSnapshotState.load).includes("nodes") ? bestSnapshotState.load : `${bestSnapshotState.load} nodes`}
-                                </strong>
-                            </Typography>
-                        </Box>
-
-                        <Box sx={{ ...SYS_BOX_SX, borderBottom: "none", pb: 0 }}>
-                            {Object.entries(bestSnapshotState.params).map(([name, value]) => {
-                                const displayLabel = taskParameters[name]?.label || name;
-                                return (
-                                    <Typography key={name} variant="body2" color="#94a3b8" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                                        {displayLabel}: <strong style={{ color: "#38bdf8", fontWeight: 600 }}>{formatParamValue(name, value, taskParameters)}</strong>
-                                    </Typography>
-                                );
-                            })}
-                        </Box>
-                    </Box>
-                )}
-            </Collapse>
-        </Card>
-    );
-}
+});
 
 // ============================================================================
-// 4. ОСНОВНОЙ КОМПОНЕНТ ДИАЛОГА ОПТИМИЗАЦИИ
+// 6. ОСНОВНОЙ КОМПОНЕНТ
 // ============================================================================
 
 export function BayeusianLogDialog({ open, onClose, parentState, setParentState }) {
     const theme = useTheme();
-    const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-    const pxSize = isMobile ? 2 : 2.5;
+    const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
-    const [selectedTaskId, setSelectedTaskId] = useState(DEFAULT_TASK_ID);
-
-    const activeTask = useMemo(() => {
+    // --- Исходные данные задачи ---
+    const baseParams = useMemo(() => {
         const thicknessMm = Number(parentState.geometry?.thickness) || 0;
         const widthHalfMm = parentState.simulation?.widthHalfMm !== undefined
             ? parentState.simulation.widthHalfMm
             : ((Number(parentState.geometry?.width) || 0) / 2 || 20);
-
-        return resolveOptimizerTask(selectedTaskId, {
+        return {
             thicknessMm,
             material: parentState.material,
             machine: parentState.machine,
             simulation: { ...parentState.simulation, widthHalfMm }
-        });
-    }, [selectedTaskId, parentState]);
+        };
+    }, [parentState.geometry, parentState.material, parentState.machine, parentState.simulation]);
 
-    const defaultBudget = useMemo(
-        () => getAdaptiveOptimizerBudget(activeTask),
-        [activeTask]
-    );
-
-    // --- Состояние UI и процесса оптимизации ---
-    const [isOptimizing, setIsOptimizing] = useState(false);
-    const [isStoppingGracefully, setIsStoppingGracefully] = useState(false);
-    const [finalResultReceived, setFinalResultReceived] = useState(false);
-    const [wasAborted, setWasAborted] = useState(false);
-
-    const [logs, setLogs] = useState([]);
-    const [expandedLogs, setExpandedLogs] = useState({});
-    const [bestPanelExpanded, setBestPanelExpanded] = useState(false);
-    const [bestLogIndex, setBestLogIndex] = useState(null);
-
-    const [elapsedTime, setElapsedTime] = useState(0);
-    const [progressPercent, setProgressPercent] = useState(0);
-    const [completedSteps, setCompletedSteps] = useState(0);
-    const [totalBudgetTarget, setTotalBudgetTarget] = useState(defaultBudget.totalIterations);
-
-    // --- Ссылки (Refs) для работы с Web Worker и таймерами без лишних ререндеров ---
-    const workerRef = useRef(null);
-    const contentRef = useRef(null);
-    const startTimeRef = useRef(null);
-    const timerIntervalRef = useRef(null);
-    const thinkingTimerRef = useRef(null);
-    const isOptimizingRef = useRef(false);
-    const autoScrollRef = useRef(true);
-    const lastProgressUpdateRef = useRef(0);
-    const completedStepsRef = useRef(0);
-    const bestLogIndexRef = useRef(null);
-    const logsRef = useRef([]);
-
+    // Только задачи, применимые к текущей машине (у Line 3 нет ПИД)
+    const applicableTasks = useMemo(() => getApplicableTasks(baseParams), [baseParams]);
+    const [selectedTaskId, setSelectedTaskId] = useState(DEFAULT_TASK_ID);
     useEffect(() => {
-        logsRef.current = logs;
-    }, [logs]);
-
-    // --- Управление таймерами ---
-    const startTimer = useCallback((initialOffsetSeconds = 0) => {
-        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-        startTimeRef.current = performance.now() - initialOffsetSeconds * 1000;
-        timerIntervalRef.current = setInterval(() => {
-            if (startTimeRef.current !== null) {
-                setElapsedTime((performance.now() - startTimeRef.current) / 1000);
-            }
-        }, 100);
-    }, []);
-
-    const stopTimer = useCallback(() => {
-        if (timerIntervalRef.current) {
-            clearInterval(timerIntervalRef.current);
-            timerIntervalRef.current = null;
+        if (!applicableTasks.some((t) => t.id === selectedTaskId) && applicableTasks.length > 0) {
+            setSelectedTaskId(applicableTasks[0].id);
         }
-        if (thinkingTimerRef.current) {
-            clearTimeout(thinkingTimerRef.current);
-            thinkingTimerRef.current = null;
-        }
-        if (startTimeRef.current !== null) {
-            setElapsedTime((performance.now() - startTimeRef.current) / 1000);
-        }
-        startTimeRef.current = null;
-    }, []);
+    }, [applicableTasks, selectedTaskId]);
 
-    // --- Синхронизация лидера и добавление логов ---
-    const syncLeaderIndex = useCallback((logsArray, bestStepNumber) => {
-        if (bestStepNumber === undefined || bestStepNumber === null) return;
+    const activeTask = useMemo(() => resolveOptimizerTask(selectedTaskId, baseParams), [selectedTaskId, baseParams]);
+    const budget = useMemo(() => getAdaptiveOptimizerBudget(activeTask), [activeTask]);
 
-        let leaderLogIndex = -1;
+    // --- Состояние прогона ---
+    const [runStatus, setRunStatus] = useState("idle");
+    const [logs, setLogs] = useState([]);
+    const [expanded, setExpanded] = useState({});
+    const [bestStepNumber, setBestStepNumber] = useState(null);
+    const [live, setLive] = useState(null); // { step, percent, thinking, params }
+    const [completedSteps, setCompletedSteps] = useState(0);
+    const [totalBudget, setTotalBudget] = useState(budget.totalIterations);
+    const [timer, setTimer] = useState({ startedAt: null, baseSeconds: 0 });
+    const [hasResult, setHasResult] = useState(false);
 
-        for (let i = logsArray.length - 1; i >= 0; i--) {
-            const log = logsArray[i];
-            if (!log || !log.candidateParams) continue;
+    const isRunning = runStatus === "running" || runStatus === "stopping";
 
-            if (log.isFinalReportMarker && !log.isArchivedReport) {
-                leaderLogIndex = i;
-                break;
-            }
-
-            if (!log.isFinalReportMarker && log.currentStepVisual === bestStepNumber) {
-                leaderLogIndex = i;
-                break;
-            }
-        }
-
-        if (leaderLogIndex !== -1) {
-            bestLogIndexRef.current = leaderLogIndex;
-            setTimeout(() => setBestLogIndex(leaderLogIndex), 0);
-        }
-    }, []);
+    // --- Web Worker: создаётся один раз; обработчик берётся из ref, ---
+    // --- поэтому изменение props не убивает идущую оптимизацию      ---
+    const workerRef = useRef(null);
+    const handlerRef = useRef(() => {});
 
     const appendLog = useCallback((entry) => {
-        setLogs((prev) => {
-            const nextLogs = [...prev];
+        setLogs((prev) => [...prev, { ...entry, id: entry.id || nextLogId(), timestamp: entry.timestamp || timestamp() }]);
+    }, []);
 
-            if (prev.length === 0) {
-                nextLogs.push({ ...entry, id: entry.id || `log-${Date.now()}-${Math.random()}` });
-            } else {
-                const lastIdx = prev.length - 1;
-                const lastLog = prev[lastIdx];
+    const pauseTimer = useCallback(() => {
+        setTimer((t) => ({
+            startedAt: null,
+            baseSeconds: t.baseSeconds + (t.startedAt !== null ? (performance.now() - t.startedAt) / 1000 : 0)
+        }));
+    }, []);
 
-                if (lastLog && lastLog.type === "progress" && lastLog.currentStepVisual === entry.currentStepVisual) {
-                    nextLogs[lastIdx] = { ...entry, id: lastLog.id };
-                } else {
-                    nextLogs.push({ ...entry, id: entry.id || `log-${Date.now()}-${Math.random()}` });
-                }
-            }
-
-            syncLeaderIndex(nextLogs, entry.bestStepNumber);
-            return nextLogs;
-        });
-    }, [syncLeaderIndex]);
-
-    const updateProgressLogEntry = useCallback((isThinking, safeStepVisual, totalStepsBudget, validProgress, currentParams, activeMetrics) => {
-        setLogs((prev) => {
-            const isInitPhase = safeStepVisual <= defaultBudget.initPoints;
-            const phaseLabel = isInitPhase ? "INIT" : "STEP";
-
-            const prevLast = prev[prev.length - 1];
-            const resolvedParams = currentParams || (prevLast?.currentStepVisual === safeStepVisual ? prevLast?.candidateParams : null);
-            const resolvedMetrics = activeMetrics || (prevLast?.currentStepVisual === safeStepVisual ? prevLast?.technicalMetrics : null);
-
-            const statusText = isThinking
-                ? `🧠 [BAYES]: STEP ${safeStepVisual}/${totalStepsBudget} | Thinking...`
-                : `⏳ [SOLVER]: ${phaseLabel} ${safeStepVisual}/${totalStepsBudget} | Progress: ${validProgress}%`;
-
-            const newEntry = {
-                type: "progress",
-                text: statusText,
-                timestamp: getCurrentTimestamp(),
-                candidateParams: resolvedParams,
-                technicalMetrics: resolvedMetrics,
-                currentStepVisual: safeStepVisual
-            };
-
-            if (prev.length === 0) {
-                return [{ ...newEntry, id: `log-${Date.now()}-${Math.random()}` }];
-            }
-
-            const lastIdx = prev.length - 1;
-            const lastLog = prev[lastIdx];
-
-            if (lastLog && lastLog.type === "progress" && lastLog.currentStepVisual === safeStepVisual) {
-                const updated = [...prev];
-                updated[lastIdx] = { ...newEntry, id: lastLog.id };
-                return updated;
-            }
-
-            return [...prev, { ...newEntry, id: `log-${Date.now()}-${Math.random()}` }];
-        });
-    }, [defaultBudget.initPoints]);
-
-    // --- Инициализация и обработчики Web Worker ---
-    const initWorker = useCallback(() => {
+    const createWorker = useCallback(() => {
         workerRef.current?.terminate();
-        workerRef.current = null;
-
-        try {
-            const worker = new Worker(
-                new URL("./optimization.worker.js", import.meta.url),
-                { type: "module" }
-            );
-            workerRef.current = worker;
-
-            worker.onmessage = (e) => {
-                if (workerRef.current !== worker) return;
-
-                const { status, percent, error, logEntry } = e.data || {};
-
-                // 1. Успешное завершение всей оптимизации
-                if (status === "success" && e.data?.data) {
-                    downloadDiagnosticLog(e.data.data.diagnosticLogText);
-                    isOptimizingRef.current = false;
-                    setIsOptimizing(false);
-                    setIsStoppingGracefully(false);
-                    stopTimer();
-                    setFinalResultReceived(true);
-                    setBestPanelExpanded(true);
-                    return;
-                }
-
-                // 2. Промежуточный тик прогресса внутри шага
-                if (status === "progress_tick") {
-                    const isThinking = e.data.snapshotStatus === "THINKING";
-                    const progress = Number(percent);
-                    const validProgress = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
-
-                    const currentStep = e.data.currentExecutionCount ?? 0;
-                    const totalStepsBudget = e.data.totalIterations ?? defaultBudget.totalIterations;
-                    const safeStepVisual = Math.min(totalStepsBudget, Math.max(0, currentStep));
-
-                    if (e.data.totalIterations !== undefined && Number.isFinite(e.data.totalIterations)) {
-                        setTotalBudgetTarget(e.data.totalIterations);
-                    }
-
-                    const finishedStepsCount = Math.max(0, safeStepVisual - 1);
-                    completedStepsRef.current = finishedStepsCount;
-                    setCompletedSteps(finishedStepsCount);
-                    setProgressPercent(isThinking ? 0 : validProgress);
-
-                    syncLeaderIndex(logsRef.current, e.data.bestStepNumber);
-
-                    if (!isThinking && thinkingTimerRef.current) {
-                        clearTimeout(thinkingTimerRef.current);
-                        thinkingTimerRef.current = null;
-                    }
-
-                    if (isThinking) {
-                        if (thinkingTimerRef.current) clearTimeout(thinkingTimerRef.current);
-                        thinkingTimerRef.current = setTimeout(() => {
-                            thinkingTimerRef.current = null;
-                            updateProgressLogEntry(true, safeStepVisual, totalStepsBudget, 0, null, null);
-                        }, 300);
-                        return;
-                    }
-
-                    const now = performance.now();
-                    if (now - lastProgressUpdateRef.current > 120 || validProgress === 100 || validProgress === 0) {
-                        lastProgressUpdateRef.current = now;
-                        updateProgressLogEntry(
-                            false,
-                            safeStepVisual,
-                            totalStepsBudget,
-                            validProgress,
-                            e.data.currentParams,
-                            e.data.technicalMetrics
-                        );
-                    }
-                    return;
-                }
-
-                // 3. Завершённый шаг с записью в лог
-                if (status === "log_step" && logEntry) {
-                    if (thinkingTimerRef.current) {
-                        clearTimeout(thinkingTimerRef.current);
-                        thinkingTimerRef.current = null;
-                    }
-
-                    const normalizedLogEntry = (logEntry.type === "warning" && logEntry.candidateParams)
-                        ? { ...logEntry, type: "info", text: "Simulation completed", message: null }
-                        : logEntry;
-
-                    if (normalizedLogEntry.isFinalReportMarker) {
-                        setFinalResultReceived(true);
-                        setProgressPercent(100);
-                        if (completedStepsRef.current > 0) {
-                            setTotalBudgetTarget(completedStepsRef.current);
-                        }
-                    } else {
-                        completedStepsRef.current = normalizedLogEntry.currentStepVisual;
-                        setProgressPercent(0);
-                        setCompletedSteps(normalizedLogEntry.currentStepVisual);
-                    }
-
-                    appendLog(normalizedLogEntry);
-                    return;
-                }
-
-                // 4. Ошибка внутри воркера
-                if (status === "error") {
-                    isOptimizingRef.current = false;
-                    setIsOptimizing(false);
-                    stopTimer();
-                    appendLog({
-                        type: "error",
-                        text: `❌ [Bayesian UI]: Optimization error: ${error || "Unknown internal error"}`,
-                        timestamp: getCurrentTimestamp()
-                    });
-                }
-            };
-
-            worker.onerror = (event) => {
-                if (workerRef.current !== worker) return;
-                isOptimizingRef.current = false;
-                setIsOptimizing(false);
-                stopTimer();
-                appendLog({
-                    type: "error",
-                    text: `❌ Worker Error: ${event.message || "Failed to execute background task"}`,
-                    timestamp: getCurrentTimestamp()
-                });
-            };
-        } catch (err) {
-            isOptimizingRef.current = false;
-            setIsOptimizing(false);
-            stopTimer();
-            appendLog({
-                type: "error",
-                text: `❌ Failed to spawn background worker: ${err.message || err}`,
-                timestamp: getCurrentTimestamp()
-            });
-        }
-    }, [appendLog, stopTimer, syncLeaderIndex, updateProgressLogEntry, defaultBudget.totalIterations]);
+        const worker = new Worker(new URL("./optimization.worker.js", import.meta.url), { type: "module" });
+        worker.onmessage = (e) => handlerRef.current(e.data || {});
+        worker.onerror = (event) => handlerRef.current({ status: "error", error: event.message || "Worker failed to start" });
+        workerRef.current = worker;
+    }, []);
 
     useEffect(() => {
-        initWorker();
+        createWorker();
         return () => {
-            isOptimizingRef.current = false;
             workerRef.current?.terminate();
-            if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-            if (thinkingTimerRef.current) clearTimeout(thinkingTimerRef.current);
+            workerRef.current = null;
         };
-    }, [initWorker]);
+    }, [createWorker]);
 
-    // --- Формирование конфигурации и управление задачами ---
-    const buildWorkerPayload = useCallback((command) => {
-        const thicknessMm = Number(parentState.geometry?.thickness) || 0;
-        const widthHalfMm = parentState.simulation.widthHalfMm !== undefined
-            ? parentState.simulation.widthHalfMm
-            : ((Number(parentState.geometry?.width) || 0) / 2 || 20);
+    const handleWorkerMessage = (msg) => {
+        if (msg.status === "progress_tick") {
+            const step = Math.max(0, msg.currentExecutionCount ?? 0);
+            if (Number.isFinite(msg.totalIterations)) setTotalBudget(msg.totalIterations);
+            if (msg.bestStepNumber !== null && msg.bestStepNumber !== undefined) setBestStepNumber(msg.bestStepNumber);
+            setCompletedSteps(Math.max(0, step - 1));
+            setLive({
+                step,
+                thinking: msg.snapshotStatus === "THINKING",
+                percent: Number.isFinite(Number(msg.percent)) ? Math.max(0, Math.min(100, Number(msg.percent))) : 0,
+                params: msg.currentParams || null
+            });
+            return;
+        }
+        if (msg.status === "log_step" && msg.logEntry) {
+            const entry = msg.logEntry;
+            // Предупреждение модели (например, перегрев) у обычного шага — не ошибка оптимизации
+            const normalized = entry.type === "warning" && entry.candidateParams
+                ? { ...entry, type: "info", text: "Simulation completed", message: null }
+                : entry;
+            if (normalized.bestStepNumber !== null && normalized.bestStepNumber !== undefined) {
+                setBestStepNumber(normalized.bestStepNumber);
+            }
+            if (!normalized.isFinalReportMarker && Number.isFinite(normalized.currentStepVisual)) {
+                setCompletedSteps(normalized.currentStepVisual);
+            }
+            appendLog(normalized);
+            return;
+        }
+        if (msg.status === "success") {
+            downloadDiagnosticLog(msg.data?.diagnosticLogText);
+            const steps = msg.data?.metrics?.searchStepsMade;
+            if (Number.isFinite(steps)) {
+                setCompletedSteps(steps);
+                setTotalBudget(steps);
+            }
+            setLive(null);
+            setHasResult(true);
+            setRunStatus("done");
+            pauseTimer();
+            return;
+        }
+        if (msg.status === "error") {
+            setLive(null);
+            setRunStatus("error");
+            pauseTimer();
+            appendLog({ type: "error", stepMode: "SYSTEM", text: `Optimization error: ${msg.error || "unknown internal error"}` });
+        }
+    };
 
+    // Обработчик обновляется после каждого рендера — воркер всегда видит актуальные setState/данные
+    useLayoutEffect(() => {
+        handlerRef.current = handleWorkerMessage;
+    });
+
+    // --- Команды ---
+    const resetRunView = useCallback(() => {
+        setLogs([]);
+        setExpanded({});
+        setBestStepNumber(null);
+        setLive(null);
+        setCompletedSteps(0);
+        setHasResult(false);
+        setTimer({ startedAt: null, baseSeconds: 0 });
+    }, []);
+
+    const start = useCallback(() => {
+        if (!workerRef.current || isRunning) return;
+        resetRunView();
+        setTotalBudget(budget.totalIterations);
+        setRunStatus("running");
+        setTimer({ startedAt: performance.now(), baseSeconds: 0 });
+        appendLog({ type: "info", stepMode: "SYSTEM", text: `Started: ${activeTask.label}` });
+
+        // Числовые границы параметров считаются здесь, по текущим исходным данным
+        const widthHalfMm = baseParams.simulation.widthHalfMm;
         const paramOverrides = Object.fromEntries(
             Object.entries(activeTask.parameters)
                 .filter(([key]) => !(widthHalfMm === 0 && key === "gridDensityY"))
-                .map(([key, { snap, step, ...rest }]) => [key, rest])
+                .map(([key, { label, path, unit, min, max, step }]) => [key, { label, path, unit, min, max, step }])
         );
-
-        return {
-            command,
+        workerRef.current.postMessage({
+            command: "start",
             baseParams: {
-                thicknessMm,
-                material: { ...parentState.material },
-                machine: { ...parentState.machine },
-                simulation: {
-                    ...parentState.simulation,
-                    widthHalfMm
-                }
+                ...baseParams,
+                material: { ...baseParams.material },
+                machine: { ...baseParams.machine }
             },
-            options: {
-                taskId: selectedTaskId,
-                paramOverrides
-            }
-        };
-    }, [parentState, activeTask, selectedTaskId]);
-
-    const runOptimization = useCallback(() => {
-        if (!workerRef.current || isOptimizingRef.current) return;
-
-        bestLogIndexRef.current = null;
-        completedStepsRef.current = 0;
-        setCompletedSteps(0);
-        setTotalBudgetTarget(defaultBudget.totalIterations);
-        setProgressPercent(0);
-        setElapsedTime(0);
-        setExpandedLogs({});
-        setBestPanelExpanded(false);
-        setFinalResultReceived(false);
-        setWasAborted(false);
-        setIsStoppingGracefully(false);
-        setBestLogIndex(null);
-
-        isOptimizingRef.current = true;
-        setIsOptimizing(true);
-        startTimer(0);
-
-        setLogs([{
-            id: `log-start-${Date.now()}`,
-            type: "info",
-            text: "🟢 [Bayesian Setup]: Started solver grid space optimization task...",
-            timestamp: getCurrentTimestamp()
-        }]);
-
-        try {
-            workerRef.current.postMessage(buildWorkerPayload("start"));
-        } catch (err) {
-            isOptimizingRef.current = false;
-            setIsOptimizing(false);
-            stopTimer();
-            appendLog({
-                type: "error",
-                text: `❌ Error spawning optimization: ${err.message || err}`,
-                timestamp: getCurrentTimestamp()
-            });
-        }
-    }, [defaultBudget.totalIterations, buildWorkerPayload, startTimer, stopTimer, appendLog]);
-
-    const continueOptimization = useCallback(() => {
-        if (!workerRef.current || isOptimizingRef.current) return;
-
-        const extraSteps = defaultBudget.totalIterations;
-        setTotalBudgetTarget(completedStepsRef.current + extraSteps);
-        setFinalResultReceived(false);
-        setBestPanelExpanded(false);
-        setIsStoppingGracefully(false);
-
-        isOptimizingRef.current = true;
-        setIsOptimizing(true);
-        startTimer(elapsedTime);
-
-        setLogs((prev) => {
-            const updated = prev.map((item) =>
-                item?.isFinalReportMarker ? { ...item, isArchivedReport: true } : item
-            );
-
-            const lastReport = [...prev].reverse().find((item) => item?.isFinalReportMarker);
-            if (lastReport?.bestStepNumber !== undefined && lastReport?.bestStepNumber !== null) {
-                syncLeaderIndex(updated, lastReport.bestStepNumber);
-            }
-
-            return updated;
+            options: { taskId: selectedTaskId, paramOverrides }
         });
+    }, [isRunning, resetRunView, budget.totalIterations, appendLog, activeTask, baseParams, selectedTaskId]);
 
-        try {
-            workerRef.current.postMessage(buildWorkerPayload("continue"));
-        } catch (err) {
-            isOptimizingRef.current = false;
-            setIsOptimizing(false);
-            stopTimer();
-            appendLog({
-                type: "error",
-                text: `❌ Error resuming optimization: ${err.message || err}`,
-                timestamp: getCurrentTimestamp()
-            });
-        }
-    }, [defaultBudget.totalIterations, elapsedTime, syncLeaderIndex, buildWorkerPayload, startTimer, stopTimer, appendLog]);
+    const resume = useCallback(() => {
+        if (!workerRef.current || isRunning || !hasResult) return;
+        setTotalBudget((t) => completedSteps + budget.totalIterations || t);
+        setHasResult(false);
+        setRunStatus("running");
+        setTimer((t) => ({ ...t, startedAt: performance.now() }));
+        appendLog({ type: "info", stepMode: "SYSTEM", text: "Continue: re-checking the found optimum with the trained model" });
+        workerRef.current.postMessage({ command: "continue" });
+    }, [isRunning, hasResult, completedSteps, budget.totalIterations, appendLog]);
 
-    const finishOptimizationNow = useCallback(() => {
-        if (!workerRef.current || !isOptimizingRef.current || isStoppingGracefully) return;
-
-        setIsStoppingGracefully(true);
+    const finishNow = useCallback(() => {
+        if (!workerRef.current || runStatus !== "running") return;
+        setRunStatus("stopping");
         workerRef.current.postMessage({ command: "finish_now" });
+        appendLog({ type: "warning", stepMode: "SYSTEM", text: "Finishing the current step and keeping the best configuration…" });
+    }, [runStatus, appendLog]);
 
-        appendLog({
-            type: "warning",
-            text: "⏹️ [USER_STOP]: Finishing current step and finalizing best found configuration...",
-            timestamp: getCurrentTimestamp()
-        });
-    }, [isStoppingGracefully, appendLog]);
+    const abort = useCallback(() => {
+        if (!isRunning) return;
+        createWorker();
+        setLive(null);
+        setHasResult(false);
+        setRunStatus("aborted");
+        pauseTimer();
+        appendLog({ type: "error", stepMode: "SYSTEM", text: "Optimization terminated by user. Results of this run are discarded." });
+    }, [isRunning, createWorker, pauseTimer, appendLog]);
 
-    const abortOptimization = useCallback(() => {
-        if (!isOptimizingRef.current) return;
+    const changeTask = useCallback((id) => {
+        setSelectedTaskId(id);
+        resetRunView();
+        setRunStatus("idle");
+    }, [resetRunView]);
 
-        isOptimizingRef.current = false;
-        setIsOptimizing(false);
-        stopTimer();
-        setProgressPercent(0);
-        setWasAborted(true);
-        setIsStoppingGracefully(false);
+    // --- Производные данные ---
+    // Точки графика: завершённые шаги с вычисленной целью
+    const chartPoints = useMemo(() => logs
+        .filter((l) => l.candidateParams && !l.isFinalReportMarker && Number.isFinite(l.currentStepVisual)
+            && l.type !== "abort" && l.type !== "error" && Number.isFinite(l.evaluationSummary?.objective?.value))
+        .map((l) => ({
+            step: l.currentStepVisual,
+            value: l.evaluationSummary.objective.value,
+            feasible: (l.evaluationSummary.constraints || []).every((c) => c.feasible !== false)
+        })), [logs]);
 
-        workerRef.current?.terminate();
-        workerRef.current = null;
-
-        appendLog({
-            type: "error",
-            text: "🚨 [SYSTEM_CRIT]: Optimization forcibly terminated by client instruction.",
-            timestamp: getCurrentTimestamp()
-        });
-
-        initWorker();
-    }, [initWorker, appendLog, stopTimer]);
-
-    // --- Расчёт показателей лучшего найденного решения ---
-    const bestSnapshotState = useMemo(() => {
-        const unit = activeTask.unit || "";
-        const goalLabel = activeTask.goal === "max" ? "MAX" : "MIN";
-
-        if (bestLogIndex === null || !logs[bestLogIndex]) {
-            return {
-                ...EMPTY_SNAPSHOT_STATE,
-                objectiveText: "—",
-                goalLabel,
-                constraints: [],
-                hasAccuracy: false
-            };
+    // Лучшая запись: итоговый отчёт, иначе шаг с номером лучшего
+    const bestLog = useMemo(() => {
+        for (let i = logs.length - 1; i >= 0; i--) {
+            if (logs[i].isFinalReportMarker) return logs[i];
         }
-
-        const targetLog = logs[bestLogIndex];
-
-        if (targetLog.isFinalReportMarker && targetLog.finalMetricsCache) {
-            const m = targetLog.finalMetricsCache;
-            const bestStepLog = targetLog.bestStepNumber !== undefined && targetLog.bestStepNumber !== null
-                ? [...logs].reverse().find(
-                    (l) => l && !l.isFinalReportMarker && l.currentStepVisual === targetLog.bestStepNumber && l.technicalMetrics
-                )
-                : null;
-
-            const backupTm = bestStepLog?.technicalMetrics || [...logs]
-                .reverse()
-                .find((l) => l && l.technicalMetrics)?.technicalMetrics;
-
-            const rawAchieved = m.achievedValue !== undefined
-                ? Number(m.achievedValue)
-                : (m.achievedLoad !== undefined ? Number(m.achievedLoad) : NaN);
-
-            const stepLabel = targetLog.bestStepNumber !== undefined && targetLog.bestStepNumber !== null
-                ? `#${targetLog.bestStepNumber}`
-                : "FINAL";
-            const stepCalcTimeMs = m?.calculationTimeMs ?? backupTm?.calculationTimeMs;
-
-            return {
-                objectiveText: formatMetricNumber(rawAchieved, unit),
-                goalLabel,
-                constraints: Array.isArray(m.constraints) ? m.constraints : (bestStepLog?.evaluationSummary?.constraints || []),
-                hasAccuracy: backupTm?.accuracy?.totalErrorScore !== undefined,
-                picardError: backupTm?.accuracy?.picardConvergenceErrorC !== undefined
-                    ? `${Math.abs(backupTm.accuracy.picardConvergenceErrorC).toFixed(3)}°C`
-                    : "—",
-                linearResidual: formatResidual(backupTm?.accuracy?.linearResidual),
-                load: backupTm?.iterations?.totalGridPointsProcessed !== undefined
-                    ? formatNumberWithNBSP(backupTm.iterations.totalGridPointsProcessed)
-                    : "—",
-                step: m?.iterations?.totalTimeSteps !== undefined ? String(m.iterations.totalTimeSteps) : "—",
-                solverRejected: m?.iterations?.rejectedTimeSteps !== undefined
-                    ? String(m.iterations.rejectedTimeSteps)
-                    : (backupTm?.iterations?.rejectedTimeSteps !== undefined ? String(backupTm.iterations.rejectedTimeSteps) : "0"),
-                optimizerStep: stepLabel,
-                calcTime: Number.isFinite(Number(stepCalcTimeMs)) ? `${Number(stepCalcTimeMs).toFixed(1)} ms` : "—",
-                timeError: backupTm?.accuracy?.timeIntegrationErrorC !== undefined ? `${backupTm.accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
-                gridError: backupTm?.accuracy?.spatialGridErrorC !== undefined ? `${backupTm.accuracy.spatialGridErrorC.toFixed(3)}°C` : "—",
-                picardIters: m?.iterations?.totalPicardIterations !== undefined
-                    ? String(m.iterations.totalPicardIterations)
-                    : (backupTm?.iterations?.totalPicardIterations !== undefined ? String(backupTm.iterations.totalPicardIterations) : "—"),
-                params: targetLog.candidateParams
-            };
+        if (bestStepNumber === null) return null;
+        for (let i = logs.length - 1; i >= 0; i--) {
+            const l = logs[i];
+            if (l.candidateParams && !l.isFinalReportMarker && l.currentStepVisual === bestStepNumber) return l;
         }
+        return null;
+    }, [logs, bestStepNumber]);
 
-        const tm = targetLog.technicalMetrics;
-        const summary = targetLog.evaluationSummary;
+    // Метрики решателя для итогового отчёта берём из лога самого лучшего шага
+    const bestStepLog = useMemo(() => {
+        if (bestStepNumber === null) return null;
+        for (let i = logs.length - 1; i >= 0; i--) {
+            const l = logs[i];
+            if (l.candidateParams && !l.isFinalReportMarker && l.currentStepVisual === bestStepNumber) return l;
+        }
+        return null;
+    }, [logs, bestStepNumber]);
 
-        return {
-            objectiveText: formatMetricNumber(summary?.objective?.value, summary?.objective?.unit || unit),
-            goalLabel,
-            constraints: Array.isArray(summary?.constraints) ? summary.constraints : [],
-            hasAccuracy: tm?.accuracy?.totalErrorScore !== undefined,
-            picardError: tm?.accuracy?.picardConvergenceErrorC !== undefined
-                ? `${Math.abs(tm.accuracy.picardConvergenceErrorC).toFixed(3)}°C`
-                : "—",
-            linearResidual: formatResidual(tm?.accuracy?.linearResidual),
-            load: tm?.iterations?.totalGridPointsProcessed !== undefined
-                ? formatNumberWithNBSP(tm.iterations.totalGridPointsProcessed)
-                : "—",
-            step: tm?.iterations?.totalTimeSteps !== undefined ? String(tm.iterations.totalTimeSteps) : "—",
-            solverRejected: tm?.iterations?.rejectedTimeSteps !== undefined ? String(tm.iterations.rejectedTimeSteps) : "0",
-            optimizerStep: targetLog.currentStepVisual !== undefined ? `#${targetLog.currentStepVisual}` : "—",
-            calcTime: tm?.calculationTimeMs !== undefined ? `${tm.calculationTimeMs.toFixed(1)} ms` : "—",
-            timeError: tm?.accuracy?.timeIntegrationErrorC !== undefined ? `${tm.accuracy.timeIntegrationErrorC.toFixed(3)}°C` : "—",
-            gridError: tm?.accuracy?.spatialGridErrorC !== undefined ? `${tm.accuracy.spatialGridErrorC.toFixed(3)}°C` : "—",
-            picardIters: tm?.iterations?.totalPicardIterations !== undefined ? String(tm.iterations.totalPicardIterations) : "—",
-            params: targetLog.candidateParams
-        };
-    }, [bestLogIndex, logs, activeTask]);
+    const bestSummary = bestLog?.evaluationSummary || null;
+    const bestDetails = extractSolverDetails(bestStepLog?.technicalMetrics || bestLog?.technicalMetrics);
+    const specConstraints = bestSummary?.constraints?.length ? bestSummary.constraints : (activeTask.spec?.constraints || []);
 
-    const handleApplyParameters = useCallback(() => {
-        if (!bestSnapshotState || !bestSnapshotState.params) return;
+    const toggleExpand = useCallback((id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] })), []);
 
+    // --- Применение найденных параметров ---
+    const applyParameters = useCallback(() => {
+        const params = bestLog?.candidateParams;
+        if (!params) return;
         setParentState((prev) => {
-            let nextState = { ...prev };
+            const next = { ...prev };
             let isGridTask = false;
-
-            for (const [key, val] of Object.entries(bestSnapshotState.params)) {
+            for (const [key, val] of Object.entries(params)) {
                 const path = activeTask.parameters[key]?.path;
                 if (!path) continue;
-
-                if (path.startsWith("simulation.accuracyMode")) {
-                    isGridTask = true;
-                }
-
+                if (path.startsWith("simulation.accuracyMode")) isGridTask = true;
                 const parts = path.split(".");
-                let curr = nextState;
+                let curr = next;
                 for (let i = 0; i < parts.length - 1; i++) {
-                    const part = parts[i];
-                    curr[part] = Array.isArray(curr[part]) ? [...curr[part]] : { ...(curr[part] || {}) };
-                    curr = curr[part];
+                    curr[parts[i]] = Array.isArray(curr[parts[i]]) ? [...curr[parts[i]]] : { ...(curr[parts[i]] || {}) };
+                    curr = curr[parts[i]];
                 }
                 curr[parts[parts.length - 1]] = val;
             }
-
             if (isGridTask) {
-                nextState.simulation = {
-                    ...nextState.simulation,
-                    accuracyMode: bestSnapshotState.params,
-                    customAccuracyParams: bestSnapshotState.params
-                };
+                next.simulation = { ...next.simulation, accuracyMode: { ...params }, customAccuracyParams: { ...params } };
             }
-
-            return nextState;
+            return next;
         });
-
         onClose?.();
-    }, [bestSnapshotState, activeTask, setParentState, onClose]);
+    }, [bestLog, activeTask, setParentState, onClose]);
 
-    // --- Автопрокрутка консоли логов ---
-    useEffect(() => {
-        const container = contentRef.current;
-        if (container && autoScrollRef.current) {
-            container.scrollTo({
-                top: container.scrollHeight,
-                behavior: "smooth"
-            });
+    // --- Прокрутка журнала как в терминале/IDE ---
+    // У нижнего края журнал «следует» за новыми строками мгновенным переходом (до отрисовки
+    // кадра, поэтому нет ни рывка, ни догоняющей анимации при частых строках). Стоит
+    // прокрутить вверх — позиция замирает, а новые строки копятся в счётчике кнопки «↓».
+    const consoleRef = useRef(null);
+    const followRef = useRef(true);
+    const prevLogCount = useRef(0);
+    const [following, setFollowing] = useState(true);
+    const [unseen, setUnseen] = useState(0);
+
+    useLayoutEffect(() => {
+        const added = logs.length - prevLogCount.current;
+        prevLogCount.current = logs.length;
+        const el = consoleRef.current;
+        if (!el) return;
+        if (logs.length === 0) {
+            followRef.current = true;
+            setFollowing(true);
+            setUnseen(0);
+            return;
         }
+        if (followRef.current) el.scrollTop = el.scrollHeight;
+        else if (added > 0) setUnseen((n) => n + added);
     }, [logs.length]);
 
-    const handleLogScroll = useCallback(() => {
-        const container = contentRef.current;
-        if (!container) return;
-        autoScrollRef.current = container.scrollHeight - container.scrollTop - container.clientHeight <= 90;
+    const onConsoleScroll = useCallback(() => {
+        const el = consoleRef.current;
+        if (!el) return;
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        if (atBottom !== followRef.current) {
+            followRef.current = atBottom;
+            setFollowing(atBottom);
+        }
+        if (atBottom) setUnseen(0);
     }, []);
 
-    const handleToggleLogExpand = useCallback((idx) => {
-        setExpandedLogs((prev) => ({ ...prev, [idx]: !prev[idx] }));
+    const jumpToLatest = useCallback(() => {
+        const el = consoleRef.current;
+        if (!el) return;
+        followRef.current = true;
+        setFollowing(true);
+        setUnseen(0);
+        // Единичный переход по кнопке — плавный, чтобы было видно, куда уехали
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }, []);
 
-    // --- Расчёт общего прогресса ---
-    const stepFraction = isOptimizing && !finalResultReceived ? (progressPercent / 100) : 0;
-    const effectiveSteps = finalResultReceived
-        ? totalBudgetTarget
-        : Math.min(totalBudgetTarget, completedSteps + stepFraction);
-
-    const rawTotalProgress = totalBudgetTarget > 0
-        ? Math.min(100, (effectiveSteps / totalBudgetTarget) * 100)
+    // --- Прогресс ---
+    const stepFraction = isRunning && live && !live.thinking ? live.percent / 100 : 0;
+    const overallProgress = totalBudget > 0
+        ? Math.min(100, ((runStatus === "done" ? totalBudget : completedSteps + stepFraction) / totalBudget) * 100)
         : 0;
-    const stepProgressPercent = Math.round(rawTotalProgress);
+    const statusMeta = STATUS_META[runStatus];
+    const goalLabel = (activeTask.goal || "min").toUpperCase();
+    const liveIsInit = live && live.step <= budget.initPoints;
 
-    const sysStatusText = isOptimizing
-        ? "RUNNING_OPTIMIZER_THREAD"
-        : wasAborted
-            ? "THREAD_TERMINATED_BY_USER"
-            : finalResultReceived
-                ? "OPTIMIZATION_COMPLETED"
-                : "WORKER_THREAD_IDLE";
+    // ========================================================================
+    // РЕНДЕР
+    // ========================================================================
+    const header = (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, px: { xs: 1.5, md: 2.5 }, py: 1, bgcolor: C.panel, borderBottom: `1px solid ${C.border}`, flexWrap: { xs: "wrap", md: "nowrap" } }}>
+            <TuneIcon sx={{ color: C.accent }} />
+            <Typography sx={{ color: C.text, fontWeight: 700, fontSize: { xs: "0.95rem", md: "1.05rem" }, whiteSpace: "nowrap" }}>
+                Optimization Monitor
+            </Typography>
+            <Chip
+                size="small"
+                label={statusMeta.label}
+                sx={{ height: 22, fontWeight: 700, fontSize: "0.7rem", color: statusMeta.color, bgcolor: "transparent", border: `1px solid ${statusMeta.color}` }}
+            />
+            <Box sx={{ flexGrow: 1 }} />
+            <TextField
+                select
+                size="small"
+                value={applicableTasks.some((t) => t.id === selectedTaskId) ? selectedTaskId : ""}
+                onChange={(e) => changeTask(e.target.value)}
+                disabled={isRunning}
+                slotProps={{ select: { MenuProps: { slotProps: { paper: { sx: { bgcolor: C.panel, color: C.text, border: `1px solid ${C.border}` } } } } } }}
+                sx={{
+                    order: { xs: 10, md: 0 },
+                    width: { xs: "100%", md: 340 },
+                    "& .MuiInputBase-root": { color: C.text, fontSize: "0.85rem", bgcolor: C.bg },
+                    "& .MuiOutlinedInput-notchedOutline": { borderColor: C.borderStrong },
+                    "& .MuiSvgIcon-root": { color: C.textDim }
+                }}
+            >
+                {applicableTasks.map((t) => (
+                    <MenuItem key={t.id} value={t.id}>{t.label}</MenuItem>
+                ))}
+            </TextField>
+            <Tooltip title={isRunning ? "Stop the optimization first" : "Close"}>
+                <span>
+                    <IconButton aria-label="close" onClick={onClose} disabled={isRunning} sx={{ color: C.textDim }}>
+                        <CloseIcon />
+                    </IconButton>
+                </span>
+            </Tooltip>
+        </Box>
+    );
 
-    const taskSpecConstraints = useMemo(() => {
-        if (Array.isArray(bestSnapshotState.constraints) && bestSnapshotState.constraints.length > 0) {
-            return bestSnapshotState.constraints;
-        }
-        try {
-            const preview = activeTask.evaluateResult({}, parentState, null);
-            return Array.isArray(preview?.constraints) ? preview.constraints : [];
-        } catch {
-            return [];
-        }
-    }, [bestSnapshotState.constraints, activeTask, parentState]);
+    const progressPanel = (
+        <Box sx={{ ...panelSx, p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+                <Typography sx={sectionTitleSx}>Progress</Typography>
+                <Box sx={{ flexGrow: 1 }} />
+                <ElapsedTimer startedAt={timer.startedAt} baseSeconds={timer.baseSeconds} running={timer.startedAt !== null} />
+                <Box component="span" sx={{ ...NUM_SX, color: C.text, fontWeight: 700 }}>
+                    {completedSteps}/{totalBudget}
+                </Box>
+            </Box>
+            <LinearProgress
+                variant="determinate"
+                value={overallProgress}
+                sx={{ height: 6, borderRadius: 3, bgcolor: C.border, "& .MuiLinearProgress-bar": { bgcolor: C.accent, borderRadius: 3 } }}
+            />
+            <Box sx={{ ...NUM_SX, color: C.textDim, fontSize: "0.75rem", display: "flex", gap: 1.5, flexWrap: "wrap" }}>
+                <span>Goal: <Box component="span" sx={{ color: C.accent, fontWeight: 700 }}>{goalLabel}{activeTask.unit ? ` (${activeTask.unit})` : ""}</Box></span>
+                {specConstraints.map((c, i) => (
+                    <span key={c.name || i}>{c.name} {formatBound(c)}</span>
+                ))}
+            </Box>
+            {isRunning && live && (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                    <Typography sx={{ ...NUM_SX, color: C.textDim, fontSize: "0.75rem", whiteSpace: "nowrap" }}>
+                        {live.thinking ? `Model: choosing step ${live.step}` : `${liveIsInit ? "Init" : "Step"} ${live.step}: simulation`}
+                    </Typography>
+                    <LinearProgress
+                        variant={live.thinking ? "indeterminate" : "determinate"}
+                        value={live.percent}
+                        sx={{ flexGrow: 1, height: 4, borderRadius: 2, bgcolor: C.border, "& .MuiLinearProgress-bar": { bgcolor: C.ok } }}
+                    />
+                    <Typography sx={{ ...NUM_SX, color: C.ok, fontSize: "0.75rem", minWidth: 36, textAlign: "right" }}>
+                        {live.thinking ? "" : `${Math.round(live.percent)}%`}
+                    </Typography>
+                </Box>
+            )}
+        </Box>
+    );
 
+    const bestPanel = (
+        <Box sx={{ ...panelSx, p: 1.5, borderColor: hasResult ? C.ok : C.border }}>
+            <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, mb: 1 }}>
+                <Typography sx={sectionTitleSx}>{hasResult ? "Final optimum" : "Best so far"}</Typography>
+                {bestStepNumber !== null && (
+                    <Box component="span" sx={{ ...NUM_SX, color: C.textMute, fontSize: "0.75rem" }}>step #{bestStepNumber}</Box>
+                )}
+            </Box>
+            {!bestLog ? (
+                <Typography sx={{ color: C.textMute, fontSize: "0.8rem" }}>No feasible result yet</Typography>
+            ) : (
+                <>
+                    <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap", mb: 1 }}>
+                        <Typography sx={{ ...NUM_SX, color: C.accent, fontSize: { xs: "1.5rem", md: "1.75rem" }, fontWeight: 700, lineHeight: 1.1 }}>
+                            {formatNumber(bestSummary?.objective?.value)}
+                        </Typography>
+                        <Typography sx={{ color: C.textDim, fontSize: "0.85rem" }}>
+                            {activeTask.unit} · {goalLabel}
+                        </Typography>
+                    </Box>
+                    {(bestSummary?.constraints || []).map((c, i) => (
+                        <KeyValue key={i} label={`${c.name} ${formatBound(c)}`} value={formatNumber(c.value)} color={c.feasible ? C.ok : C.err} />
+                    ))}
+                    <Box sx={{ borderTop: `1px solid ${C.border}`, mt: 1, pt: 1 }}>
+                        {Object.entries(bestLog.candidateParams || {}).map(([name, value]) => (
+                            <KeyValue key={name} label={activeTask.parameters[name]?.label || name} value={formatParamValue(name, value, activeTask.parameters)} color={C.text} />
+                        ))}
+                    </Box>
+                    <Box sx={{ borderTop: `1px solid ${C.border}`, mt: 1, pt: 1 }}>
+                        <KeyValue label="Simulation time" value={bestDetails.calcTime} color={C.textDim} />
+                        <KeyValue label="Solver steps / Picard" value={`${bestDetails.steps} / ${bestDetails.picardIters}`} color={C.textDim} />
+                        <KeyValue label="Computational load" value={bestDetails.load} color={C.textDim} />
+                        {bestDetails.hasAccuracy && (
+                            <KeyValue label="Error: time / grid / Picard" value={`${bestDetails.timeErr} / ${bestDetails.gridErr} / ${bestDetails.picardErr}`} color={C.textDim} />
+                        )}
+                    </Box>
+                </>
+            )}
+        </Box>
+    );
 
-    // --- Рендер ---
+    const chartPanel = (
+        <Box sx={{ ...panelSx, p: 1.5 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1, flexWrap: "wrap" }}>
+                <Typography sx={sectionTitleSx}>Convergence</Typography>
+                <Box sx={{ flexGrow: 1 }} />
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, fontSize: "0.7rem", color: C.textDim, flexWrap: "wrap" }}>
+                    <span><Box component="span" sx={{ color: C.accent }}>●</Box> feasible</span>
+                    <span><Box component="span" sx={{ color: C.warn }}>○</Box> infeasible</span>
+                    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+                        <svg width="11" height="11" viewBox="0 0 11 11" style={{ display: "block" }}>
+                            <circle cx="5.5" cy="5.5" r="3.8" fill={C.accent} stroke={C.ok} strokeWidth="1.8" />
+                        </svg>
+                        best
+                    </Box>
+                </Box>
+            </Box>
+            <ConvergenceChart points={chartPoints} goal={activeTask.goal} unit={activeTask.unit} bestStep={bestStepNumber} height={isMobile ? 170 : 210} />
+        </Box>
+    );
+
+    const consolePanel = (
+        <Box sx={{ ...panelSx, position: "relative", display: "flex", flexDirection: "column", minHeight: { xs: "45vh", md: 0 }, height: { md: "100%" }, overflow: "hidden" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1, borderBottom: `1px solid ${C.border}` }}>
+                <Typography sx={sectionTitleSx}>Evaluation log</Typography>
+                <Box component="span" sx={{ ...NUM_SX, color: C.textMute, fontSize: "0.72rem" }}>{chartPoints.length} evaluated</Box>
+                <Box sx={{ flexGrow: 1 }} />
+                {!following && logs.length > 0 && (
+                    <Box component="span" sx={{ color: C.warn, fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.04em" }}>PAUSED</Box>
+                )}
+            </Box>
+            {!following && logs.length > 0 && (
+                <Button
+                    size="small"
+                    onClick={jumpToLatest}
+                    startIcon={<KeyboardArrowDownIcon />}
+                    sx={{
+                        position: "absolute",
+                        right: 16,
+                        bottom: 16,
+                        zIndex: 2,
+                        textTransform: "none",
+                        fontWeight: 700,
+                        borderRadius: "16px",
+                        px: 1.5,
+                        color: "#fff",
+                        bgcolor: unseen > 0 ? C.accent : C.borderStrong,
+                        boxShadow: "0 4px 14px rgba(0,0,0,0.45)",
+                        "&:hover": { bgcolor: unseen > 0 ? "#3d7be6" : C.border }
+                    }}
+                >
+                    {unseen > 0 ? `${unseen} new` : "Latest"}
+                </Button>
+            )}
+            <Box
+                ref={consoleRef}
+                onScroll={onConsoleScroll}
+                sx={{
+                    flexGrow: 1,
+                    overflowY: "auto",
+                    // Не даём браузеру самому «подтягивать» прокрутку при росте содержимого
+                    overflowAnchor: "none",
+                    overscrollBehavior: "contain",
+                    maxHeight: { xs: "60vh", md: "none" },
+                    px: 0.5,
+                    py: 0.5,
+                    bgcolor: C.bg,
+                    fontFamily: MONO,
+                    fontSize: { xs: "0.72rem", sm: "0.78rem" },
+                    lineHeight: 1.5
+                }}
+            >
+                {logs.length === 0 ? (
+                    <Typography sx={{ color: C.textMute, fontStyle: "italic", textAlign: "center", mt: 4, fontSize: "0.8rem" }}>
+                        Select a task and press “Start”.
+                    </Typography>
+                ) : (
+                    logs.map((log) => (
+                        <LogRow
+                            key={log.id}
+                            log={log}
+                            expanded={Boolean(expanded[log.id])}
+                            onToggle={toggleExpand}
+                            taskParameters={activeTask.parameters}
+                            isBest={!log.isFinalReportMarker && bestStepNumber !== null && log.currentStepVisual === bestStepNumber && Boolean(log.candidateParams)}
+                        />
+                    ))
+                )}
+            </Box>
+        </Box>
+    );
+
+    const btnSx = { textTransform: "none", fontWeight: 600, borderRadius: "6px", px: 2, whiteSpace: "nowrap" };
+    const actions = (
+        <Box
+            sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                px: { xs: 1.5, md: 2.5 },
+                py: 1.25,
+                bgcolor: C.panel,
+                borderTop: `1px solid ${C.border}`,
+                flexWrap: "wrap",
+                justifyContent: "flex-end",
+                pb: { xs: "calc(10px + env(safe-area-inset-bottom))", md: 1.25 }
+            }}
+        >
+            {isRunning ? (
+                <>
+                    <Button variant="outlined" onClick={finishNow} disabled={runStatus === "stopping"} startIcon={<StopIcon />}
+                            sx={{ ...btnSx, flex: { xs: 1, md: "none" }, color: C.warn, borderColor: "rgba(240,165,49,0.5)" }}>
+                        {runStatus === "stopping" ? "Finishing…" : "Finish & keep best"}
+                    </Button>
+                    <Button variant="outlined" onClick={abort} startIcon={<BlockIcon />}
+                            sx={{ ...btnSx, flex: { xs: 1, md: "none" }, color: C.err, borderColor: "rgba(239,83,80,0.5)" }}>
+                        Abort
+                    </Button>
+                </>
+            ) : (
+                <>
+                    <Button variant="text" onClick={onClose} sx={{ ...btnSx, color: C.textDim, mr: { md: "auto" }, order: { xs: 3, md: 0 } }}>
+                        {hasResult ? "Discard & close" : "Close"}
+                    </Button>
+                    {hasResult && (
+                        <Button variant="outlined" onClick={resume} startIcon={<ReplayIcon />}
+                                sx={{ ...btnSx, flex: { xs: 1, md: "none" }, color: C.accent, borderColor: "rgba(79,143,247,0.5)" }}>
+                            Continue (+{budget.totalIterations})
+                        </Button>
+                    )}
+                    <Button variant={hasResult ? "outlined" : "contained"} onClick={start} startIcon={<PlayArrowIcon />}
+                            disabled={applicableTasks.length === 0}
+                            sx={{ ...btnSx, flex: { xs: 1, md: "none" }, ...(hasResult ? { color: C.text, borderColor: C.borderStrong } : { bgcolor: C.accent, boxShadow: "none" }) }}>
+                        {runStatus === "idle" ? "Start" : "Run again"}
+                    </Button>
+                    {hasResult && (
+                        <Button variant="contained" onClick={applyParameters} startIcon={<CheckIcon />} disabled={!bestLog?.candidateParams}
+                                sx={{ ...btnSx, flex: { xs: "1 1 100%", md: "none" }, bgcolor: C.ok, boxShadow: "none", "&:hover": { bgcolor: "#27a862" } }}>
+                            Apply parameters
+                        </Button>
+                    )}
+                </>
+            )}
+        </Box>
+    );
+
     return (
         <Dialog
             open={open}
-            onClose={(event, reason) => {
-                if (reason === "backdropClick") return;
-                if (!isOptimizing) onClose?.();
-            }}
             fullScreen
             disableEnforceFocus
-            slotProps={{
-                paper: {
-                    sx: {
-                        bgcolor: "#121417",
-                        backgroundImage: "none",
-                        borderRadius: 0,
-                        border: "none",
-                        boxShadow: "none",
-                        display: "flex",
-                        flexDirection: "column",
-                        height: "100%",
-                        maxHeight: "100%"
-                    }
-                }
+            onClose={(_e, reason) => {
+                if (reason === "backdropClick" || isRunning) return;
+                onClose?.();
             }}
+            slotProps={{ paper: { sx: { bgcolor: C.bg, backgroundImage: "none", display: "flex", flexDirection: "column", color: C.text } } }}
         >
-            {/* Заголовок окна */}
-            <DialogTitle
+            {header}
+            <Box
                 sx={{
-                    m: 0,
-                    px: pxSize,
-                    py: 1.5,
-                    bgcolor: "#1a1d24",
-                    borderBottom: "1px solid rgba(255,255,255,0.08)",
-                    flexShrink: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 1
+                    flexGrow: 1,
+                    minHeight: 0,
+                    p: { xs: 1, md: 2 },
+                    gap: { xs: 1, md: 2 },
+                    overflowY: { xs: "auto", md: "hidden" },
+                    display: { xs: "flex", md: "grid" },
+                    flexDirection: "column",
+                    gridTemplateColumns: { md: "minmax(340px, 38%) 1fr" }
                 }}
             >
-                <Box
-                    sx={{
-                        flexGrow: 1,
-                        minWidth: 0,
-                        display: "flex",
-                        flexDirection: { xs: "column", sm: "row" },
-                        alignItems: { xs: "flex-start", sm: "center" },
-                        gap: { xs: 1, sm: 1.5 }
-                    }}
-                >
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, maxWidth: "100%" }}>
-                        <TerminalIcon sx={{ color: "#2563eb", fontSize: "1.2rem", flexShrink: 0 }} />
-                        <Typography
-                            variant="subtitle1"
-                            component="span"
-                            sx={{
-                                color: "#e2e8f0",
-                                fontWeight: 600,
-                                fontSize: isMobile ? "0.95rem" : "1.2rem",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap"
-                            }}
-                        >
-                            Bayesian Grid Optimization Monitor
-                        </Typography>
-                    </Box>
-
-                    <select
-                        value={selectedTaskId}
-                        disabled={isOptimizing}
-                        onChange={(e) => {
-                            setSelectedTaskId(e.target.value);
-                            setLogs([]);
-                            setBestLogIndex(null);
-                            setFinalResultReceived(false);
-                        }}
-                        style={{
-                            width: isMobile ? "100%" : "auto",
-                            maxWidth: "100%",
-                            backgroundColor: "#0f172a",
-                            color: "#e2e8f0",
-                            border: "1px solid #334155",
-                            borderRadius: "4px",
-                            padding: "6px 8px",
-                            fontSize: "0.85rem",
-                            cursor: isOptimizing ? "not-allowed" : "pointer"
-                        }}
-                    >
-                        {Object.values(OPTIMIZER_TASKS).map((t) => (
-                            <option key={t.id} value={t.id}>
-                                {t.label}
-                            </option>
-                        ))}
-                    </select>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: { xs: 1, md: 2 }, minHeight: 0, overflowY: { md: "auto" } }}>
+                    {progressPanel}
+                    {bestPanel}
+                    {chartPanel}
                 </Box>
-
-                <IconButton
-                    aria-label="close"
-                    onClick={onClose}
-                    disabled={isOptimizing}
-                    sx={{ p: 0.5, alignSelf: { xs: "flex-start", sm: "center" }, color: "text.secondary" }}
-                >
-                    <CloseIcon fontSize="medium" />
-                </IconButton>
-            </DialogTitle>
-
-            {/* Основное содержимое */}
-            <DialogContent sx={{ px: pxSize, py: 2.5, borderColor: "divider", display: "flex", flexDirection: "column", gap: 2, flexGrow: isMobile ? 1 : 0, overflowY: "auto" }}>
-                {/* Общий прогресс оптимизации */}
-                <Box sx={{ width: "100%", bgcolor: "#181b22", p: 1, px: 1.5, borderRadius: "6px", border: "1px solid #282c34", display: "flex", alignItems: { xs: "stretch", sm: "center" }, justifyContent: "space-between", flexDirection: { xs: "column", sm: "row" }, gap: 1.5, flexShrink: 0 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
-                        <Typography variant="caption" sx={{ color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", fontSize: "0.75rem", whiteSpace: "nowrap" }}>
-                            Total Optimization Progress
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: "#64748b", fontFamily: "monospace", fontSize: "0.75rem" }}>
-                            Goal:{" "}
-                            <Box component="span" sx={{ color: "#38bdf8", fontWeight: 600 }}>
-                                {(activeTask.goal || "min").toUpperCase()}{activeTask.unit ? ` (${activeTask.unit})` : ""}
-                            </Box>
-                            {taskSpecConstraints.length > 0 && (
-                                <>
-                                    {" | "}
-                                    {taskSpecConstraints.map((c, idx) => (
-                                        <React.Fragment key={c.name || idx}>
-                                            {idx > 0 ? ", " : ""}
-                                            <Box component="span" sx={{ color: "#94a3b8" }}>
-                                                {c.name} {formatConstraintBound(c)}
-                                            </Box>
-                                        </React.Fragment>
-                                    ))}
-                                </>
-                            )}
-                        </Typography>
-                    </Box>
-
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexGrow: 1, width: { xs: "100%", sm: "auto" }, justifyContent: "flex-end" }}>
-                        <Typography variant="caption" sx={{ color: isOptimizing ? "#3b82f6" : "#f8fafc", fontFamily: "monospace", fontWeight: 700, display: "flex", alignItems: "center", gap: 0.5, whiteSpace: "nowrap" }}>
-                            <TimerIcon sx={{ fontSize: "0.9rem", opacity: 0.8 }} />
-                            {formatTime(elapsedTime)}
-                        </Typography>
-
-                        <Typography variant="caption" sx={{ color: "#2563eb", fontWeight: "bold", fontFamily: "monospace", whiteSpace: "nowrap" }}>
-                            {completedSteps}/{totalBudgetTarget}
-                        </Typography>
-
-                        <LinearProgress
-                            variant="determinate"
-                            value={rawTotalProgress}
-                            sx={{
-                                height: 4,
-                                width: "100%",
-                                minWidth: 40,
-                                maxWidth: { sm: "300px", md: "400px" },
-                                borderRadius: 2,
-                                bgcolor: "#22252e",
-                                "& .MuiLinearProgress-bar": { bgcolor: "#2563eb", borderRadius: 2 }
-                            }}
-                        />
-
-                        <Typography variant="caption" sx={{ color: "#2563eb", fontWeight: "bold", fontFamily: "monospace", whiteSpace: "nowrap" }}>
-                            {stepProgressPercent}%
-                        </Typography>
-                    </Box>
+                <Box sx={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+                    {consolePanel}
                 </Box>
-
-                {/* Прогресс текущей симуляции */}
-                {isOptimizing && (
-                    <Box sx={{ width: "100%", bgcolor: "#14171c", p: 1, px: 1.5, borderRadius: "6px", border: "1px dashed rgba(37, 99, 235, 0.3)", display: "flex", alignItems: { xs: "stretch", sm: "center" }, justifyContent: "space-between", flexDirection: { xs: "column", sm: "row" }, gap: 1, flexShrink: 0 }}>
-                        <Typography variant="caption" sx={{ color: "#94a3b8", fontWeight: 500, fontSize: "0.75rem" }}>
-                            ⏳ Current solver simulation progress...
-                        </Typography>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: { xs: "100%", sm: "30%" } }}>
-                            <LinearProgress
-                                variant="determinate"
-                                value={progressPercent}
-                                sx={{ height: 4, width: "100%", borderRadius: 2, bgcolor: "#22252e", "& .MuiLinearProgress-bar": { bgcolor: "#10b981", transition: "transform 0.25s cubic-bezier(0.1, 0.8, 0.25, 1)" } }}
-                            />
-                            <Typography variant="caption" sx={{ color: "#10b981", fontWeight: "bold", fontFamily: "monospace" }}>
-                                {progressPercent}%
-                            </Typography>
-                        </Box>
-                    </Box>
-                )}
-
-                {/* Консоль вывода логов */}
-                <Box sx={{ display: "flex", flexDirection: "column", borderRadius: "6px", overflow: "hidden", border: "1px solid #2d3139", flexGrow: 1, minHeight: 180 }}>
-                    <Box sx={{ bgcolor: "#181b22", px: 2, py: 0.8, display: "flex", alignItems: "center", gap: 1, borderBottom: "1px solid #2d3139", flexShrink: 0 }}>
-                        <TerminalIcon sx={{ fontSize: "0.95rem", color: "#64748b" }} />
-                        <Typography variant="caption" sx={{ color: "#94a3b8", fontFamily: "monospace", fontWeight: 600 }}>
-                            STDOUT / LOGS_STREAM
-                        </Typography>
-                        <Typography variant="body2" color="#64748b" fontSize="0.8rem" sx={{ fontFamily: "inherit" }}>
-                            Task: <strong style={{ color: "#94a3b8" }}>{activeTask.label}</strong>
-                        </Typography>
-                    </Box>
-
-                    <Box
-                        ref={contentRef}
-                        onScroll={handleLogScroll}
-                        sx={{
-                            bgcolor: "#0b0c10",
-                            p: { xs: 1, sm: 2 },
-                            fontFamily: "Consolas, Monaco, 'Courier New', monospace",
-                            fontSize: { xs: "0.75rem", sm: "0.8rem" },
-                            whiteSpace: "pre-wrap",
-                            overflowWrap: "anywhere",
-                            height: isMobile ? "42vh" : "50vh",
-                            minHeight: 160,
-                            overflowY: "auto",
-                            lineHeight: 1.5,
-                            flexGrow: 1
-                        }}
-                    >
-                        {logs.length === 0 ? (
-                            <Typography sx={{ color: "#475569", fontFamily: "inherit", fontSize: "inherit", fontStyle: "italic", textAlign: "center", mt: 4 }}>
-                                Queue empty. Press "Start Optimization" to begin tracing execution thread.
-                            </Typography>
-                        ) : (
-                            logs.map((log, idx) => (
-                                <LogItemRow
-                                    key={log?.id || idx}
-                                    log={log}
-                                    idx={idx}
-                                    isExpanded={Boolean(expandedLogs[idx])}
-                                    onToggleExpand={handleToggleLogExpand}
-                                    taskParameters={activeTask.parameters}
-                                />
-                            ))
-                        )}
-                    </Box>
-                </Box>
-
-                {/* Карточка лучшего найденного решения */}
-                {logs.length > 0 && (
-                    <BestSnapshotCard
-                        bestSnapshotState={bestSnapshotState}
-                        finalResultReceived={finalResultReceived}
-                        expanded={bestPanelExpanded}
-                        onToggleExpand={() => setBestPanelExpanded((prev) => !prev)}
-                        taskParameters={activeTask.parameters}
-                    />
-                )}
-            </DialogContent>
-
-            {/* Нижняя панель статуса и управления */}
-            <DialogActions sx={{ px: pxSize, py: 1.5, m: 0, gap: 1, borderTop: "1px solid rgba(255,255,255,0.08)", backgroundColor: "#1a1d24", flexShrink: 0, minHeight: "auto", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: "stretch" }}>
-                <Box sx={{ fontFamily: "monospace", fontWeight: 600, color: isOptimizing ? "#3b82f6" : wasAborted ? "#ef4444" : "#64748b", fontSize: "0.7rem", textAlign: isMobile ? "center" : "left", mb: isMobile ? 1 : 0, alignSelf: "center" }}>
-                    SYS_STATUS: {sysStatusText}
-                </Box>
-
-                <Box sx={{ display: "flex", gap: 1, width: isMobile ? "100%" : "auto", flexDirection: isMobile ? "column-reverse" : "row", justifyContent: "flex-end" }}>
-                    {isOptimizing ? (
-                        <>
-                            <Button
-                                variant="outlined"
-                                size="small"
-                                onClick={finishOptimizationNow}
-                                disabled={isStoppingGracefully}
-                                startIcon={<StopIcon />}
-                                fullWidth={isMobile}
-                                sx={{ color: "#f59e0b", borderColor: "rgba(245, 158, 11, 0.4)", textTransform: "none", fontWeight: 500, fontSize: "0.85rem", px: 2, borderRadius: isMobile ? 1.5 : 2, "&:hover": { borderColor: "#f59e0b", bgcolor: "rgba(245, 158, 11, 0.06)" } }}
-                            >
-                                {isStoppingGracefully ? "Finishing..." : "Finish & Keep Best"}
-                            </Button>
-
-                            <Button
-                                variant="outlined"
-                                size="small"
-                                onClick={abortOptimization}
-                                fullWidth={isMobile}
-                                sx={{ color: "#f44336", borderColor: "rgba(244, 67, 54, 0.4)", textTransform: "none", fontWeight: 500, fontSize: "0.85rem", px: 2, borderRadius: isMobile ? 1.5 : 2, "&:hover": { borderColor: "#f44336", bgcolor: "rgba(244, 67, 54, 0.06)" } }}
-                            >
-                                Abort Calculation
-                            </Button>
-
-                            <Button
-                                variant="contained"
-                                size="small"
-                                disabled
-                                fullWidth={isMobile}
-                                sx={{ textTransform: "none", fontWeight: 500, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, "&.Mui-disabled": { bgcolor: "#1e293b", color: "#64748b" } }}
-                            >
-                                {isStoppingGracefully ? "Finalizing..." : "Calculating..."}
-                            </Button>
-                        </>
-                    ) : (
-                        <>
-                            <Button
-                                variant="outlined"
-                                size="small"
-                                onClick={onClose}
-                                fullWidth={isMobile}
-                                sx={{ color: "#cbd5e1", borderColor: "#334155", textTransform: "none", fontWeight: 500, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, "&:hover": { borderColor: "#475569", bgcolor: "rgba(255,255,255,0.02)" } }}
-                            >
-                                {finalResultReceived ? "Discard & Close" : "Close Window"}
-                            </Button>
-
-                            {finalResultReceived && (
-                                <>
-                                    <Button
-                                        variant="outlined"
-                                        size="small"
-                                        onClick={continueOptimization}
-                                        startIcon={<PlayArrowIcon />}
-                                        fullWidth={isMobile}
-                                        sx={{ color: "#38bdf8", borderColor: "rgba(56, 189, 248, 0.4)", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 2.5, borderRadius: isMobile ? 1.5 : 2, "&:hover": { borderColor: "#38bdf8", bgcolor: "rgba(56, 189, 248, 0.06)" } }}
-                                    >
-                                        Continue (+{defaultBudget.totalIterations})
-                                    </Button>
-
-                                    <Button
-                                        variant="contained"
-                                        size="small"
-                                        onClick={handleApplyParameters}
-                                        disabled={!bestSnapshotState || !bestSnapshotState.params}
-                                        fullWidth={isMobile}
-                                        sx={{ bgcolor: "#2563eb", color: "#ffffff", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, boxShadow: "none", "&:hover": { bgcolor: "#1d4ed8" }, "&.Mui-disabled": { bgcolor: "#1e293b", color: "#64748b" } }}
-                                    >
-                                        Apply Parameters
-                                    </Button>
-                                </>
-                            )}
-
-                            <Button
-                                variant="contained"
-                                size="small"
-                                onClick={runOptimization}
-                                startIcon={<PlayArrowIcon />}
-                                fullWidth={isMobile}
-                                sx={{ bgcolor: "#10b981", color: "#ffffff", textTransform: "none", fontWeight: 600, fontSize: "0.85rem", px: 3, borderRadius: isMobile ? 1.5 : 2, boxShadow: "none", "&:hover": { bgcolor: "#059669" } }}
-                            >
-                                {finalResultReceived || wasAborted ? "Run Again" : "Start Optimization"}
-                            </Button>
-                        </>
-                    )}
-                </Box>
-            </DialogActions>
+            </Box>
+            {actions}
         </Dialog>
     );
 }
