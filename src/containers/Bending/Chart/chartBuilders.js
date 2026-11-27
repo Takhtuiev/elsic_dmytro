@@ -59,7 +59,7 @@ const createHorizontalXAxis = (width, finalXTgPauseValue, colors) => {
     }
 
     if (finalXTgPauseValue != null) {
-        const label = `Гибочная зона (${(finalXTgPauseValue * 2).toFixed(1)} мм)`;
+        const label = `Bending zone (${(finalXTgPauseValue * 2).toFixed(1)} mm)`;
         lines.push(
             { value: finalXTgPauseValue, color: colors.warningMain, lineWidth: 1.5, dashArray: "4 4", label },
             { value: -finalXTgPauseValue, color: colors.warningMain, lineWidth: 1.5, dashArray: "4 4" }
@@ -80,7 +80,7 @@ const createContoursAxes = (width, contourGraphsRaw, lastXCoord, matKFactor, col
     const maxXRaw = Number.isFinite(maxAbsX) ? maxAbsX : width > 0 ? width / 2 : 15;
     const roundedXMax = Math.ceil(maxXRaw / 5) * 5;
 
-    const xLines = [{ value: 0, color: colors.textSecondary, label: "Центр" }];
+    const xLines = [{ value: 0, color: colors.textSecondary }];
     if (width > 0) {
         for (let val = 5; val <= roundedXMax; val += 5) {
             xLines.push(
@@ -98,7 +98,7 @@ const createContoursAxes = (width, contourGraphsRaw, lastXCoord, matKFactor, col
             max: 0,
             lines: [
                 { value: lastXCoord / 2, color: alpha(colors.divider, 0.3) },
-                { value: lastXCoord * matKFactor, color: colors.infoMain, label: `K = ${matKFactor}` },
+                { value: lastXCoord * matKFactor, color: colors.infoMain },
             ],
             ranges: [],
         },
@@ -223,7 +223,7 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
         vertPointsHeating, vertPointsPause,
         rawHorTopH, rawHorMidH, rawHorBotH,
         rawHorTopP, rawHorMidP, rawHorBotP,
-        contourGraphsRaw, fillPolygonsRaw, fillPolygonsByPhase, xCoordinatesMm,
+        contourGraphsRaw, fillPolygonsRaw, fillPolygonsByPhase, sectionFields, xCoordinatesMm,
     } = rawData;
 
     // Изотермы: после паузы (момент гибки) — сплошные, в конце нагрева — тонкие штриховые
@@ -259,7 +259,7 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
         !Number.isFinite(p.lo) ? `<${deg(p.hi)}`
             : !Number.isFinite(p.hi) ? `>${deg(p.lo)}`
                 : `${deg(p.lo)}–${deg(p.hi)}`
-    ) + (p.name === "Optimal Bending" ? " гибка" : "");
+    );
     const styleZones = (raw) => (raw || []).map((p) => ({
         ...p,
         color: zoneStyle[p.name]?.color || colors.successMain,
@@ -273,12 +273,14 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
         Heating: styleZones(fillPolygonsByPhase?.Heating),
     };
     const contourViews = [
-        { key: "Pause", label: "Пауза", fillPolygons: zonesByPhase.Pause, legend: zoneLegend(zonesByPhase.Pause), graphs: styleContours("Pause") },
-        { key: "Heating", label: "Нагрев", fillPolygons: zonesByPhase.Heating, legend: zoneLegend(zonesByPhase.Heating), graphs: styleContours("Heating") },
+        // probe: при наведении — координаты курсора и температура сечения в этой точке
+        { key: "Pause", label: "Pause", fillPolygons: zonesByPhase.Pause, legend: zoneLegend(zonesByPhase.Pause), graphs: styleContours("Pause"), probe: { field: sectionFields?.Pause, unit: "°", decimals: 1 } },
+        { key: "Heating", label: "Heating", fillPolygons: zonesByPhase.Heating, legend: zoneLegend(zonesByPhase.Heating), graphs: styleContours("Heating"), probe: { field: sectionFields?.Heating, unit: "°", decimals: 1 } },
     ].filter((v) => v.fillPolygons.length || v.key === "Pause");
     const contourGraphs = contourViews[0].graphs;
     const fillPolygons = contourViews[0].fillPolygons;
     const legend = contourViews[0].legend;
+    const probe = contourViews[0].probe;
 
     const lastXCoord = Array.isArray(xCoordinatesMm) && xCoordinatesMm.length > 0 ? xCoordinatesMm[xCoordinatesMm.length - 1] : -10;
 
@@ -296,12 +298,12 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
         },
         horizontalWidth: {
             graphs: [
-                { name: "Верхняя поверхность", points: rawHorTopH || [], color: layerColors.top,    opacity: 0.8, lineWidth: 0.6 },
-                { name: "Середина листа",      points: rawHorMidH || [], color: layerColors.center, opacity: 0.8, lineWidth: 0.6 },
-                { name: "Нижняя поверхность",  points: rawHorBotH || [], color: layerColors.bottom, opacity: 0.8, lineWidth: 0.6 },
-                { name: "Верхняя поверхность пауза", points: rawHorTopP || [], color: layerColors.top,    opacity: 1, lineWidth: 1.2 },
-                { name: "Середина листа пауза",      points: rawHorMidP || [], color: layerColors.center, opacity: 1, lineWidth: 1.2 },
-                { name: "Нижняя поверхность пауза",  points: rawHorBotP || [], color: layerColors.bottom, opacity: 1, lineWidth: 1.2 },
+                { name: "Top surface (heating)", points: rawHorTopH || [], color: layerColors.top,    opacity: 0.8, lineWidth: 0.6 },
+                { name: "Mid-plane (heating)",      points: rawHorMidH || [], color: layerColors.center, opacity: 0.8, lineWidth: 0.6 },
+                { name: "Bottom surface (heating)",  points: rawHorBotH || [], color: layerColors.bottom, opacity: 0.8, lineWidth: 0.6 },
+                { name: "Top surface (pause)", points: rawHorTopP || [], color: layerColors.top,    opacity: 1, lineWidth: 1.2 },
+                { name: "Mid-plane (pause)",      points: rawHorMidP || [], color: layerColors.center, opacity: 1, lineWidth: 1.2 },
+                { name: "Bottom surface (pause)",  points: rawHorBotP || [], color: layerColors.bottom, opacity: 1, lineWidth: 1.2 },
             ],
             axes: {
                 x: createHorizontalXAxis(width, finalXTgPauseValue, colors),
@@ -315,6 +317,7 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
             axes: createContoursAxes(width, contourGraphsRaw, lastXCoord, matKFactor, colors),
             fillPolygons,
             legend,
+            probe,
             // Переключатель вида над графиком: каждый вид заменяет graphs / fillPolygons / legend
             views: contourViews.length > 1 ? contourViews : undefined,
             defaultView: "Pause",

@@ -409,6 +409,7 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
         width, height, plot, xs, ys, units, fmtX, fmtY, xDecimals, yDecimals,
         series, markers, valueLabels, placement, endLabels,
         yTicks, xTicks, minorX, minorY, yLimitMarks, xLimitMarks, xLines, xLineNotes, yLineNotes,
+        probe: chart.probe?.field ? chart.probe : null,
         yRanges, xRanges, fillPolygons, yUnitInCorner, legend: layoutLegend(legendItems, left, width - 4 - headerReserve),
         xUnitVisible: !xTicks.some(t => !t.hidden && plot.r - t.x < textWidth(t.text, TICK_FONT) / 2 + textWidth(units.x, TICK_FONT) + 4) &&
             !xLimitMarks.some(m => plot.r - m.labelX < textWidth(m.text, TICK_FONT) / 2 + textWidth(units.x, TICK_FONT) + 4)
@@ -418,20 +419,49 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
 // ============================================================================
 // Перекрестие и всплывающие значения
 // ============================================================================
+// Значение поля { X, Y, V, nc, nr } в точке (x, y) — билинейно; null вне поля
+function fieldValueAt(field, x, y) {
+    const { X, Y, V, nc, nr } = field || {};
+    if (!X || !Y || !V || nc < 2 || nr < 2) return null;
+    const find = (arr, n, v) => {
+        if (v < arr[0] || v > arr[n - 1]) return -1;
+        let lo = 0, hi = n - 1;
+        while (hi - lo > 1) {
+            const mid = (lo + hi) >> 1;
+            if (arr[mid] <= v) lo = mid;
+            else hi = mid;
+        }
+        return lo;
+    };
+    const c = find(X, nc, x), r = find(Y, nr, y);
+    if (c < 0 || r < 0) return null;
+    const sx = (x - X[c]) / ((X[c + 1] - X[c]) || 1);
+    const sy = (y - Y[r]) / ((Y[r + 1] - Y[r]) || 1);
+    const k = r * nc + c;
+    const top = V[k] + sx * (V[k + 1] - V[k]);
+    const bottom = V[k + nc] + sx * (V[k + nc + 1] - V[k + nc]);
+    return top + sy * (bottom - top);
+}
+
 const HoverLayer = memo(function HoverLayer({ model, hover, palette }) {
     if (!hover) return null;
-    const { plot, xs, ys, series, xDecimals, yDecimals } = model;
+    const { plot, xs, ys, series, xDecimals, yDecimals, probe } = model;
     const xValue = xs.invert(hover.x);
-    const readable = series.filter(s => s.monotone);
-    const rows = readable
-        .map(s => ({ s, v: valueAtX(s.segments, xValue) }))
-        .filter(r => r.v !== null);
+    // Поле (сечение): координаты курсора и значение поля в этой точке, без точек на линиях
+    const rows = probe
+        ? []
+        : series
+            .filter(s => s.monotone)
+            .map(s => ({ s, v: valueAtX(s.segments, xValue) }))
+            .filter(r => r.v !== null);
+    const crossColor = palette.text.primary;
     return (
         <g pointerEvents="none">
-            <line x1={hover.x} x2={hover.x} y1={plot.t} y2={plot.b} stroke={palette.text.primary} strokeWidth={0.75} opacity={0.45} />
-            {!readable.length && (
-                <line x1={plot.l} x2={plot.r} y1={hover.y} y2={hover.y} stroke={palette.text.primary} strokeWidth={0.75} opacity={0.45} />
+            <line x1={hover.x} x2={hover.x} y1={plot.t} y2={plot.b} stroke={crossColor} strokeWidth={0.75} opacity={0.45} />
+            {(probe || !rows.length) && (
+                <line x1={plot.l} x2={plot.r} y1={hover.y} y2={hover.y} stroke={crossColor} strokeWidth={0.75} opacity={0.45} />
             )}
+            {/* Обычные графики: точки на кривых в позиции курсора (на графике зон — нет) */}
             {rows.map(({ s, v }) => (
                 <circle key={s.index} cx={hover.x} cy={ys(v)} r={2.6} fill={s.color} stroke={palette.background.paper} strokeWidth={1} />
             ))}
@@ -441,11 +471,20 @@ const HoverLayer = memo(function HoverLayer({ model, hover, palette }) {
 });
 
 function HoverReadout({ model, hover, rows, xValue, palette, xDecimals, yDecimals }) {
-    const { plot, units, ys } = model;
-    const lines = rows.length
-        ? rows.slice(0, 8).map(({ s, v }) => ({ color: s.color, text: `${formatNumber(v, yDecimals + 1)}${units.y}`, name: s.name }))
-        : [{ color: palette.text.secondary, text: `${formatNumber(ys.invert(hover.y), yDecimals + 1)} ${units.y}`, name: "" }];
-    const header = `${formatNumber(xValue, xDecimals + 1)} ${units.x}`;
+    const { plot, units, ys, probe } = model;
+    const yValue = ys.invert(hover.y);
+    let header;
+    let lines;
+    if (probe) {
+        const v = fieldValueAt(probe.field, xValue, yValue);
+        header = `${formatNumber(xValue, xDecimals + 1)} × ${formatNumber(yValue, yDecimals + 1)} ${units.x}`;
+        lines = [{ color: null, text: v === null ? "—" : `${formatNumber(v, probe.decimals ?? 1)}${probe.unit ?? ""}`, name: "" }];
+    } else {
+        header = `${formatNumber(xValue, xDecimals + 1)} ${units.x}`;
+        lines = rows.length
+            ? rows.slice(0, 8).map(({ s, v }) => ({ color: s.color, text: `${formatNumber(v, yDecimals + 1)}${units.y}`, name: s.name }))
+            : [{ color: null, text: `${formatNumber(yValue, yDecimals + 1)} ${units.y}`, name: "" }];
+    }
     const fs = 8.5;
     const lineH = fs + 3;
     const nameMax = 22;
@@ -464,8 +503,8 @@ function HoverReadout({ model, hover, rows, xValue, palette, xDecimals, yDecimal
             <text x={5} y={3 + lineH * 0.8} fill={palette.text.secondary} fontWeight={600}>{header}</text>
             {lines.map((l, i) => (
                 <g key={i} transform={`translate(5,${3 + lineH * (i + 1.8)})`}>
-                    <rect x={0} y={-fs * 0.72} width={6} height={6} rx={1} fill={l.color} />
-                    <text x={10} y={0} fill={palette.text.primary} fontWeight={700}>
+                    {l.color && <rect x={0} y={-fs * 0.72} width={6} height={6} rx={1} fill={l.color} />}
+                    <text x={l.color ? 10 : 0} y={0} fill={palette.text.primary} fontWeight={700}>
                         {l.text}
                         {l.name && <tspan fill={palette.text.secondary} fontWeight={400}>{`  ${l.name.length > nameMax ? l.name.slice(0, nameMax - 1) + "…" : l.name}`}</tspan>}
                     </text>

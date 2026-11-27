@@ -9,8 +9,8 @@
 // при любой форме поля (карманы, горизонтальные изотермы, несколько пересечений).
 
 // Сгущение: не больше стольких ячеек по ширине и толщине и не больше ×4 к исходной сетке
-const TARGET_COLUMNS = 200;
-const TARGET_ROWS = 60;
+const TARGET_COLUMNS = 160;
+const TARGET_ROWS = 48;
 const MAX_REFINE = 8;
 
 // Монотонный кубический эрмитов сплайн (PCHIP) на неравномерной сетке:
@@ -220,8 +220,10 @@ export function buildIsolines(field, level) {
 }
 
 // Отсечение многоугольника по уровню: keepAbove — оставить v ≥ level, иначе v < level.
-// Вершины: { p: [x, y], v, a, b } — точка лежит на исходном ребре (a, b) (для узла a = b).
-function clipByLevel(field, poly, level, keepAbove) {
+// Вершина: { id, v, a, b } — лежит на исходном ребре (a, b) (для узла a = b = id).
+// id точки на ребре зависит только от ребра и номера уровня, поэтому у соседних кусков
+// общие вершины совпадают — это позволяет потом собрать контур зоны.
+function clipByLevel(poly, level, levelIndex, ctx, keepAbove) {
     const out = [];
     const inside = (vx) => (keepAbove ? vx.v >= level : vx.v < level);
     for (let k = 0; k < poly.length; k++) {
@@ -231,38 +233,135 @@ function clipByLevel(field, poly, level, keepAbove) {
         if (pin) out.push(P);
         if (pin !== qin) {
             // Пересечение лежит на исходном ребре, содержащем обе вершины
-            const ids = [...new Set([P.a, P.b, Q.a, Q.b])];
-            if (ids.length !== 2) continue;
-            const [i, j] = ids;
-            out.push({ p: edgePoint(field, i, j, level), v: level, a: Math.min(i, j), b: Math.max(i, j) });
+            const i = Math.min(P.a, Q.a), j = Math.max(P.b, Q.b);
+            const ids = new Set([P.a, P.b, Q.a, Q.b]);
+            if (ids.size !== 2) continue;
+            out.push(ctx.crossing(i, j, level, levelIndex));
         }
     }
     return out;
 }
 
+// Контур объединения кусков одной зоны: общие рёбра соседних кусков взаимно уничтожаются,
+// остаются внешние границы и границы «дыр» (их обход противоположный — правило nonzero
+// заливает правильно). Коллинеарные промежуточные вершины убираются.
+function traceOutline(pieces, coordOf) {
+    // Компактная нумерация вершин → числовой ключ ребра (без строк)
+    const index = new Map();
+    const ids = [];
+    const compact = (id) => {
+        let k = index.get(id);
+        if (k === undefined) {
+            k = ids.length;
+            index.set(id, k);
+            ids.push(id);
+        }
+        return k;
+    };
+    const SHIFT = 2 ** 22;
+    const edges = new Map();   // ключ u·SHIFT + v → кратность направленного ребра
+    for (const poly of pieces) {
+        for (let k = 0; k < poly.length; k++) {
+            const u = compact(poly[k]), v = compact(poly[(k + 1) % poly.length]);
+            if (u === v) continue;
+            const reverse = v * SHIFT + u;
+            const rc = edges.get(reverse);
+            if (rc) {
+                if (rc > 1) edges.set(reverse, rc - 1);
+                else edges.delete(reverse);
+                continue;
+            }
+            const key = u * SHIFT + v;
+            edges.set(key, (edges.get(key) || 0) + 1);
+        }
+    }
+    const out = new Map();
+    for (const [key, count] of edges) {
+        const u = Math.floor(key / SHIFT), v = key - u * SHIFT;
+        let list = out.get(u);
+        if (!list) out.set(u, (list = []));
+        for (let c = 0; c < count; c++) list.push(v);
+    }
+    const rings = [];
+    for (const start of out.keys()) {
+        while (out.get(start)?.length) {
+            const ring = [start];
+            let cur = start;
+            for (let guard = 0; guard < 1e7; guard++) {
+                const list = out.get(cur);
+                if (!list || !list.length) break;
+                const next = list.pop();
+                if (next === start) break;
+                ring.push(next);
+                cur = next;
+            }
+            // Точки; вершины на прямой между соседями (и совпадающие) убираются
+            const pts = ring.map(k => coordOf(ids[k]));
+            const clean = [];
+            for (let k = 0; k < pts.length; k++) {
+                const A = pts[(k - 1 + pts.length) % pts.length], B = pts[k], C = pts[(k + 1) % pts.length];
+                const cross = (B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0]);
+                const scale = Math.abs(C[0] - A[0]) + Math.abs(C[1] - A[1]);
+                const dup = Math.abs(B[0] - A[0]) + Math.abs(B[1] - A[1]) < 1e-12;
+                if (!dup && Math.abs(cross) > 1e-12 * (scale * scale + 1e-30)) clean.push(B);
+            }
+            if (clean.length >= 3) rings.push(clean);
+        }
+    }
+    return rings;
+}
+
 /**
  * Зоны (полосы температур). bands — [{ key, lo, hi }] с lo < hi (±Infinity допустимы),
  * упорядоченные по возрастанию и без перекрытий; точка относится к зоне при lo ≤ T < hi.
- * Возвращает Map key → массив колец [[x, y], …] (одинаковая ориентация, без щелей).
- * Целые ячейки одной зоны в строке объединяются в один прямоугольник.
+ * Возвращает Map key → массив колец [[x, y], …]: внешние контуры зоны и контуры
+ * вырезов (замкнутых карманов других зон) — заливать с правилом nonzero.
  */
 export function buildIsobands(field, bands) {
     const result = new Map(bands.map(b => [b.key, []]));
     if (!field || !bands.length) return result;
     const { X, Y, V, nc, nr } = field;
+    const N = V.length;
+
+    // Вершины: узел — его индекс; точка на ребре — номер (ребро, уровень) после всех узлов.
+    // Координаты восстанавливаются по номеру только для вершин итоговых контуров.
+    const levels = [...new Set(bands.flatMap(b => [b.lo, b.hi]).filter(Number.isFinite))].sort((x, y) => x - y);
+    const L = levels.length;
+    const levelIndexOf = new Map(levels.map((l, k) => [l, k]));
+    const node = (i) => ({ id: i, v: V[i], a: i, b: i });
+    const ctx = {
+        crossing(i, j, level, levelIndex) {
+            // Уровень точно в узле — это сам узел (иначе у соседей были бы разные вершины в одной точке)
+            if (V[i] === level) return { id: i, v: level, a: i, b: i };
+            if (V[j] === level) return { id: j, v: level, a: j, b: j };
+            return { id: N + (i * N + j) * L + levelIndex, v: level, a: i, b: j };
+        }
+    };
+    const coordOf = (id) => {
+        if (id < N) return [X[id % nc], Y[(id / nc) | 0]];
+        const rest = id - N;
+        const li = rest % L;
+        const edge = (rest - li) / L;
+        const i = Math.floor(edge / N), j = edge - i * N;
+        return edgePoint(field, i, j, levels[li]);
+    };
 
     const bandOf = (v) => {
         for (let k = 0; k < bands.length; k++) if (v >= bands[k].lo && v < bands[k].hi) return k;
         return -1;
     };
-    const node = (i) => ({ p: [X[i % nc], Y[(i / nc) | 0]], v: V[i], a: i, b: i });
+    const pieces = bands.map(() => []);
 
     for (let r = 0; r < nr - 1; r++) {
         let runBand = -1, runStart = 0;
+        // Ряд целых ячеек одной зоны — один многоугольник со всеми узлами по краям,
+        // чтобы его рёбра совпадали с рёбрами соседей и взаимно уничтожались
         const flushRun = (endCol) => {
             if (runBand < 0) return;
-            const x0 = X[runStart], x1 = X[endCol];
-            result.get(bands[runBand].key).push([[x0, Y[r]], [x1, Y[r]], [x1, Y[r + 1]], [x0, Y[r + 1]]]);
+            const poly = [];
+            for (let c = runStart; c <= endCol; c++) poly.push(r * nc + c);
+            for (let c = endCol; c >= runStart; c--) poly.push((r + 1) * nc + c);
+            pieces[runBand].push(poly);
             runBand = -1;
         };
         for (let c = 0; c < nc - 1; c++) {
@@ -283,14 +382,19 @@ export function buildIsobands(field, bands) {
                 const base = tri.map(node);
                 for (let k = kMin; k <= kMax; k++) {
                     let poly = base;
-                    if (Number.isFinite(bands[k].lo)) poly = clipByLevel(field, poly, bands[k].lo, true);
-                    if (poly.length >= 3 && Number.isFinite(bands[k].hi)) poly = clipByLevel(field, poly, bands[k].hi, false);
-                    if (poly.length >= 3) result.get(bands[k].key).push(poly.map(vx => vx.p));
+                    const { lo, hi } = bands[k];
+                    if (Number.isFinite(lo)) poly = clipByLevel(poly, lo, levelIndexOf.get(lo), ctx, true);
+                    if (poly.length >= 3 && Number.isFinite(hi)) poly = clipByLevel(poly, hi, levelIndexOf.get(hi), ctx, false);
+                    if (poly.length >= 3) pieces[k].push(poly.map(vx => vx.id));
                 }
             }
         }
         flushRun(nc - 1);
     }
+
+    bands.forEach((band, k) => {
+        if (pieces[k].length) result.set(band.key, traceOutline(pieces[k], coordOf));
+    });
     return result;
 }
 

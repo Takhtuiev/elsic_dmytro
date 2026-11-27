@@ -102,6 +102,8 @@ export function prepareGeometryData(material, result2D, ui = {}) {
     let contourGraphsRaw = [];
     let fillPolygonsRaw = [];
     let fillPolygonsByPhase = { Heating: [], Pause: [] };
+    // Поля сечения (для чтения температуры под курсором на графике зон)
+    let sectionFields = null;
 
     if (showContours2D && Ny > 1 && Nx > 1) {
         const Tmin = Number(material?.minFormingTemp);
@@ -156,6 +158,7 @@ export function prepareGeometryData(material, result2D, ui = {}) {
         };
         fillPolygonsByPhase = { Heating: buildZones(fields.Heating), Pause: buildZones(fields.Pause) };
         fillPolygonsRaw = fillPolygonsByPhase.Pause;
+        sectionFields = fields;
     }
 
     // --- CHART 2 (Time Dynamics) ---
@@ -246,6 +249,7 @@ export function prepareGeometryData(material, result2D, ui = {}) {
         contourGraphsRaw,
         fillPolygonsRaw,
         fillPolygonsByPhase,
+        sectionFields,
         graphsChart2Raw,
         graphsHeaterRaw,
         heatingDeltaT,
