@@ -1,5 +1,11 @@
 import { alpha } from "@mui/material/styles";
 import {
+    temperatureAxis,
+    temperatureLevelColor,
+    temperatureZoneLegendItem,
+    temperatureZoneStyle
+} from "./temperatureZones";
+import {
     chartDataCH1,
     chartDataCH2, chartDataCH3, chartDataCH4,
     chartDataCH5,
@@ -29,23 +35,10 @@ export const getLayerColors = (colors) => ({
     bottom: colors.errorMain,
 });
 
-export const createTemperatureYAxis = (material, colors) => {
-    const { glassTransitionTemp: tg, decompositionTemp: decomp, minFormingTemp: minForm, maxFormingTemp: maxForm } = material || {};
-    if (tg == null || decomp == null) return { unit: "°", lines: [], ranges: [] };
+// Ось температуры материала: зоны и границы — единая схема из temperatureZones.js
+export const createTemperatureYAxis = (material, colors) => temperatureAxis(material, colors);
 
-    return {
-        unit: "°",
-        lines: [
-            { value: Number(tg), color: colors.warningMain },
-            { value: Number(decomp), color: colors.errorMain },
-        ],
-        ranges: [
-            { from: Number(minForm ?? 0), to: Number(maxForm ?? 0), color: colors.successMain },
-        ],
-    };
-};
-
-const createHorizontalXAxis = (width, finalXTgPauseValue, colors) => {
+const createHorizontalXAxis = (width, colors) => {
     const lines = [{ value: 0, color: colors.textSecondary }];
 
     if (width > 0) {
@@ -58,15 +51,65 @@ const createHorizontalXAxis = (width, finalXTgPauseValue, colors) => {
         }
     }
 
-    if (finalXTgPauseValue != null) {
-        const label = `Bending zone (${(finalXTgPauseValue * 2).toFixed(1)} mm)`;
+    return { unit: "mm", lines, ranges: [] };
+};
+
+const fmtMm = (v) => (Math.round(v * 10) / 10).toFixed(1);
+
+/**
+ * Гибочная зона на графике «Temperature across width».
+ * - фактическая зона (вся толщина ≥ уровня): всегда зелёная заливка + сплошные границы со значением на оси;
+ * - требуемая зона θ·(r + K·t): пунктир без значений на оси. Если она шире фактической —
+ *   пунктир красный, а недостающие полосы между зелёной зоной и пунктиром залиты красным.
+ * Порог по температуре уже виден горизонтальной полосой окна формования, поэтому в подписи только ширины.
+ */
+export const withBendZoneOverlay = (chart, { halfWidth, requiredWidth, colors }) => {
+    if (!chart?.axes?.x) return chart;
+    const hasZone = Number.isFinite(halfWidth) && halfWidth > 0;
+    const hasRequired = Number.isFinite(requiredWidth) && requiredWidth > 0;
+    if (!hasZone && !hasRequired) return chart;
+
+    const zoneHalf = hasZone ? halfWidth : 0;
+    const reqHalf = hasRequired ? requiredWidth / 2 : 0;
+    const short = hasRequired && reqHalf > zoneHalf + 1e-9;
+    const ok = colors.successMain;
+    const bad = colors.errorMain;
+    const FILL = 0.2;
+
+    const lines = [...(chart.axes.x.lines || [])];
+    const ranges = [...(chart.axes.x.ranges || [])];
+    const parts = [hasZone ? `Bending zone ${fmtMm(2 * zoneHalf)} mm` : "No bending zone"];
+    if (hasRequired) parts.push(`required ${fmtMm(requiredWidth)} mm`);
+    const label = parts.join(" · ");
+    const labelColor = short ? bad : ok;
+
+    if (hasZone) {
         lines.push(
-            { value: finalXTgPauseValue, color: colors.warningMain, lineWidth: 1.5, dashArray: "4 4", label },
-            { value: -finalXTgPauseValue, color: colors.warningMain, lineWidth: 1.5, dashArray: "4 4" }
+            { value: -zoneHalf, color: ok, lineWidth: 1.5, dashArray: "none", opacity: 1 },
+            { value: zoneHalf, color: ok, lineWidth: 1.5, dashArray: "none", opacity: 1 }
         );
+        ranges.push({ from: -zoneHalf, to: zoneHalf, color: ok, opacity: FILL, label, labelColor });
+    }
+    if (hasRequired) {
+        const reqColor = short ? bad : ok;
+        lines.push(
+            { value: -reqHalf, color: reqColor, lineWidth: 1, dashArray: "2 3", opacity: 0.85, axisMark: false },
+            { value: reqHalf, color: reqColor, lineWidth: 1, dashArray: "2 3", opacity: 0.85, axisMark: false }
+        );
+        if (short) {
+            if (hasZone) {
+                // Недостающая ширина с обеих сторон
+                ranges.push(
+                    { from: -reqHalf, to: -zoneHalf, color: bad, opacity: FILL },
+                    { from: zoneHalf, to: reqHalf, color: bad, opacity: FILL }
+                );
+            } else {
+                ranges.push({ from: -reqHalf, to: reqHalf, color: bad, opacity: FILL, label, labelColor });
+            }
+        }
     }
 
-    return { unit: "mm", lines, ranges: [] };
+    return { ...chart, axes: { ...chart.axes, x: { ...chart.axes.x, lines, ranges } } };
 };
 
 const createContoursAxes = (width, contourGraphsRaw, lastXCoord, matKFactor, colors) => {
@@ -205,7 +248,8 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
 
     if (!rawData) {
         return {
-            xTgPauseValue: null,
+            bendZoneHalfWidth: null,
+            bendZoneLevel: null,
             verticalSlice: { graphs: [], axes: { x: { unit: "mm", lines: [], ranges: [] }, y: baseYAxis } },
             horizontalWidth: { graphs: [], axes: { x: { unit: "mm", lines: [], ranges: [] }, y: chart3YAxis } },
             contours2D: {
@@ -219,7 +263,7 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
     }
 
     const {
-        thickness, width, finalXTgPauseValue,
+        thickness, width, bendZoneHalfWidth, bendZoneLevel,
         vertPointsHeating, vertPointsPause,
         rawHorTopH, rawHorMidH, rawHorBotH,
         rawHorTopP, rawHorMidP, rawHorBotP,
@@ -227,18 +271,12 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
     } = rawData;
 
     // Изотермы: после паузы (момент гибки) — сплошные, в конце нагрева — тонкие штриховые
-    const isothermColor = {
-        "Tg": colors.infoMain,
-        "T min": colors.successMain,
-        "T max": colors.warningMain,
-        "Decomposition": colors.errorMain,
-    };
     // Изотермы выбранной фазы — сплошные и толще, другой фазы — тонкие штриховые
     const styleContours = (activePhase) => (contourGraphsRaw || []).map((g) => {
         const active = g.phase === activePhase;
         return {
             ...g,
-            color: isothermColor[g.name] || colors.textPrimary,
+            color: temperatureLevelColor(g.name, colors),
             lineWidth: active ? 1.4 : 0.8,
             opacity: active ? 0.95 : 0.55,
             dashArray: active ? null : "3 2",
@@ -246,26 +284,9 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
         };
     });
 
-    // Зоны по температуре: от холодной (синей) до опасной (красной)
-    const zoneStyle = {
-        "Solid Plastic":      { color: colors.infoMain,    opacity: 0.26 },
-        "High Elastic":       { color: colors.infoMain,    opacity: 0.09 },
-        "Optimal Bending":    { color: colors.successMain, opacity: 0.24 },
-        "High Temperature":   { color: colors.warningMain, opacity: 0.22 },
-        "Decomposition Risk": { color: colors.errorMain,   opacity: 0.38 },
-    };
-    const deg = (v) => `${Math.round(v)}°`;
-    const zoneLabel = (p) => (
-        !Number.isFinite(p.lo) ? `<${deg(p.hi)}`
-            : !Number.isFinite(p.hi) ? `>${deg(p.lo)}`
-                : `${deg(p.lo)}–${deg(p.hi)}`
-    );
-    const styleZones = (raw) => (raw || []).map((p) => ({
-        ...p,
-        color: zoneStyle[p.name]?.color || colors.successMain,
-        opacity: zoneStyle[p.name]?.opacity ?? 0.15,
-    }));
-    const zoneLegend = (zones) => zones.map((p) => ({ label: zoneLabel(p), color: p.color, opacity: Math.min(1, p.opacity * 2.2), stroke: p.color }));
+    // Зоны по температуре — единая схема (temperatureZones.js)
+    const styleZones = (raw) => (raw || []).map((p) => ({ ...p, ...temperatureZoneStyle(p.name, colors) }));
+    const zoneLegend = (zones) => zones.map((p) => temperatureZoneLegendItem({ key: p.name, lo: p.lo, hi: p.hi }, colors));
 
     // Два вида: зоны после паузы (момент гибки, по умолчанию) и в конце нагрева
     const zonesByPhase = {
@@ -285,7 +306,8 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
     const lastXCoord = Array.isArray(xCoordinatesMm) && xCoordinatesMm.length > 0 ? xCoordinatesMm[xCoordinatesMm.length - 1] : -10;
 
     return {
-        xTgPauseValue: finalXTgPauseValue,
+        bendZoneHalfWidth,
+        bendZoneLevel,
         verticalSlice: {
             graphs: [
                 { name: "Heating (Vertical Slice)", points: vertPointsHeating || [], color: colors.textSecondary, opacity: 1, lineWidth: 1 },
@@ -306,7 +328,7 @@ export const buildSpatialCharts = (rawData, baseYAxis, ambientTemp, matKFactor, 
                 { name: "Bottom surface (pause)",  points: rawHorBotP || [], color: layerColors.bottom, opacity: 1, lineWidth: 1.2 },
             ],
             axes: {
-                x: createHorizontalXAxis(width, finalXTgPauseValue, colors),
+                x: createHorizontalXAxis(width, colors),
                 y: chart3YAxis,
             },
         },

@@ -9,7 +9,7 @@ import { prepareSvgLayers } from "./prepareSvgLayers";
 import SvgLineChart from "./Chart/SvgLineChart";
 import { validateProfile } from "./profileValidation";
 import { formatTime } from "./formatters";
-import { calculateMass, calculatePlasticZoneWidth, calculateMaxInnerRadius } from "./bendingMetrics";
+import { calculateMass, calculatePlasticZoneWidth, calculateRequiredZoneWidth, findGoverningBend } from "./bendingMetrics";
 import { useHeatingSimulation } from "./useHeatingSimulation";
 import { ChartCard, NUMERIC_SX, SectionHeader, ValueTile } from "./uiKit";
 import {
@@ -18,7 +18,8 @@ import {
     createTemperatureYAxis,
     buildTimeDynamicsChart,
     buildHeaterDynamicsChart,
-    buildSpatialCharts
+    buildSpatialCharts,
+    withBendZoneOverlay
 } from "./Chart/chartBuilders";
 
 const CHART_HEIGHT = 160;
@@ -292,10 +293,31 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
         () => calculateMass(blankLength, profileWidth, profileThickness, Number(profile?.material?.density)),
         [blankLength, profileWidth, profileThickness, profile?.material?.density]
     );
-    const plasticZoneWidth = useMemo(() => calculatePlasticZoneWidth(spatialCharts?.xTgPauseValue), [spatialCharts?.xTgPauseValue]);
-    const maxRadius = useMemo(
-        () => calculateMaxInnerRadius(plasticZoneWidth, machineParams?.bendAngle, profileThickness, matKFactor),
-        [plasticZoneWidth, machineParams?.bendAngle, profileThickness, matKFactor]
+    // Гибочная зона: вся толщина ≥ нижней температуры формования (после паузы)
+    const plasticZoneWidth = useMemo(() => calculatePlasticZoneWidth(spatialCharts?.bendZoneHalfWidth), [spatialCharts?.bendZoneHalfWidth]);
+    // Требуемая ширина для выбранного гиба (или самого крутого гиба профиля),
+    // радиус — радиус инструмента машины
+    const governingBend = useMemo(
+        () => findGoverningBend(profile?.bends, view?.bendIndex ?? -1),
+        [profile?.bends, view?.bendIndex]
+    );
+    const toolRadius = Number(profile?.machine?.rTool ?? profile?.rTool);
+    const requiredZoneWidth = useMemo(
+        () => (governingBend ? calculateRequiredZoneWidth(governingBend.angle, toolRadius, profileThickness, matKFactor) : null),
+        [governingBend, toolRadius, profileThickness, matKFactor]
+    );
+    const zoneTone = rawData && Number.isFinite(requiredZoneWidth)
+        ? (Number.isFinite(plasticZoneWidth) && plasticZoneWidth >= requiredZoneWidth ? "success" : "error")
+        : undefined;
+
+    // График по ширине: фактическая гибочная зона против требуемой
+    const widthChart = useMemo(
+        () => spatialCharts?.horizontalWidth && withBendZoneOverlay(spatialCharts.horizontalWidth, {
+            halfWidth: spatialCharts.bendZoneHalfWidth,
+            requiredWidth: requiredZoneWidth,
+            colors: themeColors
+        }),
+        [spatialCharts, requiredZoneWidth, themeColors]
     );
 
     const status = result2D?.status;
@@ -309,7 +331,7 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
         showContours2D && spatialCharts?.contours2D && { key: "contours", title: "Cross-section isotherms", chart: spatialCharts.contours2D },
         showHeaterDynamics && heaterDynamicsChart && { key: "heaters", title: "Heater temperatures", chart: heaterDynamicsChart },
         showTimeDynamics && timeDynamicsChart && { key: "time", title: "Temperature vs. time", chart: timeDynamicsChart },
-        showHorizontalWidth && spatialCharts?.horizontalWidth && { key: "width", title: "Temperature across width", chart: spatialCharts.horizontalWidth }
+        showHorizontalWidth && widthChart && { key: "width", title: "Temperature across width", chart: widthChart }
     ].filter(Boolean);
 
     return (
@@ -349,9 +371,9 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
                     svgData && (
                         <svg className="bend-preview-svg" viewBox={svgData.viewBox} width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
                             <g transform={visualRotation ? `rotate(${visualRotation},${rotationCenter.x},${rotationCenter.y})` : undefined}>
-                                <BendProfileRender data={svgData.activeData} strokeColor={colors.active.line} fillColor={colors.active.fill} annotationColor={colors.active.annotation} />
-                                <BendProfileRender data={svgData.ghostData} strokeColor={colors.ghost.line} fillColor={colors.ghost.fill} annotationColor={colors.ghost.annotation} isGhost />
-                                <BendProfileRender data={svgData.blueData} strokeColor={colors.blue.line} fillColor={colors.blue.fill} annotationColor={colors.blue.annotation} />
+                                <BendProfileRender data={svgData.activeData} strokeColor={colors.active.line} fillColor={colors.active.fill} annotationColor={colors.active.annotation} haloColor={theme.palette.background.paper} />
+                                <BendProfileRender data={svgData.ghostData} strokeColor={colors.ghost.line} fillColor={colors.ghost.fill} annotationColor={colors.ghost.annotation} haloColor={theme.palette.background.paper} isGhost />
+                                <BendProfileRender data={svgData.blueData} strokeColor={colors.blue.line} fillColor={colors.blue.fill} annotationColor={colors.blue.annotation} haloColor={theme.palette.background.paper} />
                             </g>
                         </svg>
                     )
@@ -392,10 +414,18 @@ const BendingPreview = ({ profile, geometry, blankLength, machineParams, simulat
                         unit="s"
                         hint={isNum(pauseDeltaT) ? `ΔT ${pauseDeltaT.toFixed(1)} °C` : undefined}
                     />
-                    <ValueTile label="Plastic zone" value={fixed(plasticZoneWidth, 1)} unit="mm" />
-                    {maxRadius !== null && (
-                        <ValueTile label="Max inner radius" value={fixed(maxRadius, 1)} unit="mm" />
-                    )}
+                    <ValueTile
+                        label="Bending zone"
+                        value={rawData ? (Number.isFinite(plasticZoneWidth) ? fixed(plasticZoneWidth, 1) : "0.0") : null}
+                        unit="mm"
+                        tone={zoneTone}
+                        extra={rawData && Number.isFinite(requiredZoneWidth) ? `/ ${fixed(requiredZoneWidth, 1)} required` : undefined}
+                        hint={[
+                            Number.isFinite(spatialCharts?.bendZoneLevel) && `full t ≥ ${Math.round(spatialCharts.bendZoneLevel)} °C`,
+                            governingBend && Number.isFinite(requiredZoneWidth) && `B${governingBend.index + 1} ${Math.round(180 - governingBend.angle)}° · r ${toolRadius}`
+                        ].filter(Boolean).join(" · ") || undefined}
+                        span={Number.isFinite(requiredZoneWidth) ? 2 : undefined}
+                    />
                 </Box>
 
                 {status?.type && status.type !== "ok" && status.message && (

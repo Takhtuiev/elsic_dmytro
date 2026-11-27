@@ -35,6 +35,16 @@ const DECIMATE_POINTS_PER_PX = 1.5;      // прореживать, если г�
 const textWidth = (text, fontSize) => String(text).length * fontSize * CHAR_WIDTH;
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 
+// Штриховка заливки: { color, opacity, spacing, width, angle } → id узора (одинаковые — один узор)
+const hatchId = (h) => `hatch-${[h.color, h.opacity, h.spacing, h.width, h.angle].join("-").replace(/[^a-zA-Z0-9_-]/g, "")}`;
+const collectHatches = (...lists) => {
+    const map = new Map();
+    for (const list of lists) for (const it of list || []) {
+        if (it?.hatch) map.set(hatchId(it.hatch), { id: hatchId(it.hatch), spacing: 6, width: 1, angle: 45, opacity: 0.5, ...it.hatch });
+    }
+    return [...map.values()];
+};
+
 // Значение предела: как у делений, а если оно не «круглое» — на один знак точнее
 function formatExact(value, baseDecimals, step) {
     const close = Math.abs(Number(value.toFixed(baseDecimals)) - value) <= Math.max(step * 0.005, Math.abs(value) * 1e-9);
@@ -131,7 +141,8 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
         }
     }
     for (const r of yAxis.ranges || []) {
-        if (isNum(r?.from) && isNum(r?.to)) {
+        // Зоны с extendDomain: false заливают только видимую часть и шкалу не растягивают
+        if (isNum(r?.from) && isNum(r?.to) && r.extendDomain !== false) {
             yLo = Math.min(yLo, r.from, r.to);
             yHi = Math.max(yHi, r.from, r.to);
         }
@@ -154,7 +165,7 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
         if (isNum(line?.value)) yLimitItems.push({ value: line.value, color: line.color, label: line.label });
     }
     for (const r of yAxis.ranges || []) {
-        if (isNum(r?.from) && isNum(r?.to) && r.from !== r.to) {
+        if (isNum(r?.from) && isNum(r?.to) && r.from !== r.to && r.marks !== false) {
             yLimitItems.push({ value: r.from, color: r.color }, { value: r.to, color: r.color });
         }
     }
@@ -355,6 +366,7 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
     const xTickXs = xTickInfo.ticks.map(v => xs(v));
     // Значение на оси подписываем только у «значимых» линий, не совпадающих с делением
     const xLimitMarks = xLines
+        .filter(l => l.axisMark !== false)
         .filter(l => Math.abs(l.value - xMinV) > 1e-9 && Math.abs(l.value - xMaxV) > 1e-9)
         .filter(l => !xTickXs.some(tx => Math.abs(tx - l.x) < 1))
         .map(l => ({ value: l.value, x: l.x, color: l.color || palette.text.secondary, text: formatExact(l.value, xDecimals, xTickInfo.step) }));
@@ -381,8 +393,24 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
     const yLineNotes = (yAxis.lines || []).filter(l => l?.label && isNum(l.value) && l.value >= yMinV && l.value <= yMaxV)
         .map((l, i) => ({ key: `ynote-${i}`, y: ys(l.value), text: l.label, color: l.color || palette.text.secondary }));
 
+    // Диапазоны по X (зоны): заливка + подпись по центру сверху
+    const xRanges = (xAxis.ranges || [])
+        .filter(r => isNum(r?.from) && isNum(r?.to) && r.from !== r.to)
+        .map((r, i) => {
+            const a = xs(Math.max(Math.min(r.from, r.to), xMinV));
+            const b = xs(Math.min(Math.max(r.from, r.to), xMaxV));
+            return { key: `xr-${i}`, x: Math.min(a, b), w: Math.abs(a - b), color: r.color, opacity: isNum(r.opacity) ? r.opacity : RANGE_OPACITY, label: r.label, labelColor: r.labelColor || r.color };
+        })
+        .filter(r => r.w > 0);
+    const xRangeNotes = xRanges.filter(r => r.label).map(r => {
+        const w = textWidth(r.label, TICK_FONT);
+        const cx = Math.min(Math.max(r.x + r.w / 2, plot.l + w / 2 + 3), plot.r - w / 2 - 3);
+        return { key: `${r.key}-note`, x: cx, text: r.label, color: r.labelColor || palette.text.secondary, w };
+    });
+
     // Пометки линий — препятствия для подписей значений
     const noteRects = [
+        ...xRangeNotes.map(n => ({ l: n.x - n.w / 2 - 2, r: n.x + n.w / 2 + 2, t: plot.t + 1, b: plot.t + 3 + TICK_FONT + 2 })),
         ...xLineNotes.map(n => {
             const w = textWidth(n.text, TICK_FONT) + 4;
             const x0 = n.anchor === "end" ? n.x - 3 - w : n.x + 1;
@@ -401,23 +429,19 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
     // Все подписи расставляются совместно (кандидаты + отжиг) — и одиночные, и скопления
     const placement = placeLabels({ labels: valueLabels, curves: curvesForLabels, markers, plot, obstacles: noteRects });
 
+    // Полосы по Y; границы могут быть ±Infinity (крайние температурные зоны)
+    const isBound = (v) => typeof v === "number" && !Number.isNaN(v);
     const yRanges = (yAxis.ranges || [])
-        .filter(r => isNum(r?.from) && isNum(r?.to) && r.from !== r.to)
+        .filter(r => isBound(r?.from) && isBound(r?.to) && r.from !== r.to)
         .map((r, i) => {
-            const a = ys(Math.max(Math.min(r.from, r.to), yMinV));
-            const b = ys(Math.min(Math.max(r.from, r.to), yMaxV));
-            return { key: `yr-${i}`, y: Math.min(a, b), h: Math.abs(a - b), color: r.color };
+            const lo = Math.max(Math.min(r.from, r.to), yMinV);
+            const hi = Math.min(Math.max(r.from, r.to), yMaxV);
+            if (!(hi > lo)) return null;
+            const a = ys(lo);
+            const b = ys(hi);
+            return { key: `yr-${i}`, y: Math.min(a, b), h: Math.abs(a - b), color: r.color, opacity: isNum(r.opacity) ? r.opacity : RANGE_OPACITY, hatch: r.hatch || null };
         })
-        .filter(r => r.h > 0);
-    const xRanges = (xAxis.ranges || [])
-        .filter(r => isNum(r?.from) && isNum(r?.to) && r.from !== r.to)
-        .map((r, i) => {
-            const a = xs(Math.max(Math.min(r.from, r.to), xMinV));
-            const b = xs(Math.min(Math.max(r.from, r.to), xMaxV));
-            return { key: `xr-${i}`, x: Math.min(a, b), w: Math.abs(a - b), color: r.color };
-        })
-        .filter(r => r.w > 0);
-
+        .filter(r => r && r.h > 0);
     // Заливки: points — одно или несколько колец, разделённых null; одна заливка = один path
     const fillPolygons = (chart.fillPolygons || [])
         .map((polygon, i) => {
@@ -443,7 +467,8 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
                 key: polygon.key ?? `poly-${i}`,
                 d,
                 color: polygon.color || palette.success.main,
-                opacity: isNum(polygon.opacity) ? polygon.opacity : 0.15
+                opacity: isNum(polygon.opacity) ? polygon.opacity : 0.15,
+                hatch: polygon.hatch || null
             };
         })
         .filter(Boolean);
@@ -453,7 +478,8 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
         series, markers, valueLabels, placement, endLabels,
         yTicks, xTicks, minorX, minorY, yLimitMarks, xLimitMarks, xLines, xLineNotes, yLineNotes,
         probe: chart.probe?.field ? chart.probe : null,
-        yRanges, xRanges, fillPolygons, yUnitInCorner, legend: layoutLegend(legendItems, left, width - 4 - headerReserve),
+        yRanges, xRanges, xRangeNotes, fillPolygons, yUnitInCorner, legend: layoutLegend(legendItems, left, width - 4 - headerReserve),
+        hatches: collectHatches(yRanges, fillPolygons, legendItems),
         xUnitVisible: !xTicks.some(t => !t.hidden && plot.r - t.x < textWidth(t.text, TICK_FONT) / 2 + textWidth(units.x, TICK_FONT) + 4) &&
             !xLimitMarks.some(m => plot.r - m.labelX < textWidth(m.text, TICK_FONT) / 2 + textWidth(units.x, TICK_FONT) + 4)
     };
@@ -719,6 +745,12 @@ const SvgLineChart = ({ chart, maxHeight, framed = true }) => {
                         <clipPath id={clipId}>
                             <rect x={model.plot.l} y={model.plot.t} width={model.plot.r - model.plot.l} height={model.plot.b - model.plot.t} />
                         </clipPath>
+                        {/* Штриховки зон (одна на каждый вид штриховки) */}
+                        {model.hatches.map(h => (
+                            <pattern key={h.id} id={`${clipId}-${h.id}`} patternUnits="userSpaceOnUse" width={h.spacing} height={h.spacing} patternTransform={`rotate(${h.angle})`}>
+                                <line x1={0} y1={0} x2={0} y2={h.spacing} stroke={h.color} strokeWidth={h.width} strokeOpacity={h.opacity} />
+                            </pattern>
+                        ))}
                     </defs>
 
                     {/* Фон области графика */}
@@ -730,10 +762,13 @@ const SvgLineChart = ({ chart, maxHeight, framed = true }) => {
 
                     {/* Диапазоны */}
                     {model.yRanges.map(r => (
-                        <rect key={r.key} x={model.plot.l} y={r.y} width={model.plot.r - model.plot.l} height={r.h} fill={r.color} opacity={RANGE_OPACITY} />
+                        <React.Fragment key={r.key}>
+                            <rect x={model.plot.l} y={r.y} width={model.plot.r - model.plot.l} height={r.h} fill={r.color} opacity={r.opacity} />
+                            {r.hatch && <rect x={model.plot.l} y={r.y} width={model.plot.r - model.plot.l} height={r.h} fill={`url(#${clipId}-${hatchId(r.hatch)})`} />}
+                        </React.Fragment>
                     ))}
                     {model.xRanges.map(r => (
-                        <rect key={r.key} x={r.x} y={model.plot.t} width={r.w} height={model.plot.b - model.plot.t} fill={r.color} opacity={RANGE_OPACITY} />
+                        <rect key={r.key} x={r.x} y={model.plot.t} width={r.w} height={model.plot.b - model.plot.t} fill={r.color} opacity={r.opacity} />
                     ))}
 
                     {/* Сетка: мелкая и основная */}
@@ -751,7 +786,10 @@ const SvgLineChart = ({ chart, maxHeight, framed = true }) => {
                     {/* Заливки областей (изотермы) */}
                     <g clipPath={`url(#${clipId})`} pointerEvents="none">
                         {model.fillPolygons.map(p => (
-                            <path key={p.key} d={p.d} fill={p.color} fillOpacity={p.opacity} fillRule="nonzero" stroke="none" />
+                            <React.Fragment key={p.key}>
+                                <path d={p.d} fill={p.color} fillOpacity={p.opacity} fillRule="nonzero" stroke="none" />
+                                {p.hatch && <path d={p.d} fill={`url(#${clipId}-${hatchId(p.hatch)})`} fillRule="nonzero" stroke="none" />}
+                            </React.Fragment>
                         ))}
                     </g>
 
@@ -763,7 +801,7 @@ const SvgLineChart = ({ chart, maxHeight, framed = true }) => {
                         <line
                             key={`xl-${i}`} x1={l.x} x2={l.x} y1={model.plot.t} y2={model.plot.b}
                             stroke={l.color || axisColor} strokeWidth={l.lineWidth || 1}
-                            strokeDasharray={l.dashArray || "5 3"} opacity={0.75}
+                            strokeDasharray={l.dashArray || "5 3"} opacity={isNum(l.opacity) ? l.opacity : 0.75}
                         />
                     ))}
 
@@ -810,6 +848,9 @@ const SvgLineChart = ({ chart, maxHeight, framed = true }) => {
 
                     {/* Пометки на линиях */}
                     <g fontSize={TICK_FONT} fontWeight={600} stroke={haloColor} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+                        {model.xRangeNotes.map(n => (
+                            <text key={n.key} x={n.x} y={model.plot.t + 3} textAnchor="middle" dominantBaseline="hanging" fill={n.color}>{n.text}</text>
+                        ))}
                         {model.xLineNotes.map(n => (
                             <text key={n.key} x={n.anchor === "end" ? n.x - 3 : n.x + 3} y={model.plot.t + 3} textAnchor={n.anchor} dominantBaseline="hanging" fill={n.color}>{n.text}</text>
                         ))}
@@ -855,8 +896,15 @@ const SvgLineChart = ({ chart, maxHeight, framed = true }) => {
                         <g fontSize={TICK_FONT} fill={axisColor}>
                             {model.legend.map((it, i) => (
                                 <g key={`lg-${i}`} transform={`translate(${it.x},4)`}>
-                                    <rect width={8} height={8} rx={1.5} fill={it.color} fillOpacity={isNum(it.opacity) ? it.opacity : 1}
-                                        stroke={it.stroke || it.color} strokeOpacity={0.9} strokeWidth={0.75} />
+                                    {it.hatch ? (
+                                        <>
+                                            <rect width={8} height={8} rx={1.5} fill="none" stroke={it.stroke || it.color} strokeOpacity={0.9} strokeWidth={0.75} />
+                                            <rect x={0.5} y={0.5} width={7} height={7} rx={1} fill={`url(#${clipId}-${hatchId(it.hatch)})`} />
+                                        </>
+                                    ) : (
+                                        <rect width={8} height={8} rx={1.5} fill={it.color} fillOpacity={isNum(it.opacity) ? it.opacity : 1}
+                                            stroke={it.stroke || it.color} strokeOpacity={0.9} strokeWidth={0.75} />
+                                    )}
                                     <text x={11} y={4} dominantBaseline="central">{it.label}</text>
                                 </g>
                             ))}

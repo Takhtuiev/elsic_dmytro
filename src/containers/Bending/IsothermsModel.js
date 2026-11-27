@@ -420,3 +420,28 @@ export function findHalfWidthAboveLevel(T, Nx, Ny, depthMm, halfWidthMm, depth, 
     }
     return halfWidthMm[Ny - 1];
 }
+
+// Полуширина зоны, в которой ВСЯ толщина листа не холоднее level: по каждому сечению
+// поперёк ширины берётся самый холодный слой, граница — где он опускается ниже level
+// (линейная интерполяция между узлами). null — если даже в центре холоднее level.
+export function findFullThicknessHalfWidth(T, Nx, Ny, halfWidthMm, level) {
+    if (!T || Nx < 1 || Ny < 1 || !Number.isFinite(level)) return null;
+    const colMin = (j) => {
+        let m = Infinity;
+        for (let i = 0; i < Nx; i++) {
+            const v = T[i * Ny + j];
+            if (v < m) m = v;
+        }
+        return m;
+    };
+    if (colMin(0) < level) return null;
+    let prev = colMin(0);
+    for (let j = 0; j < Ny - 1; j++) {
+        const next = colMin(j + 1);
+        if (prev >= level && next < level) {
+            return halfWidthMm[j] + ((prev - level) / (prev - next)) * (halfWidthMm[j + 1] - halfWidthMm[j]);
+        }
+        prev = next;
+    }
+    return halfWidthMm[Ny - 1];
+}

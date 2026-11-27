@@ -9,10 +9,13 @@ import {
 // Каждая задача описывается целиком в одном месте:
 //   params   — что подбираем: путь в параметрах симуляции, единица и диапазон
 //              (min / max / step или range(baseParams) → { min, max, step });
-//   metrics  — что измеряем: label (подпись в интерфейсе), read(res, ctx) → число, единица, resolution
-//              (разница меньше неё несущественна: это и допуск предела, и порог
-//              значимого улучшения), предел max / min, growsOnly (метрика только
-//              накапливается — прогон, ушедший далеко за предел, можно оборвать);
+//   metrics  — что измеряем: label (подпись в интерфейсе), read(res, ctx) → число, единица;
+//              resolution — разница меньше неё несущественна (порог значимого улучшения
+//              цели и точность показа значения);
+//              предел max / min — СТРОГИЙ: 0.502 при max 0.5 уже нарушение;
+//              limitTolerance — разрешённый выход за предел (по умолчанию 0, т.е. строго);
+//              growsOnly — метрика только накапливается (прогон, ушедший далеко за предел,
+//              можно оборвать);
 //   minimize / maximize — какая метрика цель; остальные метрики с пределом — ограничения;
 //   simulation — что подставить в параметры симуляции на время оптимизации;
 //   when(baseParams) — задача доступна только при этом условии;
@@ -117,7 +120,9 @@ export const GRID_LOAD_TASK = defineTask({
             // √(время² + сетка² + Пикар²), как в модели
             read: (res) => res?.technicalMetrics?.accuracy?.totalErrorScore,
             unit: "K",
-            resolution: 0.005,
+            // 0.001: варианты сетки у предела нагрузки отличаются по ошибке на тысячные доли —
+            // при 0.005 поиск останавливался, считая такие улучшения несущественными
+            resolution: 0.001,
             max: 0.5
         }
     },
@@ -324,7 +329,7 @@ function defineTask(input) {
         ),
         // Подписи и единицы метрик для интерфейса
         metricsInfo: Object.fromEntries(
-            Object.entries(metrics).map(([name, m]) => [name, { label: m.label || name, unit: m.unit || "", min: m.min, max: m.max }])
+            Object.entries(metrics).map(([name, m]) => [name, { label: m.label || name, unit: m.unit || "", resolution: m.resolution, min: m.min, max: m.max }])
         ),
         // Описание цели и пределов для интерфейса (до первого результата)
         spec: {
@@ -349,7 +354,8 @@ function defineTask(input) {
                     value: readMetric(name, res, ctx),
                     min: metrics[name].min,
                     max: metrics[name].max,
-                    tolerance: metrics[name].resolution
+                    // Предел строгий, если явно не разрешён выход за него
+                    tolerance: metrics[name].limitTolerance ?? 0
                 }))
             };
         }

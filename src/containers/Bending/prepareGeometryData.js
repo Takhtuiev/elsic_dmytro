@@ -3,8 +3,9 @@ import {
     buildIsobands,
     buildIsolines,
     buildSectionField,
-    findHalfWidthAboveLevel
+    findFullThicknessHalfWidth
 } from "./IsothermsModel";
+import { temperatureLevels, temperatureZoneBands } from "./Chart/temperatureZones";
 
 /**
  * Генерирует массивы точек для графиков React-компонента на основе физики материала
@@ -91,11 +92,15 @@ export function prepareGeometryData(material, result2D, ui = {}) {
         }
     }
 
-    // --- Гибочная зона: полуширина, на которой нейтральный слой (толщина × K) выше Tg после паузы ---
-    // Температура берётся линейно между слоями сетки, а не в ближайшем слое
+    // --- Гибочная зона (в момент гибки, после паузы) ---
+    // Гнуть можно только там, где ВСЯ толщина не холоднее нижней температуры формования
+    // (minFormingTemp): между Tg и ней материал ещё жёсткий, гибка оставляет напряжения.
+    // По ширине берётся самый холодный слой каждого сечения.
     const glassTransition = Number(material?.glassTransitionTemp);
-    const finalXTgPauseValue = Number.isFinite(glassTransition)
-        ? findHalfWidthAboveLevel(pause, Nx, Ny, xCoordinatesMm, yCoordinatesMm, thickness * matKFactor, glassTransition)
+    const formingMin = Number(material?.minFormingTemp);
+    const bendZoneLevel = Number.isFinite(formingMin) ? formingMin : glassTransition;
+    const bendZoneHalfWidth = Number.isFinite(bendZoneLevel)
+        ? findFullThicknessHalfWidth(pause, Nx, Ny, yCoordinatesMm, bendZoneLevel)
         : null;
 
     // --- CHART 4 (Contours & Polygons) ---
@@ -106,15 +111,8 @@ export function prepareGeometryData(material, result2D, ui = {}) {
     let sectionFields = null;
 
     if (showContours2D && Ny > 1 && Nx > 1) {
-        const Tmin = Number(material?.minFormingTemp);
-        const Tmax = Number(material?.maxFormingTemp);
-        const Tdecomp = Number(material?.decompositionTemp);
-        const levels = [
-            { name: "Tg", value: glassTransition },
-            { name: "T min", value: Tmin },
-            { name: "T max", value: Tmax },
-            { name: "Decomposition", value: Tdecomp }
-        ].filter(l => Number.isFinite(l.value));
+        // Границы и зоны — единая схема (Chart/temperatureZones.js)
+        const levels = temperatureLevels(material).map(l => ({ name: l.key, value: l.value }));
 
         const fields = {
             Heating: buildSectionField(heating, Nx, Ny, xCoordinatesMm, yCoordinatesMm),
@@ -136,11 +134,7 @@ export function prepareGeometryData(material, result2D, ui = {}) {
         }
 
         // Зоны (полосы между изотермами, кольца через null) — для конца нагрева и после паузы
-        const edges = [-Infinity, glassTransition, Tmin, Tmax, Tdecomp, Infinity];
-        const zoneNames = ["Solid Plastic", "High Elastic", "Optimal Bending", "High Temperature", "Decomposition Risk"];
-        const bands = zoneNames
-            .map((key, k) => ({ key, lo: edges[k], hi: edges[k + 1] }))
-            .filter(b => !Number.isNaN(b.lo) && !Number.isNaN(b.hi) && b.lo < b.hi);
+        const bands = temperatureZoneBands(material);
         const buildZones = (field) => {
             const zoneRings = buildIsobands(field, bands);
             return bands
@@ -241,7 +235,8 @@ export function prepareGeometryData(material, result2D, ui = {}) {
         width,
         matKFactor,
         xCoordinatesMm,
-        finalXTgPauseValue,
+        bendZoneHalfWidth,
+        bendZoneLevel,
         vertPointsHeating,
         vertPointsPause,
         rawHorTopH, rawHorMidH, rawHorBotH,
