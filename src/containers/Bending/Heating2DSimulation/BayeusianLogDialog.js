@@ -141,7 +141,7 @@ function formatParamValue(name, value, taskParameters) {
 
 function formatBound(c) {
     if (!c) return "";
-    const fmt = (v) => (Math.abs(v) >= 10000 ? groupDigits(Math.round(v)) : String(v));
+    const fmt = (v) => (Math.abs(v) >= 1e6 ? `${+(v / 1e6).toFixed(2)}\u00A0M` : Math.abs(v) >= 10000 ? groupDigits(Math.round(v)) : String(v));
     const hasMin = Number.isFinite(c.min);
     const hasMax = Number.isFinite(c.max);
     if (hasMin && hasMax) return `[${fmt(c.min)}…${fmt(c.max)}]`;
@@ -174,6 +174,29 @@ function extractSolverDetails(tm) {
         load: Number.isFinite(it?.totalGridPointsProcessed) ? groupDigits(it.totalGridPointsProcessed) : "—"
     };
 }
+
+// Подпись и единица метрики задачи (cpuLoad → «Load», ops)
+const metricInfo = (task, name) => task?.metricsInfo?.[name] || { label: name || "Objective", unit: "" };
+
+// Значение метрики для крупного показа: большие числа — в миллионах/тысячах
+function formatMetric(value, unit = "") {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return { text: "—", unit: "" };
+    const v = Number(value);
+    const abs = Math.abs(v);
+    if (abs >= 1e6) return { text: (v / 1e6).toFixed(abs >= 1e8 ? 1 : 2), unit: `M${unit ? ` ${unit}` : ""}` };
+    if (abs >= 1e4) return { text: (v / 1e3).toFixed(1), unit: `k${unit ? ` ${unit}` : ""}` };
+    return { text: formatNumber(v), unit };
+}
+const metricText = (value, unit) => {
+    const f = formatMetric(value, unit);
+    return f.unit ? `${f.text} ${f.unit}` : f.text;
+};
+
+// Значения совпадают (метрика задачи и тот же показатель решателя)
+const sameValue = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+
+// Эмодзи в начале сообщений оптимизатора в инженерном журнале не нужны
+const cleanText = (text) => String(text ?? "").replace(/^[\p{Extended_Pictographic}️‍\s]+/u, "");
 
 const timestamp = () => new Date().toLocaleTimeString("uk-UA", { hour12: false });
 let logIdCounter = 0;
@@ -318,7 +341,7 @@ const ConvergenceChart = memo(function ConvergenceChart({ points, goal, unit, be
                         <g key={i}>
                             <line x1={model.m.l} x2={model.m.l + model.plotW} y1={t.py} y2={t.py} stroke={C.border} strokeDasharray="3 4" />
                             <text x={model.m.l - 8} y={t.py + 4} textAnchor="end" fill={C.textMute} fontSize="10" fontFamily={MONO}>
-                                {formatNumber(t.v)}
+                                {metricText(t.v)}
                             </text>
                         </g>
                     ))}
@@ -360,7 +383,7 @@ const ConvergenceChart = memo(function ConvergenceChart({ points, goal, unit, be
                         color: C.text
                     }}
                 >
-                    #{hover.step} · {formatNumber(hover.value, unit)}
+                    #{hover.step} · {metricText(hover.value, unit)}
                     {!hover.feasible && <Box component="span" sx={{ color: C.warn }}> · infeasible</Box>}
                 </Box>
             )}
@@ -372,7 +395,9 @@ const ConvergenceChart = memo(function ConvergenceChart({ points, goal, unit, be
 // 5. СТРОКА ЖУРНАЛА
 // ============================================================================
 
-const LogRow = memo(function LogRow({ log, expanded, onToggle, taskParameters, isBest }) {
+const LogRow = memo(function LogRow({ log, expanded, onToggle, task, isBest }) {
+    const taskParameters = task?.parameters;
+    const objectiveName = task?.spec?.objective?.name;
     const hasDetails = Boolean(log.candidateParams);
     const statusColor = log.type === "error" ? C.err : log.type === "abort" ? C.abort : C.text;
     const summary = log.evaluationSummary;
@@ -422,17 +447,18 @@ const LogRow = memo(function LogRow({ log, expanded, onToggle, taskParameters, i
                     </Box>
                 </Box>
                 <Box sx={{ color: statusColor, minWidth: 0, gridColumn: { xs: "2 / -1", sm: "auto" }, overflowWrap: "anywhere" }}>
-                    {log.text}
-                    {isBest && <Box component="span" sx={{ color: C.ok, ml: 1, fontWeight: 700 }}>★ best</Box>}
+                    {hasDetails && !log.isFinalReportMarker && /^simulation completed$/i.test(String(log.text || "").trim()) ? "" : cleanText(log.text)}
+                    {isBest && <Box component="span" sx={{ color: C.ok, ml: 1, fontWeight: 700 }}>★ leader</Box>}
                 </Box>
                 {summary?.objective && hasDetails && (
                     <Box sx={{ ...NUM_SX, gridColumn: { xs: "2 / -1", sm: "auto" }, color: C.textDim, whiteSpace: "nowrap", textAlign: { sm: "right" } }}>
+                        <Box component="span" sx={{ color: C.textMute }}>{metricInfo(task, objectiveName).label} </Box>
                         <Box component="span" sx={{ color: log.type === "error" || log.type === "abort" ? C.err : C.accent, fontWeight: 700 }}>
-                            {formatNumber(summary.objective.value, summary.objective.unit)}
+                            {metricText(summary.objective.value, summary.objective.unit || metricInfo(task, objectiveName).unit)}
                         </Box>
                         {(summary.constraints || []).map((c, i) => (
-                            <Box component="span" key={i} sx={{ ml: 1.25, color: c.feasible ? C.textDim : C.warn }}>
-                                {c.name}={formatNumber(c.value)}
+                            <Box component="span" key={c.name || i} sx={{ ml: 1.5, color: c.feasible === false ? C.warn : C.textDim }}>
+                                {metricInfo(task, c.name).label} {metricText(c.value, metricInfo(task, c.name).unit)}
                             </Box>
                         ))}
                     </Box>
@@ -443,7 +469,7 @@ const LogRow = memo(function LogRow({ log, expanded, onToggle, taskParameters, i
                 <Box sx={{ ml: { xs: 1, sm: 4 }, mr: 1, mb: 1, mt: 0.5, p: 1.25, bgcolor: C.panelAlt, borderLeft: `2px solid ${C.accent}`, borderRadius: "4px" }}>
                     {(log.type === "abort" || log.type === "error") && (
                         <Typography sx={{ color: C.err, fontSize: "0.78rem", fontWeight: 600, mb: 0.75 }}>
-                            {log.message || "Simulation problem encountered. Candidate discarded."}
+                            {cleanText(log.message) || "Simulation problem encountered. Candidate discarded."}
                         </Typography>
                     )}
                     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, columnGap: 3 }}>
@@ -465,6 +491,179 @@ const LogRow = memo(function LogRow({ log, expanded, onToggle, taskParameters, i
                             )}
                         </Box>
                     </Box>
+                </Box>
+            )}
+        </Box>
+    );
+});
+
+// ============================================================================
+// 5a. ЛИДЕР — лучшая найденная конфигурация
+// Главное крупно: цель, ограничения (с пределом и отметкой выполнения) и шаг,
+// на котором найден лидер. Ниже — параметры и только те данные решателя,
+// которых ещё нет среди метрик (без повторов).
+// ============================================================================
+
+function MetricTile({ label, bound, value, unit, state, accent, hint, title }) {
+    const border = state === "ok" ? "rgba(47,191,113,0.35)" : state === "bad" ? "rgba(239,83,80,0.5)" : C.border;
+    return (
+        <Box title={title} sx={{ px: 1.25, py: 0.9, borderRadius: "6px", bgcolor: C.panelAlt, border: `1px solid ${border}`, minWidth: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, minWidth: 0 }}>
+                <Typography noWrap sx={{ ...sectionTitleSx, fontSize: "0.64rem" }}>{label}</Typography>
+                {bound && <Box component="span" sx={{ ...NUM_SX, color: C.textMute, fontSize: "0.68rem", whiteSpace: "nowrap" }}>{bound}</Box>}
+                {state && (
+                    <Box component="span" sx={{ ml: "auto", color: state === "ok" ? C.ok : C.err, fontSize: "0.75rem", fontWeight: 700 }}>
+                        {state === "ok" ? "✓" : "✗"}
+                    </Box>
+                )}
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.5, mt: 0.25, minWidth: 0 }}>
+                <Typography noWrap sx={{ ...NUM_SX, color: accent ? C.accent : state === "bad" ? C.err : C.text, fontWeight: 700, fontSize: accent ? "1.5rem" : "1.2rem", lineHeight: 1.15 }}>
+                    {value}
+                </Typography>
+                {unit && <Typography noWrap sx={{ color: C.textDim, fontSize: "0.75rem" }}>{unit}</Typography>}
+            </Box>
+            {hint && <Typography noWrap sx={{ ...NUM_SX, color: C.textMute, fontSize: "0.68rem", mt: 0.25 }}>{hint}</Typography>}
+        </Box>
+    );
+}
+
+const LeaderPanel = memo(function LeaderPanel({ task, bestLog, bestStepLog, bestStepNumber, totalSteps, isFinal, open, onToggle }) {
+    const summary = bestLog?.evaluationSummary || null;
+    const objectiveName = task?.spec?.objective?.name;
+    const objectiveInfo = metricInfo(task, objectiveName);
+    const goalLabel = task?.goal === "max" ? "max" : "min";
+    const constraints = summary?.constraints || [];
+    const objectiveValue = summary?.objective?.value;
+    const allFeasible = constraints.every((c) => c.feasible !== false);
+
+    const tm = bestStepLog?.technicalMetrics || bestLog?.technicalMetrics;
+    const acc = tm?.accuracy;
+    const it = tm?.iterations;
+    const shown = [objectiveValue, ...constraints.map((c) => c.value)];
+    const isShown = (v) => shown.some((x) => sameValue(x, v));
+    const errorBreakdown = acc && Number.isFinite(acc.totalErrorScore)
+        ? [acc.timeIntegrationErrorC, acc.spatialGridErrorC, acc.picardConvergenceErrorC]
+            .map((v, i) => `${["time", "grid", "Picard"][i]} ${Number.isFinite(v) ? Math.abs(v).toFixed(3) : "—"}`).join(" · ")
+        : null;
+    const errorShown = isShown(acc?.totalErrorScore);
+
+    const objective = formatMetric(objectiveValue, summary?.objective?.unit || objectiveInfo.unit);
+    const tiles = [
+        {
+            key: "objective",
+            label: `${objectiveInfo.label} · ${goalLabel}`,
+            value: objective.text,
+            unit: objective.unit,
+            accent: true,
+            title: Number.isFinite(objectiveValue) ? String(objectiveValue) : undefined
+        },
+        ...constraints.map((c) => {
+            const info = metricInfo(task, c.name);
+            const f = formatMetric(c.value, info.unit);
+            return {
+                key: c.name,
+                label: info.label,
+                bound: formatBound({ min: c.min ?? undefined, max: c.max ?? undefined }),
+                value: f.text,
+                unit: f.unit,
+                state: c.feasible === false ? "bad" : "ok",
+                title: Number.isFinite(c.value) ? String(c.value) : undefined
+            };
+        }),
+        {
+            key: "step",
+            label: "Found at step",
+            value: bestStepNumber !== null && bestStepNumber !== undefined ? `#${bestStepNumber}` : "—",
+            hint: Number.isFinite(totalSteps) && totalSteps > 0 ? `of ${totalSteps}` : undefined
+        }
+    ];
+
+    // Данные решателя — только то, чего нет среди метрик
+    const solverRows = tm ? [
+        Number.isFinite(tm.calculationTimeMs) && !isFinal && ["Simulation time", `${tm.calculationTimeMs.toFixed(0)} ms`],
+        Number.isFinite(it?.totalTimeSteps) && ["Solver steps / Picard", `${it.totalTimeSteps}${it.rejectedTimeSteps ? ` (${it.rejectedTimeSteps} rej.)` : ""} / ${it.totalPicardIterations ?? "—"}`],
+        Number.isFinite(it?.totalGridPointsProcessed) && !isShown(it.totalGridPointsProcessed) && ["Load", metricText(it.totalGridPointsProcessed, "ops")],
+        errorBreakdown && (errorShown
+            ? ["Error components", errorBreakdown]
+            : ["Error", `${acc.totalErrorScore.toFixed(3)} (${errorBreakdown})`])
+    ].filter(Boolean) : [];
+
+    const title = isFinal ? (allFeasible ? "Final optimum" : "Final (least violating)") : "Leader";
+
+    return (
+        <Box sx={{ ...panelSx, borderColor: isFinal ? (allFeasible ? C.ok : C.warn) : C.border, overflow: "hidden", flexShrink: 0 }}>
+            {/* Заголовок — он же свёрнутый вид: главное в одну строку */}
+            <Box
+                role="button"
+                tabIndex={0}
+                aria-expanded={open}
+                onClick={onToggle}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onToggle();
+                    }
+                }}
+                sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.25,
+                    px: 1.5,
+                    py: 1,
+                    cursor: "pointer",
+                    flexWrap: "wrap",
+                    "&:hover": { bgcolor: "rgba(255,255,255,0.03)" },
+                    "&:focus-visible": { outline: `1px solid ${C.accent}`, outlineOffset: -1 }
+                }}
+            >
+                {open ? <KeyboardArrowDownIcon sx={{ fontSize: 18, color: C.textMute }} /> : <KeyboardArrowRightIcon sx={{ fontSize: 18, color: C.textMute }} />}
+                <Typography sx={{ ...sectionTitleSx, color: isFinal ? (allFeasible ? C.ok : C.warn) : C.textMute }}>{title}</Typography>
+                {bestStepNumber !== null && bestStepNumber !== undefined && (
+                    <Box component="span" sx={{ ...NUM_SX, color: C.text, fontSize: "0.78rem", fontWeight: 700 }}>#{bestStepNumber}</Box>
+                )}
+                {!open && summary && (
+                    <Box sx={{ ...NUM_SX, display: "flex", gap: 1.75, flexWrap: "wrap", fontSize: "0.82rem", ml: { sm: "auto" } }}>
+                        <span>
+                            <Box component="span" sx={{ color: C.textDim }}>{objectiveInfo.label} </Box>
+                            <Box component="span" sx={{ color: C.accent, fontWeight: 700 }}>{metricText(objectiveValue, objectiveInfo.unit)}</Box>
+                        </span>
+                        {constraints.map((c) => (
+                            <span key={c.name}>
+                                <Box component="span" sx={{ color: C.textDim }}>{metricInfo(task, c.name).label} </Box>
+                                <Box component="span" sx={{ color: c.feasible === false ? C.err : C.text, fontWeight: 700 }}>{metricText(c.value, metricInfo(task, c.name).unit)}</Box>
+                                <Box component="span" sx={{ color: c.feasible === false ? C.err : C.ok, ml: 0.5 }}>{c.feasible === false ? "✗" : "✓"}</Box>
+                            </span>
+                        ))}
+                    </Box>
+                )}
+                {!summary && (
+                    <Typography sx={{ color: C.textMute, fontSize: "0.78rem", ml: { sm: "auto" } }}>No result yet</Typography>
+                )}
+            </Box>
+
+            {open && summary && (
+                <Box sx={{ px: 1.5, pb: 1.5, borderTop: `1px solid ${C.border}`, pt: 1.25 }}>
+                    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 1 }}>
+                        {tiles.map(({ key, ...tile }) => <MetricTile key={key} {...tile} />)}
+                    </Box>
+
+                    {bestLog?.candidateParams && (
+                        <Box sx={{ mt: 1.5 }}>
+                            <Typography sx={{ ...sectionTitleSx, mb: 0.5 }}>Parameters</Typography>
+                            {Object.entries(bestLog.candidateParams).map(([name, value]) => (
+                                <KeyValue key={name} label={task?.parameters?.[name]?.label || name} value={formatParamValue(name, value, task?.parameters)} color={C.text} />
+                            ))}
+                        </Box>
+                    )}
+
+                    {solverRows.length > 0 && (
+                        <Box sx={{ mt: 1.25, pt: 0.75, borderTop: `1px solid ${C.border}` }}>
+                            {solverRows.map(([label, value]) => (
+                                <KeyValue key={label} label={label} value={value} color={C.textDim} />
+                            ))}
+                        </Box>
+                    )}
                 </Box>
             )}
         </Box>
@@ -515,6 +714,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
     const [totalBudget, setTotalBudget] = useState(budget.totalIterations);
     const [timer, setTimer] = useState({ startedAt: null, baseSeconds: 0 });
     const [hasResult, setHasResult] = useState(false);
+    // Панель лидера: во время расчёта свёрнута (видна строка с главным), по завершении раскрыта
+    const [leaderOpen, setLeaderOpen] = useState(true);
 
     const isRunning = runStatus === "running" || runStatus === "stopping";
 
@@ -588,6 +789,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
             }
             setLive(null);
             setHasResult(true);
+            setLeaderOpen(true);
             setRunStatus("done");
             pauseTimer();
             return;
@@ -620,6 +822,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
         if (!workerRef.current || isRunning) return;
         resetRunView();
         setTotalBudget(budget.totalIterations);
+        setLeaderOpen(false);
         setRunStatus("running");
         setTimer({ startedAt: performance.now(), baseSeconds: 0 });
         appendLog({ type: "info", stepMode: "SYSTEM", text: `Started: ${activeTask.label}` });
@@ -646,6 +849,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
         if (!workerRef.current || isRunning || !hasResult) return;
         setTotalBudget((t) => completedSteps + budget.totalIterations || t);
         setHasResult(false);
+        setLeaderOpen(false);
         setRunStatus("running");
         setTimer((t) => ({ ...t, startedAt: performance.now() }));
         appendLog({ type: "info", stepMode: "SYSTEM", text: "Continue: re-checking the found optimum with the trained model" });
@@ -709,9 +913,8 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
         return null;
     }, [logs, bestStepNumber]);
 
-    const bestSummary = bestLog?.evaluationSummary || null;
-    const bestDetails = extractSolverDetails(bestStepLog?.technicalMetrics || bestLog?.technicalMetrics);
-    const specConstraints = bestSummary?.constraints?.length ? bestSummary.constraints : (activeTask.spec?.constraints || []);
+    const specConstraints = activeTask.spec?.constraints || [];
+    const toggleLeader = useCallback(() => setLeaderOpen((v) => !v), []);
 
     const toggleExpand = useCallback((id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] })), []);
 
@@ -857,9 +1060,9 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                 sx={{ height: 6, borderRadius: 3, bgcolor: C.border, "& .MuiLinearProgress-bar": { bgcolor: C.accent, borderRadius: 3 } }}
             />
             <Box sx={{ ...NUM_SX, color: C.textDim, fontSize: "0.75rem", display: "flex", gap: 1.5, flexWrap: "wrap" }}>
-                <span>Goal: <Box component="span" sx={{ color: C.accent, fontWeight: 700 }}>{goalLabel}{activeTask.unit ? ` (${activeTask.unit})` : ""}</Box></span>
+                <span>Goal: <Box component="span" sx={{ color: C.accent, fontWeight: 700 }}>{goalLabel} {metricInfo(activeTask, activeTask.spec?.objective?.name).label}</Box></span>
                 {specConstraints.map((c, i) => (
-                    <span key={c.name || i}>{c.name} {formatBound(c)}</span>
+                    <span key={c.name || i}>{metricInfo(activeTask, c.name).label} {formatBound(c)}{metricInfo(activeTask, c.name).unit ? `\u00A0${metricInfo(activeTask, c.name).unit}` : ""}</span>
                 ))}
             </Box>
             {isRunning && live && (
@@ -880,45 +1083,17 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
         </Box>
     );
 
-    const bestPanel = (
-        <Box sx={{ ...panelSx, p: 1.5, borderColor: hasResult ? C.ok : C.border }}>
-            <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, mb: 1 }}>
-                <Typography sx={sectionTitleSx}>{hasResult ? "Final optimum" : "Best so far"}</Typography>
-                {bestStepNumber !== null && (
-                    <Box component="span" sx={{ ...NUM_SX, color: C.textMute, fontSize: "0.75rem" }}>step #{bestStepNumber}</Box>
-                )}
-            </Box>
-            {!bestLog ? (
-                <Typography sx={{ color: C.textMute, fontSize: "0.8rem" }}>No feasible result yet</Typography>
-            ) : (
-                <>
-                    <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap", mb: 1 }}>
-                        <Typography sx={{ ...NUM_SX, color: C.accent, fontSize: { xs: "1.5rem", md: "1.75rem" }, fontWeight: 700, lineHeight: 1.1 }}>
-                            {formatNumber(bestSummary?.objective?.value)}
-                        </Typography>
-                        <Typography sx={{ color: C.textDim, fontSize: "0.85rem" }}>
-                            {activeTask.unit} · {goalLabel}
-                        </Typography>
-                    </Box>
-                    {(bestSummary?.constraints || []).map((c, i) => (
-                        <KeyValue key={i} label={`${c.name} ${formatBound(c)}`} value={formatNumber(c.value)} color={c.feasible ? C.ok : C.err} />
-                    ))}
-                    <Box sx={{ borderTop: `1px solid ${C.border}`, mt: 1, pt: 1 }}>
-                        {Object.entries(bestLog.candidateParams || {}).map(([name, value]) => (
-                            <KeyValue key={name} label={activeTask.parameters[name]?.label || name} value={formatParamValue(name, value, activeTask.parameters)} color={C.text} />
-                        ))}
-                    </Box>
-                    <Box sx={{ borderTop: `1px solid ${C.border}`, mt: 1, pt: 1 }}>
-                        <KeyValue label="Simulation time" value={bestDetails.calcTime} color={C.textDim} />
-                        <KeyValue label="Solver steps / Picard" value={`${bestDetails.steps} / ${bestDetails.picardIters}`} color={C.textDim} />
-                        <KeyValue label="Computational load" value={bestDetails.load} color={C.textDim} />
-                        {bestDetails.hasAccuracy && (
-                            <KeyValue label="Error: time / grid / Picard" value={`${bestDetails.timeErr} / ${bestDetails.gridErr} / ${bestDetails.picardErr}`} color={C.textDim} />
-                        )}
-                    </Box>
-                </>
-            )}
-        </Box>
+    const leaderPanel = (
+        <LeaderPanel
+            task={activeTask}
+            bestLog={bestLog}
+            bestStepLog={bestStepLog}
+            bestStepNumber={bestStepNumber}
+            totalSteps={runStatus === "done" ? completedSteps : totalBudget}
+            isFinal={Boolean(bestLog?.isFinalReportMarker)}
+            open={leaderOpen}
+            onToggle={toggleLeader}
+        />
     );
 
     const chartPanel = (
@@ -1003,7 +1178,7 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                             log={log}
                             expanded={Boolean(expanded[log.id])}
                             onToggle={toggleExpand}
-                            taskParameters={activeTask.parameters}
+                            task={activeTask}
                             isBest={!log.isFinalReportMarker && bestStepNumber !== null && log.currentStepVisual === bestStepNumber && Boolean(log.candidateParams)}
                         />
                     ))
@@ -1087,17 +1262,29 @@ export function BayeusianLogDialog({ open, onClose, parentState, setParentState 
                     overflowY: { xs: "auto", md: "hidden" },
                     display: { xs: "flex", md: "grid" },
                     flexDirection: "column",
-                    gridTemplateColumns: { md: "minmax(340px, 38%) 1fr" }
+                    // Десктоп: журнал слева, прогресс / лидер / сходимость справа
+                    gridTemplateColumns: { md: "1fr minmax(380px, 36%)" }
                 }}
             >
-                <Box sx={{ display: "flex", flexDirection: "column", gap: { xs: 1, md: 2 }, minHeight: 0, overflowY: { md: "auto" } }}>
-                    {progressPanel}
-                    {bestPanel}
-                    {chartPanel}
-                </Box>
-                <Box sx={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
-                    {consolePanel}
-                </Box>
+                {isMobile ? (
+                    <>
+                        {progressPanel}
+                        {leaderPanel}
+                        {chartPanel}
+                        {consolePanel}
+                    </>
+                ) : (
+                    <>
+                        <Box sx={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+                            {consolePanel}
+                        </Box>
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, minHeight: 0, overflowY: "auto", pr: 0.25 }}>
+                            {progressPanel}
+                            {leaderPanel}
+                            {chartPanel}
+                        </Box>
+                    </>
+                )}
             </Box>
             {actions}
         </Dialog>

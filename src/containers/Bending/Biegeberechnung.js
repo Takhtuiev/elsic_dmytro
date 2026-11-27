@@ -1,90 +1,62 @@
-import React,{useCallback,useEffect,useMemo,useRef,useState} from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Box,
     Button,
     IconButton,
     InputAdornment,
+    Link,
     Menu,
     MenuItem,
     Paper,
-    Slider,
-    TextField,
-    Tooltip,
-    Typography,
-    Link
+    TextField
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import FlipIcon from "@mui/icons-material/Flip";
 import DatabaseIcon from "@mui/icons-material/Storage";
-import PrintIcon from "@mui/icons-material/Print";
-import {useDispatch,useSelector} from "react-redux";
-import {useNavigate} from "react-router-dom";
+import TuneIcon from "@mui/icons-material/Tune";
+import InsightsIcon from "@mui/icons-material/Insights";
+import MenuBookIcon from "@mui/icons-material/MenuBookOutlined";
+import { useDispatch, useSelector } from "react-redux";
+import { useNavigate } from "react-router-dom";
 
 import ProfileRow from "./ProfileRow";
-
+import PreviewToolbar from "./PreviewToolbar";
+import BendingPreview from "./BendingPreview";
+import { SectionHeader, SelectorField, NUMERIC_SX } from "./uiKit";
 import {
     calculateBlankLength,
     calculateOuterLengthToEnd,
     calculateBendingMachineParams
 } from "./Calculations";
 import buildProfileGeometry from "./BuildProfileGeometry";
-import {
-    getShelfVector,
-    getPreferredSide,
-    calculateBendView
-} from "./profileViewMath";
-import {
-    setProfile
-} from "../../Store/bendingSlice";
-import {
-    openDialog,
-    selectLastReturnedData,
-    clearDialogDataReturned
-} from "../../Store/dialogSlice";
-import {
-    MATERIALS,
-    MACHINES
-} from "./parameters";
-import BendingPreview from "./BendingPreview";
-import {BayeusianLogDialog} from "./Heating2DSimulation/BayeusianLogDialog";
-import {ACCURACY_MODES} from "./Heating2DSimulation/heating2DModel";
+import { getShelfVector, getPreferredSide, calculateBendView } from "./profileViewMath";
+import { setProfile } from "../../Store/bendingSlice";
+import { openDialog, selectLastReturnedData, clearDialogDataReturned } from "../../Store/dialogSlice";
+import { MATERIALS, MACHINES } from "./parameters";
+import { BayeusianLogDialog } from "./Heating2DSimulation/BayeusianLogDialog";
+import { ACCURACY_MODES } from "./Heating2DSimulation/heating2DModel";
 
+const EDITOR_WIDTH = "23rem";
+const THICKNESS_PRESETS = [2, 3, 4, 5, 6, 8, 10];
+const DEFAULT_MATERIAL = MATERIALS.PVC_CAW_RED;
 
-const INITIAL_STATE={
-    name:"Detail-4301",
+const INITIAL_STATE = {
+    name: "Detail-4301",
 
-    material:MATERIALS["PVC_CAW_RED"],
-    machine:MACHINES["MACHINE_LINE_1"],
+    material: DEFAULT_MATERIAL,
+    machine: MACHINES.MACHINE_LINE_1,
 
-    geometry:{
-        thickness:4,
-        width:430,
-
-        shelves:[
-            {
-                length:50,
-                side:"right"
-            },
-            {
-                length:100,
-                side:"right"
-            },
-            {
-                length:150,
-                side:"left"
-            }
+    geometry: {
+        thickness: 4,
+        width: 430,
+        shelves: [
+            { length: 50, side: "right" },
+            { length: 100, side: "right" },
+            { length: 150, side: "left" }
         ],
-
-        bends:[
-            {
-                angle:90,
-                direction:"right"
-            },
-            {
-                angle:135,
-                direction:"left"
-            }
+        bends: [
+            { angle: 90, direction: "right" },
+            { angle: 135, direction: "left" }
         ]
     },
 
@@ -92,7 +64,7 @@ const INITIAL_STATE={
         // --- Физические параметры ---
         target: {
             type: "minTemperature",
-            value: (MATERIALS["PVC_CAW_RED"]?.minFormingTemp + MATERIALS["PVC_CAW_RED"]?.maxFormingTemp) / 2
+            value: (DEFAULT_MATERIAL?.minFormingTemp + DEFAULT_MATERIAL?.maxFormingTemp) / 2
         },
         widthHalfMm: 20,
         temperatures: { ambientC: 20, ambientRadiationC: 20, initialC: 20 },
@@ -100,828 +72,357 @@ const INITIAL_STATE={
         stopAtMaxTemperature: false,
         maxTimeSeconds: 1800,
 
-        // ПАРАМЕТРЫ ДЛЯ ДВИЖКА ТОЧНОСТИ ВЫЧИСЛЕНИЙ
-        accuracyMode: "optimal",          // Режим по умолчанию ("fast", "optimal", "accurate")
-        calculateAccuracyError: true,     // Включен ли расчет погрешности по умолчанию
+        // Точность расчёта: "fast" | "optimal" | "accurate" | объект пользовательских параметров
+        accuracyMode: "optimal",
+        calculateAccuracyError: true,
 
-        // --- Флаги отображения графиков (управление из интерфейса) ---
+        // Какие графики показывать
         ui: {
-            showVerticalSlice: true,   // График: Вертикальный срез по толщине
-            showHorizontalWidth: false, // График: Распределение по ширине
-            showTimeDynamics: true,    // График: Динамика во времени (История нагрева)
-            showHeaterDynamics: true,  // График: Температура ТЭНов во времени <-- ДОБАВИТЬ
-            showContours2D: true       // График: 2D Изотермы (Контуры)
+            showVerticalSlice: true,
+            showHorizontalWidth: false,
+            showTimeDynamics: true,
+            showHeaterDynamics: true,
+            showContours2D: true
         }
     },
 
-    view:{
-        rotation:0,
-        mirrored:false,
-        bendIndex:-1,
-        bendSide:"toEnd"
+    view: {
+        rotation: 0,
+        mirrored: false,
+        bendIndex: -1,
+        bendSide: "toEnd"
     }
 };
 
-
-const setByPath=(object,path,value)=>{
-    const result=Array.isArray(object)
-        ?[...object]
-        :{...object};
-
-    let current=result;
-
-    for(let i=0;i<path.length-1;i++){
-        const key=path[i];
-
-        current[key]=Array.isArray(current[key])
-            ?[...current[key]]
-            :{...current[key]};
-
-        current=current[key];
+const setByPath = (object, path, value) => {
+    const result = Array.isArray(object) ? [...object] : { ...object };
+    let current = result;
+    for (let i = 0; i < path.length - 1; i++) {
+        const key = path[i];
+        current[key] = Array.isArray(current[key]) ? [...current[key]] : { ...current[key] };
+        current = current[key];
     }
-
-    current[path[path.length-1]]=value;
-
+    current[path[path.length - 1]] = value;
     return result;
 };
 
+// Геометрия профиля из состояния страницы (для расчётов вида)
+const profileGeometryOf = (state) => buildProfileGeometry({
+    ...state,
+    ...state.geometry,
+    rTool: state.machine?.rTool,
+    kFactor: state.material?.kFactor
+});
 
-const ParamField=({
-                      label,
-                      value,
-                      onChange,
-                      step=1,
-                      endAdornment
-                  })=>(
+const normalizeAngle = (a) => ((a + 180) % 360 + 360) % 360 - 180;
+const angleDistance = (a, b) => Math.abs(normalizeAngle(a - b));
+
+// Пустая строка остаётся пустой (поле в процессе ввода), иначе — число
+const toNumberOrEmpty = (value) => (value === "" ? "" : Number(value));
+
+const hideSpinnersSx = {
+    "& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button": { display: "none" },
+    "& input[type=number]": { MozAppearance: "textfield" }
+};
+
+const UnitText = ({ children }) => (
+    <Box component="span" sx={{ fontSize: "0.8rem", color: "text.secondary" }}>{children}</Box>
+);
+
+const ParamField = ({ label, value, onChange, step = 1, endAdornment, error }) => (
     <TextField
         label={label}
         size="small"
         type="number"
         value={value}
-        onChange={e=>onChange(e.target.value)}
+        error={error}
+        onChange={(e) => onChange(e.target.value)}
+        sx={hideSpinnersSx}
         slotProps={{
-            htmlInput:{
-                step,
-                min:0,
-                sx:{
-                    "&::-webkit-outer-spin-button,&::-webkit-inner-spin-button":{
-                        display:"none"
-                    },
-                    MozAppearance:"textfield"
-                }
-            },
-            input:{
-                endAdornment:endAdornment&&(
-                    <InputAdornment position="end">
-                        {endAdornment}
-                    </InputAdornment>
-                )
+            htmlInput: { step, min: 0, inputMode: "decimal", style: NUMERIC_SX },
+            input: {
+                endAdornment: endAdornment && <InputAdornment position="end">{endAdornment}</InputAdornment>
             }
         }}
     />
 );
 
+// Краткое описание настроек симуляции для поля-селектора
+const describeSimulation = (simulation) => {
+    const target = simulation?.target;
+    const targetText = target?.type === "time"
+        ? `${target.value} s`
+        : target?.type === "surfaceTemperature"
+            ? `Surface ${target?.value} °C`
+            : `Min ${target?.value} °C`;
+    const mode = typeof simulation?.accuracyMode === "string"
+        ? simulation.accuracyMode.charAt(0).toUpperCase() + simulation.accuracyMode.slice(1)
+        : "Custom";
+    return `${targetText} · pause ${simulation?.cooling?.timeSeconds ?? "—"} s · ${mode}`;
+};
 
-const PreviewToolbar=({
-                          rotation,
-                          bendIndex,
-                          mirrored,
-                          onRotationChange,
-                          onRotationCommitted,
-                          onMirror
-                      })=>(
-    <Box
-        className="bending-preview-toolbar"
-        sx={{
-            px:1,
-            py:0,
-            minHeight:42,
-            display:"flex",
-            alignItems:"center",
-            flexShrink:0
-        }}
-    >
-        <Slider
-            value={rotation}
-            min={-180}
-            max={180}
-            step={1}
-            size="small"
-            disabled={bendIndex>=0}
-            onChange={(_,value)=>
-                onRotationChange(value)
-            }
-            onChangeCommitted={(_,value)=>
-                onRotationCommitted(value)
-            }
-            sx={{
-                flex:1,
-                minWidth:80,
-                mx:1,
-                color:"text.secondary",
-                opacity:.7,
-                "& .MuiSlider-thumb":{
-                    width:10,
-                    height:10
-                }
-            }}
-        />
+export default function Biegeberechnung() {
+    const dispatch = useDispatch();
+    const navigate = useNavigate();
 
-        <Tooltip title="Mirror">
-            <span>
-                <IconButton
-                    size="small"
-                    disabled={bendIndex>=0}
-                    onClick={onMirror}
-                >
-                    <FlipIcon
-                        fontSize="small"
-                        sx={{
-                            transform:mirrored
-                                ?"scaleX(-1)"
-                                :"none"
-                        }}
-                    />
-                </IconButton>
-            </span>
-        </Tooltip>
+    // Вид до выбора гиба — восстанавливается, когда вид гиба закрыт
+    const savedView = useRef({ rotation: 0, mirrored: false });
 
-        <Tooltip title="Print">
-            <IconButton
-                size="small"
-                onClick={()=>window.print()}
-                sx={{
-                    color:"text.secondary"
-                }}
-            >
-                <PrintIcon/>
-            </IconButton>
-        </Tooltip>
-    </Box>
-);
+    const profile = useSelector((state) => state.bending.profile);
+    const lastReturnedData = useSelector(selectLastReturnedData);
 
-
-export default function Biegeberechnung(){
-
-    const dispatch=useDispatch();
-    const navigate=useNavigate();
-
-    const savedView=useRef({
-        rotation:0,
-        mirrored:false
-    });
-
-    const profile=useSelector(
-        state=>state.bending.profile
-    );
-
-    const lastReturnedData=useSelector(
-        selectLastReturnedData
-    );
-
-    const [state,setState]=useState(
-        profile??INITIAL_STATE
-    );
-
+    const [state, setState] = useState(profile ?? INITIAL_STATE);
     const [isLogOpen, setIsLogOpen] = useState(false);
+    const [rotationPreview, setRotationPreview] = useState(null);
+    const [verticalShelfIndex, setVerticalShelfIndex] = useState(null);
+    const [thicknessMenuAnchor, setThicknessMenuAnchor] = useState(null);
 
-    const [
-        rotationPreview,
-        setRotationPreview
-    ]=useState(null);
-
-    const [
-        verticalShelfIndex,
-        setVerticalShelfIndex
-    ]=useState(null);
-
-    const [
-        thicknessMenuAnchor,
-        setThicknessMenuAnchor
-    ]=useState(null);
-
-    useEffect(()=>{
+    useEffect(() => {
         dispatch(setProfile(state));
-    },[state,dispatch]);
+    }, [state, dispatch]);
 
-    useEffect(()=>{
-        if(!lastReturnedData){
-            return;
+    // Результат диалогов справочников
+    useEffect(() => {
+        if (!lastReturnedData) return;
+        const { dialogType, data } = lastReturnedData;
+        const value = data?.value;
+
+        if (value !== undefined && ["material", "machine", "simulation"].includes(dialogType)) {
+            setState((prev) => ({ ...prev, [dialogType]: value }));
         }
-
-        const {
-            dialogType,
-            data
-        }=lastReturnedData;
-
-        const value=data?.value;
-
-        if(value===undefined){
-            dispatch(clearDialogDataReturned());
-            return;
-        }
-
-        if(dialogType==="material"){
-            setState(prev=>({
-                ...prev,
-                material:value
-            }));
-        }
-
-        if(dialogType==="machine"){
-            setState(prev=>({
-                ...prev,
-                machine:value
-            }));
-        }
-
-        if(dialogType==="simulation"){
-            setState(prev=>({
-                ...prev,
-                simulation:value
-            }));
-        }
-
         dispatch(clearDialogDataReturned());
-    },[
-        lastReturnedData,
-        dispatch
-    ]);
+    }, [lastReturnedData, dispatch]);
 
-    const {
-        material,
-        machine,
-        geometry,
-        simulation,
-        view
-    }=state;
+    const { material, machine, geometry, simulation, view } = state;
+    const { thickness, width, shelves, bends } = geometry;
+    const { rotation, mirrored, bendIndex, bendSide } = view;
+    const selectedBend = bends[bendIndex] ?? null;
 
-    const {
-        thickness,
-        width,
-        shelves,
-        bends
-    }=geometry;
+    // Изменение геометрии. Читает вид из prev — без устаревших значений из замыкания.
+    const updateGeometry = useCallback((changes) => {
+        setState((prev) => {
+            if (!changes.path) {
+                return { ...prev, geometry: { ...prev.geometry, ...changes } };
+            }
 
-    const {
-        rotation,
-        mirrored,
-        bendIndex,
-        bendSide
-    }=view;
+            const [collection, index, field] = changes.path;
+            const nextGeometry = setByPath(prev.geometry, changes.path, changes.value);
+            let nextView = prev.view;
 
-    const selectedBend=
-        bends[bendIndex]??null;
-
-    const updateState=useCallback(
-        changes=>{
-            setState(prev=>({
-                ...prev,
-                ...changes
-            }));
-        },
-        []
-    );
-
-    const updateGeometry=useCallback(
-        changes=>{
-            setState(prev=>{
-                if(changes.path){
-                    const [
-                        collection,
-                        index,
-                        field
-                    ]=changes.path;
-
-                    const nextGeometry=setByPath(
-                        prev.geometry,
-                        changes.path,
-                        changes.value
-                    );
-
-                    let nextView=prev.view;
-
-                    const selectedShelfIndex=
-                        bendSide==="fromStart"
-                            ?bendIndex
-                            :bendIndex+1;
-
-                    if(
-                        collection==="bends"&&
-                        (
-                            field==="angle"||
-                            field==="direction"
-                        )&&
-                        index<=selectedShelfIndex
-                    ){
-                        const geometryProfile={
-                            ...prev,
-                            ...nextGeometry,
-                            rTool:prev.machine?.rTool,
-                            kFactor:prev.material?.kFactor
-                        };
-
-                        const geometry=
-                            buildProfileGeometry(
-                                geometryProfile
-                            );
-
-                        nextView={
-                            ...prev.view,
-                            ...calculateBendView(
-                                geometry,
-                                bendIndex,
-                                bendSide,
-                                prev.view.mirrored,
-                                prev.view.rotation
-                            )
-                        };
-                    }
-
-                    return{
-                        ...prev,
-                        geometry:nextGeometry,
-                        view:nextView
-                    };
-                }
-
-                return{
-                    ...prev,
-                    geometry:{
-                        ...prev.geometry,
-                        ...changes
-                    }
+            // Угол/направление гиба до выбранного вида меняют ориентацию — пересчитать вид
+            const { bendIndex: selected, bendSide: side } = prev.view;
+            const selectedShelfIndex = side === "fromStart" ? selected : selected + 1;
+            if (
+                selected >= 0 &&
+                collection === "bends" &&
+                (field === "angle" || field === "direction") &&
+                index <= selectedShelfIndex
+            ) {
+                const built = profileGeometryOf({ ...prev, geometry: nextGeometry });
+                nextView = {
+                    ...prev.view,
+                    ...calculateBendView(built, selected, side, prev.view.mirrored, prev.view.rotation)
                 };
-            });
-        },
-        [bendIndex,bendSide]
-    );
+            }
 
-    const geometryProfile=useMemo(
-        ()=>({
+            return { ...prev, geometry: nextGeometry, view: nextView };
+        });
+    }, []);
+
+    const geometryProfile = useMemo(
+        () => ({
             ...state,
             ...geometry,
-            kFactor:material?.kFactor,
-            rTool:machine?.rTool
+            kFactor: material?.kFactor,
+            rTool: machine?.rTool
         }),
-        [
-            state,
-            geometry,
-            material,
-            machine
-        ]
+        [state, geometry, material, machine]
     );
 
-    const builtGeometry=useMemo(
-        ()=>buildProfileGeometry(
-            geometryProfile
-        ),
-        [geometryProfile]
-    );
+    const builtGeometry = useMemo(() => buildProfileGeometry(geometryProfile), [geometryProfile]);
 
-    const handleSelectBend=useCallback(
-        index=>{
-            setState(prev=>{
-                const geometryProfile={
-                    ...prev,
-                    ...prev.geometry,
-                    rTool:prev.machine?.rTool,
-                    kFactor:prev.material?.kFactor
-                };
+    // Выбор гиба: первый клик — вид гиба с предпочтительной стороны, второй — другая
+    // сторона, третий — закрыть вид и вернуть сохранённый поворот
+    const handleSelectBend = useCallback((index) => {
+        setState((prev) => {
+            const built = profileGeometryOf(prev);
+            const preferredSide = getPreferredSide(prev.geometry.shelves, index);
 
-                const geometry=
-                    buildProfileGeometry(
-                        geometryProfile
-                    );
-
-                const preferredSide=
-                    getPreferredSide(
-                        prev.geometry.shelves,
-                        index
-                    );
-
-                if(
-                    prev.view.bendIndex!==index
-                ){
-                    if(prev.view.bendIndex<0){
-                        savedView.current={
-                            rotation:
-                            prev.view.rotation,
-                            mirrored:
-                            prev.view.mirrored
-                        };
-                    }
-
-                    const nextView=
-                        calculateBendView(
-                            geometry,
-                            index,
-                            preferredSide,
-                            prev.view.mirrored,
-                            prev.view.rotation
-                        );
-
-                    return{
-                        ...prev,
-                        view:{
-                            ...prev.view,
-                            bendIndex:index,
-                            bendSide:preferredSide,
-                            ...nextView
-                        }
-                    };
+            if (prev.view.bendIndex !== index) {
+                if (prev.view.bendIndex < 0) {
+                    savedView.current = { rotation: prev.view.rotation, mirrored: prev.view.mirrored };
                 }
-
-                if(
-                    prev.view.bendSide!==preferredSide
-                ){
-                    return{
-                        ...prev,
-                        view:{
-                            ...prev.view,
-                            bendIndex:-1,
-                            bendSide:"toEnd",
-                            ...savedView.current
-                        }
-                    };
-                }
-
-                const nextSide=
-                    prev.view.bendSide==="fromStart"
-                        ?"toEnd"
-                        :"fromStart";
-
-                const nextView=
-                    calculateBendView(
-                        geometry,
-                        index,
-                        nextSide,
-                        prev.view.mirrored,
-                        prev.view.rotation
-                    );
-
-                return{
+                return {
                     ...prev,
-                    view:{
+                    view: {
                         ...prev.view,
-                        bendSide:nextSide,
-                        ...nextView
+                        bendIndex: index,
+                        bendSide: preferredSide,
+                        ...calculateBendView(built, index, preferredSide, prev.view.mirrored, prev.view.rotation)
                     }
                 };
-            });
-        },
-        []
-    );
+            }
 
-    const handleVerticalShelfChange=
-        useCallback(index=>{
-            setState(prev=>{
-                const geometryProfile={
+            if (prev.view.bendSide !== preferredSide) {
+                return {
                     ...prev,
-                    ...prev.geometry,
-                    rTool:prev.machine?.rTool,
-                    kFactor:prev.material?.kFactor
+                    view: { ...prev.view, bendIndex: -1, bendSide: "toEnd", ...savedView.current }
                 };
+            }
 
-                const geometry=
-                    buildProfileGeometry(
-                        geometryProfile
-                    );
-
-                const vector=getShelfVector(
-                    geometry,
-                    index
-                );
-
-                if(!vector){
-                    return prev;
+            const nextSide = prev.view.bendSide === "fromStart" ? "toEnd" : "fromStart";
+            return {
+                ...prev,
+                view: {
+                    ...prev.view,
+                    bendSide: nextSide,
+                    ...calculateBendView(built, index, nextSide, prev.view.mirrored, prev.view.rotation)
                 }
-
-                const dx=prev.view.mirrored
-                    ?-vector.x
-                    :vector.x;
-
-                const baseRotation=
-                    (
-                        -Math.PI/2-
-                        Math.atan2(
-                            vector.y,
-                            dx
-                        )
-                    )*180/Math.PI;
-
-                const normalize=a=>
-                    ((a+180)%360+360)%360-180;
-
-                const distance=(a,b)=>
-                    Math.abs(
-                        normalize(a-b)
-                    );
-
-                const rotation0=
-                    baseRotation;
-
-                const rotation180=
-                    baseRotation+180;
-
-                const current=
-                    prev.view.rotation;
-
-                const isVertical=
-                    distance(
-                        current,
-                        rotation0
-                    )<1||
-                    distance(
-                        current,
-                        rotation180
-                    )<1;
-
-                const rotation=
-                    isVertical
-                        ?distance(
-                            current,
-                            rotation0
-                        )<1
-                            ?rotation180
-                            :rotation0
-                        :distance(
-                            current,
-                            rotation0
-                        )<=distance(
-                            current,
-                            rotation180
-                        )
-                            ?rotation0
-                            :rotation180;
-
-                return{
-                    ...prev,
-                    view:{
-                        ...prev.view,
-                        rotation
-                    }
-                };
-            });
-
-            setVerticalShelfIndex(index);
-        },[]);
-
-    const handleProfileRotationChange=
-        useCallback(
-            value=>
-                setRotationPreview(
-                    Number(value)
-                ),
-            []
-        );
-
-    const handleProfileRotationCommitted=
-        useCallback(
-            value=>{
-                updateState({
-                    view:{
-                        ...view,
-                        rotation:Number(value)
-                    }
-                });
-
-                setVerticalShelfIndex(null);
-                setRotationPreview(null);
-            },
-            [updateState,view]
-        );
-
-    const handleProfileMirrorChange=
-        useCallback(
-            value=>{
-                updateState({
-                    view:{
-                        ...view,
-                        mirrored:Boolean(value),
-                        rotation:-view.rotation
-                    }
-                });
-            },
-            [updateState,view]
-        );
-
-    const addBend=useCallback(()=>{
-        updateGeometry({
-            shelves:[
-                ...shelves,
-                {
-                    length:50,
-                    side:"right"
-                }
-            ],
-
-            bends:[
-                ...bends,
-                {
-                    angle:180,
-                    direction:"right"
-                }
-            ]
+            };
         });
-    },[
-        shelves,
-        bends,
-        updateGeometry
-    ]);
+    }, []);
 
-    const removeBend=useCallback(
-        index=>{
-            setState(prev=>{
-                let nextIndex=
-                    prev.view.bendIndex;
+    // Полка вертикально; повторный клик — переворот на 180°
+    const handleVerticalShelfChange = useCallback((index) => {
+        setState((prev) => {
+            const vector = getShelfVector(profileGeometryOf(prev), index);
+            if (!vector) return prev;
 
-                if(nextIndex===index){
-                    nextIndex=-1;
-                }else if(nextIndex>index){
-                    nextIndex--;
-                }
+            const dx = prev.view.mirrored ? -vector.x : vector.x;
+            const rotation0 = ((-Math.PI / 2 - Math.atan2(vector.y, dx)) * 180) / Math.PI;
+            const rotation180 = rotation0 + 180;
+            const current = prev.view.rotation;
+            const isVertical = angleDistance(current, rotation0) < 1 || angleDistance(current, rotation180) < 1;
 
-                return{
-                    ...prev,
+            const next = isVertical
+                ? (angleDistance(current, rotation0) < 1 ? rotation180 : rotation0)
+                : (angleDistance(current, rotation0) <= angleDistance(current, rotation180) ? rotation0 : rotation180);
 
-                    geometry:{
-                        ...prev.geometry,
+            return { ...prev, view: { ...prev.view, rotation: normalizeAngle(next) } };
+        });
+        setVerticalShelfIndex(index);
+    }, []);
 
-                        bends:
-                            prev.geometry.bends.filter(
-                                (_,i)=>i!==index
-                            ),
+    const handleProfileRotationChange = useCallback((value) => setRotationPreview(Number(value)), []);
 
-                        shelves:
-                            prev.geometry.shelves.filter(
-                                (_,i)=>i!==index+1
-                            )
-                    },
+    const handleProfileRotationCommitted = useCallback((value) => {
+        setState((prev) => ({ ...prev, view: { ...prev.view, rotation: Number(value) } }));
+        setVerticalShelfIndex(null);
+        setRotationPreview(null);
+    }, []);
 
-                    view:{
-                        ...prev.view,
-                        bendIndex:nextIndex
-                    }
-                };
-            });
-        },
-        []
+    const handleMirror = useCallback(() => {
+        setState((prev) => ({
+            ...prev,
+            view: { ...prev.view, mirrored: !prev.view.mirrored, rotation: -prev.view.rotation }
+        }));
+    }, []);
+
+    const addBend = useCallback(() => {
+        setState((prev) => ({
+            ...prev,
+            geometry: {
+                ...prev.geometry,
+                shelves: [...prev.geometry.shelves, { length: 50, side: "right" }],
+                bends: [...prev.geometry.bends, { angle: 90, direction: "right" }]
+            }
+        }));
+    }, []);
+
+    const removeBend = useCallback((index) => {
+        setState((prev) => {
+            const selected = prev.view.bendIndex;
+            const nextView = selected === index
+                ? { ...prev.view, bendIndex: -1, bendSide: "toEnd", ...savedView.current }
+                : { ...prev.view, bendIndex: selected > index ? selected - 1 : selected };
+            return {
+                ...prev,
+                geometry: {
+                    ...prev.geometry,
+                    bends: prev.geometry.bends.filter((_, i) => i !== index),
+                    shelves: prev.geometry.shelves.filter((_, i) => i !== index + 1)
+                },
+                view: nextView
+            };
+        });
+        setVerticalShelfIndex(null);
+    }, []);
+
+    const distanceToOuterApex = useMemo(
+        () => (bendIndex < 0
+            ? 0
+            : Number(calculateOuterLengthToEnd(geometryProfile, bendIndex, bendSide).toFixed(2))),
+        [geometryProfile, bendIndex, bendSide]
     );
 
-    const distanceToOuterApex=useMemo(
-        ()=>bendIndex<0
-            ?0
-            :Number(
-                calculateOuterLengthToEnd(
-                    geometryProfile,
-                    bendIndex,
-                    bendSide
-                ).toFixed(2)
-            ),
-        [
-            geometryProfile,
-            bendIndex,
-            bendSide
-        ]
+    const machineParams = useMemo(
+        () => (selectedBend
+            ? calculateBendingMachineParams({
+                alpha: Number(selectedBend.angle),
+                lInput: distanceToOuterApex,
+                isInnerMode: false,
+                t: Number(thickness),
+                rTool: machine?.rTool
+            })
+            : null),
+        [selectedBend, distanceToOuterApex, thickness, machine]
     );
 
-    const machineParams=useMemo(
-        ()=>selectedBend
-            ?calculateBendingMachineParams({
-                alpha:selectedBend.angle,
-                lInput:distanceToOuterApex,
-                isInnerMode:false,
-                t:thickness,
-                rTool:machine?.rTool
-            })
-            :null,
-        [
-            selectedBend,
-            distanceToOuterApex,
-            thickness,
-            machine
-        ]
-    );
+    const blankLength = useMemo(() => calculateBlankLength(geometryProfile), [geometryProfile]);
 
-    const blankLength=useMemo(
-        ()=>calculateBlankLength(
-            geometryProfile
-        ),
-        [geometryProfile]
-    );
+    const openMaterialDialog = useCallback(() => {
+        dispatch(openDialog({ id: "material", dialogType: "material", title: "Material", data: { value: material, materials: MATERIALS } }));
+    }, [dispatch, material]);
 
-    const sliderRotation=
-        rotationPreview??rotation;
+    const openMachineDialog = useCallback(() => {
+        dispatch(openDialog({ id: "machine", dialogType: "machine", title: "Machine", data: { value: machine, machines: MACHINES } }));
+    }, [dispatch, machine]);
 
-    const openMaterialDialog=useCallback(()=>{
-        dispatch(
-            openDialog({
-                id:"material",
-                dialogType:"material",
-                title:"Material",
-                data:{
-                    value:material,
-                    materials:MATERIALS
-                }
-            })
-        );
-    },[
-        dispatch,
-        material
-    ]);
+    const openSimulationDialog = useCallback(() => {
+        dispatch(openDialog({
+            id: "simulation",
+            dialogType: "simulation",
+            title: "Simulation parameters",
+            data: { value: simulation, accuracyModes: ACCURACY_MODES }
+        }));
+    }, [dispatch, simulation]);
 
-    const openMachineDialog=useCallback(()=>{
-        dispatch(
-            openDialog({
-                id:"machine",
-                dialogType:"machine",
-                title:"Machine",
-                data:{
-                    value:machine,
-                    machines:MACHINES
-                }
-            })
-        );
-    },[
-        dispatch,
-        machine
-    ]);
+    const thicknessNumber = Number(thickness);
+    const widthNumber = Number(width);
 
-    const openSimulationDialog=useCallback(()=>{
-        dispatch(
-            openDialog({
-                id:"simulation",
-                dialogType:"simulation",
-                title:"Simulation parameters",
-                data:{
-                    value:simulation,
-                    accuracyModes: ACCURACY_MODES
-                }
-            })
-        );
-    },[
-        dispatch,
-        simulation
-    ]);
-    return(
+    return (
         <Box
             className="biege-main-page"
             sx={{
-                display:"grid",
-                gridTemplateColumns:
-                    "22rem minmax(22rem,1fr)",
-                gridTemplateAreas:
-                    `"editor preview"`,
-                gap:2,
-                m:1,
-
-                "@media (max-width:calc(22rem + 22rem + 16px))":{
-                    gridTemplateColumns:"1fr",
-                    gridTemplateAreas:`
-"preview"
-"editor"
-                    `,
-                    mx:0
+                display: "grid",
+                gridTemplateColumns: `${EDITOR_WIDTH} minmax(0, 1fr)`,
+                gridTemplateAreas: `"editor preview"`,
+                alignItems: "start",
+                gap: 1.5,
+                m: 1.5,
+                [`@media (max-width: 52rem)`]: {
+                    gridTemplateColumns: "minmax(0, 1fr)",
+                    gridTemplateAreas: `"preview" "editor"`,
+                    m: 0.5,
+                    gap: 1
                 }
             }}
         >
             <Paper
+                variant="outlined"
                 className="bending-preview-paper"
-                sx={{
-                    gridArea:"preview",
-                    display:"flex",
-                    flexDirection:"column",
-                    overflow:"hidden"
-                }}
+                sx={{ gridArea: "preview", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}
             >
                 <PreviewToolbar
-                    rotation={sliderRotation}
+                    rotation={rotationPreview ?? rotation}
                     bendIndex={bendIndex}
                     mirrored={mirrored}
-                    onRotationChange={
-                        handleProfileRotationChange
-                    }
-                    onRotationCommitted={
-                        handleProfileRotationCommitted
-                    }
-                    onMirror={()=>
-                        handleProfileMirrorChange(
-                            !mirrored
-                        )
-                    }
+                    onRotationChange={handleProfileRotationChange}
+                    onRotationCommitted={handleProfileRotationCommitted}
+                    onMirror={handleMirror}
                 />
 
-                <Box
-                    className="bending-preview-content"
-                    sx={{
-                        flex:1,
-                        minHeight:0,
-                        minWidth:0,
-                        overflow:"hidden",
-                        p:1
-                    }}
-                >
+                <Box className="bending-preview-content" sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }}>
                     <BendingPreview
                         profile={geometryProfile}
                         geometry={builtGeometry}
@@ -934,288 +435,115 @@ export default function Biegeberechnung(){
             </Paper>
 
             <Paper
+                variant="outlined"
                 className="bending-editor-paper"
                 sx={{
-                    gridArea:"editor",
-                    minWidth:0
+                    gridArea: "editor",
+                    minWidth: 0,
+                    pb: 1.5
                 }}
             >
-                <Box sx={{my:1}}>
-                    {shelves.map((shelf,index)=>(
+                <SectionHeader title="Part" sx={{ pt: 1.25 }} />
+                <Box sx={{ px: 1.5 }}>
+                    <TextField
+                        label="Part name"
+                        size="small"
+                        fullWidth
+                        value={state.name ?? ""}
+                        onChange={(e) => {
+                            const name = e.target.value;
+                            setState((prev) => ({ ...prev, name }));
+                        }}
+                    />
+                </Box>
+
+                <SectionHeader title="Profile" />
+                <Box>
+                    {shelves.map((shelf, index) => (
                         <ProfileRow
                             key={index}
                             shelf={shelf}
-                            shelves={shelves}
-                            index={index}
                             bend={bends[index]}
-                            bends={bends}
+                            index={index}
+                            thickness={thicknessNumber}
                             bendIndex={bendIndex}
                             bendSide={bendSide}
-                            isVertical={
-                                verticalShelfIndex===index
-                            }
+                            isVertical={verticalShelfIndex === index}
                             onUpdate={updateGeometry}
-                            onSelectBend={()=>
-                                handleSelectBend(index)
-                            }
-                            onVerticalShelfChange={()=>
-                                handleVerticalShelfChange(index)
-                            }
-                            onRemoveBend={()=>
-                                removeBend(index)
-                            }
-                            canRemove={
-                                bends.length>1
-                            }
+                            onSelectBend={handleSelectBend}
+                            onVerticalShelfChange={handleVerticalShelfChange}
+                            onRemoveBend={removeBend}
+                            canRemove={bends.length > 1}
                         />
                     ))}
                 </Box>
-
-                <Box sx={{p:1}}>
-                    <Button
-                        sx={{
-                            width:"10rem",
-                            mx:"auto",
-                            display:"flex",
-                            whiteSpace:"nowrap"
-                        }}
-                        variant="outlined"
-                        startIcon={<AddIcon/>}
-                        onClick={addBend}
-                    >
-                        Add Bend
+                <Box sx={{ px: 1.5, pt: 0.75 }}>
+                    <Button fullWidth size="small" variant="outlined" startIcon={<AddIcon />} onClick={addBend} sx={{ borderStyle: "dashed" }}>
+                        Add bend
                     </Button>
                 </Box>
 
-                <Box
-                    sx={{
-                        p:1,
-                        display:"flex",
-                        flexDirection:"column",
-                        gap:1
-                    }}
-                >
-                    <Typography
-                        variant="subtitle2"
-                        sx={{mb:1}}
-                    >
-                        Parameters
-                    </Typography>
+                <SectionHeader title="Setup" />
+                <Box sx={{ px: 1.5, display: "flex", flexDirection: "column", gap: 1.5 }}>
+                    <SelectorField label="Machine" value={machine?.name} onOpen={openMachineDialog} icon={<DatabaseIcon fontSize="small" />} />
+                    <SelectorField label="Material" value={material?.name} onOpen={openMaterialDialog} icon={<DatabaseIcon fontSize="small" />} />
 
-                    <Box sx={{mb:1}}>
-                        <TextField
-                            label="Machine"
-                            value={machine?.name||""}
-                            onClick={openMachineDialog}
-                            size="small"
-                            fullWidth
-                            slotProps={{
-                                htmlInput:{
-                                    readOnly:true,
-                                    tabIndex:-1
-                                },
-                                input:{
-                                    endAdornment:(
-                                        <InputAdornment position="end">
-                                            <IconButton
-                                                size="small"
-                                                onClick={e=>{
-                                                    e.stopPropagation();
-                                                    openMachineDialog();
-                                                }}
-                                            >
-                                                <DatabaseIcon
-                                                    fontSize="small"
-                                                />
-                                            </IconButton>
-                                        </InputAdornment>
-                                    )
-                                }
-                            }}
-                            sx={{
-                                "& .MuiInputBase-root":{
-                                    cursor:"pointer"
-                                },
-                                "& .MuiInputBase-input":{
-                                    cursor:"pointer",
-                                    userSelect:"none"
-                                }
-                            }}
-                        />
-                    </Box>
-
-                    <Box sx={{mb:1}}>
-                        <TextField
-                            label="Material"
-                            value={material?.name||""}
-                            onClick={openMaterialDialog}
-                            size="small"
-                            fullWidth
-                            slotProps={{
-                                htmlInput:{
-                                    readOnly:true,
-                                    tabIndex:-1
-                                },
-                                input:{
-                                    endAdornment:(
-                                        <InputAdornment position="end">
-                                            <IconButton
-                                                size="small"
-                                                onClick={e=>{
-                                                    e.stopPropagation();
-                                                    openMaterialDialog();
-                                                }}
-                                            >
-                                                <DatabaseIcon
-                                                    fontSize="small"
-                                                />
-                                            </IconButton>
-                                        </InputAdornment>
-                                    )
-                                }
-                            }}
-                            sx={{
-                                "& .MuiInputBase-root":{
-                                    cursor:"pointer"
-                                },
-                                "& .MuiInputBase-input":{
-                                    cursor:"pointer",
-                                    userSelect:"none"
-                                }
-                            }}
-                        />
-                    </Box>
-
-                    <Box
-                        sx={{
-                            display:"grid",
-                            gridTemplateColumns:
-                                "1fr 1fr",
-                            gap:1
-                        }}
-                    >
+                    <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
                         <ParamField
                             label="Thickness"
                             value={thickness}
-                            step=".1"
-                            onChange={value=>
-                                updateGeometry({
-                                    thickness:
-                                        value===""
-                                            ?""
-                                            :Number(value)
-                                })
-                            }
+                            step="0.1"
+                            error={!(thicknessNumber > 0)}
+                            onChange={(value) => updateGeometry({ thickness: toNumberOrEmpty(value) })}
                             endAdornment={
-                                <Box
-                                    sx={{
-                                        display:"flex",
-                                        alignItems:"center"
-                                    }}
-                                >
-                                    <Box
-                                        sx={{
-                                            fontSize:"0.8rem"
-                                        }}
-                                    >
-                                        mm
-                                    </Box>
-
+                                <Box sx={{ display: "flex", alignItems: "center" }}>
+                                    <UnitText>mm</UnitText>
                                     <IconButton
                                         size="small"
-                                        onClick={e=>
-                                            setThicknessMenuAnchor(
-                                                e.currentTarget
-                                            )
-                                        }
-                                        sx={{
-                                            p:.25,
-                                            color:"text.secondary"
-                                        }}
+                                        aria-label="Thickness presets"
+                                        onClick={(e) => setThicknessMenuAnchor(e.currentTarget)}
+                                        sx={{ p: 0.25, ml: 0.25, color: "text.secondary" }}
                                     >
-                                        <KeyboardArrowDownIcon
-                                            fontSize="small"
-                                        />
+                                        <KeyboardArrowDownIcon fontSize="small" />
                                     </IconButton>
                                 </Box>
                             }
                         />
-
                         <ParamField
                             label="Part width"
                             value={width}
-                            step=".1"
-                            onChange={value=>
-                                updateGeometry({
-                                    width:
-                                        value===""
-                                            ?""
-                                            :Number(value)
-                                })
-                            }
-                            endAdornment={
-                                <Box
-                                    sx={{
-                                        fontSize:"0.8rem"
-                                    }}
-                                >
-                                    mm
-                                </Box>
-                            }
+                            step="1"
+                            error={!(widthNumber > 0)}
+                            onChange={(value) => updateGeometry({ width: toNumberOrEmpty(value) })}
+                            endAdornment={<UnitText>mm</UnitText>}
                         />
                     </Box>
 
-                    <Box sx={{mb:1}}>
-                        <TextField
-                            label="Simulation parameters"
-                            value="Simulation settings"
-                            onClick={openSimulationDialog}
-                            size="small"
-                            fullWidth
-                            slotProps={{
-                                htmlInput:{
-                                    readOnly:true,
-                                    tabIndex:-1
-                                },
-                                input:{
-                                    endAdornment:(
-                                        <InputAdornment position="end">
-                                            <IconButton
-                                                size="small"
-                                                onClick={e=>{
-                                                    e.stopPropagation();
-                                                    openSimulationDialog();
-                                                }}
-                                            >
-                                                <DatabaseIcon
-                                                    fontSize="small"
-                                                />
-                                            </IconButton>
-                                        </InputAdornment>
-                                    )
-                                }
-                            }}
-                            sx={{
-                                "& .MuiInputBase-root":{
-                                    cursor:"pointer"
-                                },
-                                "& .MuiInputBase-input":{
-                                    cursor:"pointer",
-                                    userSelect:"none"
-                                }
-                            }}
-                        />
-                    </Box>
+                    <SelectorField
+                        label="Simulation"
+                        value={describeSimulation(simulation)}
+                        onOpen={openSimulationDialog}
+                        icon={<TuneIcon fontSize="small" />}
+                    />
                 </Box>
 
-                {/* Блок кнопок оптимизации и логирования */}
-                <Box sx={{ mt: 1, mb: 1, display: "flex", flexDirection: "column", gap: 1 }}>
-                    <Button variant="contained" fullWidth onClick={() => setIsLogOpen(true)}>
-                        🚀 BO Dashboard
+                <SectionHeader title="Tools" />
+                <Box sx={{ px: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+                    <Button variant="contained" fullWidth disableElevation startIcon={<InsightsIcon />} onClick={() => setIsLogOpen(true)}>
+                        Optimizer dashboard
                     </Button>
+                    <Link
+                        component="button"
+                        type="button"
+                        underline="hover"
+                        onClick={() => navigate("/heating-methodology_de")}
+                        sx={{ alignSelf: "center", display: "inline-flex", alignItems: "center", gap: 0.5, fontSize: "0.8rem" }}
+                    >
+                        <MenuBookIcon sx={{ fontSize: 16 }} />
+                        Heating methodology
+                    </Link>
                 </Box>
 
-                {/* Компонент диалога с кнопками управления внутри */}
                 <BayeusianLogDialog
                     open={isLogOpen}
                     onClose={() => setIsLogOpen(false)}
@@ -1224,56 +552,22 @@ export default function Biegeberechnung(){
                     accuracyModes={ACCURACY_MODES}
                 />
 
-
-                <Menu
-                    anchorEl={thicknessMenuAnchor}
-                    open={Boolean(thicknessMenuAnchor)}
-                    onClose={()=>
-                        setThicknessMenuAnchor(null)
-                    }
-                >
-                    {[4,5,6,8,10].map(value=>(
+                <Menu anchorEl={thicknessMenuAnchor} open={Boolean(thicknessMenuAnchor)} onClose={() => setThicknessMenuAnchor(null)}>
+                    {THICKNESS_PRESETS.map((value) => (
                         <MenuItem
                             key={value}
-                            selected={thickness===value}
-                            onClick={()=>{
-                                updateGeometry({
-                                    thickness:value
-                                });
-
+                            dense
+                            selected={thicknessNumber === value}
+                            onClick={() => {
+                                updateGeometry({ thickness: value });
                                 setThicknessMenuAnchor(null);
                             }}
+                            sx={NUMERIC_SX}
                         >
                             {value} mm
                         </MenuItem>
                     ))}
                 </Menu>
-
-                <Box
-                    sx={{
-                        px:1,
-                        pb:1,
-                        pt:.5,
-                        textAlign:"center"
-                    }}
-                >
-                    <Link
-                        component="button"
-                        type="button"
-                        underline="hover"
-                        onClick={()=>
-                            navigate(
-                                "/heating-methodology_de"
-                            )
-                        }
-                        sx={{
-                            fontSize:"0.8rem",
-                            cursor:"pointer"
-                        }}
-                    >
-                        Heating methodology
-                    </Link>
-                </Box>
             </Paper>
         </Box>
     );

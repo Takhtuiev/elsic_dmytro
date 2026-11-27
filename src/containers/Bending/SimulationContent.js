@@ -220,7 +220,7 @@ export default function SimulationContent({ value = {}, onChange }) {
                         control={
                             <Switch
                                 size="small"
-                                checked={stopAtMaxTemperature}
+                                checked={Boolean(stopAtMaxTemperature)}
                                 onChange={(e) => updateValue(() => ({
                                     stopAtMaxTemperature: e.target.checked
                                 }))}
@@ -289,13 +289,13 @@ export default function SimulationContent({ value = {}, onChange }) {
                         control={
                             <Switch
                                 size="small"
-                                checked={calculateAccuracyError}
+                                checked={Boolean(calculateAccuracyError)}
                                 onChange={(e) => updateValue(() => ({
                                     calculateAccuracyError: e.target.checked
                                 }))}
                             />
                         }
-                        label="Calculate calculation error"
+                        label="Estimate numerical error"
                         sx={{ mx: 0.5, mt: 1 }}
                     />
 
@@ -405,24 +405,24 @@ export default function SimulationContent({ value = {}, onChange }) {
 
                 <ConfigCard title="Charts Visibility">
                     <FormControlLabel
-                        control={<Switch size="small" checked={showVerticalSlice} onChange={handleChartUiChange("showVerticalSlice")} />}
-                        label="Vertical slice"
+                        control={<Switch size="small" checked={showVerticalSlice ?? true} onChange={handleChartUiChange("showVerticalSlice")} />}
+                        label="Temperature through thickness"
                     />
                     <FormControlLabel
-                        control={<Switch size="small" checked={showTimeDynamics} onChange={handleChartUiChange("showTimeDynamics")} />}
-                        label="Time dynamics"
+                        control={<Switch size="small" checked={Boolean(showTimeDynamics)} onChange={handleChartUiChange("showTimeDynamics")} />}
+                        label="Temperature vs. time"
                     />
                     <FormControlLabel
-                        control={<Switch size="small" checked={Boolean(showHeaterDynamics)} onChange={handleChartUiChange("showHeaterDynamics")} />}
-                        label="Heater dynamics"
+                        control={<Switch size="small" checked={showHeaterDynamics ?? true} onChange={handleChartUiChange("showHeaterDynamics")} />}
+                        label="Heater temperatures"
                     />
                     <FormControlLabel
-                        control={<Switch size="small" checked={showHorizontalWidth} onChange={handleChartUiChange("showHorizontalWidth")} />}
-                        label="Distribution by width"
+                        control={<Switch size="small" checked={Boolean(showHorizontalWidth)} onChange={handleChartUiChange("showHorizontalWidth")} />}
+                        label="Temperature across width"
                     />
                     <FormControlLabel
-                        control={<Switch size="small" checked={showContours2D} onChange={handleChartUiChange("showContours2D")} />}
-                        label="2D Isotherms"
+                        control={<Switch size="small" checked={Boolean(showContours2D)} onChange={handleChartUiChange("showContours2D")} />}
+                        label="Cross-section isotherms"
                     />
                 </ConfigCard>
             </Box>

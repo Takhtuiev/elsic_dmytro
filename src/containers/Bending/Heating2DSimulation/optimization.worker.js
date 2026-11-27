@@ -92,10 +92,10 @@ async function run(command, data) {
     const bestTm = metrics.technicalMetrics || {};
 
     const finalMessage = stopRequested
-        ? "⏹️ Optimization stopped by user. Best found parameters selected."
+        ? "Optimization stopped by user. Best parameters found so far are selected."
         : metrics.isFallbackActivated
-            ? "⚠️ No configuration satisfied all constraints. The least-violating parameters were selected."
-            : "🏆 Optimization completed. Optimal parameters selected.";
+            ? "No configuration satisfied all constraints. The least-violating parameters are selected."
+            : "Optimization completed. Optimal parameters selected.";
 
     postLog("FINAL_REPORT", finalMessage, {
         currentStepVisual: metrics.searchStepsMade,

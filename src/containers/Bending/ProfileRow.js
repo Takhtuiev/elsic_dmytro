@@ -1,103 +1,122 @@
-import React,{memo,useState} from "react";
+import React, { memo, useCallback, useState } from "react";
 import {
-    Box,IconButton,InputAdornment,TextField,Tooltip,useTheme,
-    Menu,MenuItem
+    Box, IconButton, InputAdornment, Menu, MenuItem, TextField, Tooltip
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import DeleteIcon from "@mui/icons-material/Clear";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import UndoIcon from "@mui/icons-material/Undo";
 import RedoIcon from "@mui/icons-material/Redo";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import { NUMERIC_SX } from "./uiKit";
 
-const BendSelectIcon=({isSelected,bendSide})=>(
-    <svg
-        width="28"
-        height="28"
-        viewBox="0 0 28 28"
-        fill="none"
-        style={{display:"block",flexShrink:0}}
-    >
-        <path
-            d="M2.25 7 L10 20.42 L25.5 20.42"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        />
+const ANGLE_PRESETS = [90, 120, 135, 150, 180];
+const BUTTON_SIZE = 34;
 
-        <path
-            d="M17 20.42 A7 7 0 0 0 6.5 14.36"
-            stroke="currentColor"
-            strokeWidth=".7"
-            strokeLinecap="round"
-        />
-
-        {isSelected&&(
-            bendSide==="toEnd"
-                ?<path
-                    d="M10 5 L14 9 L18 5"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                />
-                :<path
-                    d="M10 9 L14 5 L18 9"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                />
+const BendSelectIcon = ({ isSelected, bendSide }) => (
+    <svg width="24" height="24" viewBox="0 0 28 28" fill="none" style={{ display: "block", flexShrink: 0 }}>
+        <path d="M2.25 7 L10 20.42 L25.5 20.42" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M17 20.42 A7 7 0 0 0 6.5 14.36" stroke="currentColor" strokeWidth=".8" strokeLinecap="round" />
+        {isSelected && (
+            <path
+                d={bendSide === "toEnd" ? "M10 5 L14 9 L18 5" : "M10 9 L14 5 L18 9"}
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
         )}
     </svg>
 );
 
-const VerticalIcon=()=>(
-    <svg
-        width="24"
-        height="24"
-        viewBox="0 0 24 24"
-        fill="none"
-        style={{display:"block",flexShrink:0}}
-    >
-        <path
-            d="M11 1V23M13 1V23"
-            stroke="currentColor"
-            strokeWidth="1"
-            strokeLinecap="round"
-        />
+const VerticalIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ display: "block", flexShrink: 0 }}>
+        <path d="M11 1V23M13 1V23" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
 );
 
-const handleNumberKeyDown=e=>{
-    const allowed=[
-        "Backspace","Delete","ArrowLeft","ArrowRight",
-        "ArrowUp","ArrowDown","Tab","Home","End"
-    ];
+const ALLOWED_KEYS = new Set(["Backspace", "Delete", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Tab", "Home", "End", "Enter", "Escape"]);
 
-    if(allowed.includes(e.key)||e.ctrlKey||e.metaKey)return;
-
-    if(
-        !/^[0-9.,]$/.test(e.key)||
-        (/[.,]/.test(e.key)&&/[.,]/.test(e.currentTarget.value))
-    )
-        e.preventDefault();
+const handleNumberKeyDown = (e) => {
+    if (ALLOWED_KEYS.has(e.key) || e.ctrlKey || e.metaKey) return;
+    const hasSeparator = /[.,]/.test(e.currentTarget.value);
+    if (!/^[0-9.,]$/.test(e.key) || (/[.,]/.test(e.key) && hasSeparator)) e.preventDefault();
 };
 
-const sanitizeNumber=value=>{
-    const result=value.replace(",",".").replace(/[^0-9.]/g,"");
-    const [first,...rest]=result.split(".");
-
-    return rest.length
-        ?`${first}.${rest.join("")}`
-        :result;
+// Только цифры и одна точка (запятая → точка); вставка из буфера тоже чистится
+const sanitizeNumber = (value) => {
+    const result = String(value).replace(/,/g, ".").replace(/[^0-9.]/g, "");
+    const [first, ...rest] = result.split(".");
+    return rest.length ? `${first}.${rest.join("")}` : result;
 };
 
-const ProfileRow=memo(({
+// Метка строки: L1, B1 …
+const RowTag = ({ children, active }) => (
+    <Box
+        sx={{
+            ...NUMERIC_SX,
+            width: 26,
+            flexShrink: 0,
+            textAlign: "center",
+            fontSize: "0.7rem",
+            fontWeight: 700,
+            color: active ? "primary.main" : "text.secondary"
+        }}
+    >
+        {children}
+    </Box>
+);
+
+const toolButtonSx = (active = false, tone = "primary") => (theme) => ({
+    width: BUTTON_SIZE,
+    height: BUTTON_SIZE,
+    p: 0,
+    flexShrink: 0,
+    borderRadius: 1,
+    border: "1px solid",
+    borderColor: active ? theme.palette[tone].main : theme.palette.divider,
+    color: active ? theme.palette[tone].main : theme.palette.text.secondary,
+    bgcolor: active ? alpha(theme.palette[tone].main, 0.08) : "transparent",
+    "&:hover": {
+        borderColor: theme.palette[tone].main,
+        color: theme.palette[tone].main,
+        bgcolor: alpha(theme.palette[tone].main, 0.08)
+    },
+    "&.Mui-disabled": {
+        borderColor: theme.palette.divider,
+        color: theme.palette.text.disabled,
+        bgcolor: theme.palette.action.hover
+    }
+});
+
+const NumberField = ({ label, value, onChange, unit, error, helperText }) => (
+    <TextField
+        label={label}
+        type="text"
+        value={value ?? ""}
+        size="small"
+        fullWidth
+        error={error}
+        title={helperText || undefined}
+        onKeyDown={handleNumberKeyDown}
+        onChange={(e) => onChange(sanitizeNumber(e.target.value))}
+        slotProps={{
+            htmlInput: { inputMode: "decimal", style: { ...NUMERIC_SX } },
+            input: {
+                endAdornment: unit && <InputAdornment position="end">{unit}</InputAdornment>
+            }
+        }}
+    />
+);
+
+const UnitText = ({ children }) => <Box component="span" sx={{ fontSize: "0.8rem", color: "text.secondary" }}>{children}</Box>;
+
+const ProfileRow = memo(({
     shelf,
     bend,
     index,
+    thickness,
     bendIndex,
     bendSide,
     onUpdate,
@@ -106,341 +125,159 @@ const ProfileRow=memo(({
     onSelectBend,
     onRemoveBend,
     canRemove
-})=>{
-    const theme=useTheme();
-    const [angleMenuAnchor,setAngleMenuAnchor]=useState(null);
+}) => {
+    const [angleMenuAnchor, setAngleMenuAnchor] = useState(null);
+    const isSelected = bendIndex === index;
+    const viewLocked = bendIndex !== -1;
 
-    const isSelected=bendIndex===index;
+    const updateShelf = useCallback((field, value) => onUpdate({ path: ["shelves", index, field], value }), [onUpdate, index]);
+    const updateBend = useCallback((field, value) => onUpdate({ path: ["bends", index, field], value }), [onUpdate, index]);
 
-    const iconBtnStyle=(active=false,color="primary.main")=>({
-        borderRadius:"6px",
-        border:"1px solid",
-        borderColor:active?color:"divider",
-        backgroundColor:"background.paper",
-        color:active?color:"text.secondary",
-        width:36,
-        height:36,
-        p:0,
-        flexShrink:0
-    });
+    const length = Number(shelf.length);
+    const lengthError = shelf.length === "" || !Number.isFinite(length) || length < Number(thickness || 0);
+    const angle = Number(bend?.angle);
+    const angleError = bend && (bend.angle === "" || !Number.isFinite(angle) || angle < 90 || angle > 180);
 
-    const numberField=(label,value,onChange,unit,extra={})=>(
-        <TextField
-            label={label}
-            type="text"
-            inputMode="decimal"
-            value={value}
-            size="small"
-            fullWidth
-            onKeyDown={handleNumberKeyDown}
-            onChange={e=>
-                onChange(
-                    sanitizeNumber(e.target.value)
-                )
-            }
-            slotProps={{
-                htmlInput:{
-                    min:0,
-                    step:.01,
-                    ...extra
-                },
-                input:{
-                    endAdornment:unit&&(
-                        <InputAdornment position="end">
-                            {unit}
-                        </InputAdornment>
-                    )
-                }
-            }}
-        />
-    );
+    return (
+        <Box sx={{ display: "flex", flexDirection: "column", width: "100%" }}>
+            {/* Полка */}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1, py: 0.5 }}>
+                <RowTag>L{index + 1}</RowTag>
+                <NumberField
+                    label={`Leg ${index + 1}`}
+                    value={shelf.length}
+                    onChange={(value) => updateShelf("length", value)}
+                    unit={<UnitText>mm</UnitText>}
+                    error={lengthError}
+                    helperText={lengthError ? `At least ${thickness} mm` : ""}
+                />
 
-    const updateShelf=(field,value)=>{
-        onUpdate({
-            path:["shelves",index,field],
-            value
-        });
-    };
-
-    const updateBend=(field,value)=>{
-        onUpdate({
-            path:["bends",index,field],
-            value
-        });
-    };
-
-    return(
-        <Box
-            sx={{
-                display:"flex",
-                flexDirection:"column",
-                width:"100%"
-            }}
-        >
-            {/* Shelf */}
-            <Box
-                sx={{
-                    display:"flex",
-                    alignItems:"center",
-                    gap:1,
-                    width:"100%",
-                    px:1,
-                    backgroundColor:"background.paper"
-                }}
-            >
-                {numberField(
-                    `Leg ${index+1}`,
-                    shelf.length,
-                    value=>
-                        updateShelf(
-                            "length",
-                            value
-                        ),
-                    <Box sx={{fontSize:".8rem"}}>
-                        mm
-                    </Box>
-                )}
-
-                <Tooltip title="Switch side">
+                <Tooltip title={`Leg side: ${shelf.side === "right" ? "right" : "left"} — click to switch`}>
                     <IconButton
                         size="small"
-                        onClick={()=>
-                            updateShelf(
-                                "side",
-                                shelf.side==="right"
-                                    ?"left"
-                                    :"right"
-                            )
-                        }
-                        sx={iconBtnStyle(true)}
+                        aria-label="Switch leg side"
+                        onClick={() => updateShelf("side", shelf.side === "right" ? "left" : "right")}
+                        sx={toolButtonSx(false)}
                     >
-                        {shelf.side==="right"
-                            ?<ArrowForwardIcon fontSize="small"/>
-                            :<ArrowBackIcon fontSize="small"/>
-                        }
+                        {shelf.side === "right" ? <ArrowForwardIcon fontSize="small" /> : <ArrowBackIcon fontSize="small" />}
                     </IconButton>
                 </Tooltip>
 
-                <Tooltip
-                    title={
-                        bendIndex!==-1
-                            ?"Disabled when an angle is selected"
-                            :isVertical
-                                ?"Vertical shelf"
-                                :"Make vertical"
-                    }
-                >
-                    <span style={{display:"inline-flex"}}>
+                <Tooltip title={viewLocked ? "Unavailable while a bend view is selected" : isVertical ? "Leg is vertical — click to flip" : "Make leg vertical"}>
+                    <span style={{ display: "inline-flex" }}>
                         <IconButton
                             size="small"
-                            onClick={()=>
-                                onVerticalShelfChange(index)
-                            }
-                            disabled={bendIndex!==-1}
-                            sx={{
-                                ...iconBtnStyle(isVertical),
-                                "&:hover":{
-                                    borderColor:"primary.main",
-                                    color:"primary.main"
-                                },
-                                "&.Mui-disabled":{
-                                    opacity:1,
-                                    borderColor:"divider",
-                                    backgroundColor:"action.hover",
-                                    color:"text.disabled"
-                                }
-                            }}
+                            aria-label="Make leg vertical"
+                            aria-pressed={isVertical}
+                            onClick={() => onVerticalShelfChange(index)}
+                            disabled={viewLocked}
+                            sx={toolButtonSx(isVertical)}
                         >
-                            <VerticalIcon/>
+                            <VerticalIcon />
                         </IconButton>
                     </span>
                 </Tooltip>
             </Box>
 
-            {/* Bend */}
-            {bend&&(
+            {/* Гиб */}
+            {bend && (
                 <Box
-                    sx={{
-                        display:"flex",
-                        alignItems:"center",
-                        width:"100%",
-                        position:"relative",
-                        py:1,
-                        pl:4,
-                        boxSizing:"border-box"
-                    }}
+                    sx={(theme) => ({
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.75,
+                        mx: 1,
+                        my: 0.25,
+                        px: 0,
+                        py: 0.75,
+                        borderRadius: 1,
+                        borderLeft: "3px solid",
+                        borderLeftColor: isSelected ? theme.palette.primary.main : theme.palette.divider,
+                        bgcolor: isSelected ? alpha(theme.palette.primary.main, 0.06) : theme.palette.action.hover
+                    })}
                 >
-                    <svg
-                        style={{
-                            position:"absolute",
-                            left:12,
-                            top:0,
-                            bottom:0,
-                            height:"100%",
-                            width:17
-                        }}
-                        viewBox="0 0 17 100"
-                        preserveAspectRatio="none"
-                    >
-                        <path
-                            d="M2,0 L15,50 L2,100"
-                            fill="none"
-                            strokeWidth="1.5"
-                            style={{
-                                stroke:theme.palette.divider
-                            }}
-                        />
-                    </svg>
-
-                    <Box
-                        sx={{
-                            display:"flex",
-                            alignItems:"center",
-                            gap:1,
-                            width:"100%",
-                            p:1,
-                            backgroundColor:"action.hover"
-                        }}
-                    >
-                        {numberField(
-                            `Angle ${index+1}`,
-                            bend.angle,
-                            value=>
-                                updateBend(
-                                    "angle",
-                                    value
-                                ),
-                            <Box
-                                sx={{
-                                    display:"flex",
-                                    alignItems:"center"
-                                }}
-                            >
-                                °
+                    <RowTag active={isSelected}>B{index + 1}</RowTag>
+                    <NumberField
+                        label={`Angle ${index + 1}`}
+                        value={bend.angle}
+                        onChange={(value) => updateBend("angle", value)}
+                        error={angleError}
+                        helperText={angleError ? "Allowed range 90°–180°" : ""}
+                        unit={
+                            <Box sx={{ display: "flex", alignItems: "center" }}>
+                                <UnitText>°</UnitText>
                                 <IconButton
                                     size="small"
-                                    onClick={e=>
-                                        setAngleMenuAnchor(
-                                            e.currentTarget
-                                        )
-                                    }
-                                    sx={{
-                                        p:.25,
-                                        color:"text.secondary"
-                                    }}
+                                    aria-label="Angle presets"
+                                    onClick={(e) => setAngleMenuAnchor(e.currentTarget)}
+                                    sx={{ p: 0.25, ml: 0.25, color: "text.secondary" }}
                                 >
-                                    <KeyboardArrowDownIcon
-                                        fontSize="small"
-                                    />
+                                    <KeyboardArrowDownIcon fontSize="small" />
                                 </IconButton>
-                            </Box>,
-                            {max:180}
-                        )}
+                            </Box>
+                        }
+                    />
 
-                        <Menu
-                            anchorEl={angleMenuAnchor}
-                            open={Boolean(angleMenuAnchor)}
-                            onClose={()=>
-                                setAngleMenuAnchor(null)
-                            }
-                        >
-                            {[90,135].map(angle=>(
-                                <MenuItem
-                                    key={angle}
-                                    onClick={()=>{
-                                        updateBend(
-                                            "angle",
-                                            String(angle)
-                                        );
-
-                                        setAngleMenuAnchor(
-                                            null
-                                        );
-                                    }}
-                                >
-                                    {angle}°
-                                </MenuItem>
-                            ))}
-                        </Menu>
-
-                        {canRemove&&(
-                            <Tooltip title="Delete angle">
-                                <IconButton
-                                    size="small"
-                                    onClick={()=>
-                                        onRemoveBend(index)
-                                    }
-                                    sx={{
-                                        ...iconBtnStyle(),
-                                        "&:hover":{
-                                            borderColor:"error.main",
-                                            color:"error.main"
-                                        }
-                                    }}
-                                >
-                                    <DeleteIcon fontSize="small"/>
-                                </IconButton>
-                            </Tooltip>
-                        )}
-
-                        <Tooltip title="Switch bend direction">
-                            <IconButton
-                                size="small"
-                                onClick={()=>
-                                    updateBend(
-                                        "direction",
-                                        bend.direction==="right"
-                                            ?"left"
-                                            :"right"
-                                    )
-                                }
-                                sx={iconBtnStyle(true)}
-                            >
-                                {bend.direction==="right"
-                                    ?<RedoIcon
-                                        fontSize="small"
-                                        style={{
-                                            transform:"rotate(-90deg)"
-                                        }}
-                                    />
-                                    :<UndoIcon
-                                        fontSize="small"
-                                        style={{
-                                            transform:"rotate(90deg)"
-                                        }}
-                                    />
-                                }
-                            </IconButton>
-                        </Tooltip>
-
-                        <Tooltip
-                            title={
-                                isSelected
-                                    ?"Selected bend — click to switch side"
-                                    :"Select bend for section view"
-                            }
-                        >
-                            <IconButton
-                                size="small"
-                                onClick={()=>onSelectBend(index)}
-                                sx={{
-                                    ...iconBtnStyle(isSelected),
-                                    display:"inline-flex",
-                                    alignItems:"center",
-                                    justifyContent:"center"
+                    <Menu anchorEl={angleMenuAnchor} open={Boolean(angleMenuAnchor)} onClose={() => setAngleMenuAnchor(null)}>
+                        {ANGLE_PRESETS.map((preset) => (
+                            <MenuItem
+                                key={preset}
+                                dense
+                                selected={angle === preset}
+                                onClick={() => {
+                                    updateBend("angle", String(preset));
+                                    setAngleMenuAnchor(null);
                                 }}
+                                sx={NUMERIC_SX}
                             >
-                                <BendSelectIcon
-                                    isSelected={isSelected}
-                                    bendSide={bendSide}
-                                />
+                                {preset}°
+                            </MenuItem>
+                        ))}
+                    </Menu>
+
+                    <Tooltip title={`Bend direction: ${bend.direction} — click to switch`}>
+                        <IconButton
+                            size="small"
+                            aria-label="Switch bend direction"
+                            onClick={() => updateBend("direction", bend.direction === "right" ? "left" : "right")}
+                            sx={toolButtonSx(false)}
+                        >
+                            {bend.direction === "right"
+                                ? <RedoIcon fontSize="small" style={{ transform: "rotate(-90deg)" }} />
+                                : <UndoIcon fontSize="small" style={{ transform: "rotate(90deg)" }} />}
+                        </IconButton>
+                    </Tooltip>
+
+                    <Tooltip title={isSelected ? "Bend view — click to switch side or close" : "Show bend view with machine settings"}>
+                        <IconButton
+                            size="small"
+                            aria-label="Bend view"
+                            aria-pressed={isSelected}
+                            onClick={() => onSelectBend(index)}
+                            sx={toolButtonSx(isSelected)}
+                        >
+                            <BendSelectIcon isSelected={isSelected} bendSide={bendSide} />
+                        </IconButton>
+                    </Tooltip>
+
+                    <Tooltip title={canRemove ? "Delete bend" : "A profile needs at least one bend"}>
+                        <span style={{ display: "inline-flex", marginRight: 6 }}>
+                            <IconButton
+                                size="small"
+                                aria-label="Delete bend"
+                                disabled={!canRemove}
+                                onClick={() => onRemoveBend(index)}
+                                sx={toolButtonSx(false, "error")}
+                            >
+                                <DeleteIcon fontSize="small" />
                             </IconButton>
-                        </Tooltip>
-                    </Box>
+                        </span>
+                    </Tooltip>
                 </Box>
             )}
         </Box>
     );
 });
 
+ProfileRow.displayName = "ProfileRow";
 export default ProfileRow;

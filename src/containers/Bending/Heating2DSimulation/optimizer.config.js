@@ -9,7 +9,7 @@ import {
 // Каждая задача описывается целиком в одном месте:
 //   params   — что подбираем: путь в параметрах симуляции, единица и диапазон
 //              (min / max / step или range(baseParams) → { min, max, step });
-//   metrics  — что измеряем: read(res, ctx) → число, единица, resolution
+//   metrics  — что измеряем: label (подпись в интерфейсе), read(res, ctx) → число, единица, resolution
 //              (разница меньше неё несущественна: это и допуск предела, и порог
 //              значимого улучшения), предел max / min, growsOnly (метрика только
 //              накапливается — прогон, ушедший далеко за предел, можно оборвать);
@@ -75,21 +75,24 @@ export function getPidPhaseRangeSeconds(baseParams, fallback = 245.0, maxCycles 
 // ============================================================================
 export const GRID_LOAD_TASK = defineTask({
     id: "grid_load",
-    label: "Сетка: минимум нагрузки",
+    label: "Grid: minimum load",
 
     params: {
         gridDensityX: {
+            label: "Grid density X",
             path: "simulation.accuracyMode.gridDensityX",
             unit: "/mm⁰·⁶⁴",
             // Ниже минимума модели (5 интервалов) все значения дают одну и ту же сетку
             range: (bp) => modelGridRange(snapGridDensityX, Number(bp.thicknessMm), 3.5, 25)
         },
         gridDensityY: {
+            label: "Grid density Y",
             path: "simulation.accuracyMode.gridDensityY",
             unit: "/mm⁰·³⁴",
             range: (bp) => modelGridRange(snapGridDensityY, Number(bp.simulation?.widthHalfMm), 5, 25)
         },
         tempStepK: {
+            label: "Temperature step",
             path: "simulation.accuracyMode.tempStepK",
             unit: "K",
             // С BDF2 ошибка по времени мала даже при крупном шаге — нужен широкий диапазон
@@ -101,6 +104,7 @@ export const GRID_LOAD_TASK = defineTask({
 
     metrics: {
         cpuLoad: {
+            label: "Load",
             // «Операции решателя»: 1 млн ≈ 1,6 мс расчёта (80 млн ≈ 0,13 с)
             read: (res) => res?.technicalMetrics?.iterations?.totalGridPointsProcessed,
             unit: "ops",
@@ -109,6 +113,7 @@ export const GRID_LOAD_TASK = defineTask({
             growsOnly: true
         },
         errorScore: {
+            label: "Error",
             // √(время² + сетка² + Пикар²), как в модели
             read: (res) => res?.technicalMetrics?.accuracy?.totalErrorScore,
             unit: "K",
@@ -127,7 +132,7 @@ export const GRID_LOAD_TASK = defineTask({
 export const GRID_ERROR_TASK = defineTask({
     extends: GRID_LOAD_TASK,
     id: "grid_error",
-    label: "Сетка: минимум ошибки",
+    label: "Grid: minimum error",
     minimize: "errorScore"
 });
 
@@ -136,11 +141,12 @@ export const GRID_ERROR_TASK = defineTask({
 // ============================================================================
 export const PID_MAX_TEMP_TASK = defineTask({
     id: "pid_max_temp",
-    label: "ПИД: максимум T поверхности",
+    label: "PID: maximum surface temperature",
     when: machineHasPid,
 
     params: {
         pidPhaseOffsetSeconds: {
+            label: "PID phase offset",
             path: "machine.pidPhaseOffsetSeconds",
             unit: "s",
             range: (bp) => ({ min: 0, max: getPidPhaseRangeSeconds(bp), step: 0.1 })
@@ -149,6 +155,7 @@ export const PID_MAX_TEMP_TASK = defineTask({
 
     metrics: {
         peakSurfaceTemp: {
+            label: "Peak surface T",
             // Большая из температур верхней и нижней поверхности в центре листа
             read: (_res, ctx) => Math.max(ctx.surfaceTop(0), ctx.surfaceBottom(0)),
             unit: "°C",
@@ -166,7 +173,7 @@ export const PID_MAX_TEMP_TASK = defineTask({
 export const PID_MIN_TEMP_TASK = defineTask({
     extends: PID_MAX_TEMP_TASK,
     id: "pid_min_temp",
-    label: "ПИД: минимум пиковой T поверхности",
+    label: "PID: minimum peak surface temperature",
     minimize: "peakSurfaceTemp"
 });
 
@@ -314,6 +321,10 @@ function defineTask(input) {
         simOverrides: { ...(def.simulation || {}) },
         parameters: Object.fromEntries(
             Object.entries(def.params || {}).map(([key, p]) => [key, { label: key, ...p }])
+        ),
+        // Подписи и единицы метрик для интерфейса
+        metricsInfo: Object.fromEntries(
+            Object.entries(metrics).map(([name, m]) => [name, { label: m.label || name, unit: m.unit || "", min: m.min, max: m.max }])
         ),
         // Описание цели и пределов для интерфейса (до первого результата)
         spec: {

@@ -606,7 +606,8 @@ function ViewSwitch({ views, active, onSelect, width, palette }) {
 // ============================================================================
 // Компонент
 // ============================================================================
-const SvgLineChart = ({ chart, maxHeight }) => {
+// framed=false — без собственной рамки (когда график уже в карточке)
+const SvgLineChart = ({ chart, maxHeight, framed = true }) => {
     const theme = useTheme();
     const palette = theme.palette;
     const containerRef = useRef(null);
@@ -694,6 +695,7 @@ const SvgLineChart = ({ chart, maxHeight }) => {
             variant="outlined"
             sx={{
                 borderColor,
+                ...(framed ? {} : { border: 0, borderRadius: 0, bgcolor: "transparent" }),
                 boxShadow: "none",
                 width: "100%",
                 height: `${height}px`,
