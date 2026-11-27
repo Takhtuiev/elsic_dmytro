@@ -11,6 +11,7 @@ import {
     niceTicks,
     polylinePath,
     resolveDomain,
+    sampleMonotone,
     splitSegments,
     valueAtX
 } from "./chartMath";
@@ -51,6 +52,213 @@ function layoutLegend(items, x0, xMax) {
         x += w;
     }
     return out;
+}
+
+// Предпочтительная сторона подписи: с выпуклой стороны кривой (у максимума — сверху,
+// у минимума — снизу), у концов — от кривой наружу и чуть вверх
+function preferredSide(x, y, [prev, next], kind, xs, ys) {
+    const A = prev ? [xs(prev[0]), ys(prev[1])] : null;
+    const B = next ? [xs(next[0]), ys(next[1])] : null;
+    const norm = (vx, vy) => {
+        const len = Math.hypot(vx, vy);
+        return len > 1e-9 ? { vx: vx / len, vy: vy / len } : null;
+    };
+    const wantDown = kind === "min";
+    const side = (tx, ty) => {
+        // Нормаль к касательной, смотрящая вверх (или вниз для минимума)
+        let n = norm(-ty, tx) || { vx: 0, vy: -1 };
+        if ((n.vy > 0) !== wantDown) n = { vx: -n.vx, vy: -n.vy };
+        return n;
+    };
+    if (A && B) {
+        const convex = norm(x - (A[0] + B[0]) / 2, y - (A[1] + B[1]) / 2);
+        const t = norm(B[0] - A[0], B[1] - A[1]) || { vx: 1, vy: 0 };
+        const n = side(t.vx, t.vy);
+        if (kind === "max" || kind === "min" || !convex) return n;
+        return convex.vx * n.vx + convex.vy * n.vy > 0 ? convex : n;
+    }
+    const other = A || B;
+    if (!other) return wantDown ? { vx: 0, vy: 1 } : { vx: 0, vy: -1 };
+    const away = norm(x - other[0], y - other[1]) || { vx: 0, vy: -1 };
+    const n = side(away.vx, away.vy);
+    return norm(away.vx * 0.5 + n.vx, away.vy * 0.5 + n.vy) || n;
+}
+
+// Скопления подписей: точки ближе CLUSTER_PX по горизонтали и цепочкой по вертикали
+// (например, пики нескольких кривых в центре или начала кривых у края). Три и больше
+// подписей ставятся компактным блоком — строкой или столбиком — в самом свободном месте
+// рядом со скоплением, чтобы не налезать друг на друга и на сходящиеся линии.
+const CLUSTER_PX = 6;
+const CLUSTER_GAP = 4;
+const ANCHOR_SKIP_PX = 2;
+// Перескок подписи через чужую кривую дороже любого «мягкого» штрафа блока
+const CLUSTER_JUMP_PENALTY = 600;
+
+function lengthInsideRect(curves, rect) {
+    let total = 0;
+    for (const { xs: px, ys: py } of curves) {
+        for (let i = 0; i < px.length - 1; i++) {
+            const x1 = px[i], y1 = py[i], x2 = px[i + 1], y2 = py[i + 1];
+            if (Math.max(x1, x2) < rect.l || Math.min(x1, x2) > rect.r || Math.max(y1, y2) < rect.t || Math.min(y1, y2) > rect.b) continue;
+            // Грубая оценка: доля отрезка, попавшая в прямоугольник, по 8 точкам
+            let inside = 0;
+            for (let k = 0; k < 8; k++) {
+                const t = (k + 0.5) / 8;
+                const x = x1 + t * (x2 - x1), y = y1 + t * (y2 - y1);
+                if (x >= rect.l && x <= rect.r && y >= rect.t && y <= rect.b) inside++;
+            }
+            total += (inside / 8) * Math.hypot(x2 - x1, y2 - y1);
+        }
+    }
+    return total;
+}
+
+// Сколько раз чужие кривые проходят между точкой и подписью
+function foreignCrossings(curves, label, rect) {
+    // До ближайшего края и до центра подписи — берётся большее число пересечений
+    const ex = Math.max(rect.l, Math.min(rect.r, label.x));
+    const ey = Math.max(rect.t, Math.min(rect.b, label.y));
+    return Math.max(crossingsAlong(curves, label, ex, ey), crossingsAlong(curves, label, rect.cx, rect.cy));
+}
+
+function crossingsAlong(curves, anchor, ex, ey) {
+    const len = Math.hypot(ex - anchor.x, ey - anchor.y);
+    if (len < ANCHOR_SKIP_PX + 0.5) return 0;
+    // Начало отрезка отступает от точки: кривые, сходящиеся в самой точке, — не перескок
+    const label = {
+        x: anchor.x + (ex - anchor.x) * ANCHOR_SKIP_PX / len,
+        y: anchor.y + (ey - anchor.y) * ANCHOR_SKIP_PX / len,
+        graphIndex: anchor.graphIndex
+    };
+    const minX = Math.min(label.x, ex), maxX = Math.max(label.x, ex), minY = Math.min(label.y, ey), maxY = Math.max(label.y, ey);
+    let n = 0;
+    for (const c of curves) {
+        if (c.graphIndex === label.graphIndex) continue;
+        const { xs: px, ys: py } = c;
+        for (let i = 0; i < px.length - 1; i++) {
+            const x1 = px[i], y1 = py[i], x2 = px[i + 1], y2 = py[i + 1];
+            if (Math.max(x1, x2) < minX || Math.min(x1, x2) > maxX || Math.max(y1, y2) < minY || Math.min(y1, y2) > maxY) continue;
+            const d1 = (ex - label.x) * (y1 - label.y) - (ey - label.y) * (x1 - label.x);
+            const d2 = (ex - label.x) * (y2 - label.y) - (ey - label.y) * (x2 - label.x);
+            const d3 = (x2 - x1) * (label.y - y1) - (y2 - y1) * (label.x - x1);
+            const d4 = (x2 - x1) * (ey - y1) - (y2 - y1) * (ex - x1);
+            if (d1 * d2 < 0 && d3 * d4 < 0) n++;
+        }
+    }
+    return n;
+}
+
+function placeClusterRows(labels, plot, curves, obstacles = []) {
+    const fixed = new Map();
+    const used = new Set();
+    const sorted = [...labels].sort((a, b) => a.x - b.x || a.y - b.y);
+    for (let i = 0; i < sorted.length; i++) {
+        const seed = sorted[i];
+        if (used.has(seed.key)) continue;
+        const group = [seed];
+        for (let added = true; added;) {
+            added = false;
+            for (const c of sorted) {
+                if (group.includes(c) || used.has(c.key)) continue;
+                if (Math.abs(c.x - seed.x) <= CLUSTER_PX && group.some(g => Math.abs(g.y - c.y) <= g.h * 2.5)) {
+                    group.push(c);
+                    added = true;
+                }
+            }
+        }
+        if (group.length < 3) continue;
+        group.forEach(g => used.add(g.key));
+        group.sort((a, b) => a.y - b.y);
+
+        const h = Math.max(...group.map(g => g.h));
+        const r = Math.max(...group.map(g => g.r || 0));
+        const top = group[0].y, bottom = group[group.length - 1].y;
+        const meanX = group.reduce((sum, g) => sum + g.x, 0) / group.length;
+        const rowW = group.reduce((sum, g) => sum + g.w, 0) + CLUSTER_GAP * (group.length - 1);
+        const colW = Math.max(...group.map(g => g.w));
+        const colH = h * group.length;
+        const clampX = (x, w) => Math.max(plot.l + 1, Math.min(plot.r - 1 - w, x));
+
+        // Кандидаты: строка над/под скоплением, столбик над/под (прижат к точкам)
+        const candidates = [];
+        const rowAt = (cy) => {
+            let x = clampX(meanX - rowW / 2, rowW);
+            return group.map(g => {
+                const rect = { cx: x + g.w / 2, cy, l: x, r: x + g.w, t: cy - h / 2, b: cy + h / 2 };
+                x += g.w + CLUSTER_GAP;
+                return rect;
+            });
+        };
+        const colAt = (yTop) => {
+            const nearRight = meanX > (plot.l + plot.r) / 2;
+            const x0 = nearRight ? clampX(meanX - r - 2 - colW, colW) : clampX(meanX + r + 2, colW);
+            return group.map((g, k) => {
+                const cy = yTop + h * (k + 0.5);
+                const l = nearRight ? x0 + colW - g.w : x0;
+                return { cx: l + g.w / 2, cy, l, r: l + g.w, t: cy - h / 2, b: cy + h / 2 };
+            });
+        };
+        // Столбик сбоку: каждая подпись на высоте своей точки (разведены на высоту строки) —
+        // от точки к подписи почти горизонтально, без перескока через соседние кривые
+        const sideAt = (toRight) => {
+            const ysSpread = spreadAlongAxis(group.map(g => g.y), h, plot.t + h / 2, plot.b - h / 2);
+            const x0 = toRight ? meanX + r + 3 : meanX - r - 3 - colW;
+            return group.map((g, k) => {
+                const l = toRight ? x0 : x0 + colW - g.w;
+                return { cx: l + g.w / 2, cy: ysSpread[k], l, r: l + g.w, t: ysSpread[k] - h / 2, b: ysSpread[k] + h / 2 };
+            });
+        };
+        candidates.push(rowAt(top - r - 2 - h / 2));
+        candidates.push(rowAt(bottom + r + 2 + h / 2));
+        candidates.push(colAt(top - r - 2 - colH));
+        candidates.push(colAt(bottom + r + 2));
+        candidates.push(sideAt(true));
+        candidates.push(sideAt(false));
+        // Расщеплённые варианты: k верхних кривых — строкой над скоплением, остальные — под ним.
+        // Перебираются все k: подписи крайних кривых тогда не перескакивают через чужие линии.
+        {
+            const rowOf = (part, cy) => {
+                const w = part.reduce((sum, g) => sum + g.w, 0) + CLUSTER_GAP * (part.length - 1);
+                let x = clampX(meanX - w / 2, w);
+                return part.map(g => {
+                    const rect = { cx: x + g.w / 2, cy, l: x, r: x + g.w, t: cy - h / 2, b: cy + h / 2 };
+                    x += g.w + CLUSTER_GAP;
+                    return rect;
+                });
+            };
+            for (let k = 1; k < group.length; k++) {
+                const upper = group.slice(0, k), lower = group.slice(k);
+                // Верхние идут в обратном порядке, чтобы ближайшая к ряду кривая была первой
+                const upperRects = rowOf([...upper].reverse(), top - r - 2 - h / 2).reverse();
+                const lowerRects = rowOf(lower, bottom + r + 2 + h / 2);
+                candidates.push([...upperRects, ...lowerRects]);
+            }
+        }
+
+        const minima = group.filter(g => g.key.endsWith("-min")).length > group.length / 2;
+        let best = null;
+        candidates.forEach((rects, idx) => {
+            const box = {
+                l: Math.min(...rects.map(q => q.l)), r: Math.max(...rects.map(q => q.r)),
+                t: Math.min(...rects.map(q => q.t)), b: Math.max(...rects.map(q => q.b))
+            };
+            const outside = Math.max(0, plot.t - box.t) + Math.max(0, box.b - plot.b) + Math.max(0, plot.l - box.l) + Math.max(0, box.r - plot.r);
+            const below = idx % 2 === 1;
+            // Наложение на пометки линий и уже поставленные блоки — почти запрет
+            let blocked = 0;
+            for (const o of [...obstacles, ...fixed.values()]) {
+                for (const q of rects) {
+                    blocked += Math.max(0, Math.min(q.r, o.r) - Math.max(q.l, o.l)) * Math.max(0, Math.min(q.b, o.b) - Math.max(q.t, o.t));
+                }
+            }
+            const jumps = group.reduce((sum, g, k) => sum + foreignCrossings(curves, g, rects[k]), 0);
+            const curveUnder = rects.reduce((sum, q) => sum + lengthInsideRect(curves, q), 0);
+            const score = curveUnder * 10 + jumps * CLUSTER_JUMP_PENALTY + outside * 200 + blocked * 50 + (idx < 4 && below !== minima ? 15 : 0) + (idx >= 2 ? 5 : 0);
+            if (!best || score < best.score) best = { score, rects };
+        });
+        group.forEach((g, k) => fixed.set(g.key, best.rects[k]));
+    }
+    return { fixed, rest: labels.filter(l => !used.has(l.key)) };
 }
 
 function minorStepFor(step) {
@@ -210,9 +418,13 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
             }
             if (g.monotone && px.length > wPlot * DECIMATE_POINTS_PER_PX) ({ px, py } = decimateColumns(px, py));
             pixelSegments.push({ px, py, rawCount: to - from + 1 });
-            curvesForLabels.push({ xs: px, ys: py });
         }
         const sparse = visibleCount <= wPlot * SMOOTH_MAX_POINTS_PER_PX;
+        // Для подписей — ровно то, что нарисовано: у сглаженных кривых частая выборка сплайна
+        for (const seg of pixelSegments) {
+            const shape = g.monotone && sparse ? sampleMonotone(seg.px, seg.py) : seg;
+            curvesForLabels.push({ xs: shape.px, ys: shape.py, graphIndex: g.index });
+        }
         const path = pixelSegments
             .map(s => (g.monotone && sparse ? monotonePath(s.px, s.py) : polylinePath(s.px, s.py)))
             .filter(Boolean)
@@ -244,6 +456,14 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
         add(s.minP, "min");
         add(s.firstP, "first");
         add(s.lastP, "last");
+        // Соседи точки на кривой — чтобы класть подпись с выпуклой стороны, а не на линию
+        const neighbors = (p) => {
+            for (const seg of s.segments) {
+                const i = seg.indexOf(p);
+                if (i >= 0) return [seg[i - 1] || null, seg[i + 1] || null];
+            }
+            return [null, null];
+        };
         for (const { p, kind } of pts) {
             const x = xs(p[0]), y = ys(p[1]);
             const fill = kind === "min" ? palette.info.main : kind === "max" ? palette.error.main : s.color;
@@ -254,14 +474,15 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
             const text = fmtValue(p[1]);
             valueLabels.push({
                 key: `${s.index}-${kind}`,
-                x, y,
+                graphIndex: s.index,
+                x, y, r,
                 text,
                 color: s.color,
                 opacity: s.opacity,
-                w: textWidth(text, VALUE_FONT) + 4,
-                h: VALUE_FONT + 3,
+                w: textWidth(text, VALUE_FONT) + 2,
+                h: VALUE_FONT + 1,
                 priority: kind === "max" || kind === "min" ? 3 : 2,
-                prefer: kind === "max" ? { vx: 0, vy: -1 } : kind === "min" ? { vx: 0, vy: 1 } : kind === "first" ? { vx: 0.7, vy: -0.7 } : { vx: -0.7, vy: -0.7 }
+                prefer: preferredSide(x, y, neighbors(p), kind, xs, ys)
             });
         }
     }
@@ -354,9 +575,13 @@ export function buildChartModel(chart, width, height, palette, { headerReserve =
         const a = valueLabels[i];
         if (valueLabels.some((b, j) => j < i && b.text === a.text && Math.hypot(b.x - a.x, b.y - a.y) < 6)) valueLabels.splice(i, 1);
     }
-    const placement = valueLabels.length
-        ? placeLabels({ labels: valueLabels, curves: curvesForLabels, markers, plot, obstacles: noteRects })
+    // Скопление точек (несколько кривых рядом, например пики в центре) — подписи одной
+    // строкой над скоплением (или под ним для минимумов), по порядку кривых сверху вниз
+    const { fixed: clusterPlacement, rest: looseLabels } = placeClusterRows(valueLabels, plot, curvesForLabels, noteRects);
+    const placement = looseLabels.length
+        ? placeLabels({ labels: looseLabels, curves: curvesForLabels, markers, plot, obstacles: [...noteRects, ...clusterPlacement.values()] })
         : new Map();
+    for (const [key, rect] of clusterPlacement) placement.set(key, rect);
 
     const yRanges = (yAxis.ranges || [])
         .filter(r => isNum(r?.from) && isNum(r?.to) && r.from !== r.to)
@@ -783,18 +1008,14 @@ const SvgLineChart = ({ chart, maxHeight }) => {
                         {model.valueLabels.map(l => {
                             const p = model.placement.get(l.key);
                             if (!p) return null;
-                            const ex = Math.max(p.l, Math.min(p.r, l.x));
-                            const ey = Math.max(p.t, Math.min(p.b, l.y));
                             return (
-                                <g key={l.key} opacity={l.opacity}>
-                                    {p.leader && <line x1={l.x} y1={l.y} x2={ex} y2={ey} stroke={l.color} strokeWidth={0.6} opacity={0.7} />}
-                                    <text
-                                        x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" fill={l.color}
-                                        stroke={haloColor} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round"
-                                    >
-                                        {l.text}
-                                    </text>
-                                </g>
+                                <text
+                                    key={l.key}
+                                    x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" fill={l.color} opacity={l.opacity}
+                                    stroke={haloColor} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round"
+                                >
+                                    {l.text}
+                                </text>
                             );
                         })}
                     </g>
@@ -802,12 +1023,7 @@ const SvgLineChart = ({ chart, maxHeight }) => {
                     {/* Значения на концах кривых (справа от рамки) */}
                     <g fontSize={VALUE_FONT} fontWeight={700}>
                         {model.endLabels.map(l => (
-                            <g key={l.key} opacity={l.opacity}>
-                                {Math.abs(l.y - l.anchorY) > 1.5 && (
-                                    <path d={`M${model.plot.r} ${l.anchorY.toFixed(1)}L${(l.x - 1).toFixed(1)} ${l.y.toFixed(1)}`} stroke={l.color} strokeWidth={0.6} fill="none" opacity={0.7} />
-                                )}
-                                <text x={l.x} y={l.y} dominantBaseline="central" fill={l.color}>{l.text}</text>
-                            </g>
+                            <text key={l.key} x={l.x} y={l.y} dominantBaseline="central" fill={l.color} opacity={l.opacity}>{l.text}</text>
                         ))}
                     </g>
 

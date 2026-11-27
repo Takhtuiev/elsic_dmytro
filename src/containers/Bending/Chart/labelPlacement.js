@@ -1,4 +1,5 @@
-// Расстановка подписей точек: перебор позиций вокруг точки со штрафами за наложения.
+// Расстановка подписей точек: подпись всегда вплотную к своей точке (без выносок),
+// перебираются положения вокруг точки со штрафами за наложения.
 // Кривые индексируются сеткой ячеек, поэтому проверка кандидата стоит O(сегментов рядом),
 // а не O(всех сегментов) — расчёт занимает доли миллисекунды и идёт синхронно, без воркера.
 
@@ -7,22 +8,25 @@ const DIRECTIONS = Array.from({ length: 16 }, (_, k) => {
     const a = (k * Math.PI) / 8;
     return { vx: Math.cos(a), vy: Math.sin(a) };
 });
-const DISTANCES = [4, 9, 15];
-// Расстояние от точки до подписи, начиная с которого рисуется выноска
-export const LEADER_MIN_DISTANCE = 8;
+// Зазор между краем маркера и подписью: сначала вплотную к точке; если там всё занято —
+// дальше (без выноски), пока не найдётся свободное место
+const GAPS = [1.5, 3.5, 6];
+const FAR_GAPS = [9, 13, 18, 25];
 
 const PENALTY = {
-    labelOverlap: 4000,   // × доля площади наложения на другую подпись
-    marker: 900,          // подпись закрывает маркер точки
-    curvePerPx: 70,       // × пикселей кривой внутри подписи
+    labelOverlap: 20000,  // × доля площади наложения на другую подпись (хуже всего)
+    marker: 900,          // подпись закрывает чужой маркер
+    curvePerPx: 120,      // × пикселей кривой внутри подписи (текст поверх линии)
+    curveNearPx: 6,       // × пикселей кривой в полосе 2 px вокруг подписи (теснота)
     outside: 6000,        // × доля подписи за пределами области графика
-    leaderCross: 250,     // выноска пересекает кривую
-    distance: 6,          // за каждую ступень удаления
-    direction: 18,        // за отклонение от предпочтительного направления (0…2)
-    nearLabel: 40         // подписи почти касаются
+    distance: 10,         // за каждую ступень удаления от точки
+    direction: 30,        // за отклонение от предпочтительной стороны (0…2)
+    nearLabel: 40,        // подписи почти касаются
+    crossCurve: 2000      // между точкой и подписью проходит чужая кривая («перепрыгивание»)
 };
-// Подпись хуже этого порога (накладывается на другую или вылезает) не показывается
-const DROP_SCORE = 2500;
+// Выше этого штрафа место считается занятым — ищем дальше от точки
+const CROWDED_SCORE = 1500;
+const ANCHOR_SKIP_PX = 2;
 
 // Доля отрезка внутри прямоугольника (Лианг — Барски)
 function clipFraction(x1, y1, x2, y2, l, r, t, b) {
@@ -65,7 +69,7 @@ function buildSegmentIndex(curves) {
             const x1 = xs[i], y1 = ys[i], x2 = xs[i + 1], y2 = ys[i + 1];
             if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) continue;
             const id = segs.length;
-            segs.push([x1, y1, x2, y2, Math.hypot(x2 - x1, y2 - y1)]);
+            segs.push([x1, y1, x2, y2, Math.hypot(x2 - x1, y2 - y1), curve.graphIndex ?? -1]);
             const c0 = Math.floor(Math.min(x1, x2) / CELL), c1 = Math.floor(Math.max(x1, x2) / CELL);
             const r0 = Math.floor(Math.min(y1, y2) / CELL), r1 = Math.floor(Math.max(y1, y2) / CELL);
             for (let c = c0; c <= c1; c++) {
@@ -100,12 +104,12 @@ const overlapArea = (a, b) =>
 
 /**
  * @param {Object} p
- * @param {Array<{key:string, x:number, y:number, w:number, h:number, priority:number, prefer:{vx:number,vy:number}|null}>} p.labels
- * @param {Array<{xs:ArrayLike<number>, ys:ArrayLike<number>}>} p.curves  кривые в пикселях
+ * @param {Array<{key:string, x:number, y:number, r:number, w:number, h:number, priority:number, prefer:{vx:number,vy:number}|null}>} p.labels  r — радиус маркера точки, graphIndex — своя кривая
+ * @param {Array<{xs:ArrayLike<number>, ys:ArrayLike<number>, graphIndex:number}>} p.curves  кривые в пикселях
  * @param {Array<{x:number,y:number,r:number}>} p.markers  маркеры точек (не закрывать)
  * @param {{l:number,r:number,t:number,b:number}} p.plot  область графика
  * @param {Array<{l:number,r:number,t:number,b:number}>} [p.obstacles]  неподвижные прямоугольники
- * @returns {Map<string, {cx:number, cy:number, l:number, r:number, t:number, b:number, leader:boolean}>}
+ * @returns {Map<string, {cx:number, cy:number, l:number, r:number, t:number, b:number}>}
  */
 export function placeLabels({ labels, curves, markers, plot, obstacles = [] }) {
     const index = buildSegmentIndex(curves);
@@ -122,11 +126,13 @@ export function placeLabels({ labels, curves, markers, plot, obstacles = [] }) {
         const inside = overlapArea(rect, plot);
         score += (1 - inside / area) * PENALTY.outside;
 
-        let curvePx = 0;
-        index.query(rect.l, rect.r, rect.t, rect.b, (s) => {
-            curvePx += s[4] * clipFraction(s[0], s[1], s[2], s[3], rect.l, rect.r, rect.t, rect.b);
+        let curvePx = 0, nearPx = 0;
+        const m = 2;
+        index.query(rect.l - m, rect.r + m, rect.t - m, rect.b + m, (seg) => {
+            curvePx += seg[4] * clipFraction(seg[0], seg[1], seg[2], seg[3], rect.l, rect.r, rect.t, rect.b);
+            nearPx += seg[4] * clipFraction(seg[0], seg[1], seg[2], seg[3], rect.l - m, rect.r + m, rect.t - m, rect.b + m);
         });
-        score += curvePx * PENALTY.curvePerPx;
+        score += curvePx * PENALTY.curvePerPx + Math.max(0, nearPx - curvePx) * PENALTY.curveNearPx;
 
         for (const m of markers) {
             if (m.x === label.x && m.y === label.y) continue;
@@ -140,35 +146,49 @@ export function placeLabels({ labels, curves, markers, plot, obstacles = [] }) {
             else if (rect.l < other.r + 3 && rect.r > other.l - 3 && rect.t < other.b + 3 && rect.b > other.t - 3) score += PENALTY.nearLabel;
         }
 
-        // Выноска от точки до ближайшего края подписи не должна пересекать кривые
-        if (rect.dist >= LEADER_MIN_DISTANCE) {
-            const ex = Math.max(rect.l, Math.min(rect.r, label.x));
-            const ey = Math.max(rect.t, Math.min(rect.b, label.y));
-            let crosses = 0;
-            index.query(Math.min(label.x, ex), Math.max(label.x, ex), Math.min(label.y, ey), Math.max(label.y, ey), (s) => {
-                if (segmentsIntersect(label.x, label.y, ex, ey, s[0], s[1], s[2], s[3])) crosses++;
+        // Не перепрыгивать через чужую кривую: чужая линия не должна проходить между точкой
+        // и подписью — проверяются отрезки от точки до ближайшего края и до центра подписи
+        const ex = Math.max(rect.l, Math.min(rect.r, label.x));
+        const ey = Math.max(rect.t, Math.min(rect.b, label.y));
+        let crosses = 0;
+        for (const [tx, ty] of [[ex, ey], [rect.cx, rect.cy]]) {
+            const len = Math.hypot(tx - label.x, ty - label.y);
+            if (len < ANCHOR_SKIP_PX + 0.5) continue;
+            // Начало отрезка отступает от точки: кривые, сходящиеся в самой точке, — не перескок
+            const sx = label.x + (tx - label.x) * ANCHOR_SKIP_PX / len;
+            const sy = label.y + (ty - label.y) * ANCHOR_SKIP_PX / len;
+            let n = 0;
+            index.query(Math.min(sx, tx), Math.max(sx, tx), Math.min(sy, ty), Math.max(sy, ty), (seg) => {
+                if (seg[5] === label.graphIndex) return;
+                if (segmentsIntersect(sx, sy, tx, ty, seg[0], seg[1], seg[2], seg[3])) n++;
             });
-            score += Math.min(3, crosses) * PENALTY.leaderCross;
+            crosses = Math.max(crosses, n);
         }
+        score += Math.min(3, crosses) * PENALTY.crossCurve;
         return score;
     };
 
     const bestFor = (label) => {
         let best = null;
         const hw = label.w / 2, hh = label.h / 2;
-        for (let di = 0; di < DISTANCES.length; di++) {
-            for (const dir of DIRECTIONS) {
-                // Центр так, чтобы ближайший край подписи был на расстоянии d от точки
-                const extent = Math.abs(dir.vx) * hw + Math.abs(dir.vy) * hh;
-                const dist = DISTANCES[di] + extent;
-                const cx = label.x + dir.vx * dist;
-                const cy = label.y + dir.vy * dist;
-                const rect = { l: cx - hw, r: cx + hw, t: cy - hh, b: cy + hh, cx, cy, dist: DISTANCES[di] };
-                const score = scoreCandidate(label, rect, di, dir);
-                if (!best || score < best.score) best = { ...rect, score };
+        const markerR = label.r || 0;
+        const tryGaps = (gaps, stepOffset) => {
+            for (let di = 0; di < gaps.length; di++) {
+                for (const dir of DIRECTIONS) {
+                    // Центр так, чтобы ближайший край подписи был на зазоре от края маркера
+                    const extent = Math.abs(dir.vx) * hw + Math.abs(dir.vy) * hh;
+                    const dist = markerR + gaps[di] + extent;
+                    const cx = label.x + dir.vx * dist;
+                    const cy = label.y + dir.vy * dist;
+                    const rect = { l: cx - hw, r: cx + hw, t: cy - hh, b: cy + hh, cx, cy };
+                    const score = scoreCandidate(label, rect, di + stepOffset, dir);
+                    if (!best || score < best.score) best = { ...rect, score };
+                }
+                if (best && best.score < 20) return;
             }
-            if (best && best.score < 20) break;
-        }
+        };
+        tryGaps(GAPS, 0);
+        if (best && best.score >= CROWDED_SCORE) tryGaps(FAR_GAPS, GAPS.length);
         return best;
     };
 
@@ -189,11 +209,7 @@ export function placeLabels({ labels, curves, markers, plot, obstacles = [] }) {
     for (const label of order) {
         const p = placed.get(label.key);
         if (!p) continue;
-        if (p.score >= DROP_SCORE) {
-            placed.delete(label.key);
-            continue;
-        }
-        result.set(label.key, { cx: p.cx, cy: p.cy, l: p.l, r: p.r, t: p.t, b: p.b, leader: p.dist >= LEADER_MIN_DISTANCE });
+        result.set(label.key, { cx: p.cx, cy: p.cy, l: p.l, r: p.r, t: p.t, b: p.b });
     }
     return result;
 }

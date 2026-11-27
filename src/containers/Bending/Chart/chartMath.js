@@ -146,9 +146,8 @@ export function polylinePath(px, py) {
 
 // Монотонный кубический сплайн (Фритч — Карлсон): гладкий и без ложных выбросов
 // между узлами — экстремумы кривой совпадают с экстремумами данных
-export function monotonePath(px, py) {
+function monotoneTangents(px, py) {
     const n = px.length;
-    if (n < 3) return polylinePath(px, py);
     const h = new Float64Array(n - 1);
     const m = new Float64Array(n - 1);
     for (let i = 0; i < n - 1; i++) {
@@ -166,12 +165,39 @@ export function monotonePath(px, py) {
             t[i] = (3 * (h0 + h1)) / ((2 * h1 + h0) / m[i - 1] + (h1 + 2 * h0) / m[i]);
         }
     }
+    return { h, t };
+}
+
+export function monotonePath(px, py) {
+    const n = px.length;
+    if (n < 3) return polylinePath(px, py);
+    const { h, t } = monotoneTangents(px, py);
     let d = `M${f2(px[0])} ${f2(py[0])}`;
     for (let i = 0; i < n - 1; i++) {
         const dx = h[i] / 3;
         d += `C${f2(px[i] + dx)} ${f2(py[i] + t[i] * dx)} ${f2(px[i + 1] - dx)} ${f2(py[i + 1] - t[i + 1] * dx)} ${f2(px[i + 1])} ${f2(py[i + 1])}`;
     }
     return d;
+}
+
+// Та же сглаженная кривая, что рисует monotonePath, в виде частой ломаной
+// (для проверки наложений подписей на то, что реально нарисовано)
+export function sampleMonotone(px, py, perSegment = 6) {
+    const n = px.length;
+    if (n < 3) return { px: Array.from(px), py: Array.from(py) };
+    const { h, t } = monotoneTangents(px, py);
+    const outX = [px[0]], outY = [py[0]];
+    for (let i = 0; i < n - 1; i++) {
+        const x0 = px[i], y0 = py[i], x1 = px[i + 1], y1 = py[i + 1];
+        const c1x = x0 + h[i] / 3, c1y = y0 + t[i] * h[i] / 3;
+        const c2x = x1 - h[i] / 3, c2y = y1 - t[i + 1] * h[i] / 3;
+        for (let k = 1; k <= perSegment; k++) {
+            const u = k / perSegment, v = 1 - u;
+            outX.push(v * v * v * x0 + 3 * v * v * u * c1x + 3 * v * u * u * c2x + u * u * u * x1);
+            outY.push(v * v * v * y0 + 3 * v * v * u * c1y + 3 * v * u * u * c2y + u * u * u * y1);
+        }
+    }
+    return { px: outX, py: outY };
 }
 
 // Значение ряда в точке x (линейная интерполяция, ряд монотонен по x); null — вне ряда
